@@ -2,23 +2,23 @@
 # in its turn, never on its own - see the list there.
 
 #region phone setup: the dialog -----------------------------------------------
-# chatqnotify -Setup opens this: the Join key, the device, replies from the
+# chatnotify -Setup opens this: the Join key, the device, replies from the
 # phone and which events reach it, in one window rather than a handful of
 # switches to remember. It runs in a process of its own - Windows PowerShell
 # with -STA, as the overlay does - so the shell that asked is free at once and
 # a pwsh 7 shell can open it too. It saves through Set-ChatqNotifyConfig, the
-# same path chatqnotify takes, so the two never disagree about the file.
+# same path chatnotify takes, so the two never disagree about the file.
 # Self-contained on purpose: nothing here borrows the overlay's or the
 # console's WPF helpers.
 
 $script:ChatqPhoneSetupLockPath = Join-Path $script:ChatqData 'phone-setup.lock'
 # tests only: a scriptblock that stands in for launching the dialog's process
 $script:ChatqPhoneSetupSpawn = $null
-# how long chatqnotify -Setup waits to see the dialog take its lock before it
+# how long chatnotify -Setup waits to see the dialog take its lock before it
 # says what went wrong instead
 $script:ChatqPhoneSetupWaitSec = 6
 # how long the dialog keeps trying for its lock before it says another one is
-# open: chatqnotify -Setup looks at the same file ten times a second while it
+# open: chatnotify -Setup looks at the same file ten times a second while it
 # waits, and one of those looks can hold it for the instant the dialog asks
 $script:ChatqPhoneSetupLockRetryMs = 1000
 # how long a closed window's process stays to let a pairing alert or a
@@ -451,7 +451,7 @@ function Start-ChatqPhoneSetup {
     Set-StrictMode -Off
     if (-not $script:ChatqIsWindows) {
         if ($NoWait) { return $false }
-        Write-Host '  the setup dialog is Windows-only - chatqnotify -? lists the same settings as switches' -ForegroundColor Yellow
+        Write-Host '  the setup dialog is Windows-only - chatnotify -? lists the same settings as switches' -ForegroundColor Yellow
         return
     }
     if (-not $NoWait -and (Test-ChatqLockHeld $script:ChatqPhoneSetupLockPath)) {
@@ -591,7 +591,7 @@ function Open-ChatqPhoneSetupLock {
     data/phone-setup.lock, held with no sharing for the dialog's life: the OS
     lets go of it even when the process dies hard, so a crash never leaves it
     "open". $null when another dialog holds it. Tried for a second before
-    that is believed: chatqnotify -Setup opens the same file ten times a
+    that is believed: chatnotify -Setup opens the same file ten times a
     second to see whether the dialog is up yet, and a look that lands on the
     very instant this one asks is not another dialog. The verdict goes to
     data/logs/phone-setup.log, the one place the shell can read it from.
@@ -906,7 +906,7 @@ function Get-ChatqPhoneSetupPicked {
 }
 
 function Test-ChatqPhoneSetupSameDevice {
-    # Is this pick the saved device? By id, or by name: chatqnotify -Device
+    # Is this pick the saved device? By id, or by name: chatnotify -Device
     # takes a name, and once a lookup lists that device the list holds it
     # under its id - the same device, so neither unsaved nor a change.
     param($U, $Device)
@@ -977,7 +977,7 @@ function Set-ChatqPhoneSetupDevices {
 }
 
 function Select-ChatqPhoneSetupDevice {
-    # by id, or by name - chatqnotify -Device takes a name as well
+    # by id, or by name - chatnotify -Device takes a name as well
     param($U, [string]$Id)
     if (-not $Id) { return }
     foreach ($it in $U.DeviceBox.Items) {
@@ -1084,7 +1084,7 @@ function Update-ChatqPhoneSetupTick {
     if ($U.WaitPair -and (Get-Date) -ge $U.NextLook) {
         # The files, not the form: the watcher puts each answer to the
         # pairing alert into replies.json as it comes in, and a confirm
-        # from a shell (chatqnotify -Confirm) pairs through config.json.
+        # from a shell (chatnotify -Confirm) pairs through config.json.
         # Two small reads every second and a half, and only while a
         # pairing waits.
         $U.NextLook = (Get-Date).AddMilliseconds(1500)
@@ -1161,7 +1161,7 @@ function Test-ChatqPhoneSetupPaired {
 function Get-ChatqPhoneSetupChanges {
     <#
     What Save hands Set-ChatqNotifyConfig: only what differs from the file,
-    keyed like chatqnotify's own switches. @{ Changes; Error; Pair } - an
+    keyed like chatnotify's own switches. @{ Changes; Error; Pair } - an
     Error (quiet minutes that are not a number) saves nothing. Pair: replies
     switched on with no phone paired, which is a pairing as well as a
     setting - Save writes replies on, then starts the pairing in the
@@ -1549,7 +1549,7 @@ function Stop-ChatqPhoneSetupWork {
 
 function Get-ChatqPhoneSetupReplyText {
     # What Save will do while the box and the file disagree, else the
-    # backend's own line (Get-ChatqPhoneStatusText), as chatqnotify prints
+    # backend's own line (Get-ChatqPhoneStatusText), as chatnotify prints
     # it: "paired - ... - listening until 02:10", "waiting for the phone",
     # "not paired", or off
     param($Cfg, [bool]$Saved, [bool]$Ticked, [bool]$Paired)

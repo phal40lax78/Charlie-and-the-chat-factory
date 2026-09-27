@@ -1,0 +1,8 @@
+{
+  "master": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+  "cid": "klmnopqrst",
+  "iv": "EBESExQVFhcYGRobHB0eHw",
+  "payload": "{\"v\":3,\"act\":\"send\",\"h\":\"k3m2qa\",\"id\":\"1a2b3c4d\",\"text\":\"yes, commit it \ud55c\uae00\",\"nonce\":\"AAAAAAAAAAAAAAAAAAAAAA\",\"ts\":1790000000000}",
+  "k": "8Vq7vYyKmUGgQhYzYpFH9Zo3ebvgd76aYARB-b72ges",
+  "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+}

@@ -1,0 +1,10 @@
+{
+  "master": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+  "did": "abcdefghij",
+  "iv": "EBESExQVFhcYGRobHB0eHw",
+  "payload": "{\"v\":3,\"kind\":\"reply\",\"ref\":\"abcdefghij\",\"ts\":1790000000000,\"event\":\"done\",\"title\":\"Parser rewrite\",\"at\":\"2026-09-26T10:00:00.000Z\",\"cut\":0,\"parts\":[{\"t\":\"text\",\"s\":\"yes, commit it \ud55c\uae00\"},{\"t\":\"tool\",\"s\":\"Bash git status\"}]}",
+  "deflated": "Pc1NagJBEAXgqzRvXUo5gmItc4IsXBmy6MyUM53MH92lRmQgl8jOg3imQO4gDWLxdu971AVHyJLwFfoKgqhjewYh6h4C_1FWuq-b8AmCJchiveHnEfSovUFQDb1mEaxVCF59TBpd1FMMlgufUcHFasabWbHaLlg4Z87MOxDKg0GYMPqYv7xdkAem3wZCguCsiVw5dF0wF8z9_17_bj-Y6AGHoX3AF58aVwdzybwdEqb36Q4",
+  "k": "xVyGHgj8jqSLuKi1-RJxJ5ofelUI_O4YWymk2mths0g",
+  "message": "chatq3d.abcdefghij.EBESExQVFhcYGRobHB0eHw.mA_-NmiQZWAwx9gy9gbKkXP9lqueAeMWck6BWwLl4_c3coMi2G-RrCYM6JDzq2sK7ra6GwMcDOZQXNMhXcI0Ek_7yCyHN4gmTOJ4XyhXKxQm1w6hIQPKSHFQTdVLykdr6JtbtYR1AMBo6rpDkX8iYTzwBJ_XIYh_5vuk-AWEir6i11hXcBayTac_QCrvSukMfuaKMwh112Gr5EzGjzt8iKivaGKgpErU5Dz_1I4IGIpkjBddNjeDLh-vBSSIAN0B.7-Y3pUNE6qHlmVVkxdvb2VGu_LHdZE3WWvNNHqYz5Jg",
+  "downTopic": "chatq-qjrnxowjr2b54tknenolq3tt"
+}

@@ -12,7 +12,7 @@ Section 'phone replies'
 $phCfgWas = if (Test-Path -LiteralPath $script:ChatqConfigPath) { [System.IO.File]::ReadAllText($script:ChatqConfigPath, $utf8) } else { $null }
 $phWas = @{ Spawn = $script:ChatqSpawn; Join = $script:ChatqJoinSeam; Poll = $script:ChatqReplyPollSeam; Devices = $script:ChatqJoinDevicesSeam; Idle = $script:ChatqIdleSeam
     Foreground = $script:ChatqForeground; Ask = $script:ChatqAskSeam; PairWait = $script:ChatqPairWaitSeam }
-# chatqnotify -Pair waits for the phone and asks only where it can ask: here
+# chatnotify -Pair waits for the phone and asks only where it can ask: here
 # never, unless a check says so and answers through the seam itself
 $script:ChatqAskSeam = $false
 $script:ChatqPairWaitSeam = $null
@@ -126,11 +126,11 @@ Check 'Set-ChatqNotifyConfig takes a pasted Join URL apart' ((Unprotect-ChatqSec
     (Get-ChatqConfig).join.device -eq 'group.phone' -and -not $r.Error) (($r.Messages | ForEach-Object Text) -join ' | ')
 $sp0 = $script:PhSpawns
 $env:CHATQ_WATCHER = $null
-$said = (chatqnotify -Reply on 6>&1 | Out-String)
+$said = (chatnotify -Reply on 6>&1 | Out-String)
 $env:CHATQ_WATCHER = '1'
 $rc0 = Get-ChatqReplyConfig
 $pj = & $phLastJoin
-Check 'chatqnotify -Reply on, no phone paired: the pairing push goes out, a topic and no key, neither printed' ($rc0.Wanted -and -not $rc0.Paired -and $rc0.PairUntil -and
+Check 'chatnotify -Reply on, no phone paired: the pairing push goes out, a topic and no key, neither printed' ($rc0.Wanted -and -not $rc0.Paired -and $rc0.PairUntil -and
     $rc0.Topic -cmatch '^chatq-[a-z2-7]{24}$' -and $said -notlike "*$($rc0.Topic)*" -and $said -like '*pairing alert sent*' -and $pj.Q['title'] -eq "chatq $([char]0xB7) pair" -and
     $pj.Q['dismissOnTouch'] -eq 'true' -and -not $pj.Q['notificationId']) $said
 Check 'the pairing link: where to post, the pairing id and a 2048-bit public key - nothing that answers an alert' ($pj.F['v'] -eq '2' -and $pj.F['m'] -eq 'pair' -and
@@ -167,9 +167,9 @@ $phDx = New-ChatqRandomBytes 32
 $null = & $phSay 'phpair2' $pmsg
 $null = & $phSay 'phpairx' (New-PhPairMessage $pj.F $phDx 'Android - Chrome 128')
 $pc2 = @(Get-ChatqPairCandidates)
-$status = (chatqnotify 6>&1 | Out-String)
-Check 'the same answer posted again is still one candidate; another phone''s is a second; chatqnotify lists both with their codes' ($pc2.Count -eq 2 -and
-    $pc2[1].Label -eq 'Android - Chrome 128' -and $status -like "*Pixel 8 - Chrome answered at * - code $code1*chatqnotify -Confirm $($code1 -replace ' ', '')*" -and
+$status = (chatnotify 6>&1 | Out-String)
+Check 'the same answer posted again is still one candidate; another phone''s is a second; chatnotify lists both with their codes' ($pc2.Count -eq 2 -and
+    $pc2[1].Label -eq 'Android - Chrome 128' -and $status -like "*Pixel 8 - Chrome answered at * - code $code1*chatnotify -Confirm $($code1 -replace ' ', '')*" -and
     $status -like '*Android - Chrome 128 answered*' -and $status -like '*2 answers to confirm by code*') $status
 # confirming: a code nobody sent, a code that is no code, then the right one
 $other = if (($code1 -replace ' ', '') -eq '000000') { '111111' } else { '000000' }
@@ -178,11 +178,11 @@ $cJunk = Confirm-ChatqPairCandidate -Code '12'
 Check 'a code no answer has, or one that is not six digits, pairs nothing' ($cNone.Error -like '*no answer with the code*2 waiting*' -and $cJunk.Error -like '*six digits*' -and
     -not (Get-ChatqReplyConfig).Paired) "$($cNone.Error) | $($cJunk.Error)"
 $n0 = $script:PhJoins.Count
-$said = (chatqnotify -Confirm $code1 6>&1 | Out-String)
+$said = (chatnotify -Confirm $code1 6>&1 | Out-String)
 $rc = Get-ChatqReplyConfig
 $st = Get-ChatqReplyState
 $pdone = & $phLastJoin
-Check 'chatqnotify -Confirm with the phone''s code pairs that phone: its key, its label, the pairing gone' ($rc.Paired -and $rc.Key -ceq (ConvertTo-ChatqB64Url $phD1) -and
+Check 'chatnotify -Confirm with the phone''s code pairs that phone: its key, its label, the pairing gone' ($rc.Paired -and $rc.Key -ceq (ConvertTo-ChatqB64Url $phD1) -and
     $rc.Phone -eq 'Pixel 8 - Chrome' -and -not $rc.PairId -and -not (Get-ChatqConfig).reply.PSObject.Properties['pairing'] -and $rc.PairedAt -and
     $said -like '*paired - Pixel 8 - Chrome*') "$($rc.Phone) / $($rc.PairId) / $said"
 Check 'confirming kills every alert and candidate from before, and says so with a push that can be answered (about no chat)' (-not $st.alerts.ContainsKey('oldalertxx') -and
@@ -193,17 +193,17 @@ $null = & $phSay 'phpairlate' (New-PhPairMessage $pj.F $phDx 'Android - Chrome 1
 Check 'an answer after the pairing ended: no candidate, nothing said, the phone paired stays' ($script:PhJoins.Count -eq $n0 -and (Get-ChatqReplyConfig).Key -ceq $rc.Key -and
     -not @((Get-ChatqReplyState).pairCandidates).Count -and (Confirm-ChatqPairCandidate -Code $code1).Error -like '*no pairing is waiting*')
 Check 'the status line names the phone' ((Get-ChatqPhoneStatusText) -like 'paired - Pixel 8 - Chrome - since *listening until *') (Get-ChatqPhoneStatusText)
-$bad = (chatqnotify -Events done, bogus 6>&1 | Out-String)
+$bad = (chatnotify -Events done, bogus 6>&1 | Out-String)
 Check 'an unknown event name saves nothing' (-not (Get-ChatqConfig).PSObject.Properties['phoneEvents'] -and $bad -like '*bogus*') $bad
-$status = (chatqnotify 6>&1 | Out-String)
-Check 'chatqnotify alone shows the replies line' ($status -like '*replies from the phone: paired - Pixel 8*') $status
+$status = (chatnotify 6>&1 | Out-String)
+Check 'chatnotify alone shows the replies line' ($status -like '*replies from the phone: paired - Pixel 8*') $status
 
 # replies off: the key stays, the window shuts, every alert out there is
 # forgotten, and a push goes out as it did before replies; on again, polling
 # starts over - nothing sent while off runs
 $null = Use-ChatqReplyState { param($st) $st.lastId = 'oldcursor' }
 $offAlerts = @((Get-ChatqReplyState).alerts.Keys).Count
-chatqnotify -Reply off *> $null
+chatnotify -Reply off *> $null
 $rcOff = Get-ChatqReplyConfig
 $stOff = Get-ChatqReplyState
 $n0 = $script:PhJoins.Count
@@ -215,7 +215,7 @@ Check '-Reply off: the phone stays paired, the window shuts, the alerts out ther
     @((Get-ChatqReplyState).alerts.Keys).Count -eq 0 -and -not (Test-ChatqReplyOpen)) "$offAlerts alerts before / $($jOff.Url)"
 $null = Use-ChatqReplyState { param($st) $st.lastId = 'offcursor' }
 $n0 = $script:PhJoins.Count
-chatqnotify -Reply on *> $null
+chatnotify -Reply on *> $null
 $rcOn = Get-ChatqReplyConfig
 $stOn = Get-ChatqReplyState
 Check '-Reply on again: the same phone, no new pairing, and polling from a minute back, not the old cursor' ($rcOn.On -and $rcOn.Key -eq $rc.Key -and
@@ -410,9 +410,9 @@ $script:PhFeed = & $phFeedOf @(, @('phunknown', (Protect-ChatqReplyMessage -Key 
 $null = Invoke-ChatqReplyPoll -Force
 Check 'an unknown act is ignored, not answered' ($script:PhJoins.Count -eq $n0)
 # the test alert, its ping, and a prompt it cannot take
-chatqnotify -Test *> $null
+chatnotify -Test *> $null
 $jt = & $phLastJoin
-Check 'chatqnotify -Test carries a link (e=test) about no job, and replaces no notification' ($jt.F['e'] -eq 'test' -and $jt.F['n'] -eq '' -and $jt.F['x'] -eq '1' -and
+Check 'chatnotify -Test carries a link (e=test) about no job, and replaces no notification' ($jt.F['e'] -eq 'test' -and $jt.F['n'] -eq '' -and $jt.F['x'] -eq '1' -and
     -not $jt.Q['notificationId']) $jt.Url
 $txt = & $phSay 'phping' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $jt.F['a'] -Act ping)
 Check 'ping comes back with the machine''s name' ($txt -like "reply reached $([Environment]::MachineName) after * s") $txt
@@ -524,10 +524,10 @@ Check 'replies.json unreadable: no link is made, no reply is acted on, and the f
 
 # --- sending: -Quick, -NoReply, http, a window that only grows ------------------------
 $phHook = Join-Path $sb 'phone-hook.txt'
-chatqnotify -Command ("Set-Content -LiteralPath '$phHook' -Value x") *> $null
+chatnotify -Command ("Set-Content -LiteralPath '$phHook' -Value x") *> $null
 $null = Send-ChatqAlert 'done' 'quick one' 1 -Quick
 $quickReport = @($script:ChatqAlertReport) -join ' | '
-chatqnotify -Command '' *> $null
+chatnotify -Command '' *> $null
 Check '-Quick skips the command and still sends' (-not (Test-Path -LiteralPath $phHook) -and $quickReport -like '*join: sent*' -and $quickReport -notlike '*command*') $quickReport
 $nA = @((Get-ChatqReplyState).alerts.Keys).Count
 $null = Send-ChatqAlert 'reply' 'no link here' 1 -Loud -NoReply
@@ -547,7 +547,7 @@ Check 'a smaller reply.hours never cuts the window short of an older link' ($u1 
 # --- spent nonces are kept as long as their message could be taken ------------------
 # reply.hours 24: a nonce 30 h old could still pass the timestamp check (a
 # phone clock ahead stretches that window to twice its length), one 50 h
-# old could not. A save that names no hours - chatqnotify -Reply off and
+# old could not. A save that names no hours - chatnotify -Reply off and
 # on - uses the configured ones.
 $null = Set-ChatqNotifyConfig @{ ReplyHours = 24 }
 $null = Use-ChatqReplyState { param($s) $s.seen['ph-n30'] = (Get-Date).AddHours(-30).ToUniversalTime().ToString('o'); $s.seen['ph-n50'] = (Get-Date).AddHours(-50).ToUniversalTime().ToString('o') }
@@ -571,7 +571,7 @@ Check 'spent nonces: kept for twice the timestamp window of the configured hours
 # --- the reply page's address -------------------------------------------------------
 $rpBad = Set-ChatqNotifyConfig @{ ReplyPage = 'http://me.example/reply.html' }
 $rpBad2 = Set-ChatqNotifyConfig @{ ReplyPage = 'https://me.example/reply.html#x' }
-$said = (chatqnotify -ReplyPage 'https://replies.example.org/reply.html' 6>&1 | Out-String)
+$said = (chatnotify -ReplyPage 'https://replies.example.org/reply.html' 6>&1 | Out-String)
 $null = Send-ChatqAlert 'done' 'own page' 1 -Job $new
 $jp = & $phLastJoin
 Check '-ReplyPage: https only; the links point there, and a paired phone is told to pair again on the new site' ($rpBad.Error -and $rpBad2.Error -and
@@ -617,12 +617,12 @@ Check 'pairing with only ntfy over http: refused before anything changes - no pu
 $phBad = "$($script:ChatqReplyPath).bad"
 Remove-Item -LiteralPath $phBad -Force -EA SilentlyContinue
 [System.IO.File]::WriteAllBytes($script:ChatqReplyPath, (New-Object byte[] 64))
-$said = (chatqnotify -Pair 6>&1 | Out-String)
+$said = (chatnotify -Pair 6>&1 | Out-String)
 $rc2 = Get-ChatqReplyConfig
 $pj2 = & $phLastJoin
 $st2 = Get-ChatqReplyState
 Check '-Pair over an unreadable replies.json: that one put aside as replies.json.bad, a fresh one written, the pairing push out' ((Test-Path -LiteralPath $phBad) -and
-    $st2.openUntil -and -not $st2.lastId -and $rc2.PairUntil -and $pj2.F['m'] -eq 'pair' -and $said -like '*pairing alert sent*' -and $said -like '*chatqnotify -Confirm*' -and
+    $st2.openUntil -and -not $st2.lastId -and $rc2.PairUntil -and $pj2.F['m'] -eq 'pair' -and $said -like '*pairing alert sent*' -and $said -like '*chatnotify -Confirm*' -and
     (Test-ChatqReplyOpen)) $said
 Remove-Item -LiteralPath $phBad -Force -EA SilentlyContinue
 $n0 = $script:PhJoins.Count
@@ -674,7 +674,7 @@ $script:ChatqPairWaitSeam = {
     # a wait that goes on: the pairing is ended so the loop does too
     if ($script:PhTicks -gt 5) { $cc = Get-ChatqConfig; $cc.reply.PSObject.Properties.Remove('pairing'); Save-ChatqJson $script:ChatqConfigPath $cc }
 }
-try { $said = (chatqnotify -Reply renew 6>&1 | Out-String) }
+try { $said = (chatnotify -Reply renew 6>&1 | Out-String) }
 finally { $script:ChatqAskSeam = $false; $script:ChatqPairWaitSeam = $null }
 $rc3 = Get-ChatqReplyConfig
 $n0 = $script:PhJoins.Count
@@ -686,7 +686,7 @@ Check '-Reply renew waits and asks: the stranger''s code turned down, the phone'
 $rc = $rc3
 
 # --- which events reach the phone, and the Join URL's length ---------------------
-chatqnotify -Events done, 'needs-input' *> $null
+chatnotify -Events done, 'needs-input' *> $null
 Check '-Events saves the names, needs-input as needs input' ((@((Get-ChatqConfig).phoneEvents) -join ',') -eq 'done,needs input') (@((Get-ChatqConfig).phoneEvents) -join ',')
 $n0 = $script:PhJoins.Count; $t0 = $script:Toasts.Count
 $s1 = Send-ChatqAlert 'started' 'x' 0 -Job $new
@@ -694,7 +694,7 @@ $s2 = Send-ChatqAlert 'reply' 'y' 1 -Job $new
 $s3 = Send-ChatqAlert 'done' 'z' 1 -Job $new
 Check 'an event held back skips the phone but not the toast; reply and the named ones go' (-not $s1 -and $s2 -and $s3 -and $script:PhJoins.Count -eq $n0 + 2 -and
     $script:Toasts.Count -ge $t0 + 3) "$s1 $s2 $s3 joins $($script:PhJoins.Count - $n0) toasts $($script:Toasts.Count - $t0)"
-chatqnotify -Events all *> $null
+chatnotify -Events all *> $null
 Check '-Events all clears the filter' (-not (Get-ChatqConfig).PSObject.Properties['phoneEvents'])
 $long = [pscustomobject]@{ id = 'x'; seq = 999; sessionId = $idCard; provider = 'claude'; state = 'done'; title = (U '\uD55C\uAE00') * 40 }
 $ru = New-ChatqReplyAlert -Event 'done' -Job $long -Rc $rc
@@ -750,11 +750,15 @@ $script:PhWaits = 0; $script:PhAwakeOn = 0; $script:PhBoards = 0; $script:PhList
 ${function:Wait-ChatqUntil} = { param([datetime]$When) $script:PhWaits++; Start-Sleep -Milliseconds 1000 }
 ${function:Set-ChatqKeepAwake} = { param([bool]$On) if ($On) { $script:PhAwakeOn++ } }
 ${function:Write-ChatqBoard} = { $script:PhBoards++; if ((Get-ChatqState).listening) { $script:PhListenSeen = $true } }
+# what the log gained since a length Get-Item took: that is bytes, so the
+# text is cut as bytes - chatq's middle dot is two of them, and a cut by
+# characters lands past the start of what is new
+$logSince = { param($p, $from) $b = [System.IO.File]::ReadAllBytes($p); $utf8.GetString($b, $from, $b.Length - $from) }
 try {
     # a window 7 s long: the old one shut (replies off and on), reply.hours
     # at 0.002 and one alert sent
-    chatqnotify -Reply off *> $null
-    chatqnotify -Reply on *> $null
+    chatnotify -Reply off *> $null
+    chatnotify -Reply on *> $null
     $null = Set-ChatqNotifyConfig @{ ReplyHours = 0.002 }
     $null = Send-ChatqAlert 'done' 'short window' 1
     $script:PhFeed = ''
@@ -767,7 +771,7 @@ try {
     $t0 = Get-Date
     Invoke-ChatqWatchLoop -Foreground *> $null
     $took = ((Get-Date) - $t0).TotalSeconds
-    $wtext = ([System.IO.File]::ReadAllText($wl, $utf8)).Substring($wl0)
+    $wtext = & $logSince $wl $wl0
     Check 'the watcher listens while a window is open, polls, then leaves when it shuts' ($open0 -and $took -ge 3 -and $took -lt 30 -and $wtext -like '*listening for phone replies until*' -and
         $wtext -like '*replies closed*' -and $wtext -like '*queue empty*' -and ($script:PhPolls.Count - $p0) -ge 1 -and $script:PhWaits -ge 3) "open $open0, took $took s, polls $($script:PhPolls.Count - $p0), waits $($script:PhWaits): $wtext"
     Check 'listening holds nothing awake, marks the state as listening, and writes the board only coming in and going out' ($script:PhAwakeOn -eq 0 -and $script:PhBoards -le 2 -and
@@ -778,7 +782,7 @@ try {
     $t0 = Get-Date
     Invoke-ChatqWatchLoop -Foreground *> $null
     $took = ((Get-Date) - $t0).TotalSeconds
-    $wtext = ([System.IO.File]::ReadAllText($wl, $utf8)).Substring($wl1)
+    $wtext = & $logSince $wl $wl1
     Check 'openUntil in the past: the watcher leaves at once, without listening' (-not (Test-ChatqReplyOpen) -and $took -lt 10 -and $script:PhWaits -eq $w1 -and
         $wtext -notlike '*listening*' -and $wtext -like '*queue empty*') "took $took s: $wtext"
     # an alert sent just as the watcher left - after its last look at the
@@ -789,7 +793,7 @@ try {
     $sp0 = $script:PhSpawns
     Invoke-ChatqWatchLoop -Foreground *> $null
     ${function:Test-ChatqReplyOpen} = $phFn.Open
-    $wtext = ([System.IO.File]::ReadAllText($wl, $utf8)).Substring($wl2)
+    $wtext = & $logSince $wl $wl2
     Check 'a window opened as the watcher left: another watcher is started once the lock is let go' ($script:PhSpawns -eq $sp0 + 1 -and
         $wtext -like '*queue empty*watcher * stopped*starting another to listen*') "spawns $($script:PhSpawns - $sp0): $wtext"
     # the same, with chatqrun -Stop's file written as it left: no watcher is
@@ -923,12 +927,12 @@ $rw = & $lvRun $cw $lvBusyIdle
 $rk = & $lvRun (& $lvCtx) $lvBusyIdle 'print'
 Check 'a chat the watcher is running a job in, or an entry that is not interactive: no alert' ($rw.Count -eq 0 -and $rk.Count -eq 0) "$($rw.Count) $($rk.Count)"
 $lvBad = Set-ChatqNotifyConfig @{ LiveAlerts = 'maybe' }
-$said = (chatqnotify -LiveAlerts off 6>&1 | Out-String)
+$said = (chatnotify -LiveAlerts off 6>&1 | Out-String)
 $ro = & $lvRun (& $lvCtx) ($lvBusyIdle + @(@(14, 'waiting'), @(40, 'waiting')))
-$status = (chatqnotify 6>&1 | Out-String)
+$status = (chatnotify 6>&1 | Out-String)
 $null = Set-ChatqNotifyConfig @{ LiveAlerts = $true }
-$statusOn = (chatqnotify 6>&1 | Out-String)
-Check 'liveAlerts off (chatqnotify -LiveAlerts off): no alert, and the status says so; on again; a value that is not on or off saves nothing' ($lvBad.Error -and
+$statusOn = (chatnotify 6>&1 | Out-String)
+Check 'liveAlerts off (chatnotify -LiveAlerts off): no alert, and the status says so; on again; a value that is not on or off saves nothing' ($lvBad.Error -and
     $ro.Count -eq 0 -and (Get-ChatqConfig).liveAlerts -eq $true -and $said -like '*chats you run yourself: no phone alerts*' -and
     $status -like '*chats you run yourself: off*' -and $statusOn -like '*chats you run yourself: on - waiting on you or finished, while you are away 5 min*') "$said / $status / $statusOn"
 # an overlay that started before src/phone.ps1 was last written runs the old
@@ -969,10 +973,10 @@ $lvCfgMid = [System.IO.File]::ReadAllText($script:ChatqConfigPath, $utf8)
 $null = Set-ChatqNotifyConfig @{ RemoveJoin = $true; Ntfy = '' }
 $rn = & $lvRun (& $lvCtx) $lvBusyIdle
 [System.IO.File]::WriteAllText($script:ChatqConfigPath, $lvCfgMid, $utf8)
-chatqnotify -Events done *> $null
+chatnotify -Events done *> $null
 $re1 = & $lvRun (& $lvCtx) $lvWait
 $re2 = & $lvRun (& $lvCtx) $lvBusyIdle
-chatqnotify -Events all *> $null
+chatnotify -Events all *> $null
 Check 'no phone channel: no alert; phoneEvents holds needs input back from live alerts too, done still goes' ($rn.Count -eq 0 -and $re1.Count -eq 0 -and $re2.Count -eq 1) "$($rn.Count) $($re1.Count) $($re2.Count)"
 Check 'the overlay''s own context never sends by itself: only the Windows host sets WantPhone (chatoverlay -Print and the macOS collector do not)' (-not (New-ChatOverlayContext).WantPhone)
 

@@ -506,6 +506,13 @@ function Invoke-ChatqJob {
     if ($stale) { Set-ChatqProp $out 'stale' $true }
     # the new chat's transcript, if this run made it where the slug did not say
     Update-ChatqNewChatPath $Job
+    # The run stamped its records sdk-cli, which leaves a chat whose head
+    # names no entrypoint out of Claude Code's lists - and out of every tab.
+    # Listed again now, however the run ended (Repair-ChatListed).
+    if ($Job.provider -eq 'claude' -and $Job.path -and $Job.sessionId) {
+        $listed = Repair-ChatListed -Path $Job.path -SessionId $Job.sessionId -Live @(Get-ChatqLiveSessions $Job.home -RegistryOnly)
+        if ($listed -eq 'relisted') { Write-ChatqWatchLog "#$($Job.seq) listed again: Claude Code had left the chat out of its lists" }
+    }
     # The window still holding this chat shows none of the run until it
     # redraws. The extension in extension/ shows it fresh - Reload Webviews,
     # or a tab of its own - in that window only: the windows that held the

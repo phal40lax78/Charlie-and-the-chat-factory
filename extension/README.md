@@ -13,7 +13,7 @@ queued prompt ran into it.
 - **Queue prompts while the usage limit is hit.** At the reset each chat is resumed in turn, sent its prompt, and run to the end - with VS Code closed, too.
 - **Tells you how it went:** a desktop toast, your phone through Join or ntfy, or a command of your own.
 - **Shows every running chat at a glance:** `chatoverlay` keeps a small panel above every app, started with VS Code on Windows. Click a chat there to open it as a tab.
-- **Open chat...** in the command palette lists this window's Claude chats, newest first, with what runs each - open, working, a terminal, or a queued prompt - and opens the one you pick in a tab. A chat working elsewhere, in a terminal, or taking a queued prompt is never opened a second time.
+- **Open chat...** in the command palette lists this window's Claude chats, newest first, with what runs each - open, working, a terminal, or a queued prompt - and opens the one you pick in a tab. A chat working elsewhere, in a terminal, or taking a queued prompt is never opened a second time. A chat Claude Code's own list hides after a `claude -p` run is listed again first, or offered in a terminal where it cannot be - never opened as a blank chat.
 - **After a queued run**, once the chat's old idle process is ended, the window shows it up to date in a tab of its own, with no window reload. Where that process is still running, it offers a reload instead.
 - **Phone alerts...** in the command palette opens the window that sets up alerts on your phone through Join - and answering them from the phone, with the phone paired once - with no terminal needed (Windows).
 

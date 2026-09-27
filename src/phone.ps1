@@ -7,14 +7,14 @@
 # to an ntfy.sh topic, which the watcher polls outbound. Nothing listens on
 # this PC.
 #
-# The key is the phone's own. Pairing (chatqnotify -Pair) sends one push whose
+# The key is the phone's own. Pairing (chatnotify -Pair) sends one push whose
 # link holds an RSA public key made for the occasion; the page makes 32 random
 # bytes D, keeps them, and sends them back encrypted to that public key. That
 # answer pairs nothing by itself: the public key is in a push that others may
 # read too (an ntfy alert topic is often public), so anyone could answer. It
 # becomes a candidate with a six-digit code worked out from D, which the
 # phone shows as well, and the phone is paired only when you confirm at the
-# PC the candidate whose code matches (chatqnotify -Confirm, or the setup
+# PC the candidate whose code matches (chatnotify -Confirm, or the setup
 # dialog). After that no push carries a secret: an alert's link names the
 # alert and nothing else, so neither Join (whose push is a GET, logged in
 # full) nor whoever reads an ntfy alert topic can answer one. Only a message
@@ -39,7 +39,7 @@ $script:ChatqOutboxLockPath = Join-Path $script:ChatqData 'outbox.lock'
 $script:ChatqReplyPage ='https://phal40lax78.github.io/VS-code-chat-manager/reply.html'
 $script:ChatqReplyServer = 'https://ntfy.sh'
 $script:ChatqJoinIcon = 'https://raw.githubusercontent.com/phal40lax78/VS-code-chat-manager/main/extension/icon.png'
-# the events chatqnotify -Events and the setup dialog can hold back from the
+# the events chatnotify -Events and the setup dialog can hold back from the
 # phone; 'test', 'reply' and 'pair' always go
 $script:ChatqPhoneEvents = @('started', 'needs input', 'done', 'failed', 'limited', 'overloaded', 'waiting')
 # Claude's permission modes from least to most allowed. A mode not on it
@@ -388,7 +388,7 @@ function ConvertFrom-ChatqJoinPaste {
 
 function Set-ChatqNotifyConfig {
     <#
-    The one way alert settings change - chatqnotify and the setup dialog both
+    The one way alert settings change - chatnotify and the setup dialog both
     come here. -Changes is a hashtable of what to change; a key left out is
     left alone:
       Off           $true: Join, ntfy and the command off (nothing else is read)
@@ -625,7 +625,7 @@ function Set-ChatqNotifyConfig {
         $origin = { param($u) $x = $null; if ([Uri]::TryCreate([string]$u, [UriKind]::Absolute, [ref]$x)) { $x.GetLeftPart([UriPartial]::Authority).ToLowerInvariant() } else { '' } }
         $rcp = Get-ChatqReplyConfig $cfg
         if ($rcp.Paired -and (& $origin $wasPage) -ne (& $origin $nowPage)) {
-            & $say 'a page on another site has no key for the phone - pair it again there (chatqnotify -Pair)' 'Yellow'
+            & $say 'a page on another site has no key for the phone - pair it again there (chatnotify -Pair)' 'Yellow'
         }
     }
     # Replies switched on or off: where polling got to is reset either way,
@@ -650,7 +650,7 @@ function Set-ChatqNotifyConfig {
                 $needsPair = -not $rc.PairUntil
             }
             $phones = ($cfg.PSObject.Properties['join'] -and $cfg.join) -or ($cfg.PSObject.Properties['ntfy'] -and $cfg.ntfy)
-            if (-not $phones) { & $say 'a reply needs an alert to tap - set up Join first (chatqnotify -Setup, or -ApiKey)' 'Yellow' }
+            if (-not $phones) { & $say 'a reply needs an alert to tap - set up Join first (chatnotify -Setup, or -ApiKey)' 'Yellow' }
         }
         elseif ($reply -eq 'off') { & $say 'replies from the phone off - the phone stays paired, the alerts out there stop working; -Reply on picks it up again' 'DarkGray' }
     }
@@ -662,7 +662,7 @@ function Set-ChatqNotifyConfig {
     if ($reply -eq 'renew') {
         $pr = Start-ChatqReplyPairing
         if ($pr.Error) { & $say "pairing: $($pr.Error)" 'Yellow' }
-        else { & $say "pairing alert sent $d tap it on the phone by $($pr.Until.ToString('HH:mm')), then confirm its code here (chatqnotify -Confirm <code>) $d the phone paired before stops working now" 'Green' }
+        else { & $say "pairing alert sent $d tap it on the phone by $($pr.Until.ToString('HH:mm')), then confirm its code here (chatnotify -Confirm <code>) $d the phone paired before stops working now" 'Green' }
         $cfg = Get-ChatqConfig
     }
     return (& $out $null)
@@ -695,7 +695,7 @@ function Start-ChatqReplyPairing {
     it lets that phone pick its own key and send it back sealed to the public
     key. The watcher listens 15 minutes for the answer, and each answer
     waits as a candidate until one is confirmed by its code (see
-    Confirm-ChatqPairCandidate). Used by chatqnotify -Pair (and -Reply renew,
+    Confirm-ChatqPairCandidate). Used by chatnotify -Pair (and -Reply renew,
     and -Reply on with nothing paired) and by the setup dialog. Returns
     @{ Error; Sent; Until }; any Error means no pairing alert is out.
     #>
@@ -933,7 +933,7 @@ function Confirm-ChatqPairCandidate {
     $rp = if ($cfg.PSObject.Properties['reply']) { $cfg.reply } else { $null }
     $pairing = if ($rp) { $rp.pairing } else { $null }
     $x = if ($pairing) { ConvertTo-ChatqDate $pairing.expires } else { $null }
-    if (-not ($pairing -and $pairing.id -and $x -and $x -gt (Get-Date))) { return (& $fail 'no pairing is waiting - chatqnotify -Pair starts one') }
+    if (-not ($pairing -and $pairing.id -and $x -and $x -gt (Get-Date))) { return (& $fail 'no pairing is waiting - chatnotify -Pair starts one') }
     $pairId = [string]$pairing.id
     $st = $null
     try { $st = Get-ChatqReplyState } catch { return (& $fail "data/replies.json could not be read - $($_.Exception.Message)") }
@@ -945,7 +945,7 @@ function Confirm-ChatqPairCandidate {
     }
     # two with one code: one of them is not the phone in your hand, and
     # which cannot be told - so neither
-    if ($hits.Count -gt 1) { return (& $fail "$($hits.Count) answers have that code - pair again (chatqnotify -Pair)") }
+    if ($hits.Count -gt 1) { return (& $fail "$($hits.Count) answers have that code - pair again (chatnotify -Pair)") }
     $c = $hits[0]
     $dText = Unprotect-ChatqSecret $c.d
     $d = if ($dText) { ConvertFrom-ChatqB64Url $dText } else { $null }
@@ -955,7 +955,7 @@ function Confirm-ChatqPairCandidate {
     # writer of it does: a Save in the setup dialog landing in the same
     # instant can put back the file it read, key-less, while the answers
     # below are cleared all the same. Known and left: the phone is then not
-    # paired after all, and chatqnotify -Pair pairs it again.
+    # paired after all, and chatnotify -Pair pairs it again.
     Set-ChatqProp $rp 'key' ([pscustomobject](Protect-ChatqSecret $dText))
     Set-ChatqProp $rp 'phone' $label
     Set-ChatqProp $rp 'pairedAt' (Get-ChatqStamp)
@@ -1292,7 +1292,7 @@ function Test-ChatqReplyOpen {
 }
 
 function Get-ChatqPhoneStatusText {
-    # One line for chatqnotify and the setup dialog: off, not paired, waiting
+    # One line for chatnotify and the setup dialog: off, not paired, waiting
     # for the phone to answer a pairing, or paired - which phone, since when,
     # how long the watcher keeps listening and when a reply last came in.
     param($Cfg)
@@ -1817,7 +1817,7 @@ function Test-ChatqLiveAlertsOn {
 }
 
 function Get-ChatqLiveAlertStatusText {
-    # One line for chatqnotify and the setup dialog: whether the chats you run
+    # One line for chatnotify and the setup dialog: whether the chats you run
     # yourself reach the phone, and what stands in the way when nothing can
     param($Cfg)
     if (-not $Cfg) { $Cfg = Get-ChatqConfig }
@@ -2297,7 +2297,7 @@ function ConvertFrom-ChatqJoinDevices {
 }
 
 function Get-ChatqJoinDevices {
-    # the devices on a Join account, for chatqnotify -Devices; never throws
+    # the devices on a Join account, for chatnotify -Devices; never throws
     param([string]$ApiKey)
     if (-not ([string]$ApiKey).Trim()) { $r = ConvertFrom-ChatqJoinDevices '{"success":true,"records":[]}'; $r.Error = 'no Join API key'; return $r }
     $url = Get-ChatqJoinDevicesUrl $ApiKey

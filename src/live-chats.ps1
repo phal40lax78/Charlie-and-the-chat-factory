@@ -301,6 +301,184 @@ function Stop-ChatIdleProcess {
     return $res
 }
 
+#region chats Claude Code leaves out of its lists -----------------------------
+# Claude Code (2.1.281 to 2.1.283 at least: _j in its VS Code extension, v5o in
+# its CLI) takes a chat for one an SDK started, and leaves it out of every
+# session list, when the first "entrypoint" in its transcript's first 64 KB -
+# else, with none there, the last one in its last 64 KB - is sdk-cli, sdk-ts or
+# sdk-py. Such a chat cannot be restored into a tab either: the webview
+# declines, and starts a blank chat. claude -p stamps every record sdk-cli, so
+# one queued prompt or phone reply hid a chat whose first prompt was a pasted
+# screenshot - 64 KB of base64 and no entrypoint. The run goes on stamping
+# sdk-cli: an entrypoint of chatq's own would list the chat, but Claude Code
+# also keys features on sdk-cli that an unattended run must keep off (the
+# Artifact tool, autoDream), and hands the value to every claude the run
+# starts (S37). So the chat is listed again as the run ends, by a line of
+# chatq's own at its end. The extension mends the same way as it opens a
+# chat (ensureListed in extension/extension.js), with the same rule.
+$script:ChatSdkEntrypoints = @('sdk-cli', 'sdk-ts', 'sdk-py')
+$script:ChatListSpan = 65536
+
+function Read-ChatJsonStringAt {
+    # a JSON string's text from $From, the index after its opening quote, and
+    # the index of its closing quote; $null where the text ends first
+    param([string]$Text, [int]$From)
+    for ($i = $From; $i -lt $Text.Length; $i++) {
+        $c = $Text[$i]
+        if ($c -eq [char]92) { $i++; continue }
+        if ($c -ne [char]34) { continue }
+        $v = $Text.Substring($From, $i - $From)
+        if ($v.IndexOf([char]92) -ge 0) { try { $v = [string]('"' + $v + '"' | ConvertFrom-Json) } catch {} }
+        return [pscustomobject]@{ Value = $v; End = $i }
+    }
+    return $null
+}
+
+function Get-ChatEntrypointIn {
+    # The first "entrypoint" value in the text, or with -Last the last one,
+    # found as Claude Code finds it: by its key, with or without a space after
+    # the colon - where the first is wanted, the form without one first,
+    # wherever the other stands. $null for none, '' for an empty one.
+    param([string]$Text, [switch]$Last)
+    $found = $null; $at = -1
+    foreach ($k in '"entrypoint":"', '"entrypoint": "') {
+        $from = 0
+        while ($true) {
+            $i = $Text.IndexOf($k, $from, [StringComparison]::Ordinal)
+            if ($i -lt 0) { break }
+            $v = Read-ChatJsonStringAt $Text ($i + $k.Length)
+            if (-not $v) { break }
+            if (-not $Last) { return $v.Value }
+            if ($i -gt $at) { $found = $v.Value; $at = $i }
+            $from = $v.End + 1
+        }
+    }
+    return $found
+}
+
+function Get-ChatUnlistedWhy {
+    # Why Claude Code leaves a chat out of its lists, by its first and last
+    # 64 KB: 'head' - its head says an SDK started it, which nothing added at
+    # the end changes; 'tail' - its head names no entrypoint and its tail's
+    # last is an SDK's, which one line more mends; '' - it is listed. Claude
+    # Code's other test, a daemon's sessionKind, is none of chatq's doing.
+    param([string]$Head, [string]$Tail)
+    $h = Get-ChatEntrypointIn $Head
+    if ($null -ne $h) { if ($h -cin $script:ChatSdkEntrypoints) { return 'head' } else { return '' } }
+    $t = Get-ChatEntrypointIn $Tail -Last
+    if ($null -ne $t -and $t -cin $script:ChatSdkEntrypoints) { return 'tail' }
+    return ''
+}
+
+function Read-ChatHeadTail {
+    # a transcript's first and last 64 KB as Claude Code reads them - the tail
+    # is the head where the file is no bigger - with its length; $null when it
+    # cannot be read
+    param([string]$Path)
+    $fs = try { Open-ChatRead $Path } catch { $null }
+    if (-not $fs) { return $null }
+    try {
+        $size = $fs.Length
+        $read = {
+            param([int64]$At)
+            $buf = New-Object byte[] $script:ChatListSpan
+            $null = $fs.Seek($At, [System.IO.SeekOrigin]::Begin)
+            $n = 0
+            while ($n -lt $buf.Length) {
+                $got = $fs.Read($buf, $n, $buf.Length - $n)
+                if ($got -le 0) { break }
+                $n += $got
+            }
+            [System.Text.Encoding]::UTF8.GetString($buf, 0, $n)
+        }
+        $head = & $read 0
+        $tail = if ($size -gt $script:ChatListSpan) { & $read ($size - $script:ChatListSpan) } else { $head }
+        return [pscustomobject]@{ Head = $head; Tail = $tail; Length = $size }
+    }
+    catch { return $null }
+    finally { $fs.Dispose() }
+}
+
+function Get-ChatListedLine {
+    # The line that lists a chat again: a record of chatq's own type, which
+    # Claude Code's loaders pass over as they pass over any type they do not
+    # know (S37), carrying an entrypoint of a VS Code panel for its list rule.
+    # No timestamp: chatq's index takes a chat's last activity from the last
+    # one in its tail, and this line is no activity.
+    param([string]$SessionId)
+    return '{"type":"chatq-listed","entrypoint":"claude-vscode","sessionId":' + (ConvertTo-Json $SessionId) + '}'
+}
+
+function Open-ChatAppend {
+    <#
+    A transcript opened to append only, as the extension's O_APPEND does:
+    FileSystemRights.AppendData, which Windows never lets overwrite a byte -
+    a record another process appends between the open and the write stays,
+    and this lands after it. FileMode.Open: a file gone is never made again.
+    Windows PowerShell has the FileStream overload; PowerShell 7 reaches the
+    same through FileSystemAclExtensions. Elsewhere, a write at the end.
+    #>
+    param([string]$Path)
+    $share = [System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete
+    $rights = [System.Security.AccessControl.FileSystemRights]::AppendData
+    try { return [System.IO.FileStream]::new($Path, [System.IO.FileMode]::Open, $rights, $share, 4096, [System.IO.FileOptions]::None) } catch {}
+    try { return [System.IO.FileSystemAclExtensions]::Create([System.IO.FileInfo]::new($Path), [System.IO.FileMode]::Open, $rights, $share, 4096, [System.IO.FileOptions]::None, $null) } catch {}
+    $fs = [System.IO.FileStream]::new($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Write, $share)
+    $null = $fs.Seek(0, [System.IO.SeekOrigin]::End)
+    return $fs
+}
+
+function Repair-ChatListed {
+    <#
+    A chat Claude Code leaves out of its lists by its tail alone, listed again
+    by one line at its end - as Claude Code's own rename adds a custom-title
+    line there. Not while a process may be writing to it (-Live, the
+    session's live processes): busy or waiting - a claude -p going into it
+    reads busy, its registry kind interactive as Claude Code 2.1.283 writes
+    it - or of a kind that is not interactive. An idle one writes nothing, as
+    Claude Code's rename appends beside it too. The file keeps its write time:
+    the line is no activity, and chatq judges a chat written in the last
+    minute as working - unless something else wrote meanwhile, whose time is
+    never taken back. One its head leaves out cannot be mended.
+    'listed', 'relisted', 'unlistable', 'held' or 'unknown'.
+    #>
+    param([string]$Path, [string]$SessionId, [object[]]$Live)
+    if (-not $Path -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) { return 'unknown' }
+    $ht = Read-ChatHeadTail $Path
+    if (-not $ht -or $ht.Length -eq 0) { return 'unknown' }
+    $why = Get-ChatUnlistedWhy $ht.Head $ht.Tail
+    if (-not $why) { return 'listed' }
+    if ($why -eq 'head') { return 'unlistable' }
+    foreach ($e in @($Live)) {
+        if (-not $e -or [string](Get-ChatField $e 'SessionId') -ne $SessionId) { continue }
+        $k = [string](Get-ChatField $e 'Kind')
+        if (($k -and $k -ne 'interactive') -or [string](Get-ChatField $e 'Status') -in 'busy', 'waiting') { return 'held' }
+    }
+    $text = (Get-ChatListedLine $SessionId) + "`n"
+    if (-not $ht.Tail.EndsWith("`n", [StringComparison]::Ordinal)) { $text = "`n" + $text }
+    $bytes = [System.Text.UTF8Encoding]::new($false).GetBytes($text)
+    try {
+        $fi = [System.IO.FileInfo]::new($Path)
+        $was = $fi.LastWriteTimeUtc
+        $before = $fi.Length
+        $fs = Open-ChatAppend $Path
+        try { $fs.Write($bytes, 0, $bytes.Length); $fs.Flush() }
+        finally { $fs.Dispose() }
+        $fi.Refresh()
+        # nothing else wrote meanwhile: its write time as it was - and looked
+        # at once more, so a write in that instant keeps a time of now
+        if ($fi.Length -eq $before + $bytes.Length) {
+            $fi.LastWriteTimeUtc = $was
+            $fi.Refresh()
+            if ($fi.Length -ne $before + $bytes.Length) { $fi.LastWriteTimeUtc = [datetime]::UtcNow }
+        }
+    }
+    catch { return 'unknown' }
+    return 'relisted'
+}
+
+#endregion
+
 function Find-ChatTranscriptPath {
     # a chat's transcript by its id: the index's folders for this project,
     # else wherever Claude Code put one the index has not seen yet
@@ -390,11 +568,11 @@ function Show-ChatFresh {
     $outcome = switch ($j.OldProcess) { 'held' { 'held' } 'other' { 'other' } default { 'ok' } }
     if ($Via -eq 'run') {
         Write-ChatReloadRequest -Title $Title -Cwd $Cwd -Kind 'ran' -Busy $busy -Away $Away -SessionId $SessionId `
-            -ConfigHome $ConfigDir -OldProcess $j.OldProcess -HostPids $j.HostPids
+            -ConfigHome $ConfigDir -OldProcess $j.OldProcess -HostPids $j.HostPids -Transcript $Transcript
     }
     elseif ($Via -eq 'chip' -and $j.OldProcess -ne 'other') {
         Write-ChatOpenRequest -SessionId $SessionId -Cwd $Cwd -Title $Title -ConfigHome $ConfigDir -Busy $busy `
-            -OldProcess $j.OldProcess -HostPids $j.HostPids
+            -OldProcess $j.OldProcess -HostPids $j.HostPids -Transcript $Transcript
         # A window holds it, but none is on exactly its folder - a multi-root
         # one, say: code -n <folder> would open a second window on it, so the
         # request alone goes. Which windows are exact is only guessed at from

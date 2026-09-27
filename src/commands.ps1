@@ -851,12 +851,12 @@ function Test-ChatqCanAsk {
 
 function Wait-ChatqPairCandidates {
     <#
-    chatqnotify -Pair, after the pairing push went out: wait for the
+    chatnotify -Pair, after the pairing push went out: wait for the
     phone's answer - until the pairing runs out - and put each one that
     comes in to you, with its code, to confirm or not. The watcher is the
     one reading the reply topic; this reads data/replies.json once a second.
-    Ctrl+C ends the wait and leaves the pairing open: chatqnotify shows the
-    answers, chatqnotify -Confirm takes one. Returns when a phone is paired
+    Ctrl+C ends the wait and leaves the pairing open: chatnotify shows the
+    answers, chatnotify -Confirm takes one. Returns when a phone is paired
     - here, or in the setup window meanwhile - or the pairing is over.
     #>
     param([datetime]$Until)
@@ -867,7 +867,7 @@ function Wait-ChatqPairCandidates {
         $rc = Get-ChatqReplyConfig $cfg
         if (-not $rc.PairId) {
             if ($rc.Paired) { Write-Host "  paired - $($rc.Phone)" -ForegroundColor Green }
-            else { Write-Host '  the pairing is over - chatqnotify -Pair starts another' -ForegroundColor Yellow }
+            else { Write-Host '  the pairing is over - chatnotify -Pair starts another' -ForegroundColor Yellow }
             return
         }
         foreach ($pc in @(Get-ChatqPairCandidates $cfg)) {
@@ -887,10 +887,10 @@ function Wait-ChatqPairCandidates {
         }
         if ($script:ChatqPairWaitSeam) { & $script:ChatqPairWaitSeam } else { Start-Sleep -Seconds 1 }   # tests
     }
-    Write-Host '  the pairing ran out - chatqnotify -Pair starts another' -ForegroundColor Yellow
+    Write-Host '  the pairing ran out - chatnotify -Pair starts another' -ForegroundColor Yellow
 }
 
-function chatqnotify {
+function chatnotify {
     <#
     .SYNOPSIS
     Phone alerts through Join (joaomgcd): started, needs input, done, failed.
@@ -944,26 +944,29 @@ function chatqnotify {
     and every <user>.github.io project page shares one. -Setup opens all of
     this in a window (Windows); -Devices lists the devices on your Join
     account.
+
+    chatqnotify is the old name, from when this only served chatq's queue,
+    and still works.
     .EXAMPLE
-    chatqnotify -Setup
+    chatnotify -Setup
     .EXAMPLE
-    chatqnotify -ApiKey 0123abcd... -Device group.phone
+    chatnotify -ApiKey 0123abcd... -Device group.phone
     .EXAMPLE
-    chatqnotify -Reply on
+    chatnotify -Reply on
     .EXAMPLE
-    chatqnotify -Pair
+    chatnotify -Pair
     .EXAMPLE
-    chatqnotify -Confirm 123456
+    chatnotify -Confirm 123456
     .EXAMPLE
-    chatqnotify -Events done, failed, 'needs input'
+    chatnotify -Events done, failed, 'needs input'
     .EXAMPLE
-    chatqnotify -Ntfy chatq-7f3a9c1e2b
+    chatnotify -Ntfy chatq-7f3a9c1e2b
     .EXAMPLE
-    chatqnotify -Command 'Invoke-RestMethod https://example.com/hook -Method Post -Body $env:CHATQ_TEXT'
+    chatnotify -Command 'Invoke-RestMethod https://example.com/hook -Method Post -Body $env:CHATQ_TEXT'
     .EXAMPLE
-    chatqnotify -Test
+    chatnotify -Test
     .EXAMPLE
-    chatqnotify -LiveAlerts off
+    chatnotify -LiveAlerts off
     #>
     param(
         [string]$ApiKey, [string]$Device, [switch]$Test, [switch]$Off,
@@ -982,15 +985,15 @@ function chatqnotify {
     if ($Setup) {
         if ($script:ChatqIsWindows) { [void](Start-ChatqPhoneSetup); return }
         Write-Host '  the setup window is Windows-only - the same from here:' -ForegroundColor Yellow
-        Write-Host '      chatqnotify -ApiKey <key> -Device <device id | group.phone>   Join' -ForegroundColor Cyan
-        Write-Host '      chatqnotify -Devices                                          the devices on that key' -ForegroundColor Cyan
-        Write-Host '      chatqnotify -Reply on                                         answer alerts from the phone' -ForegroundColor Cyan
-        Write-Host '      chatqnotify -Pair                                             pair the phone (again)' -ForegroundColor Cyan
-        Write-Host '      chatqnotify -Confirm 123456                                   confirm the code the phone shows' -ForegroundColor Cyan
-        Write-Host "      chatqnotify -Events done, failed, 'needs input'               what reaches the phone" -ForegroundColor Cyan
-        Write-Host '      chatqnotify -QuietMinutes 5 / -Toast on / -Test' -ForegroundColor Cyan
-        Write-Host '      chatqnotify -Ntfy <topic> [-NtfyServer <url>] / -Command <ps>   other channels' -ForegroundColor Cyan
-        Write-Host '      chatqnotify -LiveAlerts on|off / -ReplyPage <https URL>' -ForegroundColor Cyan
+        Write-Host '      chatnotify -ApiKey <key> -Device <device id | group.phone>   Join' -ForegroundColor Cyan
+        Write-Host '      chatnotify -Devices                                          the devices on that key' -ForegroundColor Cyan
+        Write-Host '      chatnotify -Reply on                                         answer alerts from the phone' -ForegroundColor Cyan
+        Write-Host '      chatnotify -Pair                                             pair the phone (again)' -ForegroundColor Cyan
+        Write-Host '      chatnotify -Confirm 123456                                   confirm the code the phone shows' -ForegroundColor Cyan
+        Write-Host "      chatnotify -Events done, failed, 'needs input'               what reaches the phone" -ForegroundColor Cyan
+        Write-Host '      chatnotify -QuietMinutes 5 / -Toast on / -Test' -ForegroundColor Cyan
+        Write-Host '      chatnotify -Ntfy <topic> [-NtfyServer <url>] / -Command <ps>   other channels' -ForegroundColor Cyan
+        Write-Host '      chatnotify -LiveAlerts on|off / -ReplyPage <https URL>' -ForegroundColor Cyan
         return
     }
     if ($Devices) {
@@ -999,14 +1002,14 @@ function chatqnotify {
             $c = Get-ChatqConfig
             if ($c.PSObject.Properties['join'] -and $c.join) { Unprotect-ChatqSecret $c.join.apiKey }
         }
-        if (-not $key) { Write-Host '  no Join key - chatqnotify -Devices -ApiKey <key>, or save one first' -ForegroundColor Yellow; return }
+        if (-not $key) { Write-Host '  no Join key - chatnotify -Devices -ApiKey <key>, or save one first' -ForegroundColor Yellow; return }
         $r = Get-ChatqJoinDevices $key
         if ($r.Error) { Write-Host "  $($r.Error)" -ForegroundColor Yellow }
         foreach ($dv in @($r.Devices)) {
             $what = if ($dv.Model) { "$($dv.Name) ($($dv.Model))" } else { $dv.Name }
             Write-Host ('  {0,-34} {1}' -f $dv.Id, $what) -ForegroundColor $(if ($dv.Type -eq 'group') { 'DarkGray' } else { 'Cyan' })
         }
-        Write-Host '  chatqnotify -Device <id> sends to that one' -ForegroundColor DarkGray
+        Write-Host '  chatnotify -Device <id> sends to that one' -ForegroundColor DarkGray
         return
     }
     # the saving is shared with the setup window: Set-ChatqNotifyConfig
@@ -1037,7 +1040,7 @@ function chatqnotify {
         Write-Host "  pairing alert sent - tap it on the phone by $($pr.Until.ToString('HH:mm')), then Pair on the page that opens" -ForegroundColor Green
         Write-Host '  a phone paired before no longer works' -ForegroundColor DarkGray
         if (Test-ChatqCanAsk) { Wait-ChatqPairCandidates $pr.Until }
-        else { Write-Host '  the phone then shows a code: chatqnotify -Confirm <that code> pairs it' -ForegroundColor DarkGray }
+        else { Write-Host '  the phone then shows a code: chatnotify -Confirm <that code> pairs it' -ForegroundColor DarkGray }
         if (-not $Test) { return }
     }
     if ($Test -or $ApiKey -or $Ntfy) {
@@ -1065,21 +1068,21 @@ function chatqnotify {
         Write-Host "  chats you run yourself: $(Get-ChatqLiveAlertStatusText $cfg)" -ForegroundColor DarkGray
         $rst = Get-ChatqPhoneStatusText $cfg
         Write-Host "  replies from the phone: $rst" -ForegroundColor DarkGray
-        if ($rst -eq 'not paired') { Write-Host '    chatqnotify -Pair sends the pairing alert to tap' -ForegroundColor DarkGray }
+        if ($rst -eq 'not paired') { Write-Host '    chatnotify -Pair sends the pairing alert to tap' -ForegroundColor DarkGray }
         # the answers to the pairing waiting: confirm the one whose code
         # the phone shows
         foreach ($pc in @(Get-ChatqPairCandidates $cfg)) {
-            Write-Host "    $($pc.Label) answered$(if ($pc.At) { " at $($pc.At.ToString('HH:mm'))" }) - code $($pc.Code)   chatqnotify -Confirm $($pc.Digits)" -ForegroundColor Cyan
+            Write-Host "    $($pc.Label) answered$(if ($pc.At) { " at $($pc.At.ToString('HH:mm'))" }) - code $($pc.Code)   chatnotify -Confirm $($pc.Digits)" -ForegroundColor Cyan
         }
         $rcs = Get-ChatqReplyConfig $cfg
         if ($rcs.Wanted -and $rcs.MaxMode -ne 'acceptEdits') { Write-Host "    a reply runs a job in $($rcs.MaxMode) at most" -ForegroundColor DarkGray }
-        if ($any) { Write-Host '  chatqnotify -Test sends one' -ForegroundColor DarkGray }
+        if ($any) { Write-Host '  chatnotify -Test sends one' -ForegroundColor DarkGray }
         else {
             Write-Host '  no phone alerts yet - Join or ntfy:' -ForegroundColor DarkGray
-            if ($script:ChatqIsWindows) { Write-Host '      chatqnotify -Setup                                           all of it in a window' -ForegroundColor Cyan }
-            Write-Host '      chatqnotify -ApiKey <key> -Device <device id | group.phone>   (https://joinjoaomgcd.appspot.com, Join API)' -ForegroundColor Cyan
+            if ($script:ChatqIsWindows) { Write-Host '      chatnotify -Setup                                           all of it in a window' -ForegroundColor Cyan }
+            Write-Host '      chatnotify -ApiKey <key> -Device <device id | group.phone>   (https://joinjoaomgcd.appspot.com, Join API)' -ForegroundColor Cyan
             Write-Host '        the key itself, not the push URL - PowerShell stops at the & in one unless it is quoted' -ForegroundColor DarkGray
-            Write-Host '      chatqnotify -Ntfy <long random topic>                        (https://ntfy.sh, free)' -ForegroundColor Cyan
+            Write-Host '      chatnotify -Ntfy <long random topic>                        (https://ntfy.sh, free)' -ForegroundColor Cyan
         }
     }
 }
@@ -1093,7 +1096,7 @@ function Write-ChatqCheatSheet {
     Write-Host '  chatqrm <n> [-Force]        drop a job; -Force cancels a running one' -ForegroundColor Cyan
     Write-Host '  chatqrun [<n>] [-Now]       requeue n / stop waiting and try now' -ForegroundColor Cyan
     Write-Host '  chatqlog <n>                what a run did' -ForegroundColor Cyan
-    Write-Host '  chatqnotify                 alerts: toast here, Join or ntfy on the phone' -ForegroundColor Cyan
+    Write-Host '  chatnotify                  alerts: toast here, Join or ntfy on the phone' -ForegroundColor Cyan
     Write-Host '  chatoverlay                 every open chat, the queue and usage, always on top' -ForegroundColor Cyan
     Write-Host '  chatconsole                 all of the above in a window: write, drop files, send now' -ForegroundColor Cyan
     Write-Host ''

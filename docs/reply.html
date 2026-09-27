@@ -561,7 +561,7 @@ var ChatqPage = (function () {
         return host + ' answered ' + r.status + '.';
     }
     function onPc(host) { return host ? 'chatq on ' + host : 'chatq on your PC'; }
-    var PAIR_CMD = 'chatqnotify -Pair';
+    var PAIR_CMD = 'chatnotify -Pair';
     var READABLE = 'IndexedDB is not available here, so this browser keeps the key readable to this site\'s pages.';
     // Every screen that is not the reply form: { mark, kicker, head, big,
     // body, code, after, warn, button, fine }. ctx: { pf (the pairing link),
@@ -593,7 +593,7 @@ var ChatqPage = (function () {
         if (kind === 'paired') {
             return {
                 mark: 'ok', kicker: onPc(pf.host), head: 'On the PC, confirm this code', big: codeText(phone.code),
-                body: 'chatqnotify -Pair lists the answers, and so does Replies in the setup window. Confirm the one with this code; any other is not this phone.',
+                body: 'chatnotify -Pair lists the answers, and so does Replies in the setup window. Confirm the one with this code; any other is not this phone.',
                 warn: readable,
                 fine: 'Nothing to confirm on the PC? The pairing alert may have run out - run ' + PAIR_CMD + ' there again.'
             };

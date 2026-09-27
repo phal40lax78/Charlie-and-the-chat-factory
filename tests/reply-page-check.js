@@ -291,7 +291,7 @@ const randomAid = () => Array.from(nodeCrypto.randomBytes(10), (b) => 'abcdefghi
         check('no fragment, or none of ours: missing', ['', '#', '#foo=bar', undefined].every((h) => P.parseFragment(h).why === 'missing'));
         check('a v1 link, with its key in it: refused as from before pairing',
             P.parseFragment('#v=1&s=https%3A%2F%2Fntfy.sh&t=chatq-x&a=k2m3n4p5q6&k=' + b64url(nodeCrypto.randomBytes(32)) + '&e=done').why === 'old' &&
-            P.cardText('old').code === 'chatqnotify -Pair');
+            P.cardText('old').code === 'chatnotify -Pair');
         check('a newer version of the link says so', P.parseFragment(alertLink({ v: '3' })).why === 'version' && P.parseFragment(alertLink({ m: 'unpair' })).why === 'version');
 
         const pairLink = (x) => {
@@ -725,7 +725,7 @@ async function driveThePage() {
     check('the page shows something once it has read what the phone keeps', pg.ready);
     check('not paired, an alert: a card that says exactly what to run on the PC, and no form',
         pg.$('app').hidden && pg.cardKind() === 'unpaired' && pg.$('cardHead').textContent === 'This phone is not paired' &&
-        pg.$('cardCode').textContent === 'chatqnotify -Pair' && !pg.$('cardCode').hidden && /Pair phone in the setup window/.test(pg.$('cardAfter').textContent) &&
+        pg.$('cardCode').textContent === 'chatnotify -Pair' && !pg.$('cardCode').hidden && /Pair phone in the setup window/.test(pg.$('cardAfter').textContent) &&
         pg.$('pair').hidden && pg.$('kicker').textContent === '#12 Fix the build - done' && pg.$('cardBig').hidden, pg.$('cardHead').textContent);
     check('not paired: nothing posted', pg.posts.length === 0);
     store.clear();
@@ -1035,7 +1035,7 @@ async function driveThePage() {
     check('a link cut short: said so, nothing offered', cut.$('app').hidden && cut.cardKind() === 'bad' && cut.$('cardHead').textContent === 'This link is incomplete' && cut.$('pair').hidden);
     const v1 = await load('#v=1&s=https%3A%2F%2Fntfy.sh&t=chatq-x&a=abcdefgh23&k=' + b64url(nodeCrypto.randomBytes(32)) + '&e=done');
     check('a v1 link (a key in it): from before pairing, what to run, and out of the bar, never kept',
-        v1.cardKind() === 'old' && v1.$('cardCode').textContent === 'chatqnotify -Pair' && v1.loc.hash === '' && ![...store.values()].some((v) => /k=/.test(v)));
+        v1.cardKind() === 'old' && v1.$('cardCode').textContent === 'chatnotify -Pair' && v1.loc.hash === '' && ![...store.values()].some((v) => /k=/.test(v)));
     const test = await load(frag({ e: 'test', n: '', c: '', p: '', j: '', x: '1' }));
     check('a test alert: no box, one big Send a test reply', test.$('compose').hidden && test.more().length === 0 && test.$('more').hidden &&
         test.$('send').textContent === 'Send a test reply' && !test.$('send').disabled && test.$('title').textContent === 'chatq test');

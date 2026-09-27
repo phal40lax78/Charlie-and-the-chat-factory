@@ -111,6 +111,47 @@ $mkS = { param($st) [pscustomobject]@{ SessionId = 'p1'; Pid = 1; Status = $st; 
 $rb = @(Get-ChatOverlayRows -Sessions @(& $mkS 'busy') -Texts @{ p1 = $pend })[0]
 $ri = @(Get-ChatOverlayRows -Sessions @(& $mkS 'idle') -Texts @{ p1 = $pend })[0]
 Check 'a chat working on a command not yet written says so, not the prompt before' ($rb.prompt -eq $script:ChatOverlayPendingText -and $rb.promptKind -eq 'pending' -and $ri.prompt -eq 'continue') "$($rb.prompt) / $($ri.prompt)"
+$tqMs = [DateTimeOffset]::new($tq).ToUnixTimeMilliseconds()
+Check 'what was last typed into an open chat is kept: the prompt typed after the command, not the command' (
+    $cx9.Text[$idO9].TypedAt -and [int64]$cx9.Text[$idO9].TypedAt -gt $tqMs + 30000) "$($cx9.Text[$idO9].TypedAt) vs $tqMs"
+
+# a job waiting on you whose chat you went on in yourself: skipped, as a
+# reply from the phone skips it - the overlay went on saying "needs you"
+$idAn1 = 'a0a0a0a0-0000-4000-8000-0000000000a1'
+$idAn2 = 'a0a0a0a0-0000-4000-8000-0000000000a2'
+$idAn3 = 'a0a0a0a0-0000-4000-8000-0000000000a3'
+$pAn1 = New-FakeChat $projA $idAn1 'Answered in VS Code' 1 @('first ask')
+$pAn2 = New-FakeChat $projA $idAn2 'Answered then closed' 1 @('first ask')
+$pAn3 = New-FakeChat $projA $idAn3 'Still waiting on you' 1 @('first ask')
+$mkAn = {
+    param($Id, $Path)
+    $j = (New-ChatqJob -Row (Get-ChatqRowById $Id -Path $Path) -Prompt 'from the phone' -Rule 'picked').Job
+    Complete-ChatqJob $j 'needs-input' ([pscustomobject]@{ kind = 'needs-input'; reason = 'denied Bash(x)' }) 'test'
+    Find-ChatqJob $j.id
+}
+$jAn1 = & $mkAn $idAn1 $pAn1
+$jAn2 = & $mkAn $idAn2 $pAn2
+$jAn3 = & $mkAn $idAn3 $pAn3
+$endMs = ConvertTo-ChatOverlayMs (ConvertTo-ChatqDate $jAn1.endedAt)
+Check 'a job waiting on you is answered only by something typed into its chat after it stopped' (
+    -not (Test-ChatqJobAnswered $jAn1 ($endMs - 1000)) -and (Test-ChatqJobAnswered $jAn1 ($endMs + 1000)) -and -not (Test-ChatqJobAnswered $jAn1 $null) -and
+    -not (Test-ChatqJobAnswered ([pscustomobject]@{ state = 'done'; endedAt = $jAn1.endedAt }) ($endMs + 1000)))
+$cxA = New-ChatOverlayContext
+$cxA.Jobs = @(@($jAn1, $jAn2, $jAn3) | ForEach-Object { [pscustomobject]@{ Job = $_; First = 'from the phone' } })
+$cxA.Text[$idAn1] = @{ TypedAt = $endMs - 5000 }
+$an0 = @(Close-ChatqAnsweredJobs $cxA)
+# typed into the open one since; the closed one answered in its transcript
+$cxA.Text[$idAn1] = @{ TypedAt = $endMs + 5000 }
+[System.IO.File]::AppendAllText($pAn2, (OvUserAt 'answered, then closed' ((Get-Date).AddSeconds(3))) + "`n", $utf8)
+$an1 = @(Close-ChatqAnsweredJobs $cxA)
+$sAn1 = Find-ChatqJob $jAn1.id
+$sAn2 = Find-ChatqJob $jAn2.id
+$sAn3 = Find-ChatqJob $jAn3.id
+Check 'a job waiting on you whose chat was typed into since - open, or closed again - is skipped as answered in the chat; one nobody answered waits on' (
+    $an0.Count -eq 0 -and $an1.Count -eq 2 -and $sAn1.state -eq 'skipped' -and $sAn1.result.reason -eq 'answered in the chat' -and
+    $sAn2.state -eq 'skipped' -and $sAn3.state -eq 'needs-input') "$($an0.Count) $($an1.Count) $($sAn1.state) $($sAn2.state) $($sAn3.state)"
+foreach ($x in $jAn1, $jAn2, $jAn3) { $null = Remove-ChatqJob (Find-ChatqJob $x.id) 'test' }
+Remove-Item -LiteralPath $pAn1, $pAn2, $pAn3 -Force
 
 # the registry: four sessions and a dead one, and a .key locked the way a
 # live session holds it - reading it would throw

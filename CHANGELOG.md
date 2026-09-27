@@ -1,5 +1,80 @@
 # Changelog
 
+## 0.8.1 — chatnotify, and hidden chats listed again
+
+- **chatqnotify is chatnotify.** It is no longer only about chatq's queue:
+  the same command sets up replies from the phone and the alerts for the
+  chats you run yourself in VS Code or a terminal. The help, the cheat
+  sheet, the setup window's hints and VS Code's **Phone alerts...** all
+  say `chatnotify` now. `chatqnotify` still works, as an alias, and
+  `Get-Help chatqnotify` finds the same help.
+- **A chat a queued prompt runs into stays in Claude Code's list.**
+  Claude Code leaves a chat out of its session list - and will not restore
+  it into a tab - when the first `entrypoint` in its transcript's first
+  64 KB, or with none there the last one in its last 64 KB, is an SDK's. `claude -p` stamps
+  `sdk-cli`, so one queued prompt or phone reply hid a chat whose first
+  prompt was a pasted screenshot. Now, as a run ends, the watcher adds one
+  line at the chat's end - `{"type":"chatq-listed",...}`, a type Claude
+  Code's loaders skip - that lists it again. The file keeps its write
+  time.
+- **A hidden chat opens from the overlay again.** Before the open chip,
+  **Chat Manager: Open chat...** or **Show it** opens a chat in a tab, the
+  extension checks it as Claude Code does, and mends one hidden by its
+  last records the same way - one hidden before this version, or whose
+  run was cut short. One busy in a process right now, or whose line
+  cannot be written, is left, and said, rather than opened blank. One
+  hidden by its first records can never be listed - every chat **+ New
+  chat** started, or your own `claude -p` - so instead of a blank tab it
+  is offered in a terminal, `claude --resume`.
+- **A chat opened from the overlay has its header again.** Its tab showed
+  the chat with nothing above it - no title, no **Session history**, no
+  **New session** - and an edit to approve came without its diff. The
+  extension opened it with Claude Code's `primaryEditor.open`, which makes
+  every tab a "full editor", a mode without them. It now opens an ordinary
+  Claude tab, as a tab's own **New session** does, in the same group as
+  before, still making no group and locking none, and leaving
+  `claudeCode.preferredLocation` alone. An edit to approve shows its diff
+  again; with editor groups not locked, it opens in the chat's own group,
+  in front of the chat, as it does for any Claude tab. A tab opened the old
+  way keeps its mode through a reload: close it once and open the chat
+  again. With Claude Code older than 2.1.281, or one that refuses the new
+  way, it opens as it did.
+- **A chat a queued run went into shows the run, even with you at the
+  PC.** A reply from the phone into a chat open in a VS Code tab ran
+  beside that tab's own process, and the window only asked **Show it?**.
+  A message typed into the tab instead went on from the tab's memory:
+  the chat forked, and the run's turn stayed on a branch neither the tab
+  nor its process ever saw. Now, when the chat's process here is idle,
+  the window does **Show it** by itself as the run ends - at the PC too,
+  and while other chats work, since it touches that one chat alone: its
+  idle process ended, its tab closed and opened again from disk. And
+  when you are away, a chat nothing holds opens in a tab by itself even
+  while another chat works. `chatManager.autoReloadAfterRun: false`
+  still makes the window always ask.
+- **A job you answered in the chat stops saying it needs you.** A queued
+  prompt parked on input - a tool it was not allowed, with nobody there -
+  kept its chat's row amber, and `chatqlist` and the phone's status saying
+  `needs you`, long after you had gone on in that chat yourself. Now the
+  overlay skips such a job once anything is typed into its chat after it
+  stopped, `answered in the chat`, as a reply from the phone already did.
+- **No reload for a new chat.** A window on the folder a **+ New chat**
+  started in is only told of it now: Claude Code lists no chat `claude -p`
+  started, so the reload it used to offer showed nothing, and cut off
+  whatever else worked in that window.
+- **The phone's status shows Claude's usage as it is.** It read the figure
+  from Claude Code's own cache, which moves only when Claude Code asks: on
+  2026-09-27 it said 37% of the 5 h window, 35 minutes old, while the
+  overlay showed 62%. It now takes the overlay's live figure when that is
+  newer, and `chatqlist` does too.
+- **Why:** on 2026-09-27 a chat answered from the phone vanished from VS
+  Code's list, and each open from the overlay made a blank chat instead.
+  Its first prompt was a screenshot, and the reply, run as `claude -p`,
+  wrote `sdk-cli` last. TESTING's S25 had left open whether VS Code lists a
+  chat `claude -p` started: it does not (S37). A run under an entrypoint of
+  chatq's own would list both kinds, but Claude Code also turns on for it
+  what it keeps off for `claude -p` - the Artifact tool, autoDream - so
+  runs stay `sdk-cli` (FUTURE_WORK).
+
 ## 0.8.0 — replies from the phone, and alerts for the chats you run yourself
 
 - **Phone alerts in a window.** `chatqnotify -Setup` opens one window for

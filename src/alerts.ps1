@@ -78,17 +78,17 @@ function Send-ChatqAlert {
     <#
     Every alert goes to logs/alerts.log, then to whichever channels are set up:
       toast    the desktop, on by default - free, local, nothing leaves the PC
-      command  your own PowerShell, with the alert in $env:CHATQ_* (chatqnotify -Command)
+      command  your own PowerShell, with the alert in $env:CHATQ_* (chatnotify -Command)
       join     the phone, through Join (joaomgcd)
       ntfy     the phone, through ntfy
     The two phone channels stay quiet while you are at the PC - keyboard or
     mouse used in the last quietMinutes (5) - since the toast says it there.
-    -Loud (chatqnotify -Test) goes through regardless. Titles all start
+    -Loud (chatnotify -Test) goes through regardless. Titles all start
     "chatq <dot> ", so a Tasker profile can filter them - or match only "needs
     input" and "failed". What the text carries (chat title, an excerpt of the
     reply) passes through the push service's servers.
     config phoneEvents holds some events back from the phone (not 'test',
-    'reply' or 'pair'). With replies on and a phone paired (chatqnotify
+    'reply' or 'pair'). With replies on and a phone paired (chatnotify
     -Pair) each phone alert carries a link to answer it from the phone - see
     src/phone.ps1 - and a window opens in which the watcher listens for the
     answer. -Job is the job the alert is about: the link says which chat to
@@ -128,7 +128,7 @@ function Send-ChatqAlert {
     if (-not $phones) { $script:ChatqLastAlertError = 'no phone channel set up'; return $false }
     if (-not (Test-ChatqPhoneEvent $cfg $Event)) {
         $script:ChatqAlertReport.Add("phone: skipped - $Event is not among the phone's events")
-        $script:ChatqLastAlertError = "the phone gets no '$Event' alerts (chatqnotify -Events)"
+        $script:ChatqLastAlertError = "the phone gets no '$Event' alerts (chatnotify -Events)"
         return $false
     }
     if ($present -and -not $Loud) {
@@ -567,6 +567,29 @@ function Get-ChatqUsage {
                     $out.Add([pscustomobject]@{ Provider = 'Claude'; Parts = $parts; AsOf = & $label $at; AsOfAt = $at })
                 }
             }
+        }
+    }
+    catch {}
+    # That cache moves only when Claude Code itself asks. The overlay asks
+    # the usage endpoint every few minutes and keeps the answer in its
+    # snapshot, so the newer of the two is shown: the phone's status once
+    # read the cache 35 minutes old, 37% of the 5 h window where the overlay
+    # already had 62%.
+    try {
+        $s = Read-ChatqJson $script:ChatOverlayPath
+        $h = if ($s -and $s.PSObject.Properties['header']) { $s.header } else { $null }
+        $lu = if ($h -and $h.PSObject.Properties['usage']) {
+            @($h.usage | Where-Object { $_ -and $_.provider -eq 'Claude' -and $_.source -eq 'live' -and $_.at })[0]
+        }
+        $parts = if ($lu -and $lu.PSObject.Properties['windows']) {
+            @($lu.windows | Where-Object { $_ -and $_.label } | ForEach-Object { "$($_.label) $([int][Math]::Round([double]$_.percent))%" })
+        }
+        if ($parts) {
+            $at = [System.DateTimeOffset]::FromUnixTimeMilliseconds([int64]$lu.at).LocalDateTime
+            $live = [pscustomobject]@{ Provider = 'Claude'; Parts = $parts; AsOf = & $label $at; AsOfAt = $at }
+            $old = @($out | Where-Object { $_.Provider -eq 'Claude' })[0]
+            if (-not $old) { $out.Insert(0, $live) }
+            elseif ($at -gt $old.AsOfAt) { $out[$out.IndexOf($old)] = $live }
         }
     }
     catch {}

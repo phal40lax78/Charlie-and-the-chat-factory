@@ -949,7 +949,8 @@ function Update-ChatOverlayText {
     $sid = $Session.SessionId
     $st = $Ctx.Text[$sid]
     if (-not $st) {
-        $st = @{ Path = $null; Len = -1; Prompt = $null; PromptKind = $null; Last = $null; CommandAt = $null; Pending = $null; AiTitle = $null; CustomTitle = $null; Sidecar = $null; First = $null; Mtime = $null }
+        $st = @{ Path = $null; Len = -1; Prompt = $null; PromptKind = $null; Last = $null; CommandAt = $null; Pending = $null; AiTitle = $null; CustomTitle = $null; Sidecar = $null; First = $null; Mtime = $null
+            TypedAt = $null }
         $Ctx.Text[$sid] = $st
     }
     if (-not $st.Path -or -not (Test-Path -LiteralPath $st.Path)) {
@@ -964,8 +965,13 @@ function Update-ChatOverlayText {
     if (-not $fi.Exists -or $fi.Length -eq $st.Len) { return }
     $from = 0
     if ($st.Len -gt 0 -and $fi.Length -gt $st.Len) { $from = [Math]::Max([Math]::Max(0, $st.Len - 65536), $fi.Length - 8MB) }
-    else { $st.Prompt = $null; $st.PromptKind = $null; $st.Last = $null; $st.CommandAt = $null; $st.AiTitle = $null; $st.CustomTitle = $null; $st.First = $null }
+    else { $st.Prompt = $null; $st.PromptKind = $null; $st.Last = $null; $st.CommandAt = $null; $st.AiTitle = $null; $st.CustomTitle = $null; $st.First = $null; $st.TypedAt = $null }
     $r = Find-ChatTailRecords $st.Path -From $from
+    # when something was last typed into it - a prompt or a slash command -
+    # which a job waiting on you there takes as its answer
+    # (Close-ChatqAnsweredJobs)
+    $typed = Get-ChatTypedAt $r
+    if ($typed -and (-not $st.TypedAt -or $typed -gt [int64]$st.TypedAt)) { $st.TypedAt = $typed }
     if ($r.CustomTitle) { $st.CustomTitle = $r.CustomTitle }
     if ($r.AiTitle) { $st.AiTitle = $r.AiTitle }
     # A command found earlier stays the newest thing sent while the new part
@@ -995,6 +1001,67 @@ function Update-ChatOverlayText {
             }
         }
     }
+}
+
+function Get-ChatTypedAt {
+    # when the newest thing typed into a chat was sent - a prompt or a slash
+    # command - from Find-ChatTailRecords' answer, as epoch ms; $null for none
+    param($Records)
+    $at = $null
+    foreach ($v in @($Records.UserAt, $Records.CommandAt)) { if ($v -and (-not $at -or [int64]$v -gt $at)) { $at = [int64]$v } }
+    return $at
+}
+
+function Test-ChatqJobAnswered {
+    # A job parked on needs-input is answered once something was typed into
+    # its chat after it stopped - in VS Code, a terminal, or by a later job.
+    # Its own prompt went in before it stopped, so never counts. Pure.
+    param($Job, $TypedAt)
+    if (-not $Job -or [string]$Job.state -ne 'needs-input' -or -not $TypedAt) { return $false }
+    $end = ConvertTo-ChatqDate $Job.endedAt
+    if (-not $end) { return $false }
+    return [int64]$TypedAt -gt (ConvertTo-ChatOverlayMs $end)
+}
+
+function Close-ChatqAnsweredJobs {
+    <#
+    The jobs parked on needs-input whose chat has been answered since - the
+    run could not go on, and you went on in the chat yourself - skipped, as a
+    reply from the phone skips one: left as they were, the overlay, chatqlist
+    and the phone's status went on saying the chat needs you. An open chat
+    answers from what the overlay reads of it anyway ($Ctx.Text); one not
+    open, from its transcript's tail, read only once it has changed since the
+    job stopped, and at most once a minute ($Ctx.Answered). Each is looked up
+    again right before it is skipped: a reply may have requeued it meanwhile.
+    The ids skipped.
+    #>
+    param($Ctx, [datetime]$Now = (Get-Date))
+    if (-not $Ctx.Answered) { $Ctx.Answered = @{} }
+    $out = [System.Collections.Generic.List[string]]::new()
+    foreach ($jw in @($Ctx.Jobs)) {
+        $j = if ($jw) { $jw.Job } else { $null }
+        if (-not $j -or [string]$j.state -ne 'needs-input' -or $j.provider -ne 'claude' -or -not $j.sessionId) { continue }
+        $t = $Ctx.Text[[string]$j.sessionId]
+        $typed = if ($t) { $t.TypedAt } else { $null }
+        if (-not $typed -and $j.path) {
+            $seen = $Ctx.Answered[[string]$j.id]
+            $fi = [System.IO.FileInfo]::new([string]$j.path)
+            $end = ConvertTo-ChatqDate $j.endedAt
+            if ($fi.Exists -and $end -and $fi.LastWriteTime -gt $end -and
+                (-not $seen -or ($seen.Len -ne $fi.Length -and ($Now - $seen.At).TotalSeconds -ge 60))) {
+                $typed = Get-ChatTypedAt (Find-ChatTailRecords $fi.FullName)
+                $Ctx.Answered[[string]$j.id] = @{ Len = $fi.Length; At = $Now; TypedAt = $typed }
+            }
+            elseif ($seen) { $typed = $seen.TypedAt }
+        }
+        if (-not (Test-ChatqJobAnswered $j $typed)) { continue }
+        $cur = Find-ChatqJob $j.id
+        if (-not $cur -or [string]$cur.state -ne 'needs-input') { continue }
+        Complete-ChatqJob $cur 'skipped' ([pscustomobject]@{ kind = 'skipped'; reason = 'answered in the chat' }) 'answered in the chat'
+        $Ctx.Answered.Remove([string]$j.id)
+        $out.Add([string]$j.id)
+    }
+    return $out.ToArray()
 }
 
 function Get-ChatForegroundPid {
@@ -1548,7 +1615,7 @@ function New-ChatOverlayContext {
         ClaudeHome = $ClaudeHome; Config = (Get-ChatOverlayConfig); Cycle = 0; Verbs = @()
         Registry = @{}; Alive = @{}; PidSig = $null; AliveAt = $never
         Text = @{}; Missing = @{}
-        Jobs = @(); JobsSig = $null; Blocks = @{}; BlocksAt = $never
+        Jobs = @(); JobsSig = $null; Blocks = @{}; BlocksAt = $never; Answered = @{}
         Watcher = $false; WatcherAt = $never
         Fetch = $null; Live = $null; LiveWhy = $null; LiveFails = 0; LiveTriedAt = $null; HoldUntil = $never; HoldKind = $null; AuthStamp = $null; Refresh = $null
         CopilotFetch = $null; Copilot = $null; CopilotWhy = $null; CopilotTriedAt = $null
@@ -1653,6 +1720,14 @@ function Invoke-ChatOverlayCycle {
         }
         catch { $err = "queue: $($_.Exception.Message)" }
         $Ctx.BlocksAt = [datetime]::MinValue
+    }
+    # a job waiting on you in a chat you have since gone on in yourself: no
+    # longer waiting, and skipped as a reply from the phone would skip it
+    $gone = @()
+    try { $gone = @(Close-ChatqAnsweredJobs $Ctx $now) } catch { $err = "answered jobs: $($_.Exception.Message)" }
+    if ($gone) {
+        $Ctx.Jobs = @($Ctx.Jobs | Where-Object { [string]$_.Job.id -notin $gone })
+        foreach ($id in $gone) { Write-ChatOverlayLog "job $id skipped: answered in the chat" }
     }
     if (($now - $Ctx.WatcherAt).TotalSeconds -ge 10) { $Ctx.Watcher = Test-ChatqWatcherAlive; $Ctx.WatcherAt = $now }
     $queued = @($Ctx.Jobs | Where-Object { $_.Job.state -eq 'queued' })

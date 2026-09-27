@@ -180,6 +180,10 @@ const texts = {
     pickWorking: req => name(req) + ' is working elsewhere in VS Code - another window or the side bar - so it was not opened here: a second copy would start mid-answer. Open it once it finishes.',
     pickElsewhere: req => name(req) + ' is open elsewhere in VS Code - another window or the side bar. A second copy here splits the chat: each copy answers on its own.',
     sideBarStale: req => name(req) + ' was also open in this window outside its tabs - most likely the side bar. That copy is stale now and can be closed: the tab shows the run.',
+    unlistable: req => name(req) + ' was started by a claude -p run, and Claude Code leaves such chats out of its lists, so no tab can show it. Open it in a terminal instead?',
+    hiddenBusy: req => name(req) + ' is out of Claude Code\'s chat list for now, and working somewhere, so a tab here would open blank. Open it once it finishes: it is listed again then.',
+    unmended: req => name(req) + ' is out of Claude Code\'s chat list, and could not be put back, so a tab here would open blank. Chat Manager: Show log has the details.',
+    terminalBusy: req => name(req) + ' began to run meanwhile - in a terminal, VS Code or a queued prompt - so it was not opened in a terminal too. Try again once it is closed or finished.',
     // Either kind of print-mode run reads the same to the check and to the
     // registry, and only a queued one's end brings a request that offers
     // the chat again - so no such offer is promised
@@ -219,8 +223,10 @@ function message(req, fresh) {
         if (fresh) return 'A queued prompt ran in ' + what + ', which this window still has open. Show it?';
         return 'A queued prompt ran in ' + what + ', which this window still has open. Reload to show it?';
     }
+    // Claude Code lists no chat claude -p started (S37): a reload would cut
+    // off whatever works here and show nothing, so none is offered
     if (req.kind === 'new') {
-        return 'A new chat, ' + what + ', was started in this folder by chatq. Reload to pick it up?';
+        return 'A new chat, ' + what + ', was started in this folder by chatq. Claude Code leaves chats a claude -p run started out of its list, so no reload shows it: the overlay\'s open chip offers it in a terminal.';
     }
     const done = (req.kind === 'archived' ? 'Archived ' : 'Deleted ') + what + '.';
     if (req.busy === true) {
@@ -252,6 +258,28 @@ function reloadsItself(req, autoReload, afterRun, exact, ageMs) {
     }
     if (req.kind === 'new') return false;
     return req.busy !== true && !!autoReload;
+}
+
+// After a run, what this window does by itself for a chat it can show fresh,
+// on top of reloadsItself:
+//   'show it'  the chat is open here on an idle process (live): Show it, as
+//              if clicked - its check ends that process, and the chat's tab
+//              is closed and opened again from disk. At the PC too, and while
+//              other chats work: it touches this chat's tab alone. Left
+//              stale, a message typed into that tab went on from the tab's
+//              own memory, and the chat forked - the run's turn on a branch
+//              the tab never showed (2026-09-27, a reply from the phone).
+//   'tab'      nobody at the PC, and nothing holds the chat now (the run's
+//              check ended its process, or none had it): a tab, even while
+//              another chat works, since a tab cuts none off.
+// null for the rest: a chat held working, a terminal's, one whose window
+// cannot be told (no host pids, as on a Mac), a word past judgedMaxAge,
+// autoReloadAfterRun off, or - for 'tab' - a window not exactly its folder.
+function showsItself(req, afterRun, exact, ageMs) {
+    if (req.kind !== 'ran' || afterRun === false || ageMs > timing.judgedMaxAge) return null;
+    if (req.oldProcess === 'live' && hostPidsOf(req).includes(process.pid)) return 'show it';
+    if (req.away === true && exact === true && (req.oldProcess === 'ended' || req.oldProcess === 'none')) return 'tab';
+    return null;
 }
 
 // How to show a run's chat, from the script's verdict on it. The overlay's
@@ -319,7 +347,59 @@ function bounded(p, what) {
 
 function command(c, ...args) { return bounded(vscode.commands.executeCommand(c, ...args), c); }
 
-const OPEN = 'claude-vscode.primaryEditor.open';
+// A chat is opened with the Claude extension's editor.open, not its
+// primaryEditor.open. That one makes every panel a "full editor"
+// (createPanel's fullEditor, IS_FULL_EDITOR in its webview): no header - no
+// title, no Session history, no New session - and an edit to approve shown
+// without its diff; the tab keeps it through a reload. editor.open with
+// fullEditor false makes the ordinary tab, as a Claude tab's own New
+// session does (its new_conversation_tab). Its arguments, 2.1.281 to
+// 2.1.283: sessionId, prompt, viewColumn, group, fullEditor, options.
+// Given the column primaryEditor.open would pick (claudeColumn) it makes no
+// group and locks none, and programmatic 'pin-to-panel' keeps it in a tab
+// and leaves claudeCode.preferredLocation alone, which a plain editor.open
+// rewrites. An older Claude extension, whose editor.open is not known to
+// take them, still gets primaryEditor.open - and so does a later one that
+// refuses them (openOnce).
+const OPEN = 'claude-vscode.editor.open';
+const OPEN_FULL = 'claude-vscode.primaryEditor.open';
+const OPEN_SINCE = '2.1.281';
+
+// The Claude extension's version, or '' when it cannot be read.
+function claudeVersion() {
+    const ext = vscode.extensions && vscode.extensions.getExtension && vscode.extensions.getExtension('anthropic.claude-code');
+    return String((ext && ext.packageJSON && ext.packageJSON.version) || '');
+}
+
+// Is v at least min? Major, minor and patch compared as numbers; what is no
+// version is not. Pure.
+function versionAtLeast(v, min) {
+    const a = /^(\d+)\.(\d+)\.(\d+)/.exec(String(v || '')), b = /^(\d+)\.(\d+)\.(\d+)/.exec(String(min || ''));
+    if (!a || !b) return false;
+    for (let i = 1; i <= 3; i++) if (+a[i] !== +b[i]) return +a[i] > +b[i];
+    return true;
+}
+
+// The column primaryEditor.open picks (pr() in the Claude extension): a
+// group of Claude tabs alone, the active one first; else the active group
+// when it holds a Claude tab; else the active group, whatever it holds.
+function claudeColumn() {
+    const g = vscode.window.tabGroups;
+    const all = (g && g.all) || [];
+    const act = g && g.activeTabGroup;
+    const isAct = x => x === act || x.isActive === true;
+    const only = all.find(x => isAct(x) && claudeOnly(x.tabs)) || all.find(x => claudeOnly(x.tabs));
+    if (only) return only.viewColumn;
+    if (act && (act.tabs || []).some(isClaudeTab)) return act.viewColumn;
+    return vscode.ViewColumn && vscode.ViewColumn.Active !== undefined ? vscode.ViewColumn.Active : -1;
+}
+
+// The command that opens a chat, and its arguments - worked out each time,
+// since the groups change between two opens.
+function openCall(sessionId) {
+    if (!versionAtLeast(claudeVersion(), OPEN_SINCE)) return [OPEN_FULL, sessionId];
+    return [OPEN, sessionId, undefined, claudeColumn(), undefined, false, { programmatic: 'pin-to-panel' }];
+}
 
 // The Claude extension's own panel, and nothing else: its viewType holds
 // claudeVSCodePanel. Other extensions' names hold "claude" too - Cline's
@@ -347,14 +427,29 @@ function activeTab() {
     return g && g.activeTabGroup ? g.activeTabGroup.activeTab : undefined;
 }
 
+// One open of the chat, as openCall has it now. An editor.open refused -
+// not timed out - is followed by primaryEditor.open, as before 0.8.1: a tab
+// without its header beats none, should a later Claude extension take
+// editor.open's arguments otherwise. Throws what the last command threw.
+async function openOnce(sessionId) {
+    const [c, ...args] = openCall(sessionId);
+    try { await command(c, ...args); }
+    catch (e) {
+        log(c + ' failed: ' + (e && e.message));
+        if (c !== OPEN || (e && e.timedOut)) throw e;
+        try { await command(OPEN_FULL, sessionId); }
+        catch (e2) { log(OPEN_FULL + ' failed: ' + (e2 && e2.message)); throw e2; }
+        log('opened with ' + OPEN_FULL + ' instead - that tab has no header');
+    }
+}
+
 // Asked twice at most: the Claude extension may still be starting. One that
 // timed out is not asked again - the first may yet land, and a second would
-// only wait behind it.
-async function openWith(c, sessionId) {
+// only wait behind it. Each try works the column out again.
+async function openWith(sessionId) {
     for (let i = 0; i < 2; i++) {
-        try { await command(c, sessionId); return true; }
+        try { await openOnce(sessionId); return true; }
         catch (e) {
-            log(c + ' failed: ' + (e && e.message));
             if (e && e.timedOut) return false;
             if (i === 0) await sleep(timing.retry);
         }
@@ -410,7 +505,7 @@ function sameGroup(a, b) {
 }
 
 // The Claude extension locks the group it makes for its tabs
-// (claudeCode.lockEditorGroups, on by default), and primaryEditor.open lands
+// (claudeCode.lockEditorGroups, on by default), and a chat opened here lands
 // in such a group - so the next file opened goes to another group, or a new
 // one. The group unlocked is the one holding the chat's tab, and only while
 // it is the active group - the command acts on that one, whichever it is -
@@ -444,10 +539,21 @@ async function unlockClaudeGroup(title, before, how) {
 // taken as sure: closing the wrong one would cut off the other chat, maybe
 // mid-answer.
 async function showTab(req) {
+    // listed first, as any open is; one never listed is offered a terminal,
+    // and one out of the list while it works is left for later
+    const listed = await ensureListed(req);
+    if (listed === 'unlistable') {
+        offerTerminal(req).catch(e => log('the terminal offer failed: ' + (e && e.message)));
+        return 'unlistable';
+    }
+    if (listed === 'held' || listed === 'unmended') {
+        vscode.window.showInformationMessage((listed === 'held' ? texts.hiddenBusy : texts.unmended)(req));
+        return listed;
+    }
     const before = allTabs().filter(isClaudeTab);
     const beforeActive = activeTab();
     const up = async (how) => { await unlockClaudeGroup(req.title, before, how); return how; };
-    await command(OPEN, req.sessionId);
+    await openOnce(req.sessionId);
     await sleep(timing.tabSettle);
     if (await tabAppeared(before)) return up('new');
     let t = activeTab();
@@ -475,7 +581,7 @@ async function showTab(req) {
     if (tabGrew(before)) return up('new');
     await bounded(vscode.window.tabGroups.close(t), 'closing the tab');
     await sleep(timing.tabSettle);
-    await command(OPEN, req.sessionId);
+    await openOnce(req.sessionId);
     // for the new tab to be there when its group is looked for
     await sleep(timing.tabSettle);
     return up('reopened');
@@ -483,12 +589,228 @@ async function showTab(req) {
 
 function hostPidsOf(req) { return Array.isArray(req.hostPids) ? req.hostPids : []; }
 
-// The open itself, behind the open chip's guards and the picker's:
-// primaryEditor.open, a look for a new tab, the group unlocked, and a line
-// in the log ending in why. 'new', 'revealed', or 'failed' - said.
+// --- chats Claude Code leaves out of its lists -----------------------------
+// Claude Code (2.1.281 to 2.1.283 at least: _j in its extension, v5o in its
+// CLI) takes a chat for one an SDK started, and leaves it out of every
+// session list, when the first "entrypoint" in the transcript's first 64 KB -
+// else, with none there, the last one in its last 64 KB - is sdk-cli, sdk-ts
+// or sdk-py. Such a chat cannot be restored into a tab either: its webview
+// declines, and starts a blank chat. chatq's runs were claude -p, which
+// writes sdk-cli, so a chat whose first prompt was a pasted screenshot - 64
+// KB of base64 and no entrypoint - fell out of the list after one queued
+// prompt or phone reply, and a new chat chatq started was never in it. The
+// watcher mends a chat as its run ends (Repair-ChatListed in
+// src/live-chats.ps1, the same rule and the same line); these mend what is
+// still out as a chat is opened - one hidden before, or whose run was cut
+// short.
+const CLAUDE_SPAN = 65536;
+const SDK_ENTRYPOINTS = new Set(['sdk-cli', 'sdk-ts', 'sdk-py']);
+
+// A JSON string's text from from, the index after its opening quote: [text,
+// the index of its closing quote], or null where the text ends first. Pure.
+function jsonStringAt(text, from) {
+    for (let i = from; i < text.length; i++) {
+        if (text[i] === '\\') { i++; continue; }
+        if (text[i] !== '"') continue;
+        let v = text.slice(from, i);
+        if (v.includes('\\')) { try { v = JSON.parse('"' + v + '"'); } catch (e) { } }
+        return [v, i];
+    }
+    return null;
+}
+
+// The first "entrypoint" value in text, or with last the last one, found as
+// Claude Code finds it: by its key, with or without a space after the
+// colon - where the first is wanted, the form without one is looked for
+// first, wherever the other stands. Undefined for none. Pure.
+function entrypointIn(text, last) {
+    const keys = ['"entrypoint":"', '"entrypoint": "'];
+    let found, at = -1;
+    for (const k of keys) {
+        for (let from = 0; ;) {
+            const i = text.indexOf(k, from);
+            if (i < 0) break;
+            const v = jsonStringAt(text, i + k.length);
+            if (!v) break;
+            if (!last) return v[0];
+            if (i > at) { found = v[0]; at = i; }
+            from = v[1] + 1;
+        }
+    }
+    return found;
+}
+
+// Why Claude Code leaves a chat out of its lists, by its transcript's first
+// and last 64 KB: 'head' - its head says an SDK started it, which nothing
+// added at the end changes; 'tail' - its head names no entrypoint and its
+// tail's last is an SDK's, which one line more mends; '' - it is listed.
+// Claude Code's other test, a daemon's sessionKind, is none of chatq's
+// doing and left out. Pure.
+function unlistedWhy(head, tail) {
+    const h = entrypointIn(head, false);
+    if (h !== undefined) return SDK_ENTRYPOINTS.has(h) ? 'head' : '';
+    const t = entrypointIn(tail, true);
+    return t !== undefined && SDK_ENTRYPOINTS.has(t) ? 'tail' : '';
+}
+
+// A transcript's first and last 64 KB, read as Claude Code reads them - the
+// tail is the head where the file is no bigger - else null.
+async function headAndTail(file) {
+    let fh;
+    try { fh = await fsp.open(file, 'r'); } catch (e) { return null; }
+    try {
+        const size = (await fh.stat()).size;
+        const head = await readSpan(fh, 0, CLAUDE_SPAN);
+        const tail = size > CLAUDE_SPAN ? await readSpan(fh, size - CLAUDE_SPAN, CLAUDE_SPAN) : head;
+        return { head, tail };
+    } catch (e) {
+        return null;
+    } finally {
+        try { await fh.close(); } catch (e) { }
+    }
+}
+
+// The line that lists a chat again: a record of chatq's own type, which
+// Claude Code's loaders pass over as they pass over any type they do not
+// know (spike S37), carrying the entrypoint of a VS Code panel - the one
+// about to open it. No timestamp: chatq's index takes a chat's last
+// activity from the last one in its tail, and this line is none. Byte for
+// byte Get-ChatListedLine's (src/live-chats.ps1). Pure.
+function listedLine(sid) {
+    return JSON.stringify({ type: 'chatq-listed', entrypoint: 'claude-vscode', sessionId: sid }) + '\n';
+}
+
+// A chat's transcript: the one the picker listed, or the script found -
+// taken only as <id>.jsonl, so a request names no other file to write to -
+// else <id>.jsonl in its folder's project folder of its Claude home. Null
+// when there is none.
+async function transcriptOf(req) {
+    if (req.file && path.basename(String(req.file)).toLowerCase() === String(req.sessionId).toLowerCase() + '.jsonl') return String(req.file);
+    const dir = req.cwd ? await projectDir(req.home || claudeHome(), req.cwd) : null;
+    return dir ? path.join(dir, req.sessionId + '.jsonl') : null;
+}
+
+// Before a chat is opened in a tab. One Claude Code leaves out by its tail
+// alone is listed again by a line at its end, as Claude Code's own rename
+// adds a custom-title line there, beside a process or not - but not while
+// one may be writing to it: busy or waiting - a claude -p going into it
+// reads busy, its registry kind interactive as Claude Code 2.1.283 writes
+// it - or of a kind that is not interactive ('held'). An idle one writes
+// nothing. The file keeps its write time: the line is no activity, and
+// chatq judges a chat written in the last minute as working - unless
+// something else wrote meanwhile, whose time is never taken back. One its
+// head leaves out can never be listed ('unlistable'), and one whose line
+// could not be written stays out ('unmended'). None of the three is
+// opened: each would only make a blank tab. Where the transcript is not
+// found or not read, the open goes ahead as it would have. 'listed',
+// 'relisted', 'unlistable', 'held', 'unmended' or 'unknown'. Never throws.
+async function ensureListed(req) {
+    const sid = String(req.sessionId || '');
+    let file, ht, why;
+    try {
+        file = await transcriptOf(req);
+        ht = file ? await headAndTail(file) : null;
+        if (!ht) return 'unknown';
+        why = unlistedWhy(ht.head, ht.tail);
+    } catch (e) {
+        log('open ' + sid.slice(0, 8) + ': its transcript could not be read: ' + (e && e.message));
+        return 'unknown';
+    }
+    if (!why) return 'listed';
+    if (why === 'head') { log('open ' + sid.slice(0, 8) + ': Claude Code leaves it out of its lists - its first record is an SDK\'s'); return 'unlistable'; }
+    try {
+        const writing = (readRegistry(req.home || claudeHome(), Date.now()).get(sid) || [])
+            .some(e => (e.kind && e.kind !== 'interactive') || e.status === 'busy' || e.status === 'waiting');
+        if (writing) {
+            log('open ' + sid.slice(0, 8) + ': left out of Claude Code\'s lists, and a process is writing to it - not mended, not opened');
+            return 'held';
+        }
+        // Opened as Claude Code's rename opens it: to append, never to make
+        // a file - one gone meanwhile is not written back as a stub - and
+        // an empty one left alone. A line of its own, even where the last
+        // one lacks its end.
+        const line = Buffer.from((ht.tail.endsWith('\n') ? '' : '\n') + listedLine(sid), 'utf8');
+        const fh = await fsp.open(file, fs.constants.O_WRONLY | fs.constants.O_APPEND);
+        let was;
+        try {
+            was = await fh.stat();
+            if (!was.isFile() || was.size === 0) throw new Error('not a transcript to write to');
+            await fh.appendFile(line);
+        } finally {
+            try { await fh.close(); } catch (e) { }
+        }
+        // nothing else wrote meanwhile: its write time as it was - and
+        // looked at once more, so a write in that instant keeps a time of now
+        try {
+            const size = async () => (await fsp.stat(file)).size;
+            if (await size() === was.size + line.length) {
+                await fsp.utimes(file, was.atime, was.mtime);
+                if (await size() !== was.size + line.length) await fsp.utimes(file, new Date(), new Date());
+            }
+        } catch (e) { log('open ' + sid.slice(0, 8) + ': its write time not put back: ' + (e && e.message)); }
+        log('open ' + sid.slice(0, 8) + ': listed again - Claude Code had left it out, an SDK run\'s record last in it');
+        return 'relisted';
+    } catch (e) {
+        log('open ' + sid.slice(0, 8) + ': left out of Claude Code\'s lists, and mending it failed: ' + (e && e.message) + ' - not opened');
+        return 'unmended';
+    }
+}
+
+// Where a terminal's claude comes from: the Claude extension's own, which
+// is what it runs itself, else the one on PATH.
+function claudeExe() {
+    const ext = vscode.extensions && vscode.extensions.getExtension && vscode.extensions.getExtension('anthropic.claude-code');
+    if (ext && ext.extensionPath) {
+        const f = path.join(ext.extensionPath, 'resources', 'native-binary', process.platform === 'win32' ? 'claude.exe' : 'claude');
+        if (module.exports._overlayIo.exists(f)) return f;
+    }
+    return 'claude';
+}
+
+// A chat no tab can show, offered in a terminal instead: claude --resume,
+// run as the terminal's own process, so no shell has to read its
+// arguments. One offer at a time per chat - a second click while one is
+// up asks nothing more. The answer may come minutes later, so what runs
+// the chat is read again first: anything running it by then - a terminal,
+// a VS Code panel, a queued prompt - and a second process would fork it,
+// so none is started. 'terminal', 'not now', 'asked' or 'running'.
+const terminalOffers = new Set();
+async function offerTerminal(req) {
+    const sid = String(req.sessionId || '');
+    if (terminalOffers.has(sid)) return 'asked';
+    terminalOffers.add(sid);
+    let pick;
+    try { pick = await vscode.window.showInformationMessage(texts.unlistable(req), 'Open in a terminal', 'Not now'); }
+    finally { terminalOffers.delete(sid); }
+    if (pick !== 'Open in a terminal') return 'not now';
+    if (chatState(readRegistry(req.home || claudeHome(), Date.now()).get(sid)) !== 'closed') {
+        vscode.window.showInformationMessage(texts.terminalBusy(req));
+        log('open ' + sid.slice(0, 8) + ': not in a terminal - it runs somewhere by now');
+        return 'running';
+    }
+    const opts = { name: 'Claude: ' + (req.title ? formatTitle(req.title, 30) : sid.slice(0, 8)),
+        shellPath: claudeExe(), shellArgs: ['--resume', sid] };
+    if (req.cwd) opts.cwd = req.cwd;
+    if (req.home) opts.env = { CLAUDE_CONFIG_DIR: req.home };
+    vscode.window.createTerminal(opts).show();
+    log('open ' + sid.slice(0, 8) + ': in a terminal');
+    return 'terminal';
+}
+
+// The open itself, behind the open chip's guards and the picker's: the
+// chat listed where it can be, the open (openCall), a look for a new tab,
+// the group unlocked, and a line in the log ending in why. 'new',
+// 'revealed', 'failed', 'unlistable', 'held' or 'unmended' - said.
 async function openCore(req, before, why) {
     let how;
-    if (!(await openWith(OPEN, req.sessionId))) {
+    const listed = await ensureListed(req);
+    if (listed === 'unlistable') {
+        how = 'unlistable';
+        offerTerminal(req).catch(e => log('the terminal offer failed: ' + (e && e.message)));
+    } else if (listed === 'held' || listed === 'unmended') {
+        how = listed;
+        vscode.window.showInformationMessage((listed === 'held' ? texts.hiddenBusy : texts.unmended)(req));
+    } else if (!(await openWith(req.sessionId))) {
         vscode.window.showInformationMessage(texts.notOpened(req));
         how = 'failed';
     } else {
@@ -502,9 +824,9 @@ async function openCore(req, before, why) {
 
 // The overlay's open chip: the chat in a tab, or the tab already showing it
 // brought forward. The chip's script ended nothing, so a tab there already
-// is up to date and only revealed - and the Claude extension's
-// primaryEditor.open never rewrites its preferredLocation setting, as
-// editor.open does. It does not look at the side bar, though: a chat held
+// is up to date and only revealed - and the open (openCall) never rewrites
+// the Claude extension's preferredLocation setting, as a plain editor.open
+// does. It does not look at the side bar, though: a chat held
 // there gets a second panel and a second process. Held idle, that is said
 // once; held working, it is not opened at all, since the second process
 // would start mid-turn.
@@ -680,7 +1002,12 @@ async function offer(context, req, file) {
 
     const auto = reloadsItself(req, setting('autoReload'), setting('autoReloadAfterRun'), exact, age);
     if (fresh) {
-        if (auto) {
+        const by = showsItself(req, setting('autoReloadAfterRun'), exact, age);
+        if (by === 'show it') {
+            log(req.kind + ' ' + (req.sessionId || '').slice(0, 8) + ' by itself: Show it, its idle process here (away ' + req.away + ', busy ' + req.busy + ')');
+            return showIt(req, file);
+        }
+        if (auto || by === 'tab') {
             log(req.kind + ' ' + (req.sessionId || '').slice(0, 8) + ' by itself: busy ' + req.busy + ', oldProcess ' + req.oldProcess);
             const how = plan(req, { busy: req.busy, oldProcess: req.oldProcess }, { fresh: true, claude: true });
             return enqueue(() => perform(how, req));
@@ -702,6 +1029,7 @@ async function offer(context, req, file) {
         reloadWindow();
         return;
     }
+    if (req.kind === 'new') { vscode.window.showInformationMessage(message(req, false)); return; }
     const busy = req.busy === true;
     const go = busy ? 'Reload anyway' : 'Reload';
     const pick = busy
@@ -722,10 +1050,10 @@ function check(context, file, onlyRecent) {
         // was about was rebuilt from disk when this window opened
         const at = Date.parse(req.at || '');
         if (!at || Date.now() - at > 10 * 60 * 1000) return;
-        // a window just opened has read every chat from disk, the run - or
-        // the new chat it started - included, so it has nothing to reload
-        // for; and a run's away verdict, given as it ended, is stale with
-        // someone opening windows
+        // a window just opened has read every chat from disk, the run
+        // included, so it has nothing to reload for - and the new chat a
+        // run started is one no reload lists; and a run's away verdict,
+        // given as it ended, is stale with someone opening windows
         if (req.kind === 'ran' || req.kind === 'new') { context.globalState.update(SEEN_KEY, req.id); return; }
     }
     return offer(context, req, file);
@@ -1151,7 +1479,7 @@ async function openChat() {
 // a while. A terminal holds it, or a queued prompt goes into it: never.
 // Working in VS Code: only its one tab here brought forward - anything else
 // starts a second copy mid-answer. Open idle elsewhere - another window, or
-// the side bar, which primaryEditor.open does not look at - only when asked.
+// the side bar, which the open (openCall) does not look at - only when asked.
 // Nothing runs it: opened from disk. Its one tab here counts only while no
 // other chat of its folder shares the tab's label. And it is read once more
 // after the question, which may sit unanswered for minutes, and again right
@@ -1162,7 +1490,7 @@ async function acceptChat(c) {
     const d = await describeChat(c);
     const title = d && !d.skip ? d.title : '';
     // the title as written for the tabs, and shortened for what is said
-    const req = { kind: 'pick', sessionId: c.sid, title };
+    const req = { kind: 'pick', sessionId: c.sid, title, cwd: c.cwd, file: c.file };
     const said = { title: title ? formatTitle(title) : '' };
     let state;
     // what runs it now, and whether it has a tab here that is surely its own
@@ -1395,15 +1723,15 @@ async function overlayAutoStart() {
 }
 
 // Chat Manager: Phone alerts... - the setup window for Join alerts and for
-// answering them from the phone, as chatqnotify -Setup opens it from a
+// answering them from the phone, as chatnotify -Setup opens it from a
 // terminal. That window is WPF in a process of its own, so Windows only;
-// elsewhere the same settings are chatqnotify's switches, and this says so.
+// elsewhere the same settings are chatnotify's switches, and this says so.
 // Run through the tool folder's loader and setup's runPs, as
 // overlayAutoStart is, so the tests stand in for PowerShell. The script's
 // one "phone setup ..." line says whether the window came; the window itself
 // is the answer when it did. Never throws.
 const phoneTexts = {
-    windowsOnly: 'The phone alerts window is Windows-only. In a terminal, chatqnotify -Setup lists the same settings as chatqnotify switches.',
+    windowsOnly: 'The phone alerts window is Windows-only. In a terminal, chatnotify -Setup lists the same settings as chatnotify switches.',
     noLoader: folder => 'The scripts are not in ' + folder + ', so the phone alerts window cannot open. Chat Manager: Install terminal commands puts them there.',
     already: 'The phone alerts window is already open.',
     failed: said => (said ? 'The phone alerts window: ' + said + '.' : 'The phone alerts window did not open.') + ' Chat Manager: Show log has the details.'
@@ -1426,7 +1754,7 @@ async function phoneAlerts() {
         const exe = io.powershell(platform);
         if (!exe) { vscode.window.showWarningMessage(phoneTexts.failed('')); return done('no PowerShell found'); }
         // Write-Host is the information stream: *>&1 brings it to stdout
-        const r = await setup._runPs(exe, loader, 'chatqnotify -Setup *>&1 | Out-String -Width 200', 60000, log);
+        const r = await setup._runPs(exe, loader, 'chatnotify -Setup *>&1 | Out-String -Width 200', 60000, log);
         const said = lastSaid(r && r.stdout, /phone setup/);
         if (/opens in its own window|is still starting/.test(said)) return done(said);
         if (/already open/.test(said)) { vscode.window.showInformationMessage(phoneTexts.already); return done('already open'); }
@@ -1501,6 +1829,12 @@ module.exports = {
     _oneTabOf: oneTabOf, _openCore: openCore, _chatSlug: chatSlug, _listChats: listChats, _isNoise: isNoise, _formatTitle: formatTitle,
     _readChat: readChat, _describeChat: describeChat, _titleCache: titleCache, _readRegistry: readRegistry, _chatState: chatState,
     _ageText: ageText, _pickItem: pickItem, _openChat: openChat, _acceptChat: acceptChat, _claudeHome: claudeHome,
-    _labelShared: labelShared, _noIcons: noIcons, _overlayAutoStart: overlayAutoStart
+    _labelShared: labelShared, _noIcons: noIcons, _overlayAutoStart: overlayAutoStart,
+    _openCall: openCall, _claudeColumn: claudeColumn, _versionAtLeast: versionAtLeast, _openOnce: openOnce,
+    _showsItself: showsItself
 };
 module.exports._phoneAlerts = phoneAlerts;
+Object.assign(module.exports, {
+    _entrypointIn: entrypointIn, _unlistedWhy: unlistedWhy, _headAndTail: headAndTail, _listedLine: listedLine,
+    _ensureListed: ensureListed, _offerTerminal: offerTerminal, _claudeExe: claudeExe
+});

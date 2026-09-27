@@ -99,3 +99,94 @@ $rootSlug = ($driveRoot -replace '[^A-Za-z0-9]', '-')
 Check 'a new chat at a drive''s root keeps the root, and the slug Claude gives it' (
     $nroot.cwd -eq $driveRoot -and $nroot.group -eq $rootSlug -and (Get-ChatSlug 'D:\a\b\') -eq 'D--a-b' -and (Get-ChatSlug 'C:\') -eq 'C--') "$($nroot.cwd) $($nroot.group)"
 foreach ($x in $nj, $follow, $nl, $nr, $nroot) { $null = Remove-ChatqJob (Find-ChatqJob $x.id) 'test' }
+
+# Claude Code's lists: a chat whose head names no entrypoint - a pasted
+# screenshot first - is left out of them by the sdk-cli a claude -p run
+# stamps last, and listed again as a run into it ends (Repair-ChatListed)
+$epl = { param($v) '{"type":"user","entrypoint":"' + $v + '","message":{"role":"user","content":"x"}}' + "`n" }
+Check 'the list rule: the first entrypoint as Claude Code finds it - the key without a space first, the last by place, escapes read, one cut off none' (
+    (Get-ChatEntrypointIn ('{"entrypoint": "x"}' + "`n" + '{"entrypoint":"y"}')) -eq 'y' -and
+    (Get-ChatEntrypointIn ('{"entrypoint":"a"}' + "`n" + '{"entrypoint": "b"}') -Last) -eq 'b' -and
+    (Get-ChatEntrypointIn ('{"entrypoint": "b"}' + "`n" + '{"entrypoint":"a"}') -Last) -eq 'a' -and
+    (Get-ChatEntrypointIn '{"entrypoint":"s\"x"}') -eq 's"x' -and $null -eq (Get-ChatEntrypointIn '{"entrypoint":"sdk-c') -and
+    (Get-ChatEntrypointIn ('{"entrypoint":"a"}' + "`n" + '{"entrypoint":"sdk-c') -Last) -eq 'a' -and $null -eq (Get-ChatEntrypointIn 'none' -Last))
+Check 'the list rule: an SDK''s entrypoint first in the head hides a chat for good; with none in the head the tail''s last decides' (
+    (Get-ChatUnlistedWhy (& $epl 'claude-vscode') (& $epl 'sdk-cli')) -eq '' -and (Get-ChatUnlistedWhy (& $epl 'sdk-cli') (& $epl 'claude-vscode')) -eq 'head' -and
+    (Get-ChatUnlistedWhy 'none' ((& $epl 'claude-vscode') + (& $epl 'sdk-cli'))) -eq 'tail' -and
+    (Get-ChatUnlistedWhy 'none' ((& $epl 'sdk-cli') + (& $epl 'claude-vscode'))) -eq '' -and
+    (Get-ChatUnlistedWhy (& $epl '') (& $epl 'sdk-cli')) -eq '' -and (Get-ChatUnlistedWhy 'none' 'none') -eq '')
+$shotRec = ([ordered]@{ type = 'user'; message = [ordered]@{ role = 'user'; content = ('A' * 70000) } } | ConvertTo-Json -Compress) + "`n"
+$hidText = $shotRec + (& $epl 'claude-vscode') + (& $epl 'sdk-cli') + '{"type":"ai-title","aiTitle":"hidden by its tail"}' + "`n"
+$lDir = Join-Path $sb 'listed'
+$null = New-Item -ItemType Directory -Path $lDir -Force
+$then = (Get-Date).ToUniversalTime().AddHours(-3)
+$mkL = { param([string]$Name, [string]$Text) $f = Join-Path $lDir "$Name.jsonl"; [System.IO.File]::WriteAllText($f, $Text, $utf8); [System.IO.File]::SetLastWriteTimeUtc($f, $then); $f }
+$lTail = & $mkL 'tail' $hidText
+$lWhy0 = (Read-ChatHeadTail $lTail) | ForEach-Object { Get-ChatUnlistedWhy $_.Head $_.Tail }
+$lR1 = Repair-ChatListed -Path $lTail -SessionId 'sid-tail'
+$lLast = @([System.IO.File]::ReadAllLines($lTail, $utf8))[-1]
+$lWhy1 = (Read-ChatHeadTail $lTail) | ForEach-Object { Get-ChatUnlistedWhy $_.Head $_.Tail }
+$lR2 = Repair-ChatListed -Path $lTail -SessionId 'sid-tail'
+Check 'hidden by its tail: one line of chatq''s own at the end, as the extension writes it, naming a VS Code panel and no time - listed again, its write time kept, and a second look adds none' (
+    $lWhy0 -eq 'tail' -and $lR1 -eq 'relisted' -and $lWhy1 -eq '' -and $lR2 -eq 'listed' -and
+    $lLast -ceq '{"type":"chatq-listed","entrypoint":"claude-vscode","sessionId":"sid-tail"}' -and
+    @([System.IO.File]::ReadAllLines($lTail, $utf8)).Count -eq 5 -and [System.IO.File]::GetLastWriteTimeUtc($lTail) -eq $then) "$lWhy0 $lR1 $lWhy1 $lR2 $lLast"
+$lCut = & $mkL 'cut' ($hidText.TrimEnd("`n"))
+$lR3 = Repair-ChatListed -Path $lCut -SessionId 'sid-cut'
+$cutOk = $true
+foreach ($l in [System.IO.File]::ReadAllLines($lCut, $utf8)) { try { $null = $l | ConvertFrom-Json } catch { $cutOk = $false } }
+$lHead = & $mkL 'head' ((& $epl 'sdk-cli') + (& $epl 'sdk-cli'))
+$lBusy = & $mkL 'busy' $hidText
+$lIdle = & $mkL 'idle' $hidText
+$lR4 = Repair-ChatListed -Path $lHead -SessionId 'sid-head'
+$lR5 = Repair-ChatListed -Path $lBusy -SessionId 'sid-busy' -Live @([pscustomobject]@{ SessionId = 'sid-busy'; Status = 'busy'; Kind = 'interactive' })
+$lR5b = Repair-ChatListed -Path $lBusy -SessionId 'sid-busy' -Live @([pscustomobject]@{ SessionId = 'sid-busy'; Status = 'idle'; Kind = 'print' })
+$lR6 = Repair-ChatListed -Path $lIdle -SessionId 'sid-idle' -Live @([pscustomobject]@{ SessionId = 'sid-idle'; Status = 'idle'; Kind = 'interactive' })
+$lR7 = Repair-ChatListed -Path (Join-Path $lDir 'gone.jsonl') -SessionId 'sid-gone'
+Check 'its last line lacking its end: the new one on a line of its own; hidden by its head: unlistable, untouched; a process busy in it, or a print-mode run: held; one idle: mended; no file: nothing made' (
+    $lR3 -eq 'relisted' -and $cutOk -and $lR4 -eq 'unlistable' -and [System.IO.File]::ReadAllText($lHead, $utf8) -eq ((& $epl 'sdk-cli') + (& $epl 'sdk-cli')) -and
+    $lR5 -eq 'held' -and $lR5b -eq 'held' -and [System.IO.File]::ReadAllText($lBusy, $utf8) -eq $hidText -and $lR6 -eq 'relisted' -and
+    $lR7 -eq 'unknown' -and -not (Test-Path -LiteralPath (Join-Path $lDir 'gone.jsonl'))) "$lR3 $cutOk $lR4 $lR5 $lR5b $lR6 $lR7"
+# the watcher: a run into such a chat lists it again as it ends; a new chat,
+# its first record an SDK's, is left - nothing can list it
+$hidId = 'a1b2c3d4-0000-4000-8000-00000000c0de'
+# a first prompt of 70 KB and no entrypoint in any record, then an old run's
+$hidPath = New-FakeChat $newDir $hidId 'hidden by its tail' 1 @(('A' * 70000), 'and then')
+[System.IO.File]::AppendAllText($hidPath, (& $epl 'sdk-cli'), $utf8)
+$hidRow = Get-ChatqRowById $hidId -Path $hidPath
+$hj = (New-ChatqJob -Row $hidRow -Prompt 'after the screenshot' -Rule 'picked').Job
+Invoke-ChatqJob $W (Find-ChatqJob $hj.id)
+$hjDone = Find-ChatqJob $hj.id
+$hidLast = @([System.IO.File]::ReadAllLines($hidPath, $utf8))[-1]
+$wlog = [System.IO.File]::ReadAllText((Join-Path $script:ChatqLogDir 'watcher.log'), $utf8)
+Check 'a run into a chat Claude Code leaves out by its tail: listed again as it ends, and the log says so; a new chat, its head an SDK''s, is left as it is' (
+    $hjDone.state -eq 'done' -and $hidLast -ceq (Get-ChatListedLine $hidId) -and $wlog -like "*#$($hjDone.seq) listed again*" -and
+    [System.IO.File]::ReadAllText($nj.path, $utf8) -notlike '*chatq-listed*') "$($hjDone.state) $hidLast"
+$null = Remove-ChatqJob (Find-ChatqJob $hj.id) 'test'
+# the requests name the transcript where it is known, for the window to mend
+# before it opens the chat; without one, the field is not there
+Write-ChatOpenRequest -SessionId $hidId -Cwd $newDir -Title 't' -Transcript $hidPath
+$oq = [System.IO.File]::ReadAllText($script:ChatOpenPath, $utf8) | ConvertFrom-Json
+Write-ChatOpenRequest -SessionId $hidId -Cwd $newDir -Title 't'
+$oq2 = [System.IO.File]::ReadAllText($script:ChatOpenPath, $utf8) | ConvertFrom-Json
+Write-ChatReloadRequest -Title 't' -Cwd $newDir -Kind 'ran' -SessionId $hidId -Transcript $hidPath
+$rq = [System.IO.File]::ReadAllText($script:ChatReloadPath, $utf8) | ConvertFrom-Json
+Write-ChatReloadRequest -Title 't' -Cwd $newDir -Kind 'ran' -SessionId $hidId
+$rq2 = [System.IO.File]::ReadAllText($script:ChatReloadPath, $utf8) | ConvertFrom-Json
+Check 'the open and run requests carry the transcript''s path where given, and no such field where not' (
+    $oq.file -eq $hidPath -and -not $oq2.PSObject.Properties['file'] -and $rq.file -eq $hidPath -and -not $rq2.PSObject.Properties['file']) "$($oq.file) / $($rq.file)"
+Remove-Item -LiteralPath $script:ChatOpenPath, $script:ChatReloadPath -Force -EA SilentlyContinue
+# the append: a record another process adds after the open is never written
+# over - this line lands after it - and a file gone is never made again
+$ap = & $mkL 'append' "first`n"
+$afs = Open-ChatAppend $ap
+# another writer, sharing as Claude Code's own do, at the end it sees
+$other = [System.IO.FileStream]::new($ap, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
+$null = $other.Seek(0, [System.IO.SeekOrigin]::End)
+$tb = $utf8.GetBytes("theirs`n"); $other.Write($tb, 0, $tb.Length); $other.Dispose()
+$ab = $utf8.GetBytes("ours`n")
+$afs.Write($ab, 0, $ab.Length); $afs.Dispose()
+$apGone = Join-Path $lDir 'append-gone.jsonl'
+$apRefused = try { (Open-ChatAppend $apGone).Dispose(); $false } catch { $true }
+Check 'the line is appended as the extension appends it: a record another process adds after the open stays, and this lands after it; no file is made' (
+    [System.IO.File]::ReadAllText($ap, $utf8) -eq "first`ntheirs`nours`n" -and $apRefused -and -not (Test-Path -LiteralPath $apGone)) ([System.IO.File]::ReadAllText($ap, $utf8))

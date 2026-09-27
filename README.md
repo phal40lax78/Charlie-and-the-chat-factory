@@ -110,7 +110,7 @@ scripts there are another version than itself.
 | `chatqrm <n> [-Force]` | drop a job; `-Force` cancels a running one |
 | `chatqrun [<n>] [-Now] [-First] [-Stop]` | requeue *n*, move it up, stop waiting and try now, stop the watcher |
 | `chatqlog <n> [-Raw]` | what a run did |
-| `chatqnotify [-Setup] [-Pair] [-Test]` | desktop, phone and command alerts, and replies from the phone; `-Setup` has all of it in a window (Windows) |
+| `chatnotify [-Setup] [-Pair] [-Test]` | desktop, phone and command alerts, and replies from the phone; `-Setup` has all of it in a window (Windows) |
 | `chatoverlay [-Stop] [-Collapse] [-Refresh] [-Console] [-Theme dark\|light\|system] [-Print]` | every open chat, the queue and live usage in a panel that stays on top; `-Console` opens the console |
 | `chatconsole` | all of the above in the panel, grown into a console: write, send now, queue, continue, new chats; Esc for the panel again (Windows) |
 | `chatproviders` / `chatindex` | which tools were found / rebuild the index |
@@ -332,7 +332,11 @@ A Copilot chat is found but refused: no CLI can resume one.
   ask a question is denied, since nobody is there to answer.
 - **Needs input:** a denied tool, or plan mode stopping at a plan, parks the job
   and the queue moves on. `chatqrun <n> -Mode acceptEdits` sends it a "continue"
-  in a mode that allows it.
+  in a mode that allows it. Or answer it in the chat itself: once anything is
+  typed there after the job stopped - in VS Code, a terminal, or by a later
+  job - the overlay skips the job, `answered in the chat`, as a reply from
+  the phone skips one, and nothing says it needs you any more. The overlay
+  has to be running for that; until then, `chatqrm <n>`.
 - **A limit hit again mid-run** puts the job back; if its prompt had reached the
   chat, the retry is a "continue", never the prompt twice.
 - **`API Error: 529 Overloaded`** (any 5xx) is Anthropic's side. The job goes back
@@ -358,7 +362,8 @@ if the chat moved on meanwhile; one you asked for is always sent.
 - **`chatqlist`** is one line per job, fitted to the terminal; a long prompt
   shows its first line and a size note. Above them, what everything waits on and
   how much of each window is used — `usage  Claude 5h 83% · week 41% (as of
-  12:10)` — read from Claude's and Codex's own caches, with their age. Those
+  12:10)` — read from Claude's and Codex's own caches, with their age, or for
+  Claude the overlay's live figure where that is newer. Those
   caches only refresh when the tool itself runs, so a reading over an hour old
   is marked `stale`, and the window that is blocked reads `limited`
   (`5h limited`) rather than a percentage from before the limit.
@@ -384,7 +389,7 @@ the chats you run yourself are doing - with a desktop toast, a push to your
 phone through Join or ntfy, or a command of your own. With a phone paired,
 you can answer an alert from the phone.
 
-**The setup window.** `chatqnotify -Setup` opens all of it in one window -
+**The setup window.** `chatnotify -Setup` opens all of it in one window -
 also **Phone alerts...** in the overlay's tray menu, and **Chat Manager:
 Phone alerts...** in VS Code's command palette:
 - **Join:** paste the API key from <https://joinjoaomgcd.appspot.com> (the
@@ -406,17 +411,20 @@ Phone alerts...** in VS Code's command palette:
 switches below, so the two never disagree. **Send test** saves first, and
 sends in the background, so the window stays live however slow the network
 is; closing it with something unsaved asks first, in the window. One window
-at a time. It is WPF, so Windows only; elsewhere `chatqnotify -Setup` prints
+at a time. It is WPF, so Windows only; elsewhere `chatnotify -Setup` prints
 the switches that do the same.
 
 ```powershell
-chatqnotify -Setup                                   # all of it in a window (Windows)
-chatqnotify -ApiKey <Join key> -Device group.phone   # Join
-chatqnotify -Ntfy <long random topic>                # ntfy.sh, free
-chatqnotify -Command '<PowerShell>'                  # anything else
-chatqnotify -Test
-chatqnotify                                          # what is set up, and the phone's state
+chatnotify -Setup                                   # all of it in a window (Windows)
+chatnotify -ApiKey <Join key> -Device group.phone   # Join
+chatnotify -Ntfy <long random topic>                # ntfy.sh, free
+chatnotify -Command '<PowerShell>'                  # anything else
+chatnotify -Test
+chatnotify                                          # what is set up, and the phone's state
 ```
+
+`chatqnotify`, the name from when alerts were only about chatq's queue,
+still works and does the same.
 
 | channel | |
 |---|---|
@@ -425,7 +433,7 @@ chatqnotify                                          # what is set up, and the p
 | ntfy | published as JSON, so Hangul survives; the topic works as a password — pick a long random one, or your own server with `-NtfyServer` / `-NtfyToken` |
 | your command | runs with `$env:CHATQ_EVENT`, `CHATQ_TITLE`, `CHATQ_TEXT`, `CHATQ_PRIORITY`, `CHATQ_JOB`, `CHATQ_PRESENT`; the text never goes on a command line; 30 s at most |
 
-| `chatqnotify` switch | |
+| `chatnotify` switch | |
 |---|---|
 | `-Setup` | the setup window (Windows); elsewhere it prints these switches |
 | `-ApiKey <key>` `-Device <id>` | Join. `-Device` takes a device id, a group (`group.phone`, `group.android`, `group.all`) or a device's name. A push URL pasted bare never reaches chatq - PowerShell stops at its first `&` - so paste the key, or the URL in quotes |
@@ -454,7 +462,7 @@ A few settings are only in `data/config.json`:
 
 **The phone stays quiet while you are at the PC** — keyboard or mouse used in
 the last 5 minutes (`-QuietMinutes`, 0 turns it off) — since the toast already
-says it there. `chatqnotify -Test` always goes through.
+says it there. `chatnotify -Test` always goes through.
 
 | event | priority | says |
 |---|---|---|
@@ -465,7 +473,7 @@ says it there. `chatqnotify -Test` always goes through.
 | `chatq · limited` | 0 | the limit came back mid-run; when it continues |
 | `chatq · overloaded` | 0 | a 529; what status.claude.com says; a reminder after 6 h |
 | `chatq · waiting` | 0 | a queued prompt's chat has been busy for 2 h; chatq waits until it is idle |
-| `chatq · test` | 1 | `chatqnotify -Test` or the window's **Send test** |
+| `chatq · test` | 1 | `chatnotify -Test` or the window's **Send test** |
 | `chatq · reply` | 1 | the PC's answer to a reply from the phone, or to a pairing |
 | `chatq · pair` | 2 | the pairing push |
 
@@ -474,7 +482,7 @@ go to `data/logs/alerts.log`. What they carry — the chat title, the end of the
 reply — passes through the push service's servers
 ([what else](#what-passes-through-whose-servers)).
 
-`chatqnotify` alone prints what is set up: Join and its device, ntfy, the
+`chatnotify` alone prints what is set up: Join and its device, ntfy, the
 command, the toast and the quiet minutes, the events the phone gets, whether
 the chats you run yourself alert and what stops them (quiet minutes 0, no
 overlay running, or an overlay running an older copy), and whether replies
@@ -483,7 +491,7 @@ last reply, and the answers to a pairing still waiting for their code.
 
 ### Reply from the phone
 
-Turn it on with `chatqnotify -Reply on`, or **Reply from the phone** in the
+Turn it on with `chatnotify -Reply on`, or **Reply from the phone** in the
 setup window, and [pair the phone](#pairing). From then on every phone alert
 carries a link: tap the notification, and a page opens on the phone with the chat's
 title, the job's number and the event. Type the chat's next prompt and press
@@ -512,7 +520,7 @@ title, the job's number and the event. Type the chat's next prompt and press
   first, so a double tap does neither.
 - **Status** answers with the status line, each open job and the usage.
 - **Send a test reply** answers with `reply reached <PC> after 3 s`: the
-  whole way back, checked. `chatqnotify -Test`, then a tap on the test
+  whole way back, checked. `chatnotify -Test`, then a tap on the test
   alert, is the way to try it.
 
 The page seals what you send on the phone - AES-256 and an HMAC-SHA256,
@@ -545,7 +553,7 @@ says was sent more than `reply.hours` and 10 minutes ago, and the 21st reply
 to one alert do nothing; the phone is told so, at most once per alert every
 10 minutes, with no link. The same message posted again runs once. The
 text is 8,000 characters at most (the page stops at about 2,900 bytes).
-`chatqnotify -Reply off` keeps the phone paired but makes every alert out
+`chatnotify -Reply off` keeps the phone paired but makes every alert out
 there dead, and stops the listening; `-Reply on` picks up again with no new
 pairing, and nothing sent while it was off is ever run.
 `data/logs/replies.log` says what became of each reply, for one that seemed
@@ -555,11 +563,11 @@ to go nowhere.
 <https://phal40lax78.github.io/VS-code-chat-manager/reply.html>: the
 repository's **Settings → Pages** has it deploy from the `main` branch,
 `/docs` folder. A fork that serves its own copy the same way points
-`chatqnotify -ReplyPage` at it.
+`chatnotify -ReplyPage` at it.
 
 ### Pairing
 
-A reply needs the phone paired once. `chatqnotify -Pair` - or **Pair
+A reply needs the phone paired once. `chatnotify -Pair` - or **Pair
 phone** in the setup window, or `-Reply on` with no phone paired - sends
 one push, `tap to let this phone answer chatq alerts - within 15 min`:
 
@@ -567,11 +575,11 @@ one push, `tap to let this phone answer chatq alerts - within 15 min`:
    and your PC's name; tap **Pair**. The phone makes a key of its own, sends it to
    the PC sealed to a public key the push carried, and shows a six-digit
    code, `123 456`.
-2. **On the PC,** confirm the same code. `chatqnotify -Pair`, in a console
+2. **On the PC,** confirm the same code. `chatnotify -Pair`, in a console
    that can ask, waits for the answer and asks,
    `Android - Chrome 128 answered - code 123 456` and
    `same code on the phone? (y/n)`; Ctrl+C stops waiting and leaves the
-   pairing open. Later, `chatqnotify -Confirm 123456`; in the window, the
+   pairing open. Later, `chatnotify -Confirm 123456`; in the window, the
    **Confirm** beside the answer with that code. A push saying
    `paired - Android - Chrome 128` follows.
 
@@ -623,12 +631,12 @@ says it goes once that is answered there.
 **The overlay has to be running** - on Windows it starts by itself - and
 only the Windows overlay sends them; there are none on macOS or Linux. The
 overlay loads its code once, as it starts: one started before an update
-runs the old code, which may have none of this, and `chatqnotify` says
+runs the old code, which may have none of this, and `chatnotify` says
 `the overlay runs an older copy`. `chatoverlay -Stop`, then `chatoverlay`.
 The alert is written to `data/outbox/` and a hidden process sends it, so the
 panel waits on no network; `data/logs/outbox.log` says what became of each,
 and one not sent within 30 minutes is dropped.
-`chatqnotify -LiveAlerts off`, or **Chats I run myself, when I'm away** in
+`chatnotify -LiveAlerts off`, or **Chats I run myself, when I'm away** in
 the window, keeps the phone to what chatq runs.
 
 ### What passes through whose servers
@@ -642,7 +650,7 @@ the window, keeps the phone to what chatq runs.
 **The page's site is shared.** A browser keeps the key per site, and every
 `<user>.github.io` project page is one site: a script on another of that
 account's pages, opened in the same browser, could use the key - not copy
-it, but post replies with it. `chatqnotify -ReplyPage <https URL>` serves
+it, but post replies with it. `chatnotify -ReplyPage <https URL>` serves
 the page from a copy on a site of its own, a custom domain or a
 `<name>.github.io` of its own. A phone paired on the old site has no key on
 the new one, so pair it again there.
@@ -700,7 +708,9 @@ A small panel in the top-right corner that stays above other windows:
   Continue, or `chatq <title> -Continue`, queues one.
 - **The queue.** A queued prompt rides on its chat's row (`#3 sends 13:01`), or
   has a purple row of its own when that chat is not open; blue while it runs.
-  Prompts queued with no watcher running are called out.
+  Prompts queued with no watcher running are called out. One parked on input
+  turns its row amber - until you go on in that chat yourself, which answers
+  it ([Needs input](#when-it-sends)).
 - **Recent,** under all of those, faint: the newest Claude chats not open,
   one line each - project, title, how long ago - five by default. Each
   opens as a tab from its chip, as an open row does. A side transcript, an
@@ -966,12 +976,13 @@ in the background with `claude -p --resume`, into the chat's own history. A
 chat open in VS Code shows the reply once that window shows it fresh - the
 extension does it, or offers it. A **new chat** runs `claude -p --session-id <id> --name <name>` in
 its folder: the id is chosen when it is queued, so a retry after a limit
-continues that same chat and never starts a second one; a window on that
-folder is offered a reload to pick it up. Whether VS Code's chat list shows a
-chat started this way is not yet confirmed (TESTING, S25); the console's
-**Write to this chat**, or `claude --resume <id>` in a terminal, reaches it
-either way. Until its first run has made it, the console says so rather than
-sending to it.
+continues that same chat and never starts a second one. VS Code's chat
+list never shows a chat `claude -p` started (**Chats Claude Code hides**,
+in the next section), so a window on that folder is only told it started:
+the console's **Write to this chat**, or `claude --resume <id>` in a
+terminal, reaches it, and the overlay's open chip offers the terminal.
+Until its first run has made it, the console says so rather than sending
+to it.
 
 **Below, the queue** - the jobs still to go and those that ended in the last
 day, each saying where it stands (`sends 13:01`, `running since 12:04`,
@@ -1002,9 +1013,10 @@ transcript.
 - **The chat is busy** (you are typing in it, or Claude's own auto-continue is
   running it): chatq waits, checking every 5 minutes.
 - **The chat is idle:** it runs, and asks that window to show the chat fresh
-  — or shows it for you when you are away (below). Its old idle process is
-  ended as the run finishes when you are away, and when you click **Show it**
-  otherwise, so the next message starts from the transcript on disk. With
+  — or shows it by itself (below). Its old idle process is ended as the
+  run finishes when you are away, and otherwise by **Show it**, which the
+  window runs by itself for a chat it has open, so the next message starts
+  from the transcript on disk. With
   `"liveIdle": "stop"` in `data/config.json` it is ended before the run
   instead.
 
@@ -1039,18 +1051,29 @@ certain, you are told to close the tab yourself. Where the window had the
 chat outside its tabs - in the side bar - it says that copy is stale now
 and can be closed. The tab's group is unlocked as the chip's is.
 
-**It shows the chat by itself when you are away** — nobody has used the PC
-for `quietMinutes` (5, the same clock that decides whether the phone gets an
-alert), no other chat in the folder is working or was written in that time
-as the run ends, the window is on exactly that folder, and that judgement is
-at most 20 seconds old. So you come back to a window that already shows the
-run. It asks instead:
-- at the PC — you may be typing in that very window; an idle clock that cannot
-  be read, or `quietMinutes` 0, counts as at the PC;
+**It shows the chat by itself** while the run's word on it is at most 20
+seconds old, in two cases:
+- **The chat is open here on an idle process** — its tab, or the side bar:
+  the window does **Show it** (below) as if you had clicked it, at the PC or
+  not, and whatever other chats do, since it touches that chat alone. Left
+  stale, the tab would fork the chat: a message typed into it goes on from
+  the tab's own memory, and the run's turn stays on a branch that tab never
+  shows.
+- **You are away** — nobody has used the PC for `quietMinutes` (5, the same
+  clock that decides whether the phone gets an alert) — and the window is on
+  exactly that folder. A chat nothing holds by then opens in a tab, whatever
+  other chats do; where only a reload shows it, it reloads only while no
+  other chat in the folder is working or was written in that time.
+
+So you come back to a window that already shows the run. It asks instead:
+- at the PC, for a chat no process here holds — you may be typing in that
+  very window; an idle clock that cannot be read, or `quietMinutes` 0,
+  counts as at the PC;
 - in a window with more than one folder, or opened on a parent folder — only
   the chat's own folder was judged;
-- after a chat in the folder was written in the last `quietMinutes` — someone
-  may be driving it from the phone, which the idle clock never sees.
+- before a reload, after a chat in the folder was written in the last
+  `quietMinutes` — someone may be driving it from the phone, which the idle
+  clock never sees.
 
 Asking, it offers **Show it**. The click checks the chats again, right then,
 and ends the chat's old idle process; a line in the status bar says so while
@@ -1093,6 +1116,26 @@ the window says it cannot open the chat there. A command the extension
 runs for any of these - an open, a tab closed, a reload - is given 15
 seconds; one that never answers is logged under **Chat Manager: Show log**
 and taken as failed, and the next show still runs.
+
+**Chats Claude Code hides.** Claude Code leaves a chat out of its session
+lists - the side bar's history, and `claude --resume`'s - when it takes it
+for one an SDK started: when the first `entrypoint` in its transcript's
+first 64 KB, or with none there the last one in its last 64 KB, is
+`sdk-cli`, `sdk-ts` or `sdk-py`. Nor will it open such a chat in a tab:
+asked to, it starts a blank chat. chatq's runs are `claude -p`, which
+stamps `sdk-cli`, so a chat whose first prompt was a pasted screenshot -
+64 KB with no entrypoint in it - fell out of the list after one queued
+prompt or phone reply. It is mended as the run ends, and again as the
+chip, **Open chat...** or **Show it** opens it: one line goes at its end,
+`{"type":"chatq-listed","entrypoint":"claude-vscode","sessionId":...}`, a
+type Claude Code's loaders pass over, as Claude Code's own rename adds a
+line there. The file keeps its write time. Not while a process is busy or
+waiting in the chat, as its entry in `~/.claude/sessions/` says; nor where
+the line cannot be written. Either way the window says so rather than open
+a blank tab. A chat whose first records say an SDK started it - every one
+**+ New chat** made, or your own `claude -p` - can never be listed;
+instead of a blank tab, the window offers it in a terminal,
+`claude --resume <id>`, once it checks nothing else runs the chat by then.
 
 **Chat Manager: Open chat...** in the command palette does what the chip
 does, without the overlay. It lists this window's Claude chats - the
@@ -1138,9 +1181,8 @@ The Claude Code extension also opens a chat from a
 before letting an outside program open one - a dialog on every run - so chatq
 goes through this extension instead.
 
-**After a delete, an archive, or a new chat started in its folder,** *that*
-window — matched by its workspace folder — offers a **Reload** button, as
-before. If a chat in the project was still working when the delete ran
+**After a delete or an archive in its folder,** *that* window — matched by
+its workspace folder — offers a **Reload** button, as before. If a chat in the project was still working when the delete ran
 ([what counts](#reloading-safely)), it warns instead: *A chat in this workspace
 is still working, and reloading now would cut it off*, with **Reload anyway**.
 `chatManager.folder` points it elsewhere if the script does not live in
@@ -1150,8 +1192,10 @@ or a new chat, which have rules of their own. The old extension's
 `chatManagerReload.*` settings are still read where the new ones are unset,
 its `signalFile` standing in for the folder.
 
-A new chat a queued run started is only ever offered: the window asks, never
-reloads by itself for one, and a window opened after it lists it already.
+A new chat a queued run started is only said: the window on its folder names
+it, and offers no reload - Claude Code's list leaves out a chat `claude -p`
+started, so a reload would cut off what works there and show nothing
+(**Chats Claude Code hides**, above).
 
 ## Codex
 

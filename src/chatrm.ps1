@@ -822,10 +822,12 @@ function Write-ChatReloadRequest {
     # A run into a chat names it too (-SessionId), so the window can show
     # that chat fresh rather than reload: the Claude home it lives under
     # (-ConfigHome), what became of its old process (-OldProcess, see
-    # Stop-ChatIdleProcess) and the VS Code windows that held it (-HostPids).
+    # Stop-ChatIdleProcess) and the VS Code windows that held it (-HostPids),
+    # and its transcript where known (-Transcript), which the window mends
+    # before it opens the chat, if Claude Code has left it out of its lists.
     # Without -SessionId the request is what 0.5.0 wrote, byte for byte.
     param([string]$Title, [string]$Cwd = (Get-Location).Path, [string]$Kind = 'deleted', $Busy = $null, $Away = $null,
-        [string]$SessionId, [string]$ConfigHome, [string]$OldProcess, [int[]]$HostPids = @())
+        [string]$SessionId, [string]$ConfigHome, [string]$OldProcess, [int[]]$HostPids = @(), [string]$Transcript)
     $req = [ordered]@{
         id    = [guid]::NewGuid().ToString()
         kind  = $Kind
@@ -839,6 +841,7 @@ function Write-ChatReloadRequest {
         $req.home = $(if ($ConfigHome) { $ConfigHome } else { $null })
         $req.oldProcess = $(if ($OldProcess) { $OldProcess } else { 'none' })
         $req.hostPids = [int[]]@($HostPids | Where-Object { $_ })
+        if ($Transcript) { $req.file = $Transcript }
     }
     $req.at = (Get-Date).ToString('o')
     Save-ChatSignal $script:ChatReloadPath $req
@@ -851,19 +854,21 @@ function Write-ChatOpenRequest {
     # the chip leaves busy $null (not judged) and oldProcess as judged only,
     # since it ends nothing.
     param([string]$SessionId, [string]$Cwd, [string]$Title, [string]$ConfigHome, $Busy = $null,
-        [string]$OldProcess = 'none', [int[]]$HostPids = @())
-    Save-ChatSignal $script:ChatOpenPath ([ordered]@{
-            id         = [guid]::NewGuid().ToString()
-            kind       = 'open'
-            sessionId  = $SessionId
-            cwd        = $Cwd
-            title      = $Title
-            home       = $(if ($ConfigHome) { $ConfigHome } else { $null })
-            busy       = $Busy
-            oldProcess = $OldProcess
-            hostPids   = [int[]]@($HostPids | Where-Object { $_ })
-            at         = (Get-Date).ToString('o')
-        })
+        [string]$OldProcess = 'none', [int[]]$HostPids = @(), [string]$Transcript)
+    $req = [ordered]@{
+        id         = [guid]::NewGuid().ToString()
+        kind       = 'open'
+        sessionId  = $SessionId
+        cwd        = $Cwd
+        title      = $Title
+        home       = $(if ($ConfigHome) { $ConfigHome } else { $null })
+        busy       = $Busy
+        oldProcess = $OldProcess
+        hostPids   = [int[]]@($HostPids | Where-Object { $_ })
+    }
+    if ($Transcript) { $req.file = $Transcript }
+    $req.at = (Get-Date).ToString('o')
+    Save-ChatSignal $script:ChatOpenPath $req
 }
 
 function Get-ChatShowHold {

@@ -299,8 +299,8 @@ function chat {
     Write-Host '  chatq "title" [-Prompt s]  queue a prompt for that chat' -ForegroundColor Cyan
     Write-Host '  chatqlist [-Board]     what is queued, when it sends, what ran' -ForegroundColor Cyan
     Write-Host '  chatqrm / chatqrun     drop a job / requeue one, or -Now' -ForegroundColor Cyan
-    Write-Host '  chatqlog / chatqnotify what a run did / phone alerts' -ForegroundColor Cyan
-    Write-Host '  chatqnotify -Setup     phone alerts and replies from the phone, in a window' -ForegroundColor Cyan
+    Write-Host '  chatqlog / chatnotify  what a run did / phone alerts' -ForegroundColor Cyan
+    Write-Host '  chatnotify -Setup      phone alerts and replies from the phone, in a window' -ForegroundColor Cyan
     Write-Host ''
     Write-Host '  see what is running' -ForegroundColor DarkGray
     Write-Host '  chatoverlay            every open chat and live usage, always on top' -ForegroundColor Cyan
@@ -329,6 +329,9 @@ Set-Alias -Name Find-Chat -Value chatfind -Scope Global -Force
 Set-Alias -Name Remove-Chat -Value chatrm -Scope Global -Force
 Set-Alias -Name Get-ChatProvider -Value chatproviders -Scope Global -Force
 Set-Alias -Name Update-ChatIndex -Value chatindex -Scope Global -Force
+# chatnotify's old name, from when it only served chatq's queue; a profile
+# or a habit that still types it keeps working. Global like the ones above.
+Set-Alias -Name chatqnotify -Value chatnotify -Scope Global -Force
 
 Register-ArgumentCompleter -CommandName chatfind, chatrm, chatindex -ParameterName Provider -ScriptBlock {
     param($cmd, $param, $word)

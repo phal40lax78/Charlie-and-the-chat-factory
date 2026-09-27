@@ -2295,7 +2295,7 @@ function New-ChatOverlayTrayIcon {
     # a menu's own items say nothing on hover unless it is told to
     $menu.ShowItemToolTips = $true
     $open.ToolTipText = 'In the panel''s place, grown from its top-right corner - Esc brings the panel back'
-    # the setup window chatqnotify -Setup opens, reached from here too: Join,
+    # the setup window chatnotify -Setup opens, reached from here too: Join,
     # answering alerts from the phone, and which alerts go there
     $phone = $menu.Items.Add('Phone alerts...')
     $phone.ToolTipText = 'Join alerts, and answering them from the phone - a window of its own'

@@ -202,6 +202,36 @@ someone at the PC can answer.
    need Claude Code's own hooks instead (the `PermissionRequest` hook),
    installed in the user's settings.
 
+## Code for 0.9.0 that nothing loads yet
+
+**Why deferred:** two parts of 0.9.0 were written ahead of the rest of it
+and are checked in unfinished. Neither is in `$chatParts`, so
+VS-code-chat-manager.ps1 never loads them and the Marketplace package
+leaves them out ([build.js](extension/build.js) takes only the parts that
+list names); `install.ps1` copies them, unread. No test drives them yet.
+- [src/permit.ps1](src/permit.ps1), the bridge of
+  [phone-permit-spec.md](docs/phone-permit-spec.md):
+  [Start-ChatqPermitBridge](src/permit.ps1), the stdio MCP server
+  `claude -p` would ask, and the watcher's side,
+  [Update-ChatqPermitRequests](src/permit.ps1) and
+  [Invoke-ChatqPermitReply](src/permit.ps1).
+- [src/phone-down.ps1](src/phone-down.ps1), the PC -> phone channel of
+  [phone-board-spec.md](docs/phone-board-spec.md):
+  [Send-ChatqDown](src/phone-down.ps1) and the whole answer,
+  [Send-ChatqReplyText](src/phone-down.ps1). Its wire format already has
+  its vectors, `tests/fixtures/down-vector.json` and
+  `compose-vector.json`, made by
+  [make-down-vector.js](tests/fixtures/make-down-vector.js) with Node's
+  own crypto and zlib.
+
+**To close:** neither runs without changes elsewhere that are not made
+yet. [Send-ChatqAlert](src/alerts.ps1) takes `-Card`, `-Permit`, `-Tag`
+and `-ToastText` and keeps the alert's id; [Invoke-ChatqRun](src/queue.ps1)
+starts the run with the bridge; [Invoke-ChatqReply](src/phone.ps1) and the
+page take the new acts; [Get-ChatqReplyState](src/phone.ps1) reads what
+[Read-ChatqBoardState](src/phone-down.ps1) adds. Then both go into
+`$chatParts`, with the tests each spec names.
+
 ## An inline reply without the browser
 
 **Why deferred:** a reply opens a page in the phone's browser, which works
@@ -233,7 +263,7 @@ page of that account is the same site to a browser: a script on another of
 them, opened in the phone's browser, could use the phone's key - not copy
 it, since it will not export, but post replies with it. An origin of its
 own means a custom domain or a GitHub account or organisation just for the
-page, which the project does not have. `chatqnotify -ReplyPage` lets a user
+page, which the project does not have. `chatnotify -ReplyPage` lets a user
 serve a copy from their own
 ([Set-ChatqNotifyConfig](src/phone.ps1), `ReplyPage`).
 
@@ -278,11 +308,11 @@ reads `config.json`, adds the phone's key and saves it, with no lock, as
 Save that read the file just before the confirm wrote it can put back the
 copy without the key, while the confirm has already cleared the pairing's
 answers from `data/replies.json`. The phone is then not paired after all;
-`chatqnotify` says `not paired`, and `chatqnotify -Pair` pairs it again.
+`chatnotify` says `not paired`, and `chatnotify -Pair` pairs it again.
 
 **To close:** one lock around every read, change and save of
 `config.json`, as [Use-ChatqReplyState](src/phone.ps1) holds
-`data/replies.lock` for `replies.json`, taken by chatqnotify, the window,
+`data/replies.lock` for `replies.json`, taken by chatnotify, the window,
 the pairing and the overlay's settings alike.
 
 ## Live alerts without the Windows overlay
@@ -311,7 +341,7 @@ through the extension or `chatinstall` restarts it; files changed any
 other way - a `git pull` in a checkout, a copy by hand - leave the old code
 running for days, and `ChatVersion` may not even move. 0.8.0 only tells:
 [Test-ChatqOverlayStale](src/phone.ps1) compares the overlay's start with
-`src/phone.ps1`'s write time, and `chatqnotify` says
+`src/phone.ps1`'s write time, and `chatnotify` says
 `the overlay runs an older copy`. Nothing restarts it.
 
 **To close:**
@@ -548,14 +578,16 @@ loads it fresh.
 ## A chat in the side bar gets a second process as a tab
 
 **Why deferred:** the chip opens a chat with the Claude Code extension's
-`claude-vscode.primaryEditor.open`, which brings forward a tab that shows
-the chat or makes a new one, and never looks at the side bar. A chat idle in
-the side bar then runs in two places: two views, and two `claude` processes
-on one session, each able to write to it. Nothing in the Claude Code
-extension's commands (2.1.282) reaches the side bar's session - none
-closes, reloads or lists a panel by session id - and
-`claude-vscode.editor.open`, which does use the side bar, rewrites the
-user's `claudeCode.preferredLocation` and may lock a new editor group. So
+`claude-vscode.editor.open`, pinned to a tab ([openCall](extension/extension.js)),
+which brings forward a tab that shows the chat or makes a new one, and
+never looks at the side bar. A chat idle in the side bar then runs in two
+places: two views, and two `claude` processes on one session, each able to
+write to it. Nothing in the Claude Code extension's commands (2.1.283)
+reaches the side bar's session: none closes, reloads or lists a panel by
+session id. `editor.open` with `programmatic: 'honor-preferred-location'`
+does show a session in the side bar - when `claudeCode.preferredLocation`
+is the side bar and no tab holds it - without rewriting the setting, but
+it neither closes nor reloads a copy already there. So
 [openTab](extension/extension.js) opens no tab for a chat working in a
 process of this window - or of any window, on a Mac, where `hostPids` is
 empty - with no one tab of its title here, since the second process would
@@ -573,6 +605,41 @@ would leave the side bar on a dead view instead; S30 item 5 in TESTING.md
 says whether that is the better trade. A working chat of no title is
 never opened, even when a tab of its own shows it, since no tab's label can
 be told to be its; the chip opens it once the turn ends.
+
+## Tabs opened before 0.8.1 stay without their header
+
+**Why deferred:** before 0.8.1 the chip and the picker opened chats with
+`claude-vscode.primaryEditor.open`, whose tab is a "full editor" with no
+header - no title, **Session history** or **New session** - and no diff
+for an edit to approve (TESTING S39). The tab keeps that through a reload,
+and the chip only brings a chat's tab forward, so such a tab stays as it
+is until it is closed and opened again. From outside, a full editor looks
+like any other Claude tab: `TabInputWebview` gives its `viewType` and
+nothing more.
+
+**To close:** either the Claude extension says which of its panels are
+full editors, or [openTab](extension/extension.js) closes and reopens
+every Claude tab once after an update from before 0.8.1 - which would cut
+off a chat working in one, so it would have to wait for each chat to be
+idle, as a stale tab is closed only once the run's check has ended its
+process ([plan](extension/extension.js), [showTab](extension/extension.js)).
+
+## A message typed before the tab is shown fresh
+
+**Why deferred:** after a run into a chat open idle in a tab, the window
+shows it fresh by itself ([showsItself](extension/extension.js)) - but
+a few seconds after the run ends: the watcher's request, then Show it's
+check. A message typed into the stale tab in that gap goes on from the
+tab's memory and forks the chat, the run's turn on a branch that tab
+never shows; so does one typed in a window whose extension is older
+than 0.8.1, which only asks. `"liveIdle": "stop"` ends the idle
+process before the run instead, which closes the gap, at the price of
+a tab on a dead process until it is shown.
+
+**To close:** end the tab's idle process as the run starts whenever the
+window will show the chat fresh anyway, so the stale tab cannot take a
+message at all - or a Claude Code command that reloads a panel by its
+session id.
 
 ## A closing process reads as a working chat for 60 s
 
@@ -812,9 +879,93 @@ The picker's **a queued prompt running** state
 ([chatState](extension/extension.js)) reads the same `kind`, so such a
 run would show there as whatever else holds the chat, or as closed.
 
-**To close:** S30 item 18. If a print-mode process leaves no registry file,
-treat an `sdk-cli` record written in the last few minutes as a run still
-going on.
+Seen on 2026-09-27 (S38 item 5): a queued run's `claude -p` registered in
+`~/.claude/sessions/` as `kind` `interactive`, `entrypoint` `sdk-cli`,
+`status` `busy` while it ran - as Claude Code 2.1.283's code has it, which
+gives the kind `bg`, `daemon` or `daemon-worker` only from
+`CLAUDE_CODE_SESSION_KIND`. So the kind cannot tell a print-mode run, and
+the tests' `print` is a stand-in: `Test-ChatPrintLive` and the picker's
+**a queued prompt running** never see one. The listing's holds
+([ensureListed](extension/extension.js),
+[Repair-ChatListed](src/live-chats.ps1)) look at `busy` and `waiting` as
+well, for that reason.
+
+**To close:** tell a print-mode process by its registry `entrypoint`
+(`sdk-cli`) where the kind says `interactive`; S30 item 18 for whether its
+records name it the same way.
+
+## New chats Claude Code never lists
+
+**Why deferred:** Claude Code leaves a chat out of its lists, and will not
+restore it into a tab, when the first `entrypoint` in its transcript's
+first 64 KB is an SDK's (S37). Every chat **+ New chat** starts is born by
+`claude -p --session-id`, whose first record says `sdk-cli`, and a line
+added at the end cannot change the head. The console and a terminal reach
+it; the extension offers the terminal
+([ensureListed](extension/extension.js),
+[offerTerminal](extension/extension.js)). What would list it, each with a
+cost:
+- **An entrypoint of chatq's own** for that first run
+  (`CLAUDE_CODE_ENTRYPOINT`, kept raw by the CLI). But Claude Code turns
+  on for any entrypoint outside `sdk-ts`, `sdk-py` and `sdk-cli` what it
+  keeps off for them - the Artifact tool, autoDream, the
+  `claude-code-guide` agent - sends it in every request's billing header,
+  and hands it to every process the run starts. Each would need turning
+  off by hand (`CLAUDE_CODE_ARTIFACT=0`, `autoDreamEnabled` false), and
+  again after every Claude Code update that adds another.
+- **Writing its first lines first:** `claude -p --resume` refuses a
+  transcript with no message, and `--session-id` an id already on disk.
+- **Rewriting its first record** once the first run ends: the whole
+  transcript rewritten, under whatever may have opened it meanwhile.
+
+The rule itself is read from Claude Code 2.1.281 to 2.1.283
+([unlistedWhy](extension/extension.js),
+[Get-ChatUnlistedWhy](src/live-chats.ps1)), its daemon `sessionKind` half
+left out; a later rule may differ, and then the mirror mends too little or
+too much.
+
+**To close:** ask upstream for SDK chats to be told apart by something
+other than the file's first bytes, or listed behind a switch - the VS Code
+webview hard-codes `includeProgrammaticSessions` off. Short of that, the
+first option with its switches, re-checked at every Claude Code update.
+
+## Chats hidden before 0.8.1 are mended only as they are used
+
+**Why deferred:** since 0.8.1 the watcher mends a chat as each run into it
+ends ([Repair-ChatListed](src/live-chats.ps1)), and the extension as it
+opens one ([ensureListed](extension/extension.js)). A chat hidden by an
+earlier copy's run, and neither run into nor opened since, stays out of
+Claude Code's side bar history in every window; so does one whose watcher
+died mid-run. Mending every such chat up front writes into transcripts
+nobody asked to touch.
+
+**To close:** mend them in `chatclean`, which already exists to put
+Claude Code's lists right, with [Repair-ChatListed](src/live-chats.ps1).
+
+## The open chip clears the unread dot of a chat it cannot open
+
+**Why deferred:** the chip's child exits once the open request is written,
+and the overlay clears the unread dot on that code. For a chat Claude Code
+can never list, the window then offers a terminal instead of a tab - and
+the dot is gone even when the offer is dismissed. It matters only for
+chats **+ New chat** made.
+
+**To close:** have `Show-ChatFresh -Via chip` read the chat's head as
+[Get-ChatUnlistedWhy](src/live-chats.ps1) does, and exit with a code the
+overlay does not take as shown.
+
+## Only the overlay closes a job answered in the chat
+
+**Why deferred:** a job parked on input is skipped once its chat is typed
+into after it stopped ([Close-ChatqAnsweredJobs](src/overlay-data.ps1)),
+but only the overlay's pass does it: it already reads each open chat's
+newest prompt every two seconds, so it costs nothing there. With no overlay
+running - off, or on Linux - `chatqlist`, the console and the phone's
+**Status** go on saying the job needs you until `chatqrm`.
+
+**To close:** call it from `chatqlist` and the phone's **Status** too, with
+a context of their own, so a transcript's tail is read there only for a
+job whose chat moved after it stopped.
 
 ## The overlay: what 0.4.0 left out
 

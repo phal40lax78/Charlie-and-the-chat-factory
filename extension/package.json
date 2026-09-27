@@ -2,7 +2,7 @@
     "name": "vs-code-chat-manager",
     "displayName": "VS Code Chat Manager",
     "description": "Find, delete and archive Claude Code, Codex and Copilot chats; queue prompts for when the usage limit resets; see every running chat in an always-on-top overlay. Installs its PowerShell commands and keeps them up to date.",
-    "version": "0.8.0",
+    "version": "0.8.1",
     "publisher": "redaechan",
     "license": "MIT",
     "icon": "icon.png",
@@ -91,7 +91,7 @@
                 "chatManager.autoReloadAfterRun": {
                     "type": "boolean",
                     "default": true,
-                    "markdownDescription": "Show the chat fresh without asking after a queued prompt ran into a chat this window has open (with `showFresh` off: reload the window) - but only in a window whose one folder is that chat's, when nobody had used the PC for `quietMinutes` (5 by default, see `chatqnotify -QuietMinutes`; 0 means never away), no other chat in the folder was working or written in that time as the run ended, and that judgement is at most 20 seconds old. Otherwise the window asks, as with this off. A window opened after the run already shows it, and neither asks nor acts."
+                    "markdownDescription": "Show the chat fresh without asking after a queued prompt ran into a chat this window has open, while the run's judgement is at most 20 seconds old. A chat open here on an idle process gets Show it - that process ended, its tab closed and opened again - at the PC too and while other chats work, since that touches it alone. Otherwise only in a window whose one folder is that chat's, when nobody had used the PC for `quietMinutes` (5 by default, see `chatnotify -QuietMinutes`; 0 means never away): a tab whatever else works, or - with `showFresh` off, or where only a reload shows it - a window reload while no other chat in the folder was working or written in that time. Otherwise the window asks, as with this off. A window opened after the run already shows it, and neither asks nor acts."
                 },
                 "chatManager.showFresh": {
                     "type": "boolean",
