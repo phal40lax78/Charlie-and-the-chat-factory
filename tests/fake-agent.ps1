@@ -87,7 +87,7 @@ if ($env:FAKE_RECORD) {
     $seen = @('ANTHROPIC_API_KEY', 'CLAUDECODE', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_CONFIG_DIR') | ForEach-Object {
         "$_=$([Environment]::GetEnvironmentVariable($_))"
     }
-    $seen = @($seen) + "MCP_TOOL_TIMEOUT=$env:MCP_TOOL_TIMEOUT"
+    $seen = @($seen) + "MCP_TOOL_TIMEOUT=$env:MCP_TOOL_TIMEOUT" + "MCP_TIMEOUT=$env:MCP_TIMEOUT"
     [IO.File]::WriteAllText((Join-Path $env:FAKE_RECORD 'env.txt'), ($seen -join "`n"), $utf8)
 }
 

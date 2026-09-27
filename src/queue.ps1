@@ -2122,6 +2122,11 @@ function Invoke-ChatqRun {
     # claude's own wait on the bridge ends 3 minutes after the bridge's: a
     # call it times out is an error the model retries, never a denial (S35)
     if ($Permit) { $runEnv['MCP_TOOL_TIMEOUT'] = [string]$Permit.TimeoutMs }
+    # and its wait for the bridge to start, 30 s by default, is 2 minutes:
+    # the bridge loads the whole script before it answers initialize, and a
+    # cold machine with a virus scanner reading every part took over 30 s on
+    # CI - a real run would then have gone without the phone
+    if ($Permit) { $runEnv['MCP_TIMEOUT'] = [string]$script:ChatqPermitStartMs }
     $proc = Invoke-ChatqProcess -Exe $exe -ArgList $a -WorkDir $Job.cwd -StdIn $Prompt -LogPath $log `
         -SetEnv $runEnv -OnTick $OnTick -OnLine {
         param($l)

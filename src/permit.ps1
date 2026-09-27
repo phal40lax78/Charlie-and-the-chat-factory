@@ -26,6 +26,9 @@ $script:ChatqPermitDir = Join-Path $script:ChatqData 'permit'
 # a run whose bridge never came up says so here, for chatnotify, until one does
 $script:ChatqPermitFailPath = Join-Path $script:ChatqPermitDir 'bridge-failed.json'
 $script:ChatqPermitTool = 'mcp__chatqpermit__decide'
+# claude's MCP_TIMEOUT for a run with the bridge: how long it waits for
+# initialize before it goes on without the phone (its own default is 30 s)
+$script:ChatqPermitStartMs = 120000
 $script:ChatqPermitDefaultTools = @('Bash', 'PowerShell', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'WebFetch')
 # the modes that prompt at all: dontAsk and bypassPermissions never do, and
 # plan keeps its own "plan ready - approve it in VS Code"

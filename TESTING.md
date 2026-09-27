@@ -575,10 +575,12 @@ at another PowerShell, or at nothing. No model, no network.
   another request and an unsealed one are never believed, and deny at the
   deadline; the next call is then denied at once; stdin closed, exit 0.
   The run prints how long `initialize` took. Alone that is about a
-  second; with both PowerShells' suites running at once it was near 7 s,
-  still well inside claude's 30 s `MCP_TIMEOUT`. A figure near 30 s means
-  the bridge's load has grown: a real run would find it `failed` and be
-  queued once more without it.
+  second; with both PowerShells' suites running at once it was near 7 s.
+  On a GitHub runner under Windows PowerShell 5.1 it went past 30 s -
+  claude's own default `MCP_TIMEOUT` - so chatq gives a run with the
+  bridge `MCP_TIMEOUT=120000` ([Invoke-ChatqRun](src/queue.ps1)), and the
+  check holds the bridge to that. The test drains the bridge's stderr as
+  claude does: an undrained pipe blocks the bridge once it fills.
 - **End to end** through `fake-agent.ps1`'s `FAKE_PERMIT`, which reads
   `--mcp-config` and starts the bridge as claude would, and
   `FAKE_PERMIT_SELF`: the argv and `MCP_TOOL_TIMEOUT`, the push and its
