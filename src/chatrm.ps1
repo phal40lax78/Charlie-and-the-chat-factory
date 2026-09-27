@@ -296,6 +296,11 @@ function Test-ChatJobsHold {
     # fragment. -DropJobs drops them first, and waits out a running one.
     param($Hit, [switch]$DropJobs)
     $mine = { @(Get-ChatqJobs | Where-Object { $_.sessionId -eq $Hit.Record.Id }) }
+    # a continue auto-continue queued is no reason to keep a chat you are
+    # deleting or archiving: it goes, and says so (src/auto-continue.ps1)
+    foreach ($a in @(& $mine | Where-Object { $_.state -eq 'queued' -and (Get-ChatField $_ 'auto') })) {
+        if (Remove-ChatqJob $a 'chatrm') { Write-Host "           dropped #$($a.seq), its auto-continue" -ForegroundColor DarkGray }
+    }
     $held = @(& $mine | Where-Object { $_.state -in 'queued', 'running' })
     if (-not $held) { return $false }
     $nums = ($held | ForEach-Object { "#$($_.seq)" }) -join ' '
@@ -826,8 +831,10 @@ function Write-ChatReloadRequest {
     # and its transcript where known (-Transcript), which the window mends
     # before it opens the chat, if Claude Code has left it out of its lists.
     # Without -SessionId the request is what 0.5.0 wrote, byte for byte.
+    # -Auto: the run was auto-continue's, and the window words its offer so
     param([string]$Title, [string]$Cwd = (Get-Location).Path, [string]$Kind = 'deleted', $Busy = $null, $Away = $null,
-        [string]$SessionId, [string]$ConfigHome, [string]$OldProcess, [int[]]$HostPids = @(), [string]$Transcript)
+        [string]$SessionId, [string]$ConfigHome, [string]$OldProcess, [int[]]$HostPids = @(), [string]$Transcript,
+        [switch]$Auto)
     $req = [ordered]@{
         id    = [guid]::NewGuid().ToString()
         kind  = $Kind
@@ -842,6 +849,7 @@ function Write-ChatReloadRequest {
         $req.oldProcess = $(if ($OldProcess) { $OldProcess } else { 'none' })
         $req.hostPids = [int[]]@($HostPids | Where-Object { $_ })
         if ($Transcript) { $req.file = $Transcript }
+        if ($Auto) { $req.auto = $true }
     }
     $req.at = (Get-Date).ToString('o')
     Save-ChatSignal $script:ChatReloadPath $req

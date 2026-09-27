@@ -17,6 +17,8 @@ $script:ChatqPidPath = Join-Path $script:ChatqData 'watcher.pid'
 $script:ChatqWakePath = Join-Path $script:ChatqData 'wake'
 $script:ChatqStopPath = Join-Path $script:ChatqData 'stop'
 $script:ChatqBoardPath = Join-Path $script:ChatqData 'queue.md'
+# one file per cut-off the reset ask answered or announced (Get-ChatqResetAsk)
+$script:ChatqAutoDir = Join-Path $script:ChatqData 'auto'
 # written by chatinstall: a running watcher hands over to the new code
 $script:ChatqRestartPath = Join-Path $script:ChatqData 'restart'
 # tests only: a scriptblock that stands in for launching a real watcher
@@ -56,6 +58,9 @@ $script:ChatqNtfySeam = $null
 $script:ChatqJoinSeam = $null
 $script:ChatqReplyPollSeam = $null
 $script:ChatqJoinDevicesSeam = $null
+# the down topic's POST or PUT ($method, $url, $headers, $body -> $null or
+# the error): src/phone-down.ps1, Invoke-ChatqDownRequest
+$script:ChatqDownSeam = $null
 # a live chat's alert (Send-ChatqLiveAlert), handed here instead of to the
 # hidden process that sends it
 $script:ChatqLiveSendSeam = $null
@@ -546,9 +551,12 @@ function Get-ChatqCutOffChats {
                     $rec = try { & $script:ChatProviders['claude'].Describe $f } catch { $null }
                     if ($rec -and $rec.Title -and $rec.Title -ne '(empty)') { $rec.Title } else { $f.BaseName }
                 }
+                # LimitUuid: the limit record's own uuid, which names this one
+                # cut-off for good (Get-ChatqCutKey); old records have none
                 $row = [pscustomobject]@{
                     Id = $f.BaseName; Title = $title; Group = $d.Name; At = $last.At; ResetsAt = $last.ResetsAt
                     Why = if ($last.Limit) { 'limit' } else { 'overloaded' }; Path = $f.FullName; Cwd = $last.Cwd
+                    LimitUuid = $last.Uuid
                 }
             }
             if ($Cache) { $Cache[$f.FullName] = @{ Sig = $sig; Row = $row } }
@@ -558,6 +566,188 @@ function Get-ChatqCutOffChats {
     # what fell out of the window, or went, is forgotten
     if ($Cache) { foreach ($k in @($Cache.Keys)) { if (-not $seen[$k]) { $Cache.Remove($k) } } }
     return @($out | Sort-Object At -Descending)
+}
+
+#endregion
+
+#region queue: the reset ask ------------------------------------------------------
+# config autoContinue. ask, the default: once the limit is over, the overlay
+# says how many chats it cut off and continues them if you say so. off: they
+# are only marked orange. on, chosen: each is continued by itself, a minute
+# after the reset (src/auto-continue.ps1).
+# Each cut-off is asked about once: an answer leaves a marker in data/auto,
+# which the automatic mode reads too, so a cut-off answered here is never
+# queued there - and one it queued is never asked about.
+
+# The wait after a reset before the ask: a chat open in a VS Code panel may
+# be continued by Claude Code itself meanwhile, one wait for all keeps it to
+# one prompt, and a fresh usage figure is in by then.
+$script:ChatqAskAfterMinutes = 5
+
+function Get-ChatqAutoContinue {
+    # 'on', 'ask' or 'off'. Only the word "on" is on: true, as the spec
+    # once wrote the switch, reads as ask with anything else - missing or
+    # unknown - so nothing written before the automatic mode existed turns
+    # it on. $false and "false" are off. -Cfg: config.json already read.
+    param($Cfg)
+    if ($null -eq $Cfg) { $Cfg = Get-ChatqConfig }
+    $v = Get-ChatField $Cfg 'autoContinue'
+    if ($v -is [bool]) { if ($v) { return 'ask' } else { return 'off' } }
+    $w = ([string]$v).Trim().ToLowerInvariant()
+    if ($w -in 'off', 'false') { return 'off' }
+    if ($w -eq 'on') { return 'on' }
+    return 'ask'
+}
+
+function Set-ChatqAutoContinue {
+    # config.json's top-level autoContinue, not overlay's: the watcher reads
+    # it too. The one writer every surface goes through. Prints nothing;
+    # returns the value - what to say about it is the caller's
+    # (Get-ChatqAutoSwitchSay).
+    param([Parameter(Mandatory)][ValidateSet('on', 'ask', 'off')][string]$Value)
+    $cfg = Get-ChatqConfig
+    # turned on now: only cut-offs from here on are continued (since)
+    if ($Value -eq 'on' -and (Get-ChatqAutoContinue $cfg) -ne 'on') { Reset-ChatqAutoSince }
+    Set-ChatqProp $cfg 'autoContinue' $Value
+    Save-ChatqJson $script:ChatqConfigPath $cfg
+    if (-not $script:ChatqIsWindows) { try { & chmod 600 $script:ChatqConfigPath } catch {} }
+    return $Value
+}
+
+function Get-ChatqCutKey {
+    # The name of one cut-off: the chat and the limit record that stopped it,
+    # so the same chat cut off again later is a new one. Old records have no
+    # uuid; the time stands in. $null when it would not make a file name.
+    param($Row)
+    $id = [string](Get-ChatField $Row 'Id')
+    if (-not $id) { return $null }
+    $u = [string](Get-ChatField $Row 'LimitUuid')
+    if ($u) { $k = "${id}_$u" }
+    else {
+        $at = Get-ChatField $Row 'At'
+        if ($at -isnot [datetime]) { $at = ConvertTo-ChatqDate $at }
+        if (-not $at) { return $null }
+        $k = "${id}_$($at.ToUniversalTime().Ticks)"
+    }
+    if ($k -cnotmatch '^[0-9A-Za-z-]+_[0-9A-Za-z-]+$') { return $null }
+    return $k
+}
+
+function Save-ChatqAskAnswer {
+    <#
+    What you said about cut-offs, one data/auto/<key>.json each: when, the
+    answer (continue or leave), where it was given and the jobs it made.
+    CreateNew: one already there was answered first and is left as it is.
+    Returns the keys written or found answered. Never throws - the caller
+    logs what did not go. -Extra: more fields by key - the chat's session
+    id and its reset, which the automatic mode reads to hold a later
+    cut-off of that chat with the same reset (Get-ChatqAutoState).
+    #>
+    param([string[]]$Keys, [ValidateSet('continue', 'leave')][string]$Answer, [string]$Source, [hashtable]$Seqs, [hashtable]$Extra)
+    $out = [System.Collections.Generic.List[string]]::new()
+    try { New-ChatqDir $script:ChatqAutoDir } catch { return @() }
+    $enc = New-Object System.Text.UTF8Encoding $false
+    foreach ($k in @($Keys)) {
+        if (-not $k -or $k -cnotmatch '^[0-9A-Za-z-]+_[0-9A-Za-z-]+$') { continue }
+        $p = Join-Path $script:ChatqAutoDir "$k.json"
+        $seq = @()
+        if ($Seqs -and $Seqs.ContainsKey($k)) { $seq = @(@($Seqs[$k]) | Where-Object { $null -ne $_ } | ForEach-Object { [int]$_ }) }
+        $o = [ordered]@{ at = (Get-ChatqStamp); answer = $Answer; source = $Source; seq = $seq }
+        if ($Extra -and $Extra[$k]) { foreach ($n in @($Extra[$k].Keys)) { if (-not $o.Contains([string]$n)) { $o[[string]$n] = $Extra[$k][$n] } } }
+        try {
+            $fs = [System.IO.File]::Open($p, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+            try { $b = $enc.GetBytes(($o | ConvertTo-Json -Depth 3)); $fs.Write($b, 0, $b.Length) }
+            finally { $fs.Dispose() }
+            $out.Add($k)
+        }
+        catch { if (Test-Path -LiteralPath $p) { $out.Add($k) } }
+    }
+    return $out.ToArray()
+}
+
+function Read-ChatqAskMarks {
+    # key -> $true for every data/auto/<key><Ext>; markers over 8 days old -
+    # long past any cut-off still asked about - are deleted on the way
+    param([string]$Ext)
+    $out = @{}
+    try {
+        if (-not (Test-Path -LiteralPath $script:ChatqAutoDir)) { return $out }
+        $old = (Get-Date).ToUniversalTime().AddDays(-8)
+        foreach ($f in @(Get-ChildItem -LiteralPath $script:ChatqAutoDir -File -EA SilentlyContinue)) {
+            if ($f.Extension -notin '.json', '.shown') { continue }
+            if ($f.LastWriteTimeUtc -lt $old) { Remove-Item -LiteralPath $f.FullName -Force -EA SilentlyContinue; continue }
+            if ($f.Extension -eq $Ext -and $f.BaseName -cmatch '^[0-9A-Za-z-]+_[0-9A-Za-z-]+$') { $out[$f.BaseName] = $true }
+        }
+    }
+    catch {}
+    return $out
+}
+
+function Read-ChatqAskState {
+    # the cut-offs answered already: key -> $true. Never throws.
+    return (Read-ChatqAskMarks '.json')
+}
+
+function Read-ChatqAskShown {
+    # the cut-offs whose prompt was announced already - toast, notification,
+    # phone - so an overlay restarted does not announce them again
+    return (Read-ChatqAskMarks '.shown')
+}
+
+function Add-ChatqAskShown {
+    # an empty data/auto/<key>.shown each; never throws
+    param([string[]]$Keys)
+    try { New-ChatqDir $script:ChatqAutoDir } catch { return }
+    foreach ($k in @($Keys)) {
+        if (-not $k -or $k -cnotmatch '^[0-9A-Za-z-]+_[0-9A-Za-z-]+$') { continue }
+        try { ([System.IO.File]::Open((Join-Path $script:ChatqAutoDir "$k.shown"), [System.IO.FileMode]::CreateNew)).Dispose() } catch {}
+    }
+}
+
+function Get-ChatqResetAsk {
+    <#
+    Which chats the limit cut off can be offered a continue now - one prompt
+    for all of them - or $null. Pure. A row is in when it was the usage limit
+    (a 529 has no reset to wait for), that reset is at least
+    $script:ChatqAskAfterMinutes behind -Now and under 12 hours behind, no
+    job is queued or running for it, and it was not answered (-Asked, by
+    Get-ChatqCutKey). -Held: session ids open where their own claude will
+    continue them - a terminal - which go to Left instead, to be named.
+    -Limited: a 5h or week window is at its limit with its reset ahead; the
+    chats could not go yet, so nothing is asked until then.
+    #>
+    param([object[]]$CutOff, [hashtable]$Held, [hashtable]$Asked, [object[]]$Jobs, [bool]$Limited, [datetime]$Now = (Get-Date))
+    if ($Limited) { return $null }
+    $busy = @{}
+    foreach ($j in @($Jobs)) { if ($j -and $j.state -in 'queued', 'running' -and $j.sessionId) { $busy[[string]$j.sessionId] = $true } }
+    $in = [System.Collections.Generic.List[object]]::new()
+    $left = [System.Collections.Generic.List[object]]::new()
+    foreach ($r in @($CutOff)) {
+        if (-not $r -or [string](Get-ChatField $r 'Why') -ne 'limit') { continue }
+        # old records carry no reset: never asked about, their orange row stays
+        $reset = Get-ChatField $r 'ResetsAt'
+        if ($reset -isnot [datetime]) { $reset = ConvertTo-ChatqDate $reset }
+        if (-not $reset) { continue }
+        if ($reset.AddMinutes($script:ChatqAskAfterMinutes) -gt $Now -or $reset -le $Now.AddHours(-12)) { continue }
+        $id = [string](Get-ChatField $r 'Id')
+        if ($busy[$id]) { continue }
+        $key = Get-ChatqCutKey $r
+        if (-not $key -or ($Asked -and $Asked[$key])) { continue }
+        if ($Held -and $Held[$id]) { $left.Add([pscustomobject]@{ Title = [string](Get-ChatField $r 'Title'); Why = 'terminal' }); continue }
+        $in.Add([pscustomobject]@{ Row = $r; Key = $key; Reset = $reset })
+    }
+    if (-not $in.Count) { return $null }
+    $zero = [datetime]::MinValue
+    $sorted = @($in | Sort-Object @{ Expression = { $a = Get-ChatField $_.Row 'At'; if ($a -isnot [datetime]) { $a = ConvertTo-ChatqDate $a }; if ($a) { $a } else { $zero } }; Descending = $true })
+    $latest = $zero
+    foreach ($x in $sorted) { if ($x.Reset -gt $latest) { $latest = $x.Reset } }
+    return [pscustomobject]@{
+        ResetsAt = $latest
+        Items = @($sorted | ForEach-Object { $_.Row })
+        Keys = @($sorted | ForEach-Object { $_.Key })
+        Count = $sorted.Count
+        Left = $left.ToArray()
+    }
 }
 
 #endregion
@@ -669,15 +859,22 @@ function Set-ChatqJobState {
 }
 
 function Find-ChatqJob {
-    # by the #n shown in lists, or by (a prefix of) the id
-    param([string]$Ref, [object[]]$Jobs)
+    # by the #n shown in lists, or by (a prefix of) the id. A job queued for
+    # the same chat in the same second is that id with -2 after it, so a
+    # whole id is only ever that job: once it is gone, a prefix match would
+    # hand back its sibling, and a skip or a recheck would act on the wrong
+    # job. -Exact is for callers that hold a stored id; a ref shaped like a
+    # whole id (20260927-101500-ab12, -2 after it or not) is taken exactly
+    # too. Prefixes are for what a user types.
+    param([string]$Ref, [object[]]$Jobs, [switch]$Exact)
     if (-not $Jobs) { $Jobs = @(Get-ChatqJobs) }
     $r = $Ref.Trim().TrimStart('#')
-    if ($r -match '^\d+$') { return @($Jobs | Where-Object { [int]$_.seq -eq [int]$r }) | Select-Object -First 1 }
-    # the whole id first: a job queued for the same chat in the same second
-    # is that id with -2 after it, and would make the prefix ambiguous
-    $exact = @($Jobs | Where-Object { $_.id -eq $r })
-    if ($exact.Count -eq 1) { return $exact[0] }
+    if (-not $r) { return $null }
+    if (-not $Exact -and $r -match '^\d+$') { return @($Jobs | Where-Object { [int]$_.seq -eq [int]$r }) | Select-Object -First 1 }
+    # not $exact: names ignore case, and -Exact is a switch
+    $whole = @($Jobs | Where-Object { [string]$_.id -eq $r })
+    if ($whole.Count -eq 1) { return $whole[0] }
+    if ($Exact -or $r -match '^\d{8}-\d{6}-[0-9A-Za-z]{4}(-\d+)?$') { return $null }
     $hit = @($Jobs | Where-Object { $_.id -like "$r*" })
     if ($hit.Count -eq 1) { return $hit[0] }
     return $null
@@ -1268,6 +1465,9 @@ function New-ChatqRunState {
         Limit = $null; Rate = $null; SyntheticLimit = $null; Overloaded = $null; Retries = 0
         Assistant = 0; LastText = ''; Tools = [System.Collections.Generic.List[string]]::new()
         Denied = [System.Collections.Generic.List[string]]::new(); Result = $null
+        # the phone's permission bridge (src/permit.ps1): every tool_use id the
+        # stream showed with its tool's name, and how init found the bridge
+        ToolIds = @{}; PermitServer = $null
         # codex
         Thread = $null; TurnStarted = $false; TurnDone = $false; TurnFailed = $null; Failed = $null
     }
@@ -1287,6 +1487,9 @@ function Update-ChatqClaudeState {
             if ($o.subtype -eq 'init') {
                 $St.Init = $true; $St.Session = $o.session_id; $St.Model = $o.model
                 $St.Mode = $o.permissionMode; $St.Version = $o.claude_code_version
+                # "connected", or "failed" when the bridge never came up (S35)
+                $pb = @($o.mcp_servers | Where-Object { $_ -and $_.name -eq 'chatqpermit' })
+                if ($pb.Count) { $St.PermitServer = [string]$pb[0].status }
             }
             elseif ($o.subtype -eq 'permission_denied' -and $o.tool_name) { $St.Denied.Add([string]$o.tool_name) }
             # Claude Code retries a 529 by itself several times before it gives up
@@ -1307,6 +1510,7 @@ function Update-ChatqClaudeState {
             $St.Assistant++
             if ($texts) { $St.LastText = $texts[-1] }
             foreach ($u in @($o.message.content | Where-Object { $_.type -eq 'tool_use' })) { $St.Tools.Add([string]$u.name) }
+            foreach ($u in @($o.message.content | Where-Object { $_.type -eq 'tool_use' -and $_.id })) { $St.ToolIds[[string]$u.id] = [string]$u.name }
         }
         'result' { $St.Result = $o }
     }
@@ -1377,8 +1581,12 @@ function Test-ChatqAsks {
 
 function Get-ChatqClaudeOutcome {
     # limited and overloaded before failed, failed before needs-input: those two
-    # are the outcomes that go back in the queue rather than get reported
-    param($St, $Proc, [string]$Mode)
+    # are the outcomes that go back in the queue rather than get reported.
+    # -Refused / -NoAnswer: the tool_use ids the phone denied, and the ones it
+    # left unanswered (Close-ChatqPermitRun) - a run whose every denial was
+    # the user's own Deny is done, not waiting on them.
+    param($St, $Proc, [string]$Mode,
+        [string[]]$Refused = @(), [string[]]$NoAnswer = @())
     $res = $St.Result
     $text = if ($res -and $res.result) { [string]$res.result } else { [string]$St.LastText }
     $o = [ordered]@{
@@ -1454,7 +1662,15 @@ function Get-ChatqClaudeOutcome {
                 }
                 else { $n }
             } | Select-Object -Unique -First 3)
+        # the phone said no to every one of them: that was the answer, the
+        # run went on without them, and nothing waits on the user
+        $ids = @($den | ForEach-Object { [string]$_.tool_use_id })
+        if (@($Refused).Count -and -not @($ids | Where-Object { -not $_ -or $_ -notin @($Refused) }).Count) {
+            $o.kind = 'done'; $o.asks = Test-ChatqAsks $text; $o.denied = $names; $o['youDenied'] = $names
+            return [pscustomobject]$o
+        }
         $o.kind = 'needs-input'; $o.reason = 'denied ' + ($names -join ', '); $o.denied = $names
+        if (@($NoAnswer).Count -and @($ids | Where-Object { $_ -and $_ -in @($NoAnswer) }).Count) { $o.reason += ' - no answer from the phone' }
         return [pscustomobject]$o
     }
     if ($Mode -eq 'plan' -or $St.Mode -eq 'plan') {
@@ -1832,8 +2048,10 @@ function Update-ChatqNewChatPath {
 
 function Invoke-ChatqRun {
     # Deliver one job's prompt into its chat and read what came back. The
-    # caller owns the job's state; this only runs and classifies.
-    param($Job, [string]$Prompt, [scriptblock]$OnTick, [scriptblock]$OnStart, [object[]]$Files)
+    # caller owns the job's state; this only runs and classifies. -Permit:
+    # New-ChatqPermitRun's run, when a prompt mid-run is to ask the phone.
+    param($Job, [string]$Prompt, [scriptblock]$OnTick, [scriptblock]$OnStart, [object[]]$Files,
+        $Permit)
     $exe = Find-ChatqExe $Job.provider
     if (-not $exe) { return [pscustomobject]@{ kind = 'failed'; reason = "no $($Job.provider) CLI found - install it or set CHATQ_$($Job.provider.ToUpper())" } }
     $log = Join-Path $script:ChatqLogDir "$($Job.id).jsonl"
@@ -1884,6 +2102,15 @@ function Invoke-ChatqRun {
     $start = if (Test-ChatqFreshChat $Job) { @('--session-id', $Job.sessionId, '--name', $name) } else { @('--resume', $Job.sessionId) }
     $a = @('-p') + $start + @('--output-format', 'stream-json', '--verbose',
         '--permission-mode', $mode, '--permission-prompts', 'none')
+    # A prompt goes to the phone's bridge rather than being denied outright
+    # (src/permit.ps1): its MCP server, the tool that decides, and the run's
+    # own rules beside the user's - files named here, never their JSON, which
+    # cmd.exe would take apart for a claude.cmd.
+    if ($Permit) {
+        $a[[Array]::IndexOf($a, '--permission-prompts') + 1] = 'host'
+        $a += @('--mcp-config', $Permit.McpPath, '--permission-prompt-tool', $script:ChatqPermitTool, '--settings', $Permit.SettingsPath)
+        $Permit.St = $st
+    }
     # only when -Model asked for one: a resume keeps the chat's own model, and
     # naming it would pin the run to an id that may since have been retired
     if ($Job.runModel) { $a += @('--model', $Job.runModel) }
@@ -1891,11 +2118,23 @@ function Invoke-ChatqRun {
     # naming the job's folder keeps that true under a stricter version or a
     # settings file that limits reads to the workspace
     if ($Files) { $a += @('--add-dir', (Get-ChatqAttachDir $Job)) }
+    $runEnv = @{ CLAUDE_CONFIG_DIR = $Job.home }
+    # claude's own wait on the bridge ends 3 minutes after the bridge's: a
+    # call it times out is an error the model retries, never a denial (S35)
+    if ($Permit) { $runEnv['MCP_TOOL_TIMEOUT'] = [string]$Permit.TimeoutMs }
     $proc = Invoke-ChatqProcess -Exe $exe -ArgList $a -WorkDir $Job.cwd -StdIn $Prompt -LogPath $log `
-        -SetEnv @{ CLAUDE_CONFIG_DIR = $Job.home } -OnTick $OnTick -OnLine {
+        -SetEnv $runEnv -OnTick $OnTick -OnLine {
         param($l)
         Update-ChatqClaudeState $st $l
         if ($st.Init -and -not $st.Started) { $st.Started = $true; if ($OnStart) { & $OnStart $st } }
+    }
+    if ($Permit) {
+        # what the phone answered decides what the denials mean; a run the
+        # bridge never came up for says so, for one retry without it
+        $closed = Close-ChatqPermitRun $Job $Permit
+        $o = Get-ChatqClaudeOutcome $st $proc $mode -Refused $closed.Refused -NoAnswer $closed.NoAnswer
+        if (Test-ChatqPermitStartFailed $o $proc.StdErr $st $Permit) { Set-ChatqProp $o 'permitFailed' $true }
+        return $o
     }
     return (Get-ChatqClaudeOutcome $st $proc $mode)
 }

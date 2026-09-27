@@ -21,17 +21,17 @@ $r = Resolve-ChatqTarget 'zzqx nothing like it'
 Check 'no match: a guess from this project only' ($r.Tier -eq 'nomatch' -and (Test-ChatInProject $r.Row (Get-ChatProjectScope $projA))) "$($r.Rule) $($r.Row.Group)"
 Check 'no match never reaches the nested sibling slug' ($r.Row.Id -ne $idMob)
 # a prompt typed after the title joins the title, and only ever guesses a chat
-$said = (Write-ChatqPromptHint 'zzqx nothing like it read the notes at C:\tmp\p.txt and improve' $r 6>&1 | Out-String)
+$said = (Write-ChatqPromptHint 'zzqx nothing like it read the notes at C:\tmp\p.txt and improve' $r 6>&1 | Out-String -Width 400)
 Check 'a sentence typed as a title points at -Prompt' ($said -match "-Prompt '<the rest>'") $said
-$said = (Write-ChatqPromptHint 'zzqx nothing like it and a few more words' $r -HasPrompt 6>&1 | Out-String)
+$said = (Write-ChatqPromptHint 'zzqx nothing like it and a few more words' $r -HasPrompt 6>&1 | Out-String -Width 400)
 Check 'no hint when the prompt was given' (-not $said.Trim()) $said
-$said = (Write-ChatqPromptHint 'zzqx nothing' $r 6>&1 | Out-String)
+$said = (Write-ChatqPromptHint 'zzqx nothing' $r 6>&1 | Out-String -Width 400)
 Check 'no hint for a short target' (-not $said.Trim()) $said
 $r2 = Resolve-ChatqTarget 'card redesign'
-$said = (Write-ChatqPromptHint 'card redesign and a few more words here' $r2 6>&1 | Out-String)
+$said = (Write-ChatqPromptHint 'card redesign and a few more words here' $r2 6>&1 | Out-String -Width 400)
 Check 'no hint when a title really matched' (-not $said.Trim()) $said
 # and through chatq itself, the way it was typed - -WhatIf queues nothing
-$said = (chatq zzqx nothing like it read the notes at C:\tmp\p.txt and improve -WhatIf 6>&1 | Out-String)
+$said = (chatq zzqx nothing like it read the notes at C:\tmp\p.txt and improve -WhatIf 6>&1 | Out-String -Width 400)
 Check 'chatq itself says it for a prompt typed where the title goes' ($said -like "*-Prompt '<the rest>'*") $said
 $r = Resolve-ChatqTarget 'Mobile only chat'
 Check 'a title only in another project is found there' ($r.Row.Id -eq $idMob -and $r.Wide) "$($r.Rule) wide=$($r.Wide)"

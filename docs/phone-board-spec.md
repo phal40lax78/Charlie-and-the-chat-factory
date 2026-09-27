@@ -312,7 +312,17 @@ chat; `ni` = the seq of a job of it that needs input; `more` = chats not listed.
     console's new chat). `say`: `new chat "<title>" queued as #15 in <folder leaf> - runs in default`.
   - `send` and `new`, when a job was made: the `ack`, **and** `Send-ChatqAlert 'reply' $say 1
     -Loud -Job $job` as every reply is answered - the push is what reaches a phone whose page
-    was closed, and its link answers the new job.
+    was closed, and its link answers the new job. For `new` the push says less than the sealed
+    ack (0.9.0 review): `new chat queued as #15 - runs in default`, never the title - the name
+    typed on the phone, or the prompt's first line standing in for one - nor the folder, since
+    Join logs its GETs and an ntfy alert topic may be read by others.
+  - `continue` (Continue at reset): `New-ChatqPhoneJob -Kind continue`, then the cut-off's
+    marker in `data/auto/` as the reset ask's answers write it (`Save-ChatqAskAnswer -Answer
+    continue -Source phone -Seqs` the job's number, `-Extra` the chat and its reset), so a skip
+    of that job from the phone reads as declined to auto-continue and the reset ask alike.
+  - A job act (`now`, `skip`, `stop`, `retry`, `allow`) finds its job by the handle's whole id
+    only (`Find-ChatqJob -Exact`), and only when that job still has the handle's number: a job
+    queued in the same second for the same chat is that id with `-2`, never taken in its place.
 - The watcher is started for nothing new: a `send`/`new` job is picked up by the loop that read
   it, as reply jobs are.
 
@@ -648,7 +658,10 @@ green working, orange cut off, purple queued, grey idle, faint recent), mobile-f
 - Refresh budget: the page asks on open, on the Refresh button, and every 30 s while the page is
   visible for at most 10 minutes (then "Paused - tap Refresh"); never in the background. The PC
   answers at most one `board` per 10 s (a second within 10 s gets the same board again from a
-  memory cache, no new build) and counts board answers against spec-down's `downPerDay`; when
+  memory cache, no new build - 40 s for a board built from a scan, with no overlay running,
+  which reads every live chat and the cut-off transcripts: kept past the page's own 30 s, and
+  its cut-off look kept by transcript between builds) and counts board answers against
+  spec-down's `downPerDay`; when
   the day's budget is near, the page says "few refreshes left today (ntfy.sh's free limit)".
 - Listening: the dashboard is only useful when the watcher listens. The setup window's replies
   section gains **Listen all the time (the phone board and new chats)** = reply.listen always,

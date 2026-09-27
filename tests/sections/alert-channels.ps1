@@ -3,7 +3,7 @@
 
 Section 'alert channels'
 $topic = 'chatq-test-topic-7f3a'
-$said = (chatnotify -Ntfy $topic 6>&1 | Out-String)
+$said = (chatnotify -Ntfy $topic 6>&1 | Out-String -Width 400)
 Check 'ntfy is saved, and the topic is never printed whole' ((Get-ChatqConfig).ntfy.topic -and $said -notlike "*$topic*" -and $said -like '*cha...*') $said
 $script:ChatqIdleSeam = 30
 $n0 = $script:Ntfys.Count; $t0 = $script:Toasts.Count
@@ -34,8 +34,8 @@ Check 'a pasted Join URL gives up its key and device' ((Unprotect-ChatqSecret $j
 chatnotify -Off *> $null
 Check 'chatnotify -Off clears the phone and the command' (-not (Get-ChatqConfig).PSObject.Properties['ntfy'] -and -not (Get-ChatqConfig).PSObject.Properties['command'])
 # chatqnotify is the old name, and a profile or a habit may still type it
-$newSaid = (chatnotify 6>&1 | Out-String)
-$oldSaid = (chatqnotify 6>&1 | Out-String)
+$newSaid = (chatnotify 6>&1 | Out-String -Width 400)
+$oldSaid = (chatqnotify 6>&1 | Out-String -Width 400)
 Check 'chatqnotify still works, and says what chatnotify says' ($newSaid.Trim() -and $oldSaid -eq $newSaid) $oldSaid
 $oldCmd = Get-Command chatqnotify -EA SilentlyContinue
 Check 'Get-Command chatqnotify is the alias of chatnotify' ($oldCmd -and $oldCmd.CommandType -eq 'Alias' -and $oldCmd.ResolvedCommand.Name -eq 'chatnotify') "$($oldCmd.CommandType) $($oldCmd.Definition)"

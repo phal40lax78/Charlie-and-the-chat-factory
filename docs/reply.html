@@ -54,6 +54,14 @@ body {
 .chip[data-ev="started"] { --chip: #2459d6; }
 .chip[data-ev="limited"], .chip[data-ev="overloaded"] { --chip: #b54708; }
 .chip[data-ev="test"] { --chip: #6b4fd8; }
+.chip[data-ev="usage"] { --chip: #8a5a00; }
+.chip[data-ev="summary"] { --chip: #4b5563; }
+.prefill { margin: 0; font-size: 14px; color: var(--warn); }
+.chip[data-ev="permission"] { --chip: #b3261e; }
+.permit { display: flex; flex-direction: column; gap: 6px; }
+.permit p { margin: 0; }
+.permit .code { font-size: 15px; font-weight: 500; max-height: 40vh; overflow: auto; -webkit-user-select: text; user-select: text; }
+.permit .fine { text-align: left; }
 .meta { color: var(--muted); font-size: 14px; }
 .title {
     margin: 0; font-size: 22px; line-height: 1.3; font-weight: 650;
@@ -159,6 +167,129 @@ button:disabled { opacity: .45; cursor: default; }
 .broken h1 { font-size: 21px; margin: 0 0 10px; }
 .broken p { margin: 0 auto; color: var(--muted); line-height: 1.5; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* The board: the overlay on the phone, in the overlay's own colours -
+   amber waiting on you, green working, orange cut off, purple queued, grey
+   idle, faint recent. Read at a glance on a 390 px screen: one column, the
+   title first, the state on the right, what to tap the whole row. */
+:root {
+    --amber: #a86200; --green: #177a3b; --orange: #c2410c; --purple: #6446cc; --idle: #7a818c; --blue: #2459d6;
+    --row: #ffffff; --soft: #eceef2; --bar: #d8dce3;
+}
+@media (prefers-color-scheme: dark) {
+    :root {
+        --amber: #f2b14c; --green: #5fd08a; --orange: #ff8f57; --purple: #b39cff; --idle: #8d949f; --blue: #6fa0ff;
+        --row: #1a1d24; --soft: #242832; --bar: #2e333d;
+    }
+}
+.board, .chat {
+    display: flex; flex-direction: column; gap: 10px;
+    min-height: 100vh; min-height: 100dvh; max-width: 40rem; margin: 0 auto;
+    padding: max(10px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
+}
+.bhead { display: flex; flex-direction: column; gap: 8px; position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 4px 0 8px; border-bottom: 1px solid var(--line); }
+.brow { display: flex; align-items: center; gap: 8px; min-height: 36px; }
+.bhost { flex: 1 1 auto; min-width: 0; font-size: 17px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.btime { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.ghost, .linkish {
+    min-height: 36px; padding: 4px 12px; border-radius: 10px; font: inherit; font-size: 14px; font-weight: 600;
+    border: 1px solid var(--line); background: var(--card); color: var(--fg);
+}
+.linkish { border-color: transparent; background: transparent; color: var(--accent); padding: 4px 6px; }
+.usage { display: grid; grid-template-columns: max-content max-content minmax(3rem, 1fr) max-content; gap: 3px 8px; align-items: center; font-size: 13px; }
+.usage .un { font-weight: 650; }
+.usage .uw { color: var(--muted); }
+.usage .ur { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.usage .stale { opacity: .6; }
+.usage progress { -webkit-appearance: none; appearance: none; width: 100%; height: 7px; border: 0; border-radius: 4px; background: var(--bar); color: var(--green); }
+.usage progress::-webkit-progress-bar { background: var(--bar); border-radius: 4px; }
+.usage progress::-webkit-progress-value { background: var(--green); border-radius: 4px; }
+.usage progress::-moz-progress-bar { background: var(--green); border-radius: 4px; }
+.usage progress[data-tone="warn"]::-webkit-progress-value { background: var(--amber); }
+.usage progress[data-tone="warn"]::-moz-progress-bar { background: var(--amber); }
+.usage progress[data-tone="bad"]::-webkit-progress-value { background: var(--bad); }
+.usage progress[data-tone="bad"]::-moz-progress-bar { background: var(--bad); }
+.bnote { margin: 0; padding: 7px 10px; border-radius: 10px; background: var(--warn-bg); color: var(--fg); font-size: 13px; }
+.search {
+    width: 100%; min-height: 40px; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--line);
+    background: var(--card); color: var(--fg); font: inherit; font-size: 16px;
+}
+.blist { display: flex; flex-direction: column; gap: 6px; flex: 1 1 auto; }
+.shead { margin: 10px 2px 0; font-size: 12px; font-weight: 750; letter-spacing: .07em; text-transform: uppercase; color: var(--c, var(--muted)); }
+.row {
+    display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 10px 12px 10px 10px; text-align: left;
+    border: 0; border-left: 4px solid var(--c, var(--idle)); border-radius: 12px; background: var(--row); color: var(--fg); font: inherit;
+}
+[data-sec="waiting"] { --c: var(--amber); }
+[data-sec="working"] { --c: var(--green); }
+[data-sec="cut"] { --c: var(--orange); }
+[data-sec="queue"] { --c: var(--purple); }
+[data-sec="idle"] { --c: var(--idle); }
+[data-sec="recent"] { --c: var(--line); }
+[data-sec="folder"] { --c: var(--accent); }
+.row[data-sec="recent"] { background: transparent; }
+.row[data-sec="recent"] .rt { font-weight: 500; color: var(--muted); }
+[data-sec="older"] { --c: var(--line); }
+.row[data-sec="older"] { background: transparent; }
+.rm { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.rt {
+    font-size: 16px; font-weight: 620; line-height: 1.3; word-break: keep-all; overflow-wrap: anywhere;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.rt .nd { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--blue); vertical-align: middle; }
+.rs { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rp { font-size: 13px; color: var(--muted); font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rr { flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; max-width: 45%; }
+.ra { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tag {
+    display: inline-block; max-width: 100%; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 650; line-height: 1.35;
+    background: var(--soft); color: var(--tc, var(--muted)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tag[data-tone="waiting"] { --tc: var(--amber); }
+.tag[data-tone="working"] { --tc: var(--green); }
+.tag[data-tone="queue"] { --tc: var(--purple); }
+.tag[data-tone="bad"] { --tc: var(--bad); }
+.skel { height: 58px; border-radius: 12px; background: var(--soft); }
+.bmore, .bempty { margin: 6px 2px; font-size: 13px; color: var(--muted); }
+.bcard { display: flex; flex-direction: column; gap: 10px; padding: 16px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); margin-top: 8px; }
+.bcard h2 { margin: 0; font-size: 19px; }
+.bcard p { margin: 0; line-height: 1.5; color: var(--muted); }
+.bfoot { position: sticky; bottom: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 0 2px; background: var(--bg); border-top: 1px solid var(--line); }
+.bfoot .newchat { min-height: 44px; padding: 8px 14px; border: 0; border-radius: 12px; background: var(--accent); color: var(--accent-fg); font: inherit; font-weight: 650; }
+.blisten { flex: 1 1 auto; font-size: 12px; color: var(--muted); text-align: right; }
+.back { align-self: flex-start; }
+.cline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; color: var(--muted); }
+.mchip { padding: 2px 9px; border-radius: 999px; background: var(--soft); color: var(--fg); font-size: 12px; font-weight: 650; }
+.cprompt { margin: 0; padding: 8px 10px; border-left: 3px solid var(--line); color: var(--muted); font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.name { width: 100%; min-height: 44px; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--fg); font: inherit; font-size: 16px; }
+.chat .compose { min-height: 7rem; }
+#bStatusText, #cStatusText { white-space: pre-line; }
+/* the whole answer, above the box it is answered in */
+.answer { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 14px; background: var(--card); overflow: hidden; flex: 0 0 auto; }
+.ahead { display: flex; align-items: center; gap: 6px; padding: 6px 8px 6px 12px; border-bottom: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+.ahead .al { flex: 1 1 auto; font-weight: 650; color: var(--fg); }
+.ahead button { min-height: 32px; padding: 2px 10px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--fg); font: inherit; font-size: 13px; }
+.acut { margin: 0; padding: 6px 12px 0; font-size: 12px; color: var(--warn); }
+.abody {
+    max-height: 45vh; overflow-y: auto; padding: 10px 12px 14px; font-size: 15px; line-height: 1.5;
+    white-space: pre-wrap; word-break: keep-all; overflow-wrap: anywhere;
+    -webkit-mask-image: linear-gradient(to bottom, #000 80%, transparent); mask-image: linear-gradient(to bottom, #000 80%, transparent);
+}
+.answer.full .abody { max-height: none; -webkit-mask-image: none; mask-image: none; }
+.abody p { margin: 0 0 8px; }
+.abody .ah { font-weight: 700; }
+.abody pre { margin: 0 0 8px; padding: 8px 10px; border-radius: 8px; background: var(--soft); overflow-x: auto; white-space: pre; font: 13px/1.45 ui-monospace, "Cascadia Mono", "SF Mono", Consolas, Menlo, monospace; }
+.abody code { padding: 0 3px; border-radius: 4px; background: var(--soft); font-family: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, Menlo, monospace; font-size: .92em; }
+.abody pre code { padding: 0; background: transparent; }
+.abody .tool, .abody .tools { display: block; margin: 0 0 6px; padding: 0; border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 13px; text-align: left; }
+.abody .note { margin: 0 0 8px; color: var(--warn); font-weight: 600; }
+.astate { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; font-size: 14px; color: var(--muted); }
+.astate button { min-height: 36px; padding: 4px 12px; border-radius: 10px; border: 1px solid var(--accent); background: transparent; color: var(--accent); font: inherit; font-weight: 600; }
+.aone { display: none; width: 100%; min-height: 40px; padding: 8px 12px; border: 0; background: transparent; color: var(--fg); font: inherit; font-size: 14px; font-weight: 600; text-align: left; }
+@media (max-height: 520px) {
+    .answer .ahead, .answer .abody, .answer .acut, .answer .astate { display: none; }
+    .answer .aone { display: block; }
+    .bhead .usage, .bfoot .blisten { display: none; }
+}
 </style>
 </head>
 <body>
@@ -167,11 +298,22 @@ button:disabled { opacity: .45; cursor: default; }
         <div class="line1"><span id="ev" class="chip"></span><span id="meta" class="meta"></span></div>
         <h1 id="title" class="title"></h1>
     </header>
+    <!-- a permission request: the call as the card says, opened on this phone -->
+    <section id="permit" class="permit" hidden>
+        <p id="permitWhat" class="code"></p>
+        <p id="permitWhere" class="meta"></p>
+        <p id="permitDetail" class="meta"></p>
+        <p id="permitLeft" class="about"></p>
+        <p id="permitBody" class="about"></p>
+        <p id="permitFine" class="fine"></p>
+    </section>
+    <div id="answer" class="answer" hidden></div>
     <div id="compose" class="compose">
         <label for="text" class="sr">Message to the chat</label>
         <textarea id="text" autofocus rows="5" autocapitalize="sentences" autocomplete="off"></textarea>
         <div class="under"><span id="hint"></span><span id="count" class="count"></span></div>
     </div>
+    <p id="prefill" class="prefill" data-kind="note" hidden></p>
     <p id="about" class="about" hidden></p>
     <div id="status" class="status" role="status" aria-live="polite" hidden><span id="statusText"></span><button id="again" type="button" hidden>Try again</button></div>
     <ol id="log" class="log"></ol>
@@ -179,6 +321,7 @@ button:disabled { opacity: .45; cursor: default; }
         <div id="more" class="more"></div>
         <button id="send" class="primary" type="button"></button>
         <p id="fine" class="fine"></p>
+        <button id="toBoard" class="linkish" type="button">Other chats</button>
     </footer>
 </main>
 <section id="card" class="card" hidden>
@@ -202,6 +345,47 @@ button:disabled { opacity: .45; cursor: default; }
         <button id="pair" class="primary" type="button" hidden>Pair</button>
         <p id="cardFine" class="fine" hidden></p>
     </footer>
+</section>
+<!-- the board: the overlay on the phone, the page's home once paired -->
+<section id="board" class="board" hidden>
+    <header class="bhead">
+        <div class="brow"><span id="bHost" class="bhost"></span><span id="bTime" class="btime"></span><button id="bRefresh" class="ghost" type="button">Refresh</button></div>
+        <div id="bUsage" class="usage" hidden></div>
+        <p id="bNote" class="bnote" hidden></p>
+        <label for="bSearch" class="sr">Search chats</label>
+        <input id="bSearch" class="search" type="search" placeholder="Search chats" autocomplete="off" hidden>
+    </header>
+    <div id="bStatus" class="status" role="status" aria-live="polite" hidden><span id="bStatusText"></span><button id="bAgain" type="button" hidden>Try again</button></div>
+    <div id="bList" class="blist"></div>
+    <footer class="bfoot">
+        <button id="bNew" class="newchat" type="button" hidden>+ New chat</button>
+        <button id="bBack" class="linkish" type="button" hidden>The alert</button>
+        <span id="bListen" class="blisten"></span>
+        <button id="bStat" class="linkish" type="button">Status</button>
+    </footer>
+</section>
+<!-- one chat from the board, a new chat in a folder, or the folders -->
+<section id="chat" class="chat" hidden>
+    <button id="cBack" class="ghost back" type="button">&larr; Board</button>
+    <p id="cKicker" class="kicker" hidden></p>
+    <h1 id="cTitle" class="title"></h1>
+    <p id="cMeta" class="meta"></p>
+    <div class="cline"><span id="cMode" class="mchip"></span><span id="cState"></span></div>
+    <p id="cPrompt" class="cprompt" hidden></p>
+    <div id="cAnswer" class="answer" hidden></div>
+    <label for="cSearch" class="sr">Search folders</label>
+    <input id="cSearch" class="search" type="search" placeholder="Search folders" autocomplete="off" hidden>
+    <div id="cList" class="blist" hidden></div>
+    <div id="cActs" class="more" hidden></div>
+    <div id="cCompose" class="compose">
+        <label for="cName" class="sr">Name</label>
+        <input id="cName" class="name" type="text" maxlength="60" placeholder="Named from the first line if left empty" autocomplete="off" hidden>
+        <label for="cText" class="sr">Message to the chat</label>
+        <textarea id="cText" rows="4" autocapitalize="sentences" autocomplete="off" placeholder="Next prompt for this chat"></textarea>
+        <div class="under"><span id="cHint"></span><span id="cCount" class="count"></span></div>
+    </div>
+    <div id="cStatus" class="status" role="status" aria-live="polite" hidden><span id="cStatusText"></span><button id="cAgain" type="button" hidden>Try again</button></div>
+    <button id="cSend" class="primary" type="button">Send</button>
 </section>
 <noscript><section class="broken"><h1>This page needs JavaScript</h1><p>It encrypts the reply on the phone before sending it.</p></section></noscript>
 <script>
@@ -274,9 +458,42 @@ var ChatqCrypto = (function () {
     async function deriveKeys(k) {
         return { enc: await hmac(k, utf8('enc')), mac: await hmac(k, utf8('mac')) };
     }
-    // key order and spelling are the wire format: JSON.stringify keeps both
-    function buildPayload(act, text, nonce, ts) {
-        return JSON.stringify({ v: 1, act: act, text: text, nonce: nonce, ts: ts });
+    // key order and spelling are the wire format: JSON.stringify keeps both.
+    // h, a permission request's digest, goes last and only when given, so
+    // every other reply is byte for byte what it always was
+    function buildPayload(act, text, nonce, ts, h) {
+        var o = { v: 1, act: act, text: text, nonce: nonce, ts: ts };
+        if (h) o.h = h;
+        return JSON.stringify(o);
+    }
+    // every byte looked at, wherever the first difference is
+    function sameBytes(a, b) {
+        if (!a || !b || a.length !== b.length) return false;
+        var d = 0;
+        for (var i = 0; i < a.length; i++) d |= a[i] ^ b[i];
+        return d === 0;
+    }
+    // A permission request's card, sealed for this phone by the PC: the
+    // other direction, so keys of its own - HMAC(D, "chatq-card:" + aid),
+    // then enc and mac as for a reply. The MAC first, then the decryption;
+    // the object, or null for anything that does not open whole.
+    async function openCard(key, aid, card) {
+        var p = String(card || '').split('.');
+        if (p.length !== 5 || p[0] !== 'chatq1c' || p[1] !== aid || !/^[a-z2-7]{10}$/.test(aid)) return null;
+        var iv = unb64url(p[2]), ct = unb64url(p[3]), mac = unb64url(p[4]);
+        if (!iv || iv.length !== 16 || !ct || !ct.length || ct.length % 16 || !mac || mac.length !== 32) return null;
+        try {
+            var keys = await deriveKeys(await hmac(key, utf8('chatq-card:' + aid)));
+            if (!sameBytes(await hmac(keys.mac, utf8(p.slice(0, 4).join('.'))), mac)) return null;
+            var dk = await crypto.subtle.importKey('raw', keys.enc, { name: 'AES-CBC' }, false, ['decrypt']);
+            var pt = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-CBC', iv: iv }, dk, ct));
+            var o = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(pt));
+            if (!o || o.v !== 1 || typeof o.t !== 'string' || typeof o.w !== 'string' || typeof o.u !== 'number' ||
+                typeof o.h !== 'string' || !/^[A-Za-z0-9_-]{22}$/.test(o.h)) return null;
+            return o;
+        } catch (e) {
+            return null;
+        }
     }
     // encrypt-then-MAC: the watcher checks the MAC over everything before
     // it decrypts a byte
@@ -289,13 +506,13 @@ var ChatqCrypto = (function () {
     }
     // fixed: { iv, nonce, ts } for the test vector; a real send leaves it out
     // and gets a fresh iv and nonce each time, which is what the watcher's
-    // replay guard counts on
-    async function seal(k, aid, act, text, fixed) {
+    // replay guard counts on. h: the request a permit answers
+    async function seal(k, aid, act, text, fixed, h) {
         fixed = fixed || {};
         var nonce = fixed.nonce !== undefined ? fixed.nonce : b64url(randomBytes(16));
         var ts = fixed.ts !== undefined ? fixed.ts : Date.now();
         var iv = fixed.iv !== undefined ? fixed.iv : randomBytes(16);
-        var payload = buildPayload(act, text, nonce, ts);
+        var payload = buildPayload(act, text, nonce, ts, h);
         return { message: await sealPayload(k, aid, payload, iv), payload: payload, nonce: nonce, ts: ts };
     }
     function buildPairPayload(d, label, ts) {
@@ -323,7 +540,8 @@ var ChatqCrypto = (function () {
         MAX_PAIR_PAYLOAD: MAX_PAIR_PAYLOAD,
         utf8: utf8, b64url: b64url, unb64url: unb64url, randomBytes: randomBytes, phoneKey: phoneKey, isKey: isKey, hmac: hmac,
         alertKey: alertKey, confirmCode: confirmCode, deriveKeys: deriveKeys, buildPayload: buildPayload, sealPayload: sealPayload, seal: seal,
-        buildPairPayload: buildPairPayload, sealPair: sealPair, pair: pair
+        buildPairPayload: buildPairPayload, sealPair: sealPair, pair: pair,
+        sameBytes: sameBytes, openCard: openCard
     };
 })();
 /* chatq-crypto-end */
@@ -337,8 +555,14 @@ var ChatqPage = (function () {
     var MAX_PAYLOAD = 2900;
     // warned from here: room left to trim before Send turns off
     var WARN_AT = 2400;
-    var ACTS = ['prompt', 'retry', 'allow', 'skip', 'stop', 'status', 'ping'];
+    var ACTS = ['prompt', 'retry', 'allow', 'skip', 'stop', 'status', 'ping',
+        // Send now, on a usage alert about a reset coming; a permission
+        // request's Allow once and Deny
+        'wake', 'permit', 'refuse'];
     var LABEL_MAX = 40, HOST_MAX = 30;
+    // text= from outside the page (a Tasker reply) longer than this is dropped
+    var TEXT_MAX = 16000;
+    var PREFILL_NOTE = 'Filled in from outside the page - check it, then Send.';
 
     function normEvent(e) {
         return String(e || '').trim().toLowerCase().replace(/[-_\s]+/g, ' ');
@@ -369,9 +593,13 @@ var ChatqPage = (function () {
         if (!h) return { ok: false, why: 'missing' };
         var q = Object.create(null);
         var parts = h.split('&');
+        var rawText;
         for (var i = 0; i < parts.length; i++) {
             var eq = parts[i].indexOf('=');
             if (eq < 1) continue;
+            // text= is words typed outside the page, read on its own
+            // (readText): a broken one never makes the whole link bad
+            if (parts[i].slice(0, eq) === 'text') { rawText = parts[i].slice(eq + 1); continue; }
             var val;
             try { val = decodeURIComponent(parts[i].slice(eq + 1)); } catch (e) { return { ok: false, why: 'bad' }; }
             q[parts[i].slice(0, eq)] = val;
@@ -402,16 +630,63 @@ var ChatqPage = (function () {
                 title: clean(q.c, 200),
                 provider: String(q.p || '').trim().toLowerCase(),
                 job: String(q.j || '').trim(),
-                jobless: q.x === '1'
+                jobless: q.x === '1',
+                // a usage alert about a reset coming: Send now offered. The
+                // PC goes by its own record of the alert, never by this
+                wake: q.w === '1',
+                text: readText(rawText),
+                // a permission request's card, sealed for this phone: taken
+                // only in its own shape, and opened only with the phone's key
+                card: /^chatq1c\.[a-z2-7]{10}\.[A-Za-z0-9_.-]+$/.test(q.r || '') ? q.r : '',
+                // f=1: the whole answer went to the down topic; o: when, in
+                // unix seconds, so the page knows how far back to look
+                full: q.f === '1',
+                at: /^[0-9]{9,11}$/.test(q.o || '') ? +q.o : 0
             }
         };
     }
+    // Words typed outside the page - a Tasker reply - for the box, and only
+    // for the box. NOTHING in a link sends, acts, confirms or presses a
+    // button. The page holds this phone's key; an alert's id is no secret
+    // (Join logs its pushes, the lock screen shows them), and anything can
+    // open a link - another app, a web page, a QR code, a restored tab, a
+    // link preview. A link that sent would seal and post whatever it says
+    // with this phone's key, and the MAC would check out: the MAC proves
+    // this page sealed it, not that the person meant it. The tap on Send
+    // is the one thing that does. So text is typed into the box, and there
+    // it waits. + is a space first (Tasker's and Java's URL encoders write
+    // spaces so; a real + comes as %2B); a broken escape, or more than
+    // TEXT_MAX characters, is none at all; control characters but the
+    // newline and tab go, and CRLF is a newline.
+    function readText(raw) {
+        if (raw === undefined || raw === null) return '';
+        var s;
+        try { s = decodeURIComponent(String(raw).replace(/\+/g, ' ')); } catch (e) { return ''; }
+        if (s.length > TEXT_MAX) return '';
+        return s.replace(/\r\n/g, '\n').replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, '').trim();
+    }
     // what is kept for this tab so a reload still works: the alert's own
-    // fields and nothing else, rebuilt rather than copied from the link
+    // fields and nothing else, rebuilt rather than copied from the link -
+    // never the text a link brought, which goes into the draft instead
     function alertFragment(f) {
         var q = [['v', '2'], ['a', f.aid], ['e', f.event], ['n', f.seq], ['c', f.title], ['p', f.provider], ['j', f.job]];
         if (f.jobless) q.push(['x', '1']);
+        if (f.wake) q.push(['w', '1']);
+        if (f.card) q.push(['r', f.card]);
+        if (f.full) q.push(['f', '1']);
+        if (f.at) q.push(['o', String(f.at)]);
         return q.map(function (p) { return p[0] + '=' + encodeURIComponent(p[1] || ''); }).join('&');
+    }
+    // What goes in the box as the form opens: { text, note }. A link's text
+    // wins over a draft, and says so; an alert that takes no text - a test,
+    // one about no chat, a usage alert - drops it, and says that. No link
+    // text: the draft, as ever. text null: the box stays as it is.
+    function prefill(spec, f, draft) {
+        var d = draft && typeof draft.text === 'string' ? draft.text : '';
+        var t = f && f.text ? f.text : '';
+        if (!spec || !spec.text) return { text: null, note: t ? 'This alert takes no text - what was sent along was left out.' : '' };
+        if (!t) return { text: d, note: '' };
+        return { text: t, note: PREFILL_NOTE + (d.trim() && d.trim() !== t ? ' It replaced what was typed here before.' : '') };
     }
     // What the phone keeps, in IndexedDB (db 'chatq', store 'phone'): where
     // replies go and the phone's key as a CryptoKey that will not export.
@@ -478,8 +753,12 @@ var ChatqPage = (function () {
     // { text: shows the box, send: the big button, more: the small ones,
     //   placeholder, hint }. Every act here must be one the watcher knows.
     // job 'live' (j=live): the alert is about a chat run directly in VS Code,
-    // not a chatq job, so there is no run to continue, retry, skip or stop
-    function buttonsFor(event, provider, jobless, job) {
+    // not a chatq job, so there is no run to continue, retry, skip or stop.
+    // wake (w=1): a usage alert about a reset coming, which offers Send now.
+    // permit, now: a permission request's opened card and the time - Allow
+    // only with a card that opened, and only before its deadline (optional:
+    // the box may be left empty)
+    function buttonsFor(event, provider, jobless, job, wake, permit, now) {
         var e = normEvent(event);
         var status = { act: 'status', label: 'Status' };
         var ping = { act: 'ping', label: 'Send a test reply' };
@@ -489,8 +768,26 @@ var ChatqPage = (function () {
                 about: 'Checks the whole way back: from this phone through ntfy to the PC, which answers with a push. Nothing is queued.'
             };
         }
+        if (e === 'permission') {
+            var deny = { act: 'refuse', label: 'Deny' };
+            var note = { text: true, optional: true, placeholder: 'A note for Claude, with Deny (optional)', hint: 'the note goes only with Deny', about: '' };
+            if (permit && !(now >= permit.u)) {
+                return Object.assign(note, { send: { act: 'permit', label: 'Allow once', confirm: 'Tap again to allow' }, more: [deny, status] });
+            }
+            if (permit) return { text: false, send: status, more: [], placeholder: '', hint: '', about: '' };
+            return Object.assign(note, { send: deny, more: [status] });
+        }
         // about no chat (the PC's answers, a pairing's confirmation): there
         // is nothing a prompt could go to, so no box to type one in
+        if (jobless && e === 'usage') {
+            if (wake) {
+                return {
+                    text: false, send: { act: 'wake', label: 'Send now' }, more: [status], placeholder: '', hint: '',
+                    about: 'The queue waits for the limit to reset. Send now asks the PC to try at once - a probe goes first, so nothing is sent while the limit still holds.'
+                };
+            }
+            return { text: false, send: status, more: [], placeholder: '', hint: '', about: 'About usage limits. Status asks the PC what its queue is doing.' };
+        }
         if (jobless) {
             return {
                 text: false, send: status, more: e === 'reply' ? [ping] : [], placeholder: '', hint: '',
@@ -525,6 +822,13 @@ var ChatqPage = (function () {
             r.placeholder = 'Prompt to queue after this run';
             r.hint = 'runs once this run finishes';
         }
+        // the limit stopped it and a continue waits - auto-continue's for a
+        // chat you run yourself, or chatq's own requeued run: skip is an act
+        // the watcher knows, so nothing new goes over the wire
+        if (e === 'limited' && job === 'queued') {
+            r.more = [{ act: 'skip', label: 'Don\'t continue', confirm: 'Tap again - it will not continue' }, status];
+            r.placeholder = 'Next prompt - goes after the continue';
+        }
         return r;
     }
     // the bytes the payload will take, the nonce and ts at their real widths
@@ -549,6 +853,7 @@ var ChatqPage = (function () {
     function postUrl(to) { return to.server + '/' + to.topic; }
     function sentText(b) {
         if (b.act === 'prompt') return 'Sent. The PC queues it and answers with a push.';
+        if (b.act === 'permit' || b.act === 'refuse') return 'Sent - the PC reads it within about 5 s.';
         if (b.act === 'ping') return 'Test reply sent. The PC answers with a push.';
         return 'Sent "' + b.label + '". The PC answers with a push.';
     }
@@ -561,6 +866,39 @@ var ChatqPage = (function () {
         return host + ' answered ' + r.status + '.';
     }
     function onPc(host) { return host ? 'chatq on ' + host : 'chatq on your PC'; }
+    function hhmm(ms) {
+        var d = new Date(ms);
+        return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+    }
+    // What a permission alert shows, from its opened card: { state: open |
+    // late | none, kicker, head, what, where, detail, left, body, fine }.
+    // The command itself only ever comes from the card - the push that
+    // brought the link names none.
+    function permitView(permit, f, now) {
+        f = f || {};
+        if (!permit) {
+            return {
+                state: 'none', kicker: heading(f), head: 'Nothing to approve here',
+                body: 'This request cannot be read on this phone - it was sealed for another key, or changed on the way.'
+            };
+        }
+        var c = String(permit.c || f.title || '').replace(/[\x00-\x1f\x7f]+/g, ' ');
+        var n = typeof permit.n === 'number' && permit.n > 0 ? permit.n : (f.seq || '');
+        var kicker = (n ? '#' + n + ' ' : '') + c;
+        if (now >= permit.u) return { state: 'late', kicker: kicker, head: 'Too late', body: 'At ' + hhmm(permit.u) + ' the run went on without it.' };
+        var mins = Math.max(0, Math.ceil((permit.u - now) / 60000));
+        var t = String(permit.t || '');
+        return {
+            state: 'open', kicker: kicker, head: 'Allow this once?', what: String(permit.w || ''),
+            where: t + (permit.f ? ' \u00b7 in ' + String(permit.f) : ''),
+            detail: permit.d ? 'Claude: ' + String(permit.d) : '',
+            left: 'answer by ' + hhmm(permit.u) + ' - ' + mins + ' min left',
+            // x: the PC hid what looked like a secret, or cut the call short
+            // to fit - the phone is not seeing all of what it would allow
+            body: permit.x ? 'Not all of this call is shown - parts are hidden (***) or cut. If you cannot tell what it does, Deny.' : '',
+            fine: 'Allow runs this one call. It changes nothing else the run may do.'
+        };
+    }
     var PAIR_CMD = 'chatnotify -Pair';
     var READABLE = 'IndexedDB is not available here, so this browser keeps the key readable to this site\'s pages.';
     // Every screen that is not the reply form: { mark, kicker, head, big,
@@ -644,17 +982,493 @@ var ChatqPage = (function () {
     return {
         MAX_PAYLOAD: MAX_PAYLOAD, WARN_AT: WARN_AT, ACTS: ACTS, LABEL_MAX: LABEL_MAX,
         normEvent: normEvent, serverOf: serverOf, parseFragment: parseFragment, alertFragment: alertFragment,
+        readText: readText, prefill: prefill, TEXT_MAX: TEXT_MAX, PREFILL_NOTE: PREFILL_NOTE,
         storedRecord: storedRecord, parseStored: parseStored, codeText: codeText, whereTo: whereTo, READABLE: READABLE,
         parsePhone: parsePhone, phoneRecord: phoneRecord, deviceLabel: deviceLabel, buttonsFor: buttonsFor,
         payloadBytes: payloadBytes, counter: counter, heading: heading, hostOf: hostOf, postUrl: postUrl,
-        sentText: sentText, errorText: errorText, cardText: cardText
+        sentText: sentText, errorText: errorText, cardText: cardText,
+        permitView: permitView
     };
 })();
 /* chatq-logic-end */
 
+/* chatq-board-begin */
+// The PC -> phone channel and the board (docs/phone-board-spec.md): pure
+// functions over bytes and data, like the two blocks above, which
+// tests/board-page-check.js lifts out and holds to
+// tests/fixtures/down-vector.json and compose-vector.json - made by Node's
+// own crypto and zlib, as the watcher's side is held to them too.
+//
+// The phone asks with "chatq3c." + cid: sealed under HMAC(D, "chatq-phone:"
+// + cid), about no alert. The PC answers on a topic of its own, the down
+// topic - worked out from D, in no push or link - with "chatq3d." + did,
+// sealed under HMAC(D, "chatq-down:" + did) and raw-deflated before the
+// cipher. The ntfy title of each answer is its did, so the page asks for
+// exactly its own. Nothing opened here is ever stored: it lives in the
+// page's memory, and a reload asks again.
+var ChatqBoard = (function () {
+    'use strict';
+    var C = ChatqCrypto;
+    var ABC = 'abcdefghijklmnopqrstuvwxyz234567';
+    // an answer inflates to 4 MB at most, so a small deflate bomb stops
+    // there; an attachment is read to 2 MB, ntfy.sh's own limit
+    var MAX_INFLATE = 4194304, MAX_ATTACH = 2097152;
+    // what the phone sends about no alert, and read - the one alert act
+    // this block adds (the watcher's list is the judge of both)
+    var ACTS = ['board', 'list', 'status', 'read', 'send', 'new', 'continue', 'now', 'skip', 'stop', 'retry', 'allow'];
+    var ALERT_ACTS = ['read'];
+    // the whole answer comes with these, about a chat
+    var FULL_EVENTS = ['done', 'needs input', 'failed'];
+    // the middle dot between a row's facts, kept out of the file as a
+    // character: the page is ASCII
+    var DOT = ' ' + String.fromCharCode(0xB7) + ' ';
+    function idOk(s) { return /^[a-z2-7]{10}$/.test(s || ''); }
+    function handleOk(s) { return /^[a-z2-7]{6}$/.test(s || ''); }
+    function newId(bytes) {
+        var b = bytes || C.randomBytes(10), s = '';
+        for (var i = 0; i < 10; i++) s += ABC[b[i] % 32];
+        return s;
+    }
+    // "chatq-" + 24 of [a-z2-7]: byte i of HMAC(D, "chatq-down-topic") mod
+    // 32, unbiased as 256 is a multiple of 32
+    async function downTopic(key) {
+        var h = await C.hmac(key, C.utf8('chatq-down-topic'));
+        var s = 'chatq-';
+        for (var i = 0; i < 24; i++) s += ABC[h[i] % 32];
+        return s;
+    }
+    async function subKey(key, label, id) { return C.hmac(key, C.utf8(label + id)); }
+    // The fields of each act, in the order the watcher's reader and the
+    // compose vector hold: key order is the wire format
+    function fieldsFor(act, x) {
+        x = x || {};
+        if (act === 'send') return [['h', x.h], ['id', x.id], ['text', x.text]];
+        if (act === 'new') return [['h', x.h], ['name', x.name || ''], ['text', x.text]];
+        if (['now', 'skip', 'stop', 'retry', 'allow'].indexOf(act) >= 0) return [['h', x.h], ['n', x.n]];
+        if (act === 'read' || act === 'continue') return [['h', x.h]];
+        return [];
+    }
+    function buildComposePayload(act, fields, nonce, ts) {
+        var o = { v: 3, act: act };
+        (fields || []).forEach(function (f) { o[f[0]] = f[1]; });
+        o.nonce = nonce;
+        o.ts = ts;
+        return JSON.stringify(o);
+    }
+    async function sealCompose(key, cid, payload, iv) {
+        var keys = await C.deriveKeys(await subKey(key, 'chatq-phone:', cid));
+        var ek = await crypto.subtle.importKey('raw', keys.enc, { name: 'AES-CBC' }, false, ['encrypt']);
+        var ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-CBC', iv: iv }, ek, C.utf8(payload)));
+        var head = 'chatq3c.' + cid + '.' + C.b64url(iv) + '.' + C.b64url(ct);
+        return head + '.' + C.b64url(await C.hmac(keys.mac, C.utf8(head)));
+    }
+    // fixed: { cid, iv, nonce, ts } for the vector; a real one is new each time
+    async function compose(key, act, x, fixed) {
+        fixed = fixed || {};
+        var cid = fixed.cid !== undefined ? fixed.cid : newId();
+        var nonce = fixed.nonce !== undefined ? fixed.nonce : C.b64url(C.randomBytes(16));
+        var ts = fixed.ts !== undefined ? fixed.ts : Date.now();
+        var iv = fixed.iv !== undefined ? fixed.iv : C.randomBytes(16);
+        var payload = buildComposePayload(act, fieldsFor(act, x), nonce, ts);
+        return { message: await sealCompose(key, cid, payload, iv), payload: payload, cid: cid, nonce: nonce, ts: ts };
+    }
+    // the bytes a compose payload takes, its nonce and time at their widths
+    function composeBytes(act, x) {
+        return C.utf8(buildComposePayload(act, fieldsFor(act, x), 'AAAAAAAAAAAAAAAAAAAAAA', 1790000000000)).length;
+    }
+    // every byte looked at, wherever the first difference is
+    function sameBytes(a, b) {
+        if (!a || !b || a.length !== b.length) return false;
+        var d = 0;
+        for (var i = 0; i < a.length; i++) d |= a[i] ^ b[i];
+        return d === 0;
+    }
+    // Raw deflate opened by the browser itself, the output counted as it
+    // comes: null for what is not raw deflate or would pass max
+    async function inflateRaw(bytes, max) {
+        var ds = new DecompressionStream('deflate-raw');
+        var w = ds.writable.getWriter();
+        w.write(bytes).catch(function () { });
+        w.close().catch(function () { });
+        var rd = ds.readable.getReader(), chunks = [], total = 0;
+        try {
+            for (; ;) {
+                var r = await rd.read();
+                if (r.done) break;
+                total += r.value.length;
+                if (total > max) { rd.cancel().catch(function () { }); return null; }
+                chunks.push(r.value);
+            }
+        } catch (e) { return null; }
+        var out = new Uint8Array(total), at = 0;
+        chunks.forEach(function (c) { out.set(c, at); at += c.length; });
+        return out;
+    }
+    function canInflate() { return typeof DecompressionStream === 'function'; }
+    // A PC -> phone message opened, in the watcher's own order: five parts,
+    // the prefix, did as asked, the MAC in constant time - nothing is
+    // decrypted before it checks out - then the cipher, the inflate (4 MB at
+    // most) and the JSON, whose v is 3 and ref its did. { ok, payload } or
+    // { ok: false, why }; nothing thrown.
+    async function openDown(key, message, did, max) {
+        var p = String(message || '').trim().split('.');
+        if (p.length !== 5 || p[0] !== 'chatq3d' || !idOk(p[1])) return { ok: false, why: 'format' };
+        if (did && p[1] !== did) return { ok: false, why: 'did' };
+        var iv = C.unb64url(p[2]), ct = C.unb64url(p[3]), mac = C.unb64url(p[4]);
+        if (!iv || iv.length !== 16 || !ct || !ct.length || ct.length % 16 || !mac || mac.length !== 32) return { ok: false, why: 'format' };
+        var keys;
+        try {
+            keys = await C.deriveKeys(await subKey(key, 'chatq-down:', p[1]));
+            if (!sameBytes(await C.hmac(keys.mac, C.utf8(p.slice(0, 4).join('.'))), mac)) return { ok: false, why: 'mac' };
+        } catch (e) { return { ok: false, why: 'mac' }; }
+        var plain;
+        try {
+            var dk = await crypto.subtle.importKey('raw', keys.enc, { name: 'AES-CBC' }, false, ['decrypt']);
+            plain = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-CBC', iv: iv }, dk, ct));
+        } catch (e) { return { ok: false, why: 'decrypt' }; }
+        if (!canInflate()) return { ok: false, why: 'nodecomp' };
+        var z = await inflateRaw(plain, max || MAX_INFLATE);
+        if (!z) return { ok: false, why: 'inflate' };
+        var o;
+        try { o = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(z)); } catch (e) { return { ok: false, why: 'json' }; }
+        if (!o || typeof o !== 'object' || o.v !== 3 || o.ref !== p[1]) return { ok: false, why: 'json' };
+        return { ok: true, payload: o };
+    }
+    // ntfy's poll for one answer: the down topic, since a unix time, and
+    // only messages titled did
+    function pollUrl(server, topic, since, did) {
+        return server + '/' + topic + '/json?poll=1&since=' + encodeURIComponent(String(since)) + '&title=' + encodeURIComponent(did);
+    }
+    // ntfy's NDJSON: the messages, oldest first, whatever else is dropped
+    function parseFeed(text) {
+        var out = [];
+        String(text || '').split('\n').forEach(function (l) {
+            l = l.trim();
+            if (!l) return;
+            var m;
+            try { m = JSON.parse(l); } catch (e) { return; }
+            if (m && m.event === 'message') out.push(m);
+        });
+        return out;
+    }
+    // An attachment is fetched only from the server it was posted to, under
+    // /file/, 2 MB at most and not past its expiry: 'ok', 'gone' or 'bad'
+    function attachmentCheck(server, att, nowMs) {
+        if (!att || typeof att.url !== 'string') return 'bad';
+        var u, s;
+        try { u = new URL(att.url); s = new URL(server); } catch (e) { return 'bad'; }
+        if (u.protocol !== 'https:' || u.origin !== s.origin || u.pathname.indexOf('/file/') !== 0 || u.search || u.hash) return 'bad';
+        if (typeof att.size === 'number' && att.size > MAX_ATTACH) return 'bad';
+        if (typeof att.expires === 'number' && att.expires * 1000 <= (nowMs || Date.now())) return 'gone';
+        return 'ok';
+    }
+
+    // --- the whole answer, as blocks to draw -----------------------------
+    // `code` and **bold** inside a paragraph
+    function inlineSpans(s) {
+        var out = [], re = /`([^`\n]+)`|\*\*([^*\n]+)\*\*/g, last = 0, m;
+        while ((m = re.exec(s))) {
+            if (m.index > last) out.push({ t: 'text', s: s.slice(last, m.index) });
+            out.push(m[1] !== undefined ? { t: 'code', s: m[1] } : { t: 'b', s: m[2] });
+            last = re.lastIndex;
+        }
+        if (last < s.length) out.push({ t: 'text', s: s.slice(last) });
+        return out;
+    }
+    // A small part of markdown, as the phone can show it plainly: fences
+    // as preformatted blocks (the language word dropped), a table's lines
+    // in one monospaced block, # lines bold, paragraphs with their line
+    // breaks - lists stay as they are written. Links stay text.
+    function mdBlocks(text) {
+        var lines = String(text || '').replace(/\r\n?/g, '\n').split('\n'), out = [], para = [];
+        var flush = function () { if (para.length) { out.push({ t: 'p', spans: inlineSpans(para.join('\n')) }); para = []; } };
+        for (var i = 0; i < lines.length; i++) {
+            var l = lines[i];
+            if (/^\s*```/.test(l)) {
+                flush();
+                var body = [];
+                for (i++; i < lines.length && !/^\s*```/.test(lines[i]); i++) body.push(lines[i]);
+                out.push({ t: 'pre', s: body.join('\n') });
+                continue;
+            }
+            if (/^\s*\|/.test(l)) {
+                flush();
+                var rows = [];
+                for (; i < lines.length && /^\s*\|/.test(lines[i]); i++) rows.push(lines[i]);
+                i--;
+                out.push({ t: 'pre', s: rows.join('\n'), table: true });
+                continue;
+            }
+            if (/^#{1,6}\s+/.test(l)) { flush(); out.push({ t: 'h', s: l.replace(/^#{1,6}\s+/, '') }); continue; }
+            if (!l.trim()) { flush(); continue; }
+            para.push(l);
+        }
+        flush();
+        return out;
+    }
+    // The parts of a turn as blocks: text as markdown, a tool as one muted
+    // line, three or more tools in a row folded into one that opens on a
+    // tap, a note (a limit, a 529) warn-coloured
+    function answerModel(parts) {
+        var out = [], run = [];
+        var tools = function () {
+            if (run.length >= 3) out.push({ t: 'tools', items: run.slice() });
+            else run.forEach(function (s) { out.push({ t: 'tool', s: s }); });
+            run = [];
+        };
+        (parts || []).forEach(function (p) {
+            if (!p || typeof p.s !== 'string') return;
+            if (p.t === 'tool') { run.push(p.s); return; }
+            tools();
+            if (p.t === 'note') out.push({ t: 'note', s: p.s });
+            else out = out.concat(mdBlocks(p.s));
+        });
+        tools();
+        return out;
+    }
+    // what Copy copies
+    function answerText(parts) {
+        return (parts || []).filter(function (p) { return p && typeof p.s === 'string'; })
+            .map(function (p) { return p.t === 'tool' ? '-> ' + p.s : p.s; }).join('\n\n');
+    }
+
+    // --- the board, as rows to draw ------------------------------------------
+    function pad(n) { return ('0' + n).slice(-2); }
+    function when(iso) {
+        var d = iso ? new Date(iso) : null;
+        return d && !isNaN(d.getTime()) ? d : null;
+    }
+    function hhmm(iso) { var d = when(iso); return d ? pad(d.getHours()) + ':' + pad(d.getMinutes()) : ''; }
+    function ageText(iso, nowMs) {
+        var d = when(iso);
+        if (!d) return '';
+        var s = ((nowMs || Date.now()) - d.getTime()) / 1000;
+        if (s < 60) return 'now';
+        if (s < 3600) return Math.floor(s / 60) + 'm';
+        if (s < 86400) return Math.floor(s / 3600) + 'h';
+        return Math.floor(s / 86400) + 'd';
+    }
+    // The overlay's order: waiting on you, working, cut off, the queue,
+    // open and idle, recent - an empty one left out - and, once asked for,
+    // the older chats of the PC's list (act list)
+    function sections(b, list) {
+        b = b || {};
+        var open = b.open || [];
+        return [
+            { key: 'waiting', head: 'Waiting on you', type: 'open', rows: open.filter(function (r) { return r.state === 'waiting'; }) },
+            { key: 'working', head: 'Working', type: 'open', rows: open.filter(function (r) { return r.state === 'busy'; }) },
+            { key: 'cut', head: 'Cut off', type: 'cut', rows: b.cut || [] },
+            { key: 'queue', head: 'Queue', type: 'queue', rows: b.queue || [] },
+            { key: 'idle', head: 'Open, idle', type: 'open', rows: open.filter(function (r) { return r.state === 'idle'; }) },
+            { key: 'recent', head: 'Recent', type: 'recent', rows: b.recent || [] },
+            { key: 'older', head: 'Older chats', type: 'older', rows: olderRows(b, list) }
+        ].filter(function (s) { return s.rows.length; });
+    }
+    // The list's chats as rows, those the board shows already left out: the
+    // 30 newest Claude and Codex chats, each with the mode a message would
+    // run in once capped (m, mc; known when its transcript said)
+    function olderRows(b, list) {
+        if (!list || !list.chats) return [];
+        var shown = {};
+        [].concat(b.open || [], b.cut || [], b.recent || []).forEach(function (r) { if (r.id8) shown[r.id8] = true; });
+        return list.chats.filter(function (c) { return c && c.h && c.id && !shown[c.id]; }).map(function (c) {
+            return { h: c.h, id8: c.id, t: c.t, f: c.f, w: c.w, p: c.p || 'claude', age: c.a, live: c.live || '', m: c.m, mc: !!c.mc, known: !!c.known, q: +c.q || 0, ni: +c.ni || 0 };
+        });
+    }
+    function whereText(w) { return w === 'vscode' ? 'VS Code' : w === 'terminal' ? 'terminal' : ''; }
+    function jobChip(j) {
+        var what = j.s === 'queued' ? (j.k === 'continue' ? 'continues ' : 'sends ') + (j.e || 'next') :
+            j.s === 'needs-input' ? 'needs you' : j.s === 'running' ? 'running' : j.s;
+        return { text: '#' + j.n + ' ' + what, tone: j.s === 'needs-input' ? 'waiting' : j.s === 'running' ? 'working' : j.s === 'failed' ? 'bad' : 'queue' };
+    }
+    // one row, as words: { title, sub, prompt, age, chips, dot }
+    function rowView(type, r, nowMs) {
+        var sub = [], chips = [];
+        if (type === 'queue') {
+            if (r.f) sub.push(r.f);
+            if (r.p) sub.push(r.p);
+            if (r.k === 'continue') sub.push('continue');
+            var tone = r.s === 'needs-input' ? 'waiting' : r.s === 'running' ? 'working' : r.s === 'failed' ? 'bad' : 'queue';
+            return { title: '#' + r.n + ' ' + (r.t || ''), sub: sub.join(DOT), prompt: '', age: '', chips: [{ text: r.e || r.s, tone: tone }], dot: '' };
+        }
+        if (type === 'older') {
+            if (r.f) sub.push(r.f);
+            if (r.p && r.p !== 'claude') sub.push(r.p);
+            if (r.live) sub.push(r.live === 'waiting' ? 'waiting on you' : r.live === 'busy' ? 'working' : 'open');
+            if (r.ni) chips.push({ text: '#' + r.ni + ' needs you', tone: 'waiting' });
+            if (r.q) chips.push({ text: r.q + ' queued', tone: 'queue' });
+            return { title: r.t || '', sub: sub.join(DOT), prompt: '', age: ageText(r.age, nowMs), chips: chips, dot: '' };
+        }
+        if (r.f) sub.push(r.f);
+        if (whereText(r.where)) sub.push(whereText(r.where));
+        if (type === 'open' && r.state === 'waiting' && r.what) sub.push(r.what);
+        if (type === 'cut' && r.d) sub.push(r.d);
+        (r.jobs || []).forEach(function (j) { chips.push(jobChip(j)); });
+        return {
+            title: r.t || '', sub: sub.join(DOT), prompt: type === 'open' && r.prompt ? r.prompt : '',
+            age: type === 'cut' ? '' : ageText(r.age, nowMs), chips: chips, dot: r['new'] ? 'new' : ''
+        };
+    }
+    // Search: both sides NFC and lower case, and every word typed must
+    // occur, in any order - Hangul and English alike
+    function norm(s) {
+        s = String(s || '');
+        if (s.normalize) s = s.normalize('NFC');
+        return s.toLocaleLowerCase();
+    }
+    function filterRows(rows, q) {
+        var words = norm(q).split(/\s+/).filter(function (w) { return w; });
+        if (!words.length) return (rows || []).slice();
+        return (rows || []).filter(function (r) {
+            var hay = norm([r.t, r.f, r.n, r.w].filter(function (x) { return x; }).join(' '));
+            return words.every(function (w) { return hay.indexOf(w) >= 0; });
+        });
+    }
+    // The chat a queue row is for, when the board shows it too
+    function chatOfJob(b, j) {
+        if (!b || !j || !j.id8) return null;
+        var all = [].concat(b.open || [], b.cut || [], b.recent || []);
+        for (var i = 0; i < all.length; i++) if (all[i].id8 === j.id8) return all[i];
+        return null;
+    }
+    // What the chat view offers, one act each, bound to a handle from the
+    // board: a job's Send now, Skip (Don't continue for a continue),
+    // Stop, Continue, Allow edits & continue (Claude's alone), Retry; a cut
+    // off chat with nothing queued its Continue at reset; and the last
+    // answer. Skip and Stop ask for a second tap.
+    function chatActions(type, row, b) {
+        var out = [];
+        var jobs = type === 'queue' ? [{ h: row.h, n: row.n, s: row.s, k: row.k, p: row.p }] : (row.jobs || []);
+        var busy = false;
+        jobs.forEach(function (j) {
+            if (j.s === 'queued') {
+                busy = true;
+                out.push({ act: 'now', label: 'Send now', h: j.h, n: j.n });
+                out.push(j.k === 'continue' ? { act: 'skip', label: 'Don\'t continue', confirm: 'Tap again - it will not continue', h: j.h, n: j.n } :
+                    { act: 'skip', label: 'Skip #' + j.n, confirm: 'Tap again to skip', h: j.h, n: j.n });
+            } else if (j.s === 'running') {
+                busy = true;
+                out.push({ act: 'stop', label: 'Stop #' + j.n, confirm: 'Tap again to stop', h: j.h, n: j.n });
+            } else if (j.s === 'needs-input') {
+                out.push({ act: 'retry', label: 'Continue', h: j.h, n: j.n });
+                if ((j.p || 'claude') === 'claude') out.push({ act: 'allow', label: 'Allow edits & continue', h: j.h, n: j.n });
+                out.push({ act: 'skip', label: 'Skip #' + j.n, confirm: 'Tap again to skip', h: j.h, n: j.n });
+            } else if (j.s === 'failed') {
+                out.push({ act: 'retry', label: 'Retry #' + j.n, h: j.h, n: j.n });
+                out.push({ act: 'skip', label: 'Skip #' + j.n, confirm: 'Tap again to skip', h: j.h, n: j.n });
+            }
+        });
+        var chat = type === 'queue' ? chatOfJob(b, row) : row;
+        if (type === 'cut' && !busy) out.push({ act: 'continue', label: 'Continue at reset', h: row.h });
+        // the PC reads the last answer from a Claude transcript only
+        if (chat && chat.h && (chat.p || 'claude') === 'claude') out.push({ act: 'read', label: 'Read the last answer', h: chat.h });
+        return out;
+    }
+    // The line under the chat view's title: where a message goes, and when
+    function stateLine(type, row) {
+        if (type === 'older') {
+            if (row.ni) return '#' + row.ni + ' needs input - a message does not answer it; its row in the queue does';
+            if (row.live === 'waiting') return 'waits on you at the PC - a message goes once that is answered there';
+            if (row.live === 'busy') return 'working now - a message goes when this turn ends';
+            if (row.live) return 'open - a message goes in when it is idle';
+            return row.q ? 'a message goes after the ' + row.q + ' queued for it' : 'a message goes next';
+        }
+        var jobs = type === 'queue' ? [{ n: row.n, s: row.s, e: row.e, k: row.k }] : (row.jobs || []);
+        var ni = jobs.filter(function (j) { return j.s === 'needs-input'; })[0];
+        var run = jobs.filter(function (j) { return j.s === 'running'; })[0];
+        var q = jobs.filter(function (j) { return j.s === 'queued'; })[0];
+        var queued = q ? '#' + q.n + ' is queued - ' + (q.k === 'continue' ? 'continues ' : 'sends ') + (q.e || 'next') : '';
+        var also = queued ? '; ' + queued : '';
+        if (ni) return '#' + ni.n + ' needs input - a message does not answer it; Continue or Allow does';
+        if (run) return '#' + run.n + ' is running now - a message goes after it';
+        if (type === 'open' && row.state === 'waiting') return 'waits on you at the PC - a message goes once that is answered there' + also;
+        if (type === 'open' && row.state === 'busy') return 'working now - a message goes when this turn ends' + also;
+        if (q) return queued;
+        if (type === 'cut') return (row.d || 'cut off') + ' - a message goes after the reset';
+        if (type === 'open') return 'open in ' + (whereText(row.where) || 'a window') + ' - a message goes in when it is idle';
+        return 'a message goes next';
+    }
+    // The mode chip: the PC gives the phone's cap, and a mode above it is
+    // brought down to it. A chat of the list says its own mode, once capped
+    function modeText(b, isNew, row) {
+        if (isNew) {
+            var m = (b && b.newMode) || 'default';
+            return m === 'default' ? 'default - anything that would ask is denied' : m;
+        }
+        if (row && row.known && row.m) return row.m + (row.mc ? ' (phone\'s limit)' : '');
+        return 'at most ' + ((b && b.cap) || 'acceptEdits');
+    }
+    function listenText(b) {
+        if (!b) return '';
+        if (b.listen === 'always') return 'Listens all the time';
+        if (b.until) return 'Listens until ' + hhmm(b.until) + ' (an alert is out)';
+        return 'Listens while an alert is out';
+    }
+    // The usage lines: one per window, the provider named on its first,
+    // the reset when it is limited, "as of" when the figure is an hour old
+    function usageLines(usage) {
+        var out = [];
+        (usage || []).forEach(function (u) {
+            (u.parts || []).forEach(function (p, i) {
+                var right = '';
+                if (p.limited && p.reset) right = 'resets ' + hhmm(p.reset);
+                else if (i === 0 && u.stale && u.asof) right = 'as of ' + hhmm(u.asof);
+                out.push({
+                    name: i === 0 ? String(u.p || '') : '', w: String(p.w || ''), pct: Math.max(0, Math.min(100, +p.pct || 0)),
+                    tone: p.limited ? 'bad' : p.sev === 'critical' ? 'bad' : p.sev === 'warning' ? 'warn' : 'ok', right: right, stale: !!u.stale
+                });
+            });
+        });
+        return out;
+    }
+    // The board's notices: the overlay not running, few refreshes left
+    function notices(b) {
+        var out = [];
+        if (b && b.from === 'scan') out.push('The overlay is not running - some rows may be missing.');
+        if (b && typeof b.left === 'number' && b.left < 20) out.push('Few refreshes left today (ntfy.sh\'s free limit).');
+        return out;
+    }
+    // the cards this channel adds to the page's
+    function cardText(kind) {
+        if (kind === 'nolisten' || kind === 'oldpc') {
+            return {
+                head: 'No answer from the PC',
+                body: 'It listens while an alert is out, or all the time with Listen all the time on (chatnotify -Listen always). A PC that sleeps answers once it wakes, if that is within 10 minutes.',
+                fine: 'Or the PC runs a chatq older than 0.9.0.', button: 'Try again'
+            };
+        }
+        if (kind === 'nodecomp') return { head: 'This browser cannot open the whole answer.', body: '', fine: '', button: '' };
+        return { head: '', body: '', fine: '', button: '' };
+    }
+    // the words of an answer panel in each state
+    var PANEL = {
+        loading: 'Getting the whole answer...',
+        none: 'The whole answer is not here.',
+        gone: 'ntfy.sh keeps a long answer 3 hours - that one is gone.',
+        asked: 'Asked - the PC sends it within about 15 s while it listens.',
+        noanswer: 'No answer. The PC may be asleep, or no longer listening for this alert.',
+        nodecomp: 'This browser cannot open the whole answer.',
+        ask: 'Ask the PC for it'
+    };
+    function answerHead(p) { return 'Claude\'s answer' + (p && p.at ? ' - ' + hhmm(p.at) : ''); }
+    function cutText(n) { return n > 0 ? 'The first ' + Number(n).toLocaleString('en-US') + ' characters are left out.' : ''; }
+    return {
+        ACTS: ACTS, ALERT_ACTS: ALERT_ACTS, FULL_EVENTS: FULL_EVENTS, MAX_INFLATE: MAX_INFLATE, MAX_ATTACH: MAX_ATTACH, PANEL: PANEL,
+        idOk: idOk, handleOk: handleOk, newId: newId, downTopic: downTopic, subKey: subKey, fieldsFor: fieldsFor,
+        buildComposePayload: buildComposePayload, sealCompose: sealCompose, compose: compose, composeBytes: composeBytes,
+        sameBytes: sameBytes, inflateRaw: inflateRaw, canInflate: canInflate, openDown: openDown, pollUrl: pollUrl, parseFeed: parseFeed,
+        attachmentCheck: attachmentCheck, inlineSpans: inlineSpans, mdBlocks: mdBlocks, answerModel: answerModel, answerText: answerText,
+        hhmm: hhmm, ageText: ageText, sections: sections, olderRows: olderRows, rowView: rowView, whereText: whereText, norm: norm, filterRows: filterRows,
+        chatOfJob: chatOfJob, chatActions: chatActions, stateLine: stateLine, modeText: modeText, listenText: listenText,
+        usageLines: usageLines, notices: notices, cardText: cardText, answerHead: answerHead, cutText: cutText
+    };
+})();
+/* chatq-board-end */
+
 (function () {
     'use strict';
     var P = ChatqPage, C = ChatqCrypto;
+    var B = ChatqBoard;
     // Per tab: the alert a reload shows once the fragment is gone from the
     // bar, and what was typed for each alert. Neither holds a secret.
     var STORE = 'chatq-reply', DRAFT = 'chatq-draft:';
@@ -809,6 +1623,7 @@ var ChatqPage = (function () {
 
     async function init() {
         var my = ++gen;
+        stopBoard();
         mode = f = pf = spec = pending = sentText = pairing = null;
         busy = false; reinit = false;
         var r = readLink();
@@ -816,9 +1631,12 @@ var ChatqPage = (function () {
         try { ph = await loadPhone(); } catch (e) { }
         if (my !== gen) return;
         phone = ph;
+        bd.topic = null;
         if (r.ok && !(window.crypto && crypto.subtle && window.TextEncoder)) r = { ok: false, why: 'crypto' };
         if (!r.ok) {
-            if (r.why === 'missing') card(phone ? 'home' : 'unpaired', { phone: phone, when: when(phone) });
+            // the bare page on a paired phone is the board
+            if (r.why === 'missing' && phone) openBoard(false);
+            else if (r.why === 'missing') card('unpaired', { phone: phone, when: when(phone) });
             else card(r.why, {});
             return;
         }
@@ -841,8 +1659,33 @@ var ChatqPage = (function () {
             return;
         }
         mode = 'alert';
-        spec = P.buttonsFor(f.event, f.provider, f.jobless, f.job);
+        // a permission request: its card opened with this phone's key, or
+        // null - then there is nothing to allow, only Deny and Status
+        if (f.event === 'permission') {
+            var opened = null;
+            if (f.card) { try { opened = await C.openCard(phone.key, f.aid, f.card); } catch (e) { } }
+            if (my !== gen) return;
+            f.permit = opened;
+        }
+        spec = P.buttonsFor(f.event, f.provider, f.jobless, f.job, f.wake, f.permit, Date.now());
         render();
+        answerInit();
+    }
+
+    // once a minute while a permission request is shown: the minutes left,
+    // and at its deadline the too-late card with only Status
+    var permitTimer = null;
+    function permitTick() {
+        permitTimer = null;
+        if (mode !== 'alert' || !f || f.event !== 'permission' || !f.permit) return;
+        var pv = P.permitView(f.permit, f, Date.now());
+        if (pv.state === 'late' && !busy) {
+            spec = P.buttonsFor(f.event, f.provider, f.jobless, f.job, f.wake, f.permit, Date.now());
+            render();
+            return;
+        }
+        $('permitLeft').textContent = pv.left || '';
+        permitTimer = setTimeout(permitTick, 60000);
     }
 
     function when(ph) {
@@ -855,8 +1698,7 @@ var ChatqPage = (function () {
 
     function card(kind, ctx) {
         var t = P.cardText(kind, ctx);
-        $('app').hidden = true;
-        $('card').hidden = false;
+        views('card');
         $('card').setAttribute('data-kind', kind);
         $('mark').setAttribute('data-mark', t.mark || 'bad');
         var put = function (id, text) { $(id).textContent = text || ''; $(id).hidden = !text; };
@@ -998,8 +1840,7 @@ var ChatqPage = (function () {
 
     function render() {
         var head = P.heading(f);
-        $('card').hidden = true;
-        $('app').hidden = false;
+        views('app');
         document.title = head + ' - chatq';
         $('title').textContent = head;
         var ev = $('ev');
@@ -1010,6 +1851,23 @@ var ChatqPage = (function () {
         if (f.job === 'live') meta.push('a chat you run');
         else if (f.job && P.normEvent(f.job) !== f.event) meta.push('job ' + f.job);
         $('meta').textContent = meta.join(' \u00b7 ');
+        // a permission request shows the call itself, from its card
+        var pv = f.event === 'permission' ? P.permitView(f.permit, f, Date.now()) : null;
+        $('permit').hidden = !pv;
+        if (permitTimer) { clearTimeout(permitTimer); permitTimer = null; }
+        if (pv) {
+            $('title').textContent = pv.head;
+            document.title = pv.head + ' - chatq';
+            $('meta').textContent = pv.kicker;
+            var show1 = function (id, text) { $(id).textContent = text || ''; $(id).hidden = !text; };
+            show1('permitWhat', pv.what);
+            show1('permitWhere', pv.where);
+            show1('permitDetail', pv.detail);
+            show1('permitLeft', pv.left);
+            show1('permitBody', pv.body);
+            show1('permitFine', pv.fine);
+            if (pv.state === 'open') permitTimer = setTimeout(permitTick, 60000);
+        }
         $('compose').hidden = !spec.text;
         $('hint').textContent = spec.hint;
         $('about').textContent = spec.about;
@@ -1030,6 +1888,21 @@ var ChatqPage = (function () {
                 }
             }
         }
+        // text a link brought (a Tasker reply): into the box, never sent -
+        // see readText. Kept as this tab's draft at once, since the bar no
+        // longer has it, and used once: this alert shown again fills
+        // nothing. A sealed message for other text is not this one's.
+        var pre = P.prefill(spec, f, spec.text ? readDraft() : null);
+        if (f.text) {
+            if (pre.text !== null) {
+                ta.value = pre.text;
+                if (pending && pending.text !== pre.text.trim()) pending = null;
+                saveDraft();
+            }
+            f.text = '';
+        }
+        $('prefill').textContent = pre.note;
+        $('prefill').hidden = !pre.note;
         var more = $('more');
         more.textContent = '';
         spec.more.forEach(function (b) {
@@ -1049,6 +1922,8 @@ var ChatqPage = (function () {
         refresh();
         if (spec.text) {
             try { ta.focus({ preventScroll: true }); } catch (e) { ta.focus(); }
+            // the caret after what was filled in, where a correction goes
+            if (pre.note) { try { ta.setSelectionRange(ta.value.length, ta.value.length); } catch (e) { } }
         }
     }
 
@@ -1075,8 +1950,10 @@ var ChatqPage = (function () {
         // what was just sent stays readable, greyed, until it is changed
         var same = sentText !== null && text === sentText;
         ta.classList.toggle('sent', same);
-        if (!busy) send.textContent = retrying('prompt', text) ? 'Try again' : same ? 'Send again' : spec.send.label;
-        send.disabled = busy || !text || c.state === 'over';
+        // a button asking for its second tap keeps asking
+        if (!busy && send.getAttribute('data-armed') !== '1') send.textContent = retrying(spec.send.act, text) ? 'Try again' : same ? 'Send again' : spec.send.label;
+        // Allow and Deny go with the box empty: the note is optional
+        send.disabled = busy || (!text && !spec.optional) || c.state === 'over';
     }
 
     function buttons() {
@@ -1125,8 +2002,13 @@ var ChatqPage = (function () {
     async function press(b, btn) {
         if (busy || mode !== 'alert') return;
         if (!armed(b, btn)) return;
-        var text = b.act === 'prompt' ? $('text').value.trim() : '';
+        // the box is the prompt, or Deny's note; Allow sends no text at all
+        var text = b.act === 'prompt' || b.act === 'refuse' ? $('text').value.trim() : '';
         if (b.act === 'prompt' && (!text || P.counter(text).state === 'over')) return;
+        if (b.act === 'refuse' && P.counter(text).state === 'over') return;
+        // a permit names the request as the card showed it, or is not sent
+        var h = b.act === 'permit' && f.permit ? f.permit.h : undefined;
+        if (b.act === 'permit' && !h) return;
         // The same act and text as a send that failed: the same sealed
         // message again, not a new one. If the first did arrive after all,
         // its nonce is spent and the watcher drops the copy; a new seal would
@@ -1138,7 +2020,7 @@ var ChatqPage = (function () {
         setBusy(true, btn);
         var sealed;
         try {
-            sealed = await C.seal(await C.alertKey(phone.key, f.aid), f.aid, b.act, text);
+            sealed = await C.seal(await C.alertKey(phone.key, f.aid), f.aid, b.act, text, undefined, h);
         } catch (e) {
             setBusy(false);
             show('bad', P.errorText({ kind: 'crypto' }, P.hostOf(phone.server)), false);
@@ -1217,6 +2099,712 @@ var ChatqPage = (function () {
         while (ol.children.length > 3) ol.removeChild(ol.lastChild);
     }
 
+    // --- what the PC sends to the phone -----------------------------------------
+
+    // A GET to the ntfy server: its poll, or an attachment. No header, no
+    // cookie, no referrer - a CORS simple request - and the body read to
+    // max bytes, then dropped. { ok, text } or { ok: false, status | kind }.
+    function getText(url, max) {
+        var ctl = typeof AbortController === 'function' ? new AbortController() : null;
+        var timer = setTimeout(function () { if (ctl) ctl.abort(); }, 15000);
+        return fetch(url, {
+            method: 'GET',
+            mode: 'cors',
+            credentials: 'omit',
+            cache: 'no-store',
+            referrerPolicy: 'no-referrer',
+            signal: ctl ? ctl.signal : undefined
+        }).then(async function (res) {
+            if (!res || !res.ok) return { ok: false, kind: 'http', status: res ? res.status : 0 };
+            if (res.body && typeof res.body.getReader === 'function') {
+                var rd = res.body.getReader(), chunks = [], total = 0;
+                for (; ;) {
+                    var x = await rd.read();
+                    if (x.done) break;
+                    total += x.value.length;
+                    if (total > max) { if (ctl) ctl.abort(); return { ok: false, kind: 'big' }; }
+                    chunks.push(x.value);
+                }
+                var all = new Uint8Array(total), at = 0;
+                chunks.forEach(function (c) { all.set(c, at); at += c.length; });
+                return { ok: true, text: new TextDecoder().decode(all) };
+            }
+            if (typeof res.text !== 'function') return { ok: false, kind: 'network' };
+            var t = await res.text();
+            return t.length > max ? { ok: false, kind: 'big' } : { ok: true, text: t };
+        }, function (e) {
+            return { ok: false, kind: e && e.name === 'AbortError' ? 'timeout' : 'network' };
+        }).then(function (r) {
+            clearTimeout(timer);
+            return r;
+        }, function () {
+            clearTimeout(timer);
+            return { ok: false, kind: 'network' };
+        });
+    }
+
+    // the phone's down topic, worked out from its key once a load
+    async function topicOf() {
+        if (!bd.topic) bd.topic = await B.downTopic(phone.key);
+        return bd.topic;
+    }
+
+    // One look at the down topic for the answer titled did, sent since a
+    // unix time: the newest one that opens, of a kind in prefer when there
+    // is one. An attachment is fetched only from this server's /file/, and
+    // one past its 3 hours is gone. { payload, gone, nodecomp, err }.
+    async function lookDown(did, since, prefer) {
+        var topic = await topicOf();
+        var r = await getText(B.pollUrl(phone.server, topic, since, did), 262144);
+        if (!r.ok) return { err: r };
+        var msgs = B.parseFeed(r.text).reverse(), got = null, gone = false;
+        for (var i = 0; i < msgs.length; i++) {
+            var m = msgs[i], body = m.message;
+            if (m.attachment) {
+                var chk = B.attachmentCheck(phone.server, m.attachment, Date.now());
+                if (chk === 'gone') { gone = true; continue; }
+                if (chk !== 'ok') continue;
+                var a = await getText(m.attachment.url, B.MAX_ATTACH);
+                if (!a.ok) { if (a.status === 404) gone = true; continue; }
+                body = a.text;
+            }
+            var o = await B.openDown(phone.key, body, did);
+            if (o.why === 'nodecomp') return { nodecomp: true };
+            if (!o.ok) continue;
+            if (!prefer || prefer.indexOf(o.payload.kind) >= 0) return { payload: o.payload };
+            if (!got) got = o.payload;
+        }
+        return { payload: got, gone: gone };
+    }
+
+    // Looks every 4 s until an answer or ms are up, as long as live() says
+    // the screen asking is still up; done(result) either way
+    function waitDown(did, since, ms, prefer, first, live, done) {
+        var until = Date.now() + ms;
+        var tick = async function () {
+            if (!live()) return;
+            var r = await lookDown(did, since, prefer);
+            if (!live()) return;
+            if (r.payload || r.nodecomp || Date.now() >= until) return done(r);
+            setTimeout(tick, POLL_MS);
+        };
+        setTimeout(tick, first);
+    }
+
+    // A compose act (the board, a chat, the queue) sealed and posted; then
+    // the answer waited for under its id. keep: a failed send of the same
+    // act, whose very message goes again - its nonce spent if it did
+    // arrive, so the PC drops the copy. show(kind, text, canRetry) says how
+    // it goes; done(result, sealed) gets the answer, or none.
+    async function sendAct(act, x, show, live, done, keep, prefer) {
+        var sealed = keep || null;
+        if (!sealed) {
+            try { sealed = await B.compose(phone.key, act, x); } catch (e) { show('bad', P.errorText({ kind: 'crypto' }, P.hostOf(phone.server)), false); return null; }
+        }
+        show('wait', 'Sending\u2026', false);
+        var sent = Date.now();
+        var r = await post(P.postUrl(phone), sealed.message);
+        if (!live()) return sealed;
+        if (!r.ok) { show('bad', P.errorText(r, P.hostOf(phone.server)), true); done(null, sealed, true); return sealed; }
+        show('wait', 'Sent - waiting for the PC\u2026', false);
+        waitDown(sealed.cid, Math.floor(sent / 1000) - 60, WAIT_MS, prefer || ['ack'], POLL_MS, live, function (res) { done(res, sealed, false); });
+        return sealed;
+    }
+
+    // --- the board: the overlay on the phone -------------------------------------
+    // The bare page on a paired phone. It asks for the board with a compose
+    // act, then polls the down topic for the answer. Asked again on
+    // Refresh, after anything done here, and every 30 s while the page is in
+    // view - for 10 minutes, then it waits for a tap: every answer is one of
+    // ntfy.sh's 250 messages a day. Nothing opened is kept but here.
+    var POLL_MS = 4000, WAIT_MS = 45000, REFRESH_MS = 30000, REFRESH_FOR_MS = 600000;
+    var CDRAFT = 'chatq-cdraft:';
+    var bd = { b: null, asking: false, gen: 0, refresh: null, started: 0, paused: false, fromAlert: false, topic: null, stale: false, at: 0, waitVisible: false };
+    // the PC's list of chats (act list), asked for once by Older chats - the
+    // board shows only the chats the overlay does - and kept for the load
+    var older = { list: null, asking: false };
+    // the chat view: { type, row, chat, folder, gen, busy, pending }
+    var cv = null;
+
+    function views(which) {
+        $('app').hidden = which !== 'app';
+        $('card').hidden = which !== 'card';
+        $('board').hidden = which !== 'board';
+        $('chat').hidden = which !== 'chat';
+    }
+    function el(tag, cls, text) {
+        var e = document.createElement(tag);
+        if (cls) e.className = cls;
+        if (text !== undefined && text !== null && text !== '') e.textContent = text;
+        return e;
+    }
+    function hiddenPage() { return typeof document.visibilityState === 'string' && document.visibilityState === 'hidden'; }
+    // what any screen of the board or a chat was waiting for is dropped
+    function stopBoard() {
+        bd.gen++;
+        clearTimeout(bd.refresh);
+        bd.refresh = null;
+        bd.asking = false;
+        if (cv) cv.gen++;
+        panel('answer').gen++;
+        panel('cAnswer').gen++;
+    }
+
+    function openBoard(fromAlert) {
+        stopBoard();
+        mode = 'board';
+        cv = null;
+        bd.fromAlert = !!fromAlert;
+        bd.started = Date.now();
+        bd.paused = false;
+        views('board');
+        document.title = 'chatq board';
+        $('bHost').textContent = 'chatq on ' + (phone.host || 'your PC');
+        $('bBack').hidden = !bd.fromAlert;
+        $('bStatus').hidden = true;
+        if (bd.b) drawBoard(); else drawWaiting();
+        askBoard();
+    }
+    // back from a chat: the board as it was, asked again when it is old or
+    // something was done meanwhile
+    function backToBoard() {
+        if (cv) cv.gen++;
+        cv = null;
+        mode = 'board';
+        views('board');
+        document.title = 'chatq board';
+        if (bd.b) drawBoard(); else drawWaiting();
+        if (bd.stale || Date.now() - bd.at > REFRESH_MS) { bd.stale = false; askBoard(); }
+        else scheduleRefresh();
+    }
+    function bShow(kind, text, again) {
+        $('bStatus').setAttribute('data-kind', kind);
+        $('bStatusText').textContent = text;
+        $('bAgain').hidden = !again;
+        $('bStatus').hidden = false;
+    }
+    async function askBoard() {
+        if (bd.asking || !phone) return;
+        var my = bd.gen;
+        bd.asking = true;
+        $('bRefresh').disabled = true;
+        var live = function () { return my === bd.gen; };
+        var quiet = function (kind, text, again) { if (kind === 'bad') bShow(kind, text, again); };
+        await sendAct('board', {}, quiet, live, function (res, sealed, failed) {
+            if (!live()) return;
+            bd.asking = false;
+            $('bRefresh').disabled = false;
+            if (failed) return;
+            var p = res && res.payload;
+            if (p && p.kind === 'board') {
+                bd.b = p;
+                bd.at = Date.now();
+                $('bStatus').hidden = true;
+                if (mode === 'board') drawBoard();
+                scheduleRefresh();
+            } else if (p && p.kind === 'ack') {
+                if (mode === 'board') bShow('bad', p.say || 'The PC refused.', false);
+            } else if (!bd.b) {
+                if (mode === 'board') drawNoAnswer();
+            } else if (mode === 'board') {
+                bShow('bad', 'No new board from the PC - this one is from ' + B.hhmm(new Date(bd.b.ts || bd.at).toISOString()) + '.', false);
+            }
+        }, null, ['board']);
+    }
+    // every 30 s while the board is in view, for 10 minutes; hidden, it
+    // waits for the page to be seen again
+    function scheduleRefresh() {
+        clearTimeout(bd.refresh);
+        var my = bd.gen;
+        bd.refresh = setTimeout(function () {
+            if (my !== bd.gen || mode !== 'board') return;
+            if (Date.now() - bd.started > REFRESH_FOR_MS) { bd.paused = true; drawNotes(); return; }
+            if (hiddenPage()) { bd.waitVisible = true; return; }
+            askBoard();
+        }, REFRESH_MS);
+    }
+    function drawWaiting() {
+        var list = $('bList');
+        list.textContent = '';
+        for (var i = 0; i < 3; i++) list.appendChild(el('div', 'skel'));
+        list.appendChild(el('p', 'bempty', 'Asking the PC for your chats\u2026'));
+        $('bUsage').hidden = true;
+        $('bSearch').hidden = true;
+        $('bNew').hidden = true;
+        $('bListen').textContent = '';
+        drawNotes();
+    }
+    function drawNoAnswer() {
+        var t = B.cardText('nolisten');
+        var list = $('bList');
+        list.textContent = '';
+        var c = el('div', 'bcard');
+        c.setAttribute('data-kind', 'nolisten');
+        c.appendChild(el('h2', '', t.head));
+        c.appendChild(el('p', '', t.body));
+        c.appendChild(el('p', 'fine', t.fine));
+        // a pairing not confirmed yet on the PC reads as no answer too
+        if (phone && phone.code) c.appendChild(el('p', 'fine', 'Not confirmed on the PC yet? This phone\'s code is ' + P.codeText(phone.code) + '.'));
+        var again = el('button', 'primary', t.button);
+        again.type = 'button';
+        again.addEventListener('click', function () { bd.started = Date.now(); drawWaiting(); askBoard(); });
+        c.appendChild(again);
+        list.appendChild(c);
+    }
+    function drawNotes() {
+        var n = bd.b ? B.notices(bd.b) : [];
+        if (bd.paused) n.push('Paused - tap Refresh.');
+        if (phone && phone.readable) n.push(P.READABLE);
+        $('bNote').textContent = n.join(' ');
+        $('bNote').hidden = !n.length;
+    }
+    function drawUsage(usage) {
+        var u = $('bUsage');
+        u.textContent = '';
+        var lines = B.usageLines(usage);
+        u.hidden = !lines.length;
+        lines.forEach(function (l) {
+            var st = l.stale ? ' stale' : '';
+            u.appendChild(el('span', 'un' + st, l.name || '\u00a0'));
+            u.appendChild(el('span', 'uw' + st, l.w));
+            var bar = document.createElement('progress');
+            bar.setAttribute('max', '100');
+            bar.setAttribute('value', String(l.pct));
+            bar.setAttribute('data-tone', l.tone);
+            bar.textContent = l.pct + '%';
+            u.appendChild(bar);
+            u.appendChild(el('span', 'ur' + st, l.pct + '%' + (l.right ? '  ' + l.right : '')));
+        });
+    }
+    function drawBoard() {
+        var b = bd.b;
+        $('bHost').textContent = 'chatq on ' + (b.host || phone.host || 'your PC');
+        $('bTime').textContent = b.ts ? B.hhmm(new Date(b.ts).toISOString()) : '';
+        drawUsage(b.usage);
+        drawNotes();
+        $('bSearch').hidden = false;
+        $('bNew').hidden = !(b.compose && (b.folders || []).length);
+        $('bListen').textContent = B.listenText(b);
+        drawRows();
+    }
+    function drawRows() {
+        var list = $('bList'), q = String($('bSearch').value || '').trim(), any = false;
+        list.textContent = '';
+        B.sections(bd.b, older.list).forEach(function (s) {
+            var rows = B.filterRows(s.rows, q);
+            if (!rows.length) return;
+            any = true;
+            var h = el('p', 'shead', s.head);
+            h.setAttribute('data-sec', s.key);
+            list.appendChild(h);
+            rows.forEach(function (r) { list.appendChild(rowEl(s.key, s.type, r)); });
+        });
+        if (!any) list.appendChild(el('p', 'bempty', q ? 'No chat matches "' + q + '".' : 'Nothing open, nothing queued.'));
+        var more = older.list ? +older.list.more || 0 : bd.b.more;
+        if (more > 0) list.appendChild(el('p', 'bmore', '+' + more + ' older chats are not listed.'));
+        // the rest of the PC's chats, Codex's too, one tap away
+        if (!older.list && bd.b.compose) {
+            var ob = el('button', 'linkish', older.asking ? 'Asking for older chats\u2026' : 'Older chats');
+            ob.type = 'button';
+            ob.id = 'bOlder';
+            ob.disabled = older.asking;
+            ob.addEventListener('click', askOlder);
+            list.appendChild(ob);
+        }
+    }
+    // The PC's list: its 30 newest chats and the open ones, each with a
+    // handle of its own, drawn under the board's as Older chats
+    async function askOlder() {
+        if (older.asking || !phone) return;
+        var my = bd.gen;
+        older.asking = true;
+        if (mode === 'board') drawRows();
+        var live = function () { return my === bd.gen; };
+        var quiet = function (kind, text, again) { if (kind === 'bad') bShow(kind, text, again); };
+        await sendAct('list', {}, quiet, live, function (res, sealed, failed) {
+            older.asking = false;
+            if (!live()) return;
+            var p = res && res.payload;
+            if (p && p.kind === 'list') older.list = { chats: p.chats || [], more: p.more || 0 };
+            else if (!failed && mode === 'board') bShow('bad', p && p.say ? p.say : 'No list from the PC.', false);
+            if (mode === 'board' && bd.b) drawRows();
+        }, null, ['list']);
+    }
+    function rowEl(sec, type, r) {
+        var v = B.rowView(type, r, Date.now());
+        var row = el('button', 'row');
+        row.type = 'button';
+        row.setAttribute('data-sec', sec);
+        var m = el('span', 'rm');
+        var t = el('span', 'rt');
+        if (v.dot) t.appendChild(el('span', 'nd'));
+        t.appendChild(el('span', '', v.title));
+        m.appendChild(t);
+        if (v.sub) m.appendChild(el('span', 'rs', v.sub));
+        if (v.prompt) m.appendChild(el('span', 'rp', '"' + v.prompt + '"'));
+        row.appendChild(m);
+        var side = el('span', 'rr');
+        if (v.age) side.appendChild(el('span', 'ra', v.age));
+        v.chips.forEach(function (c) {
+            var s = el('span', 'tag', c.text);
+            s.setAttribute('data-tone', c.tone);
+            side.appendChild(s);
+        });
+        row.appendChild(side);
+        row.addEventListener('click', function () { openChat(type, r); });
+        return row;
+    }
+
+    // --- one chat, a new chat, the folders ---------------------------------------
+
+    function cShow(kind, text, again) {
+        $('cStatus').setAttribute('data-kind', kind);
+        $('cStatusText').textContent = text;
+        $('cAgain').hidden = !again;
+        $('cStatus').hidden = false;
+    }
+    function chatView(o) {
+        if (cv) cv.gen++;
+        stopPanel('cAnswer');
+        cv = o;
+        cv.gen = (cv.gen || 0) + 1;
+        cv.busy = false;
+        cv.pending = null;
+        mode = 'chat';
+        clearTimeout(bd.refresh);
+        views('chat');
+        $('cStatus').hidden = true;
+        $('cAnswer').hidden = true;
+        $('cAnswer').textContent = '';
+        $('cKicker').hidden = true;
+        $('cPrompt').hidden = true;
+        $('cSearch').hidden = true;
+        $('cList').hidden = true;
+        $('cName').hidden = true;
+        $('cActs').hidden = true;
+        $('cActs').textContent = '';
+        $('cMode').hidden = false;
+        $('cSend').hidden = false;
+        $('cCompose').hidden = false;
+        $('cText').value = '';
+    }
+    function draftKeyC() {
+        if (!cv) return '';
+        if (cv.type === 'new') return CDRAFT + 'new:' + cv.folder.n;
+        return cv.chat ? CDRAFT + (cv.chat.p || 'claude') + ':' + cv.chat.id8 : '';
+    }
+    function openChat(type, row) {
+        var b = bd.b;
+        var chat = type === 'queue' ? B.chatOfJob(b, row) : row;
+        chatView({ type: type, row: row, chat: chat });
+        document.title = (row.t || 'chat') + ' - chatq';
+        $('cTitle').textContent = type === 'queue' ? '#' + row.n + ' ' + (row.t || '') : (row.t || '');
+        var meta = [];
+        if (row.f) meta.push(row.f);
+        if (type === 'queue') { if (row.p) meta.push(row.p); }
+        else {
+            meta.push(row.p || 'claude');
+            if (B.whereText(row.where)) meta.push(B.whereText(row.where));
+        }
+        $('cMeta').textContent = meta.join(' \u00b7 ');
+        $('cMode').textContent = B.modeText(b, false, type === 'older' ? row : null);
+        $('cState').textContent = B.stateLine(type, row);
+        if (type === 'open' && row.prompt) { $('cPrompt').textContent = row.prompt; $('cPrompt').hidden = false; }
+        var acts = B.chatActions(type, row, b), box = $('cActs');
+        acts.forEach(function (a) {
+            var btn = el('button', '', a.label);
+            btn.type = 'button';
+            btn.setAttribute('data-act', a.act);
+            btn.setAttribute('data-label', a.label);
+            btn.addEventListener('click', function () { chatAct(a, btn); });
+            box.appendChild(btn);
+        });
+        box.hidden = !acts.length;
+        // a message needs a chat to go to: a queue row whose chat the board
+        // does not show offers only its job's acts
+        var canSend = !!(chat && chat.h && b.compose);
+        $('cCompose').hidden = !canSend;
+        $('cSend').hidden = !canSend;
+        $('cHint').textContent = canSend ? 'goes into this chat as a queued prompt' : '';
+        $('cText').placeholder = 'Next prompt for this chat';
+        if (canSend) $('cText').value = readDraftC();
+        refreshC();
+    }
+    function openFolders() {
+        var b = bd.b;
+        chatView({ type: 'folders' });
+        document.title = 'New chat - chatq';
+        $('cTitle').textContent = 'New chat';
+        $('cMeta').textContent = 'In a folder chatq already knows';
+        $('cMode').textContent = B.modeText(b, true);
+        $('cState').textContent = '';
+        $('cCompose').hidden = true;
+        $('cSend').hidden = true;
+        $('cSearch').value = '';
+        $('cSearch').hidden = false;
+        $('cList').hidden = false;
+        drawFolders();
+    }
+    function drawFolders() {
+        var list = $('cList'), q = String($('cSearch').value || '').trim();
+        list.textContent = '';
+        var rows = B.filterRows((bd.b && bd.b.folders) || [], q);
+        rows.forEach(function (f) {
+            var row = el('button', 'row');
+            row.type = 'button';
+            row.setAttribute('data-sec', 'folder');
+            var m = el('span', 'rm');
+            m.appendChild(el('span', 'rt', f.n));
+            if (f.w) m.appendChild(el('span', 'rs', f.w));
+            row.appendChild(m);
+            row.addEventListener('click', function () { openNewChat(f); });
+            list.appendChild(row);
+        });
+        if (!rows.length) list.appendChild(el('p', 'bempty', q ? 'No folder matches "' + q + '".' : 'No folder is known yet.'));
+    }
+    function openNewChat(f) {
+        chatView({ type: 'new', folder: f });
+        document.title = 'New chat - chatq';
+        $('cTitle').textContent = 'New chat in ' + f.n;
+        $('cMeta').textContent = f.w || '';
+        $('cMode').textContent = B.modeText(bd.b, true);
+        $('cState').textContent = 'starts as a queued prompt, when the PC is free';
+        $('cName').value = '';
+        $('cName').hidden = false;
+        $('cHint').textContent = '';
+        $('cText').placeholder = 'What the new chat is to do';
+        $('cText').value = readDraftC();
+        refreshC();
+    }
+    function readDraftC() {
+        var k = draftKeyC();
+        return k ? (sget(k) || '') : '';
+    }
+    function saveDraftC() {
+        var k = draftKeyC();
+        if (k) sset(k, $('cText').value);
+    }
+    function cPayload() {
+        var text = $('cText').value.trim();
+        if (cv.type === 'new') return { act: 'new', x: { h: cv.folder.h, name: $('cName').value.trim().slice(0, 60), text: text } };
+        return { act: 'send', x: { h: cv.chat.h, id: cv.chat.id8, text: text } };
+    }
+    // the byte counter and Send, as the alert form has them
+    function refreshC() {
+        if (!cv || cv.type === 'folders') return;
+        var p = cPayload(), n = B.composeBytes(p.act, p.x), base = B.composeBytes(p.act, { h: 'aaaaaa', id: 'aaaaaaaa', name: '', text: '' });
+        var over = n > P.MAX_PAYLOAD;
+        $('cCount').textContent = over ? (n - P.MAX_PAYLOAD) + ' bytes too long' : (n - base) + ' / ' + (P.MAX_PAYLOAD - base) + ' bytes';
+        $('cCount').setAttribute('data-state', over ? 'over' : n >= P.WARN_AT ? 'warn' : 'ok');
+        var same = cv.pending && cv.pending.text === p.x.text;
+        $('cSend').textContent = cv.busy ? 'Sending\u2026' : same ? 'Try again' : 'Send';
+        $('cSend').disabled = cv.busy || !p.x.text || over;
+    }
+    function setBusyC(on) {
+        cv.busy = on;
+        Array.prototype.slice.call($('cActs').querySelectorAll('button')).forEach(function (b) { b.disabled = on; });
+        refreshC();
+    }
+    // an ack: said, green or red; a list out of date is asked for again;
+    // no answer at all keeps the message for Try again
+    function onAckC(res, sealed, failed, what) {
+        setBusyC(false);
+        if (failed) { cv.pending = what; refreshC(); return; }
+        var p = res && res.payload;
+        if (!p) {
+            cv.pending = what;
+            cShow('bad', 'Sent, but no answer yet. The PC reads it if it listens within 30 minutes; after that it is dropped.', !!what);
+            refreshC();
+            return;
+        }
+        cv.pending = null;
+        if (p.ok) {
+            cShow('ok', p.say || 'Done.', false);
+            bd.stale = true;
+            if (what && what.text !== undefined) { var k = draftKeyC(); if (k) sdel(k); $('cText').value = ''; }
+        } else {
+            cShow('bad', p.say || 'The PC refused.', false);
+            if (/out of date/.test(p.say || '')) askBoard();
+        }
+        refreshC();
+    }
+    async function sendC() {
+        if (!cv || cv.busy || cv.type === 'folders') return;
+        var p = cPayload();
+        if (!p.x.text || B.composeBytes(p.act, p.x) > P.MAX_PAYLOAD) return;
+        var my = cv.gen, what = { text: p.x.text, sealed: null };
+        var keep = cv.pending && cv.pending.text === p.x.text ? cv.pending.sealed : null;
+        setBusyC(true);
+        what.sealed = await sendAct(p.act, p.x, cShow, function () { return cv && cv.gen === my; }, function (res, sealed, failed) {
+            if (!cv || cv.gen !== my) return;
+            what.sealed = sealed;
+            onAckC(res, sealed, failed, what);
+        }, keep);
+        if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    }
+    async function chatAct(a, btn) {
+        if (!cv || cv.busy) return;
+        if (!armed(a, btn)) return;
+        if (a.act === 'read') return readChat(a.h);
+        var my = cv.gen;
+        setBusyC(true);
+        // Try again belongs to a message typed; an act is tapped again
+        var say = function (kind, text) { cShow(kind, text, false); };
+        await sendAct(a.act, { h: a.h, n: a.n }, say, function () { return cv && cv.gen === my; }, function (res, sealed, failed) {
+            if (!cv || cv.gen !== my) return;
+            onAckC(res, sealed, failed, null);
+        });
+    }
+    // a chat's last answer, asked for by its handle
+    async function readChat(h) {
+        var id = 'cAnswer', p = panel(id), my = ++p.gen;
+        p.payload = null;
+        p.full = false;
+        if (!B.canInflate()) return drawPanel(id, 'nodecomp');
+        drawPanel(id, 'loading');
+        var live = function () { return panel(id).gen === my && mode === 'chat'; };
+        var quiet = function (kind, text) { if (kind === 'bad') drawPanel(id, 'none', { text: text }); };
+        await sendAct('read', { h: h }, quiet, live, function (res, sealed, failed) {
+            if (!live() || failed) return;
+            settlePanel(id, res, function () { readChat(h); });
+        }, null, ['reply', 'ack']);
+    }
+
+    // --- the whole answer, above the box --------------------------------------------
+
+    var panels = {};
+    function panel(id) { return panels[id] || (panels[id] = { gen: 0, payload: null, full: false, note: '' }); }
+    function stopPanel(id) { panel(id).gen++; }
+    // A panel in one of its states: loading, shown, none (with Ask the PC
+    // for it), gone, asked, noanswer, nodecomp. Built with createElement
+    // and textContent alone: nothing the PC sent is ever read as markup.
+    function drawPanel(id, state, extra) {
+        var p = panel(id), box = $(id);
+        extra = extra || {};
+        box.hidden = false;
+        box.textContent = '';
+        box.setAttribute('data-state', state);
+        box.classList.toggle('full', !!p.full);
+        if (state === 'shown' && p.payload) {
+            var pl = p.payload;
+            var one = el('button', 'aone', 'Claude\'s answer - tap to read');
+            one.type = 'button';
+            one.addEventListener('click', function () { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); });
+            box.appendChild(one);
+            var head = el('div', 'ahead');
+            head.appendChild(el('span', 'al', B.answerHead(pl)));
+            var all = el('button', '', p.full ? 'Show less' : 'Show all');
+            all.type = 'button';
+            all.addEventListener('click', function () { p.full = !p.full; drawPanel(id, 'shown'); });
+            head.appendChild(all);
+            var copy = el('button', '', 'Copy');
+            copy.type = 'button';
+            copy.addEventListener('click', function () { copyAnswer(id); });
+            head.appendChild(copy);
+            box.appendChild(head);
+            var cut = B.cutText(pl.cut);
+            if (cut) box.appendChild(el('p', 'acut', cut));
+            var body = el('div', 'abody');
+            drawBlocks(body, B.answerModel(pl.parts));
+            box.appendChild(body);
+            if (p.note) box.appendChild(el('div', 'astate', p.note));
+            return;
+        }
+        var st = el('div', 'astate');
+        st.appendChild(el('span', '', extra.text || B.PANEL[state] || ''));
+        if (extra.ask) {
+            var ask = el('button', '', B.PANEL.ask);
+            ask.type = 'button';
+            ask.addEventListener('click', extra.ask);
+            st.appendChild(ask);
+        }
+        box.appendChild(st);
+    }
+    function drawBlocks(body, blocks) {
+        blocks.forEach(function (k) {
+            if (k.t === 'pre') {
+                var pre = el('pre', k.table ? 'tbl' : '');
+                pre.appendChild(el('code', '', k.s));
+                body.appendChild(pre);
+            } else if (k.t === 'h') {
+                body.appendChild(el('p', 'ah', k.s));
+            } else if (k.t === 'tool') {
+                body.appendChild(el('p', 'tool', '\u2192 ' + k.s));
+            } else if (k.t === 'tools') {
+                var btn = el('button', 'tools', '\u2192 ' + k.items.length + ' tools');
+                btn.type = 'button';
+                var list = el('div', 'toollist');
+                list.hidden = true;
+                k.items.forEach(function (s) { list.appendChild(el('p', 'tool', '\u2192 ' + s)); });
+                btn.addEventListener('click', function () { list.hidden = !list.hidden; });
+                body.appendChild(btn);
+                body.appendChild(list);
+            } else if (k.t === 'note') {
+                body.appendChild(el('p', 'note', k.s));
+            } else {
+                var para = el('p', '');
+                (k.spans || []).forEach(function (s) { para.appendChild(el(s.t === 'code' ? 'code' : s.t === 'b' ? 'strong' : 'span', '', s.s)); });
+                body.appendChild(para);
+            }
+        });
+    }
+    function copyAnswer(id) {
+        var p = panel(id), text = B.answerText(p.payload && p.payload.parts);
+        var fail = function () { p.note = 'Copy is blocked here'; drawPanel(id, 'shown'); };
+        try {
+            if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+                navigator.clipboard.writeText(text).then(function () { p.note = 'Copied.'; drawPanel(id, 'shown'); }, fail);
+            } else fail();
+        } catch (e) { fail(); }
+    }
+    // what came of a look: the answer, a refusal the PC sent in its place,
+    // gone past 3 hours, no inflate here, or nothing yet
+    function settlePanel(id, res, ask, noneState) {
+        var p = panel(id), pl = res && res.payload;
+        if (res && res.nodecomp) return drawPanel(id, 'nodecomp');
+        if (pl && pl.kind === 'reply') { p.payload = pl; p.note = ''; return drawPanel(id, 'shown'); }
+        if (pl && pl.kind === 'ack') return drawPanel(id, 'none', { text: pl.say || B.PANEL.none, ask: ask });
+        if (res && res.gone) return drawPanel(id, 'gone', { ask: ask });
+        return drawPanel(id, noneState || 'noanswer', { ask: ask });
+    }
+    // An alert's page: the whole answer, for done, needs input and failed
+    // about a chat. With f=1 the PC sent it just before the push: looked for
+    // at once and every 4 s for 30 s. Without, the button asks for it.
+    function answerInit() {
+        var id = 'answer', p = panel(id), my = ++p.gen;
+        p.payload = null;
+        p.full = false;
+        p.note = '';
+        $(id).hidden = true;
+        if (!f || f.jobless || B.FULL_EVENTS.indexOf(f.event) < 0) return;
+        if (!B.canInflate()) return drawPanel(id, 'nodecomp');
+        var ask = function () { askAlertRead(); };
+        if (!f.full) return drawPanel(id, 'none', { ask: ask });
+        drawPanel(id, 'loading');
+        var since = f.at ? f.at - 120 : Math.floor(Date.now() / 1000) - 43200;
+        waitDown(f.aid, since, 30000, ['reply'], 0, function () { return panel(id).gen === my && mode === 'alert'; }, function (res) {
+            settlePanel(id, res, ask, 'none');
+        });
+    }
+    // act read, bound to the alert: the PC sends the whole answer again
+    async function askAlertRead() {
+        if (mode !== 'alert' || !f) return;
+        var id = 'answer', p = panel(id), my = ++p.gen, aid = f.aid;
+        var live = function () { return panel(id).gen === my && mode === 'alert' && f && f.aid === aid; };
+        drawPanel(id, 'asked');
+        var sealed;
+        try { sealed = await C.seal(await C.alertKey(phone.key, aid), aid, 'read', ''); } catch (e) { return drawPanel(id, 'none', { text: P.errorText({ kind: 'crypto' }, P.hostOf(phone.server)) }); }
+        var sent = Date.now();
+        var r = await post(P.postUrl(phone), sealed.message);
+        if (!live()) return;
+        if (!r.ok) return drawPanel(id, 'none', { text: P.errorText(r, P.hostOf(phone.server)), ask: askAlertRead });
+        var since = f.at ? Math.min(f.at - 120, Math.floor(sent / 1000) - 60) : Math.floor(sent / 1000) - 43200;
+        // the one gone before is no answer to this ask
+        waitDown(aid, since, 60000, ['reply'], POLL_MS, live, function (res) {
+            settlePanel(id, res && res.payload ? res : { nodecomp: res && res.nodecomp }, askAlertRead, 'noanswer');
+        });
+    }
+
     $('send').addEventListener('click', function () { if (spec) press(spec.send, $('send')); });
     $('again').addEventListener('click', function () { if (!busy) deliver(); });
     $('pair').addEventListener('click', function () { pairNow(); });
@@ -1241,6 +2829,41 @@ var ChatqPage = (function () {
         if (busy) { reinit = true; return; }
         init();
     });
+    // the board and its chats
+    $('toBoard').addEventListener('click', function () { if (phone && !busy) openBoard(true); });
+    $('bBack').addEventListener('click', function () { init(); });
+    $('bRefresh').addEventListener('click', function () { bd.started = Date.now(); bd.paused = false; drawNotes(); askBoard(); });
+    $('bAgain').addEventListener('click', function () { $('bStatus').hidden = true; askBoard(); });
+    $('bSearch').addEventListener('input', function () { if (bd.b) drawRows(); });
+    $('bNew').addEventListener('click', function () { if (bd.b) openFolders(); });
+    $('bStat').addEventListener('click', function () {
+        var my = bd.gen;
+        sendAct('status', {}, function (k, t) { bShow(k, t, false); }, function () { return my === bd.gen; }, function (res, sealed, failed) {
+            if (my !== bd.gen || failed || mode !== 'board') return;
+            var p = res && res.payload;
+            if (p) bShow(p.ok ? 'ok' : 'bad', p.say || '', false);
+            else bShow('bad', 'No answer from the PC.', false);
+        });
+    });
+    $('cBack').addEventListener('click', function () {
+        if (cv && cv.type === 'new') openFolders();
+        else backToBoard();
+    });
+    $('cSearch').addEventListener('input', function () { if (cv && cv.type === 'folders') drawFolders(); });
+    $('cText').addEventListener('input', function () {
+        if (cv && cv.pending && cv.pending.text !== $('cText').value.trim()) { cv.pending = null; $('cAgain').hidden = true; }
+        saveDraftC();
+        refreshC();
+    });
+    $('cName').addEventListener('input', function () { refreshC(); });
+    $('cSend').addEventListener('click', function () { sendC(); });
+    $('cAgain').addEventListener('click', function () { if (cv && cv.pending && !cv.busy) sendC(); });
+    if (typeof document.addEventListener === 'function') {
+        // a board waiting for the page to be seen again asks once it is
+        document.addEventListener('visibilitychange', function () {
+            if (!hiddenPage() && mode === 'board' && bd.waitVisible) { bd.waitVisible = false; askBoard(); }
+        });
+    }
     init();
 })();
 </script>

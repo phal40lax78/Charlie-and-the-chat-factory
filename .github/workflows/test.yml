@@ -38,10 +38,18 @@ jobs:
 
       # the phone's reply page: its WebCrypto held to the reference vector
       # Node's own crypto made, its buttons and link driven under node, and
-      # nothing it may load or post but the one text/plain POST
+      # nothing it may load or post but the one text/plain POST (and, since
+      # 0.9.0, the GET that reads its answers from the down topic)
       - name: Reply page check
         if: matrix.host == 'powershell'
         run: node tests/reply-page-check.js
+
+      # the same page's board and whole answer: the PC -> phone channel held
+      # to the vectors Node's crypto and zlib made, the board drawn and tapped
+      # under a fake DOM and a fake ntfy server
+      - name: Board page check
+        if: matrix.host == 'powershell'
+        run: node tests/board-page-check.js
 
       # the Marketplace package: build.js fills payload/ and refuses a version
       # that is not the script's, a script that is not ASCII, an SVG in the

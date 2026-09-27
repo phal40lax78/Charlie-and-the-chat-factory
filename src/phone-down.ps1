@@ -36,6 +36,37 @@ $script:ChatqDownInline = 3900
 $script:ChatqDownAttachMax = 1900000
 # when a send to the down topic last failed, for one log line per 10 minutes
 $script:ChatqDownErrAt = $null
+# why the last Send-ChatqReplyText sent nothing, in words for the phone
+$script:ChatqReplyTextWhy = $null
+
+function Get-ChatqDownSettings {
+    <#
+    config.json's reply block, the part the down channel reads, with its
+    defaults: Full (the whole answer with done, needs input and failed
+    alerts, on), FullMax (30000 characters, 2000 to 200000), Compose (the
+    phone may list chats, queue to any and start new ones, on), NewMode (a
+    chat the phone starts runs in this, then capped - default), Listen
+    (alerts, or always) and DownPerDay (150 whole answers a day). -Master
+    is the phone's key, for the down topic. Get-ChatqReplyConfig hands these
+    on as its own fields.
+    #>
+    param($Reply, [byte[]]$Master)
+    $has = { param($n) [bool]($Reply -and $Reply.PSObject.Properties[$n] -and $null -ne $Reply.$n -and '' -ne $Reply.$n) }
+    $max = 30000
+    if ((& $has 'fullMax') -and ($Reply.fullMax -as [int]) -ge 2000 -and ($Reply.fullMax -as [int]) -le 200000) { $max = [int]$Reply.fullMax }
+    $day = 150
+    if ((& $has 'downPerDay') -and ($Reply.downPerDay -as [int]) -ge 1) { $day = [Math]::Min(200, [int]$Reply.downPerDay) }
+    $newMode = if ((& $has 'newMode') -and ([string]$Reply.newMode) -cin $script:ChatqModeLadder) { [string]$Reply.newMode } else { 'default' }
+    [pscustomobject]@{
+        Full = -not ((& $has 'full') -and $Reply.full -eq $false)
+        FullMax = $max
+        Compose = -not ((& $has 'compose') -and $Reply.compose -eq $false)
+        NewMode = $newMode
+        Listen = $(if ((& $has 'listen') -and [string]$Reply.listen -eq 'always') { 'always' } else { 'alerts' })
+        DownPerDay = $day
+        DownTopic = (Get-ChatqDownTopic $Master)
+    }
+}
 
 function Get-ChatqDownTopic {
     # the down topic of the phone's key D, or $null with no key
@@ -289,6 +320,21 @@ function Send-ChatqDown {
             if (-not $err) { $out.Ok = $true; $out.Attached = $true; $out.Bytes = $sealed.Length; return $out }
             Write-ChatqDownError "an attachment for $Did was refused ($err) - cut to go inline"
         }
+        if ($sealed.Length -gt $script:ChatqDownInline -and $Body -is [System.Collections.IDictionary] -and -not $Body.Contains('parts')) {
+            # A board or a list too long to go inline, and no attachment: the
+            # rows that matter least go first - recent chats, the chats of a
+            # list, folders, then the queue's tail - half of what is left of
+            # one each time, and "more" says how many went.
+            foreach ($key in 'recent', 'chats', 'folders', 'queue', 'cut', 'open') {
+                while ($sealed.Length -gt $script:ChatqDownInline -and $Body.Contains($key) -and @($Body[$key]).Count) {
+                    $rows = @($Body[$key])
+                    $keep = [int][Math]::Floor($rows.Count / 2)
+                    $Body[$key] = @($(if ($keep) { $rows[0..($keep - 1)] }))
+                    $Body['more'] = [int]$Body['more'] + ($rows.Count - $keep)
+                    $sealed = & $seal $Body
+                }
+            }
+        }
         if ($sealed.Length -gt $script:ChatqDownInline) {
             # only a whole answer can be cut: its parts, from the front
             $parts = if ($Body -is [System.Collections.IDictionary] -and $Body.Contains('parts')) { @($Body['parts']) } else { @() }
@@ -490,19 +536,23 @@ function Send-ChatqReplyText {
     $true when the message went. Never throws.
     #>
     param($Rc, [string]$Aid, [string]$Event, $Job, [switch]$Quick, [switch]$Again)
+    $script:ChatqReplyTextWhy = $null
     try {
-        if (-not ($Rc -and $Rc.Links -and $Rc.Full)) { return $false }
-        if ($Event -notin 'done', 'needs input', 'failed') { return $false }
-        if (-not ($Job -and $Job.sessionId)) { return $false }
+        if (-not ($Rc -and $Rc.Links)) { $script:ChatqReplyTextWhy = 'replies are off on the PC'; return $false }
+        if (-not $Rc.Full) { $script:ChatqReplyTextWhy = 'whole answers are off on the PC - chatnotify -FullText on'; return $false }
+        if ($Event -notin 'done', 'needs input', 'failed') { $script:ChatqReplyTextWhy = "a $Event alert has no answer to send"; return $false }
+        if (-not ($Job -and $Job.sessionId)) { $script:ChatqReplyTextWhy = 'that alert is not about a chat'; return $false }
         $turn = if ($Job.id) { Get-ChatqJobTurnText $Job $Rc.FullMax } elseif ($Job.path) { Get-ChatqTurnText ([string]$Job.path) $Rc.FullMax } else { $null }
-        if (-not $turn -or -not @($turn.Parts).Count) { return $false }
+        if (-not $turn -or -not @($turn.Parts).Count) { $script:ChatqReplyTextWhy = 'the chat has no answer to send'; return $false }
         $before = Get-ChatqDownSent $Aid
         if ($Again -and $before -and $before.At -and ((Get-Date) - $before.At).TotalHours -lt 3 -and -not $before.Attached) {
             Write-ChatqReplyLog "read $Aid - the answer went inline at $($before.At.ToString('HH:mm')) and is still there - not sent again"
+            $script:ChatqReplyTextWhy = "it went at $($before.At.ToString('HH:mm')) and ntfy.sh still has it - reload the page"
             return $false
         }
         if (-not $before -and -not (Add-ChatqDownCount $Rc 'full')) {
             Write-ChatqReplyLog "whole answer for $Aid not sent - the day's $($Rc.DownPerDay) are used (reply.downPerDay)"
+            $script:ChatqReplyTextWhy = "today's $($Rc.DownPerDay) whole answers are used (ntfy.sh's free limit)"
             return $false
         }
         $at = if ($turn.At) { $turn.At.ToUniversalTime().ToString('o') } else { $null }
@@ -511,7 +561,7 @@ function Send-ChatqReplyText {
             title = [string]$Job.title; at = $at; cut = [int]$turn.Cut; parts = @($turn.Parts)
         }
         $r = Send-ChatqDown $Rc $Aid $body -Quick:$Quick
-        if (-not $r.Ok) { return $false }
+        if (-not $r.Ok) { $script:ChatqReplyTextWhy = 'ntfy.sh did not take it'; return $false }
         $attached = [bool]$r.Attached
         try { $null = Use-ChatqReplyState { param($st) $st.downSent[$Aid] = @{ at = (Get-ChatqStamp); attached = $attached } } $Rc.Hours } catch {}
         return $true
@@ -526,15 +576,20 @@ function Update-ChatqReplyFull {
     <#
     Send-ChatqAlert's part, once an answerable alert is registered and before
     its push goes: the whole answer on the down topic (Send-ChatqReplyText),
-    then the alert's link made again - w= its time, which tells the page how
-    far back to look, and r=1 when the whole answer went, so the page waits
-    for it rather than offering to ask. Never throws.
+    then the alert's link made again - f=1 when the whole answer went, so
+    the page waits for it rather than offering to ask, and o= the alert's
+    time, which tells the page how far back to look. (The spec named them
+    r and w; the permission cards and the usage heads-ups of 0.9.0 took
+    those letters for links of their own.) Never throws.
     #>
     param($Rc, $Reply, [string]$Event, $Job, [switch]$Quick)
     try {
         if (-not ($Rc -and $Reply -and $Reply.Aid)) { return }
         $full = [bool](Send-ChatqReplyText $Rc $Reply.Aid $Event $Job -Quick:$Quick)
-        $Reply.Link = Get-ChatqReplyLink $Rc $Reply.Aid $Event $Job -Full:$full -At ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())
+        # made with what the first link carried too: a soon usage alert's
+        # w=1 and a permission request's sealed card (New-ChatqReplyAlert)
+        $Reply.Link = Get-ChatqReplyLink $Rc $Reply.Aid $Event $Job -Full:$full -At ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()) `
+            -UsageKind ([string](Get-ChatField $Reply 'UsageKind')) -Card ([string](Get-ChatField $Reply 'Card'))
     }
     catch {}
 }
@@ -629,8 +684,9 @@ function Get-ChatqBoardState {
     sent more than 12 hours ago (an inline message lives that long).
     #>
     param($State, [datetime]$Now)
+    if ($Now.Kind -ne [System.DateTimeKind]::Utc) { $Now = $Now.ToUniversalTime() }
     $picks = [ordered]@{}
-    $live = @(@($State.picks.GetEnumerator()) | Where-Object {
+    $live = @(@(if ($State.picks) { $State.picks.GetEnumerator() }) | Where-Object {
             $x = ConvertTo-ChatqDate $_.Value.expires
             $x -and $x.ToUniversalTime() -gt $Now
         } | Sort-Object { [string]$_.Value.at } | Select-Object -Last 300)
@@ -647,7 +703,7 @@ function Get-ChatqBoardState {
             if ($x -and $x.ToUniversalTime() -gt $Now.AddHours(-1)) { [ordered]@{ at = $c.at; act = $c.act } }
         })
     $sent = [ordered]@{}
-    foreach ($e in @($State.downSent.GetEnumerator())) {
+    foreach ($e in @(if ($State.downSent) { $State.downSent.GetEnumerator() })) {
         $x = ConvertTo-ChatqDate $e.Value.at
         if ($x -and $x.ToUniversalTime() -gt $Now.AddHours(-12)) { $sent[$e.Key] = [ordered]@{ at = $e.Value.at; attached = [bool]$e.Value.attached } }
     }
@@ -656,6 +712,19 @@ function Get-ChatqBoardState {
         Picks = $picks; Standing = [bool]$State.standing; Compose = @($compose); Down = $down; DownSent = $sent
         RefusedAt = $State.composeRefusedAt; HotUntil = $State.hotUntil
     }
+}
+
+function Initialize-ChatqBoardState {
+    # the fields this file adds to Get-ChatqReplyState's fresh state, so a
+    # block that changes them finds them there whether or not the file had them
+    param($S)
+    $S.picks = @{}
+    $S.standing = $false
+    $S.compose = @()
+    $S.down = $null
+    $S.downSent = @{}
+    $S.composeRefusedAt = $null
+    $S.hotUntil = $null
 }
 
 function Read-ChatqBoardState {

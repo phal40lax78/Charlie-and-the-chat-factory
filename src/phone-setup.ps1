@@ -367,6 +367,9 @@ $script:ChatqPhoneSetupXaml = @'
           <Button x:Name="TestBtn" DockPanel.Dock="Left" Content="Send test" Margin="0,0,10,0"/>
           <TextBlock x:Name="TestNote" Style="{StaticResource Hint}" Margin="0" VerticalAlignment="Center"/>
         </DockPanel>
+        <TextBlock Style="{StaticResource Label}" Margin="0,10,0,2" Text="Read aloud"/>
+        <WrapPanel x:Name="SayPanel"/>
+        <TextBlock x:Name="SayNote" Style="{StaticResource Hint}"/>
 
         <StackPanel x:Name="ReplySection">
           <TextBlock Style="{StaticResource Head}" Text="REPLIES"/>
@@ -383,6 +386,15 @@ $script:ChatqPhoneSetupXaml = @'
             </StackPanel>
           </Border>
           <TextBlock x:Name="PairNote" Style="{StaticResource Hint}" Margin="23,4,0,0"/>
+          <CheckBox x:Name="PermitBox" Content="Approve tool calls from the phone" Margin="23,10,0,0"/>
+          <TextBlock x:Name="PermitHint" Style="{StaticResource Hint}" Margin="46,2,0,0"/>
+          <!-- the replies' own options, each indented under Reply from the phone -->
+          <CheckBox x:Name="FullBox" Content="Show Claude's whole answer on the phone" Margin="23,10,0,0"/>
+          <TextBlock Style="{StaticResource Hint}" Margin="46,2,0,6" Text="With done, needs input and failed. Sealed, like a reply; ntfy.sh passes it on."/>
+          <CheckBox x:Name="ComposeBox" Content="Let the phone queue to any chat, or start one" Margin="23,0,0,0"/>
+          <TextBlock Style="{StaticResource Hint}" Margin="46,2,0,6" Text="The reply page from a bookmark shows the overlay's board: every chat, the queue, usage."/>
+          <CheckBox x:Name="ListenBox" Content="Listen all the time (the phone board and new chats)" Margin="23,0,0,0"/>
+          <TextBlock x:Name="ListenNote" Style="{StaticResource Hint}" Margin="46,2,0,6" Text="So the phone can reach the PC without an alert. A hidden PowerShell stays running and asks ntfy.sh every 20 s."/>
         </StackPanel>
 
         <TextBlock Style="{StaticResource Head}" Text="WHAT REACHES THE PHONE"/>
@@ -394,8 +406,25 @@ $script:ChatqPhoneSetupXaml = @'
           <TextBlock Text="min (0 = always send)" VerticalAlignment="Center"/>
         </StackPanel>
         <TextBlock Style="{StaticResource Hint}" Text="Keyboard or mouse used that recently: you are here, the phone stays quiet."/>
+        <StackPanel Orientation="Horizontal">
+          <CheckBox x:Name="QuietHoursBox" Content="Quiet hours  from" VerticalAlignment="Center"/>
+          <TextBox x:Name="QuietFromBox" Width="54" Margin="8,0,8,0" HorizontalContentAlignment="Center" MaxLength="5"/>
+          <TextBlock Text="to" VerticalAlignment="Center"/>
+          <TextBox x:Name="QuietToBox" Width="54" Margin="8,0,0,0" HorizontalContentAlignment="Center" MaxLength="5"/>
+        </StackPanel>
+        <TextBlock Style="{StaticResource Hint}" Margin="23,2,0,4" Text="This PC's clock. Held until then, then one summary."/>
+        <TextBlock Margin="23,0,0,2" Text="Still send:"/>
+        <WrapPanel x:Name="UrgentPanel" Margin="23,0,0,6"/>
         <CheckBox x:Name="LiveBox" Content="Chats I run myself, when I'm away"/>
         <TextBlock Style="{StaticResource Hint}" Margin="23,2,0,6" Text="The overlay watches them; nothing is sent while you use this PC."/>
+        <StackPanel Orientation="Horizontal">
+          <CheckBox x:Name="UsageBox" Content="Usage at" VerticalAlignment="Center"/>
+          <TextBox x:Name="UsageAtBox" Width="64" Margin="8,0,6,0" HorizontalContentAlignment="Center" MaxLength="8"/>
+          <TextBlock Text="%" VerticalAlignment="Center"/>
+        </StackPanel>
+        <TextBlock Style="{StaticResource Hint}" Margin="23,2,0,6" Text="Claude or Codex, 5-hour or weekly window. Needs the overlay."/>
+        <CheckBox x:Name="ResetBox" Content="When a limit resets with prompts queued"/>
+        <TextBlock Style="{StaticResource Hint}" Margin="23,2,0,6" Text="Ten minutes before, with Send now, and when it goes."/>
         <CheckBox x:Name="ToastBox" Content="Desktop toast"/>
         <TextBlock Style="{StaticResource Hint}" Margin="23,2,0,6" Text="A Windows notification on this PC as well - nothing leaves it."/>
 
@@ -667,7 +696,10 @@ function New-ChatqPhoneSetupWindow {
         'Status', 'SaveBtn', 'CloseBtn') {
         $U[$n] = $w.FindName($n)
     }
+    foreach ($n in 'PermitBox', 'PermitHint') { $U[$n] = $w.FindName($n) }
     $w.Tag = $U
+    # the whole answer, the board and listening all the time (src/phone-board.ps1)
+    Initialize-ChatqBoardSetup $U
     $script:ChatqPhoneSetup = $U
     # tall content on a short screen scrolls instead of running off it
     try { $w.MaxHeight = [Math]::Max(360, [System.Windows.SystemParameters]::WorkArea.Height - 24) } catch {}
@@ -677,6 +709,8 @@ function New-ChatqPhoneSetupWindow {
         $cb.Tag = $ev
         $cb.Margin = [System.Windows.Thickness]::new(0, 3, 16, 3)
         $cb.ToolTip = "Send '$ev' alerts to the phone"
+        # what limited covers since auto-continue (src/auto-continue.ps1)
+        if ($ev -eq 'limited') { $cb.ToolTip = 'the limit came back mid-run, or cut off a chat you run yourself that auto-continue will continue' }
         $cb.add_Click({ param($src, $e) Invoke-ChatqPhoneSetupAction $src { param($U) Update-ChatqPhoneSetupDirty $U } })
         [void]$U.EventsPanel.Children.Add($cb)
     }
@@ -690,6 +724,7 @@ function New-ChatqPhoneSetupWindow {
     $U.ReplyBox.ToolTip = 'Each alert carries a link to a reply page; what you type there comes back encrypted. Needs a paired phone.'
     $U.ToastBox.ToolTip = 'A Windows notification here for every alert'
     $U.LiveBox.ToolTip = 'A chat in VS Code that waits on you, or finishes, while you are away - not only the ones chatq runs'
+    $U.PermitBox.ToolTip = 'This lets the phone make a command run on this PC. Serve the reply page from a site of your own first (chatnotify -ReplyPage).'
 
     $U.KeyBox.add_PasswordChanged({ param($src, $e) Invoke-ChatqPhoneSetupAction $src { param($U) Update-ChatqPhoneSetupKey $U } })
     $U.KeyBox.add_PreviewKeyDown({
@@ -706,6 +741,7 @@ function New-ChatqPhoneSetupWindow {
     $U.PairBtn.add_Click({ param($src, $e) Invoke-ChatqPhoneSetupAction $src { param($U) Invoke-ChatqPhoneSetupPair $U } })
     $U.ToastBox.add_Click({ param($src, $e) Invoke-ChatqPhoneSetupAction $src { param($U) Update-ChatqPhoneSetupDirty $U } })
     $U.LiveBox.add_Click({ param($src, $e) Invoke-ChatqPhoneSetupAction $src { param($U) Update-ChatqPhoneSetupDirty $U } })
+    $U.PermitBox.add_Click({ param($src, $e) Invoke-ChatqPhoneSetupAction $src { param($U) Update-ChatqPhoneSetupDirty $U } })
     foreach ($b in $U.QuietBox, $U.NtfyServerBox, $U.CommandBox) {
         $b.add_TextChanged({ param($src, $e) Invoke-ChatqPhoneSetupAction $src { param($U) Update-ChatqPhoneSetupGhosts $U; Update-ChatqPhoneSetupDirty $U } })
     }
@@ -748,6 +784,8 @@ function New-ChatqPhoneSetupWindow {
         })
     # the first thing a new user does is paste the key, so the caret waits there
     $w.add_Loaded({ param($src, $e) $U = Get-ChatqPhoneSetupFrom $src; if ($U -and -not $U.HasKey) { [void]$U.KeyBox.Focus() } })
+    # read aloud, quiet hours, usage and resets (src/phone-extras.ps1)
+    Initialize-ChatqPhoneSetupExtras $U
 
     Read-ChatqPhoneSetupForm $U
     return $w
@@ -853,8 +891,15 @@ function Read-ChatqPhoneSetupForm {
         # chats run in VS Code itself: on unless the file says false, as toast
         $U.LiveWas = -not ($cfg.PSObject.Properties['liveAlerts'] -and $cfg.liveAlerts -eq $false)
         $U.LiveBox.IsChecked = $U.LiveWas
+        # a queued run's permission prompt asks the phone: off unless the file says on
+        $pmc = Get-ChatqPermitConfig $cfg
+        $U.PermitWas = [bool]$pmc.On
+        $U.PermitBox.IsChecked = $U.PermitWas
+        $U.PermitBox.IsEnabled = [bool]$U.ReplyBox.IsChecked
+        $U.PermitHint.Text = "A queued run that needs a permission asks the phone - Allow once or Deny - and waits $($pmc.WaitMinutes) min. Off: it stops as needs input."
         $U.ToastWas = -not ($cfg.PSObject.Properties['toast'] -and $cfg.toast -eq $false)
         $U.ToastBox.IsChecked = $U.ToastWas
+        Read-ChatqBoardSetupForm $U $cfg
 
         $ntfy = if (& $has $cfg 'ntfy') { $cfg.ntfy } else { $null }
         $U.HasTopic = [bool]((& $has $ntfy 'topic') -and $ntfy.topic.value)
@@ -867,6 +912,7 @@ function Read-ChatqPhoneSetupForm {
         $U.CommandBox.Text = $U.CommandWas
         Update-ChatqPhoneSetupGhosts $U
         Update-ChatqPhoneSetupReplyStatus $U
+        Read-ChatqPhoneSetupExtras $U $cfg
         $U.Baseline = Get-ChatqPhoneSetupSnapshot $U
     }
     finally { $U.Loading = $false }
@@ -924,7 +970,7 @@ function Get-ChatqPhoneSetupSnapshot {
     $dev = if (-not $d) { '' } elseif (Test-ChatqPhoneSetupSameDevice $U $d) { '=' } else { [string]$d.Id }
     return (@($U.KeyBox.Password, $dev, (Get-ChatqPhoneSetupEventsText $U),
             $U.QuietBox.Text.Trim(), [bool]$U.LiveBox.IsChecked, [bool]$U.ToastBox.IsChecked, $U.NtfyTopicBox.Password, $U.NtfyServerBox.Text.Trim().TrimEnd('/'),
-            $U.NtfyTokenBox.Password, $U.CommandBox.Text) -join "`n")
+            $U.NtfyTokenBox.Password, $U.CommandBox.Text, [bool]$U.PermitBox.IsChecked, (Get-ChatqBoardSetupSnapshot $U)) -join "`n") + "`n" + (Get-ChatqPhoneSetupExtrasSnapshot $U)
 }
 
 function Test-ChatqPhoneSetupDirty {
@@ -935,6 +981,8 @@ function Test-ChatqPhoneSetupDirty {
 function Update-ChatqPhoneSetupDirty {
     # Save is live only while there is something to save
     param($U)
+    # permissions from the phone only while replies are on: nothing else answers them
+    if ($U.PermitBox) { $U.PermitBox.IsEnabled = [bool]$U.ReplyBox.IsChecked }
     if ($U.Loading) { return }
     $d = Test-ChatqPhoneSetupDirty $U
     # and not while a push is under way: Save would write the file under it
@@ -1199,6 +1247,8 @@ function Get-ChatqPhoneSetupChanges {
     if ($qm -ne $U.QuietWas) { $c.QuietMinutes = $qm }
     $live = [bool]$U.LiveBox.IsChecked
     if ($live -ne $U.LiveWas) { $c.LiveAlerts = $live }
+    $permit = [bool]$U.PermitBox.IsChecked
+    if ($permit -ne [bool]$U.PermitWas) { $c.Permit = if ($permit) { 'on' } else { 'off' } }
     $toast = [bool]$U.ToastBox.IsChecked
     if ($toast -ne $U.ToastWas) { $c.Toast = if ($toast) { 'on' } else { 'off' } }
     $topic = ([string]$U.NtfyTopicBox.Password).Trim()
@@ -1219,6 +1269,9 @@ function Get-ChatqPhoneSetupChanges {
     }
     elseif (-not $server -and $U.ServerWas) { $c.NtfyServer = 'https://ntfy.sh' }
     if ($U.CommandBox.Text -ne $U.CommandWas) { $c.Command = $U.CommandBox.Text }
+    Add-ChatqBoardSetupChanges $U $c
+    $xe = Add-ChatqPhoneSetupExtrasChanges $U $c
+    if ($xe) { return @{ Changes = @{}; Error = $xe; Pair = $false } }
     return @{ Changes = $c; Error = $null; Pair = $pair }
 }
 

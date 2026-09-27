@@ -1,6 +1,7 @@
 # Spec: approve a permission prompt from the phone mid-run
 
-Status: design only. Nothing here is built. It closes FUTURE_WORK.md's
+Status: built for 0.9.0 (src/permit.ps1, tests/sections/permit.ps1), with
+the S35 spike's answers recorded under section 12. It closes FUTURE_WORK.md's
 "Approve permission prompts from the phone" for chatq's own headless Claude
 runs, and leaves the rest of that entry (VS Code chats, the console) open.
 Every security choice of phone-spec v1-v4 and review/review2/review4 stands:
@@ -263,9 +264,21 @@ Bridge, on `tools/call`:
      `notebook_path` is under chatq's `data/`. So is a Claude settings or
      MCP file: a path ending `\.claude\settings.json`,
      `\.claude\settings.local.json`, `\.claude.json` or `\.mcp.json`, any
-     case, either slash.
-   - `Bash`/`PowerShell` whose command names chatq's `data/` folder (either
-     slash, any case). This is best effort, and the docs say so.
+     case, either slash. A path is made canonical first
+     (`ConvertTo-ChatqPermitPath`): Git Bash's `/c/...` (and `/cygdrive/c`,
+     `/mnt/c`) and `~` read as Windows paths, a `\\?\` or `\\.\` prefix
+     and `\\localhost\c$` taken off, an NTFS stream (`::$DATA`) and each
+     part's trailing dots and spaces dropped, made full against where
+     claude runs - which expands 8.3 short names - and held against
+     `data/`'s long and short forms. A path that cannot be made full counts
+     as under `data/`.
+   - `Bash`/`PowerShell` whose command names chatq's `data/` folder
+     (`Test-ChatqPermitCommandDir`): long or 8.3 short, either slash, any
+     case; Git Bash's `/c/...`; under the home folder as `~`, `$HOME`,
+     `${HOME}`, `$env:USERPROFILE` or `%USERPROFILE%`; any path-like word of
+     the command made canonical as an edit's path is (so a relative
+     `data\` run from chatq's own folder); and any command run inside
+     `data/` itself. This is best effort, and the docs say so.
    - `permit.maxPerRun` (10) already asked this run; 3 already pending; or
      `Missed`.
    - A rule deny says: "chatq never lets the phone approve <what>. Do not
@@ -384,7 +397,8 @@ encC = HMAC-SHA256(kc, "enc"), macC = HMAC-SHA256(kc, "mac")
 head = "chatq1c." + aid + "." + b64url(iv) + "." + b64url(AES-256-CBC(encC, iv, json))
 card = head + "." + b64url(HMAC-SHA256(macC, head))
 json = {"v":1,"t":"Bash","w":"<what>","d":"<Claude's description>","f":"<folder leaf>",
-        "c":"<chat title, 60>","n":12,"h":"<digest>","u":<until, epoch ms>}
+        "c":"<chat title, 60>","n":12,"h":"<digest>","u":<until, epoch ms>,
+        "x":1}                                  ; x only when w is not the whole call
 ```
 
 - `Protect-ChatqPermitCard -Master -Aid -Card` seals it, in phone.ps1 beside
@@ -397,20 +411,27 @@ json = {"v":1,"t":"Bash","w":"<what>","d":"<Claude's description>","f":"<folder 
 - [Get-ChatqReplyLink](src/phone.ps1) adds `r=<card>`, and `e=permission`.
 
 **The excerpt** (`Get-ChatqPermitExcerpt $Tool $Input $Cwd` -> `@{ What;
-Detail }`):
+Detail; Hidden }`):
 
 | tool | shown |
 |---|---|
 | Bash/PowerShell | the command, first 8 lines, 400 characters; `description` as the detail, 80 |
 | Edit/MultiEdit | the path relative to the chat's folder, `replaces 3 lines with 5`, and the new text's first 200 characters |
-| Write | the path, `new file` or `overwrites`, the size (`54 lines, 2.1 KB`), the first 200 characters |
+| Write | the path, `new file` or `overwrites` - `writes a network path` for a UNC path or a mapped network drive, which is never looked at - the size (`54 lines, 2.1 KB`), the first 200 characters |
 | NotebookEdit | the path and the cell |
 | WebFetch | the URL; `prompt` as the detail, 100 |
 | other | compact JSON of the input, 300 |
 
 Every one of these goes through `Hide-ChatqSecrets` first. It is a guard for
-the screen, not a security boundary, since the card is sealed anyway.
-Matches become `***`:
+the screen, not a security boundary, since the card is sealed anyway - and
+it must never hide what the call does: a value holding `$`, a backtick,
+`(`, `)`, `|`, `;`, `&`, `<` or `>` is code, and is shown whole, so
+`SESSION_TOKEN="$(curl ... | sh)"` reaches the phone as it is. `Hidden` is
+true when anything was hidden or the call's words were cut (8 lines, 400
+characters, or the card's 600 bytes); the card then carries `x: 1`, and the
+page says *Not all of this call is shown - parts are hidden (\*\*\*) or
+cut. If you cannot tell what it does, Deny.* Matches of these become
+`***`:
 - The value after a key word:
   `(?i)\b\w*(pass(word|wd)?|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|auth(orization)?|bearer|cookie|session)\w*\b(\s*[:=]\s*|\s+)("[^"]*"|'[^']*'|\S+)`.
 - A flag's value: `(?i)(--?(password|passwd|token|secret|api-?key)(=|\s+))\S+`.
@@ -426,8 +447,13 @@ Matches become `***`:
   sealed `permit` it sends back.
 - The watcher checks `h` against the registry. The bridge checks it against
   the digest it made from the request in its own memory.
-- A card built from a tampered `.req.json` carries the tampered digest, and
-  the bridge refuses the allow.
+- The watcher makes the digest again from the file's `rid`, `tool` and
+  `inputRaw` before it sends a card, and declines a request whose `digest`
+  differs ("the request changed on disk after it was asked"); the card and
+  the registry get the digest it made, never the file's. A `.req.json`
+  whose input was changed but not its digest is never shown, and one whose
+  input and digest were both changed gets a card whose `h` the bridge's
+  own copy refuses - it runs out as a deny.
 
 ## 7. Security: what an Allow can do, and the caps
 
@@ -752,6 +778,57 @@ a throwaway folder, and a stub server (the bridge, with its log turned up):
 8. Two tool calls in one message: two concurrent `tools/call`?
 9. The bridge's start under 5.1, dot-sourcing the whole script: time to
    `initialize`.
+
+**S35, what was seen** (2026-09-27, claude.exe 2.1.283 from the VS Code
+extension, `--model haiku`, a one-line prompt asking to run `echo hi` with
+Bash, in a throwaway folder outside every repo; five runs, the whole
+budget). The run's own `settings.json` added `"ask": ["Bash(echo hi)"]`
+so a harmless command would prompt at all.
+1. **Item 1, answered.** Run 1 (`default`): the bridge got `tool_name`,
+   `input` and `tool_use_id`; `{"behavior":"allow"}` with no `updatedInput`
+   ran the command as asked (`tool_result` `hi`). Run 2: a sealed refuse
+   with a note came back to Claude word for word as an `is_error`
+   `tool_result`, and Claude quoted the note. `result.permission_denials`
+   listed the deny **with `tool_use_id`**, so `-Refused` matches by id as
+   planned. **No `system/permission_denied` line** streamed for a deny from
+   the prompt tool - only the result's list, which is what the outcome
+   reads anyway.
+2. **Item 2, answered for a timeout.** Run 4, `MCP_TOOL_TIMEOUT=10000`: the
+   call ended as a `tool_result` error `MCP server "chatqpermit" tool
+   "decide" timed out after 10s`, **not a denial** - it is not in
+   `permission_denials`, and the model simply asked again (a second
+   request, timed out the same way), then gave up in words. Claude sent
+   `notifications/cancelled` for each, and the bridge marked the request
+   `withdrawn`. So `MCP_TOOL_TIMEOUT` stays 3 minutes above the bridge's own
+   deadline, and the bridge always answers first, with a real deny.
+3. **Item 3, answered.** Run 3, a `command` that does not exist: the run
+   starts all the same, `init` lists `chatqpermit` as `"status":"failed"`,
+   and the first prompt ends it - exit 1, no `result` line, and on stderr
+   (and in the tool_result) `Error: MCP tool mcp__chatqpermit__decide
+   (passed via --permission-prompt-tool) not found. Available MCP tools:
+   ...`. [Test-ChatqPermitStartFailed](../src/permit.ps1) reads either.
+4. **Item 4, answered in part.** `SystemRoot` arrived (the bridge logs it);
+   the bridge was up 0.2-1.3 s after claude started it (item 9, 5.1
+   dot-sourcing the whole script). **The model is never shown
+   `mcp__chatqpermit__decide`**: `init`'s tool list leaves it out while the
+   server is `connected`, so the self-call check is a belt over braces. The
+   assistant `tool_use` line was on stdout 3-8 s before the bridge got the
+   call, every time, so the cross-check holds as written.
+   `AskUserQuestion` was not in the tool list either (the settings deny).
+5. **Run 5**, the whole path through the built watcher, in `acceptEdits`
+   with a Join seam: the `started` push, then the `permission` push
+   (`e=permission`, `r=chatq1c...`, `notificationId=chatq-p-<rid>`, no
+   command in its text), a sealed permit fed through the poll seam, the
+   `allowed - Bash for #1, the run goes on` push, `hi`. The account's
+   session limit then ended the run (`limited`), which is chatq's own path.
+
+**Not run, for want of budget** (items 5-8): the `//c/...` path form of the
+data deny rules, elicitation under `host`, `auto`'s classifier sending a
+call back to a prompt, and two tool calls in one message. The code holds
+without them: the rules are defence in depth behind section 6, the bridge
+answers several pending calls in any order (tested with a real child), and
+`auto` and elicitation fall to the same bridge or to a deny. They stay in
+TESTING.md's S35 as open.
 
 **S36, by hand with the phone** (after S34):
 - Permits on.

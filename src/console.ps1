@@ -98,6 +98,8 @@ function Get-ChatConsoleJobStatus {
     switch ([string]$Job.state) {
         'queued' {
             $t = if (-not $Eta) { 'queued' } elseif ($Eta -match '^(\d|[A-Z][a-z]{2} \d)') { "sends $Eta" } else { $Eta }
+            # the continue auto-continue queued says so (src/auto-continue.ps1)
+            if (Get-ChatField $Job 'auto') { $t = "auto-continues $(if ($Eta) { $Eta } else { 'after the reset' })" }
             return [pscustomobject]@{ Text = $t; Tone = 'queued' }
         }
         'running' { return [pscustomobject]@{ Text = "running since $(& $at $Job.startedAt)"; Tone = 'running' } }
@@ -748,6 +750,29 @@ function Get-ChatConsoleChatItems {
         $seen[$item.Id] = $true
         if ($item.Kind -eq 'cutoff') { $cut.Add($item) } else { $open.Add($item) }
     }
+    # The reset ask runs with overlay.cutOff off too, and its balloon says
+    # "Click to see them" and opens this: with the rows off, its chats come
+    # from the ask itself - else the list, its Leave them and Continue all,
+    # would be empty. With them on, the ask's chats are rows already.
+    $rowsOff = $H.Ctx -and $H.Ctx.Config -and (Get-ChatField $H.Ctx.Config 'cutOff') -eq $false
+    foreach ($askItem in @(if ($rowsOff -and $H.Ctx.Ask) { @($H.Ctx.Ask.Items) })) {
+        $id = [string](Get-ChatField $askItem 'Id')
+        if (-not $id -or $seen[$id]) { continue }
+        $words = try { Format-ChatOverlayCutOff $askItem } catch { 'cut off' }
+        $cwd = [string](Get-ChatField $askItem 'Cwd')
+        $leaf = if ($cwd) { Split-Path $cwd.TrimEnd('\', '/') -Leaf } else { '' }
+        $title = Format-ChatTitle ([string](Get-ChatField $askItem 'Title')) 80
+        $row = [pscustomobject]@{
+            key = "c:$id"; kind = 'cutoff'; provider = 'claude'; status = 'cutoff'; chat = 'cutoff'; rank = 0.5; project = $leaf; title = $title
+            prompt = $null; promptKind = $null; detail = $words; since = $null; sessionId = $id; pids = @(); cwd = $cwd; job = $null; order = 0
+            stateText = $words; path = [string](Get-ChatField $askItem 'Path'); where = ''; unread = $false
+        }
+        $cut.Add([pscustomobject]@{
+                Key = "cutoff:$id"; Kind = 'cutoff'; Provider = 'claude'; Id = $id; Title = $title; Project = $leaf; Cwd = $cwd; Path = $row.path
+                State = $words; Status = 'cutoff'; Live = $null; Row = $row
+            })
+        $seen[$id] = $true
+    }
     # The index's chats newest first, sorted once per version of the index -
     # not every pass: that walked every row of it, 1 s for 2,000 chats. Each
     # pass takes only the first 30 (50 when searching) that are not listed
@@ -793,25 +818,48 @@ function Update-ChatConsoleChats {
     # searched and cut to length as it was gathered
     $recent = @($all.Recent)
     $sel = if ($C.Target) { "$($C.Target.Kind)|$($C.Target.Id)|$($C.Target.Cwd)" } else { '' }
-    # what a row shows beyond its words: its dot, where it runs, unread
-    $key = (@($cut + $open + $recent | ForEach-Object { "$($_.Key)=$($_.State)/$($_.Status)/$(Get-ChatField $_.Row 'where')/$(Get-ChatField $_.Row 'unread')" }) -join ';') + "|$sel"
+    # A pending ask about the chats the limit cut off: said in the Cut off
+    # header, with Leave them beside Continue all.
+    $ask = $H.Ctx.Ask
+    $askSays = ''
+    if ($ask) {
+        $at = Format-ChatOverlayAskAt $ask.ResetsAt
+        $askSays = " $($script:ChatqDot) limit over$(if ($at) { " at $at" }) - $([int]$ask.Count) can continue"
+    }
+    # how many of them auto-continue will continue (src/auto-continue.ps1)
+    $autoN = @($cut | Where-Object { (Get-ChatField $_.Row 'auto') -and $_.Row.auto.state -in 'armed', 'due' }).Count
+    if ($autoN) { $askSays += " $($script:ChatqDot) $autoN auto-continue$(if ($autoN -eq 1) { 's' })" }
+    # what a row shows beyond its words: its dot, where it runs, unread, and
+    # what auto-continue does with it - its button follows that
+    $key = (@($cut + $open + $recent | ForEach-Object { "$($_.Key)=$($_.State)/$($_.Status)/$(Get-ChatField $_.Row 'where')/$(Get-ChatField $_.Row 'unread')/$(Get-ChatField (Get-ChatField $_.Row 'auto') 'state')" }) -join ';') + "|$sel|$askSays|$(if ($ask) { @($ask.Keys) -join ',' })"
     if ($key -eq $C.Sigs.Chats) { return }
     $C.Sigs.Chats = $key
     $C.Chats.Children.Clear()
     $C.ChatItems = @($cut + $open + $recent)
     $section = {
-        param($title, $items, [scriptblock]$extra)
+        param($title, $items, [scriptblock]$extra, [string]$more = '')
         if (-not $items) { return }
         $hd = [System.Windows.Controls.DockPanel]::new()
         $hd.Margin = [System.Windows.Thickness]::new(0, 8, 0, 3)
         if ($extra) { $x = & $extra; [System.Windows.Controls.DockPanel]::SetDock($x, [System.Windows.Controls.Dock]::Right); [void]$hd.Children.Add($x) }
-        $tb = New-ChatOverlayText "$title ($(@($items).Count))" 'dim' 11.5 -Bold
+        $tb = New-ChatOverlayText "$title ($(@($items).Count))$more" 'dim' 11.5 -Bold -Trim
         $tb.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
         [void]$hd.Children.Add($tb)
         [void]$C.Chats.Children.Add($hd)
         foreach ($i in $items) { [void]$C.Chats.Children.Add((New-ChatConsoleChatItem $H $i)) }
     }
-    & $section 'Cut off' $cut { New-ChatConsoleButton 'Continue all' { Invoke-ChatConsoleContinue $script:ChatOverlayHost @($script:ChatOverlayHost.Con.ChatItems | Where-Object { $_.Kind -eq 'cutoff' }) } -Small -Tip 'Queue "Continue from where you left off." for each of them' }
+    $cutButtons = {
+        $all = New-ChatConsoleButton 'Continue all' { Invoke-ChatConsoleContinue $script:ChatOverlayHost @($script:ChatOverlayHost.Con.ChatItems | Where-Object { $_.Kind -eq 'cutoff' }) } -Small -Tip 'Queue "Continue from where you left off." for each of them'
+        if (-not $ask) { return $all }
+        # the ask's own keys, as drawn: the answer is for the chats it said
+        $leave = New-ChatConsoleButton 'Leave them' { param($s, $e) $e.Handled = $true; Invoke-ChatOverlayAskAnswer $script:ChatOverlayHost 'leave' @($s.Tag) } -Small -Tag @($ask.Keys) -Tip 'Leave them as they are - their rows stay orange; Continue all in the console still continues them'
+        $both = [System.Windows.Controls.StackPanel]::new()
+        $both.Orientation = [System.Windows.Controls.Orientation]::Horizontal
+        [void]$both.Children.Add($leave)
+        [void]$both.Children.Add($all)
+        return $both
+    }
+    & $section 'Cut off' $cut $cutButtons $askSays
     & $section 'Open in VS Code' $open $null
     & $section 'Recent' $recent $null
     if (-not ($cut -or $open -or $recent)) {
@@ -842,7 +890,17 @@ function New-ChatConsoleChatItem {
     $b.Background = if ($on) { Get-ChatOverlayBrush 'select' } else { [System.Windows.Media.Brushes]::Transparent }
     $b.BorderBrush = if ($on) { Get-ChatOverlayBrush 'accent' } else { [System.Windows.Media.Brushes]::Transparent }
     $g = [System.Windows.Controls.DockPanel]::new()
-    if ($Item.Kind -eq 'cutoff') {
+    # a continue auto-continue queued waits: Don't continue, one click -
+    # Continue undoes it (src/auto-continue.ps1)
+    $au = Get-ChatField $Item.Row 'auto'
+    if ($Item.Kind -eq 'cutoff' -and $au -and $au.state -in 'armed', 'due') {
+        $cb = New-ChatConsoleButton "Don't continue" { param($s, $e) $e.Handled = $true; Invoke-ChatConsoleDontContinue $script:ChatOverlayHost ([string]$s.Tag.Row.auto.jobId) ([string]$s.Tag.Id) } -Small -Tag $Item `
+            -Tip "$($au.long). Don't send ""continue"" to this chat after this reset; the next time the limit cuts it off, it is continued again."
+        $cb.Margin = [System.Windows.Thickness]::new(6, 0, 0, 0)
+        [System.Windows.Controls.DockPanel]::SetDock($cb, [System.Windows.Controls.Dock]::Right)
+        [void]$g.Children.Add($cb)
+    }
+    elseif ($Item.Kind -eq 'cutoff') {
         $cb = New-ChatConsoleButton 'Continue' { param($s, $e) $e.Handled = $true; Invoke-ChatConsoleContinue $script:ChatOverlayHost @($s.Tag) } -Small -Tag $Item -Tip 'Queue "Continue from where you left off." for this chat'
         $cb.Margin = [System.Windows.Thickness]::new(6, 0, 0, 0)
         [System.Windows.Controls.DockPanel]::SetDock($cb, [System.Windows.Controls.Dock]::Right)
@@ -933,6 +991,8 @@ function Update-ChatConsoleTarget {
     }
     [void]$C.To.Children.Add($line)
     if ($sub) { [void]$C.To.Children.Add((New-ChatOverlayText $sub 'faint' 11 -Trim)) }
+    # this chat's auto-continue: Default, Always, Never (src/auto-continue.ps1)
+    try { Add-ChatConsoleAutoLine $H } catch { Write-ChatOverlayLog "console: auto-continue: $($_.Exception.Message)" }
     Update-ChatConsoleOptions $H
 }
 
@@ -1308,27 +1368,60 @@ function Get-ChatConsoleMissingSay {
 
 function Invoke-ChatConsoleContinue {
     # "Continue from where you left off." for each chat the limit or a 529
-    # stopped - one New-ChatqJob each, in turn, then the watcher asked once.
-    # A chat that already has one waiting or running is left alone: the list
-    # is redrawn only on the next pass, and a second click would queue it twice.
+    # stopped (Invoke-ChatqContinueChats: one job each, a chat that already
+    # has one waiting or running left alone - the list is redrawn only on
+    # the next pass, and a second click would queue it twice), then the
+    # watcher asked once. The chats of a pending ask this continues are its
+    # answer too: marked continued, so the panel's banner and the tray's
+    # items go, and the ask is not made about them again.
     param($H, [object[]]$Items)
-    $n = 0
-    $had = 0
-    $fails = @()
-    $taken = @{}
-    foreach ($j in @(Get-ChatqJobs)) { if ($j.state -in 'queued', 'running' -and $j.sessionId) { $taken[[string]$j.sessionId] = $true } }
-    foreach ($i in @($Items)) {
-        if (-not $i) { continue }
-        if ($taken[[string]$i.Id]) { $had++; continue }
-        $row = Get-ChatqRowById $i.Id 'claude' $i.Path $i.Cwd
-        if (-not $row) { $fails += "$($i.Title): not found"; continue }
-        $made = New-ChatqJob -Row $row -Kind continue -Rule 'continue'
-        if ($made.Error) { $fails += "$($i.Title): $($made.Error)" } else { $n++; $taken[[string]$i.Id] = $true }
-    }
+    $list = @($Items | Where-Object { $_ })
+    $r = if ($list.Count) { Invoke-ChatqContinueChats -Items $list } else { [pscustomobject]@{ Queued = @(); Had = @(); Fails = @() } }
+    $n = @($r.Queued | Where-Object { $_ }).Count
+    $had = @($r.Had | Where-Object { $_ }).Count
+    $fails = @($r.Fails | Where-Object { $_ })
     if ($n) { $H.Con.Request = Request-ChatqWatcher -Wake poke }
+    $answered = Save-ChatConsoleAskAnswer $H $r
     $say = "queued $n continue$(if ($n -ne 1) { 's' }) - each goes when its limit is over$(if ($had) { "; $had had one already" })"
     Set-ChatConsoleStatus $H $(if ($fails) { "$say; $($fails -join '; ')" } else { $say }) $(if ($fails) { 'warn' } else { 'dim' })
     Update-ChatConsoleNow $H
+    if ($answered) { Update-ChatOverlayAsk $H }
+}
+
+function Save-ChatConsoleAskAnswer {
+    <#
+    What Continue in the console answers of a pending ask ($H.Ctx.Ask): its
+    chats that got a job, or had one, marked continued (Save-ChatqAskAnswer,
+    with the new jobs' numbers), merged into what the collector holds as
+    answered, and the ask cleared - the next pass makes it again for any
+    chat of it left. A chat that failed stays unanswered. -Result is
+    Invoke-ChatqContinueChats'. Whether any was answered.
+    #>
+    param($H, $Result)
+    $ask = $H.Ctx.Ask
+    if (-not $ask -or -not $Result) { return $false }
+    try {
+        $seq = @{}
+        foreach ($j in @($Result.Queued)) { if ($j -and $j.sessionId) { $seq[[string]$j.sessionId] = [int]$j.seq } }
+        $had = @{}
+        foreach ($id in @($Result.Had)) { if ($id) { $had[[string]$id] = $true } }
+        $items = @($ask.Items)
+        $ks = @($ask.Keys)
+        $keys = @()
+        $seqs = @{}
+        for ($i = 0; $i -lt $items.Count -and $i -lt $ks.Count; $i++) {
+            $id = [string]$items[$i].Id
+            if ($seq.ContainsKey($id)) { $keys += $ks[$i]; $seqs[$ks[$i]] = @($seq[$id]) }
+            elseif ($had[$id]) { $keys += $ks[$i] }
+        }
+        if (-not $keys.Count) { return $false }
+        $saved = @(Save-ChatqAskAnswer -Keys $keys -Answer continue -Source console -Seqs $seqs -Extra (Get-ChatqAskExtra $items $ks))
+        if ($null -ne $H.Ctx.AskState) { foreach ($k in $saved) { if ($k) { $H.Ctx.AskState[[string]$k] = $true } } }
+        $H.Ctx.Ask = $null
+        Write-ChatOverlayLog "ask: continued from the console - $($keys.Count) of $([int]$ask.Count)" -Always
+        return $true
+    }
+    catch { Write-ChatOverlayLog "ask: $($_.Exception.Message)"; return $false }
 }
 
 function Update-ChatConsoleNow {
@@ -1415,6 +1508,9 @@ function Show-ChatConsoleDetails {
     $w.TextWrapping = [System.Windows.TextWrapping]::Wrap
     & $add $w
     & $add (New-ChatOverlayText "$($j.provider) $($script:ChatqDot) $($j.kind)$(if ($j.mode) { " $($script:ChatqDot) $($j.mode)" }) $($script:ChatqDot) $($j.cwd)" 'faint' 11 -Trim)
+    # the continue auto-continue queued: when the limit cut the chat off, and the reset
+    $autoNote = Get-ChatqAutoJobNote $j
+    if ($autoNote) { $an = New-ChatOverlayText $autoNote 'dim' 11; $an.TextWrapping = [System.Windows.TextWrapping]::Wrap; & $add $an }
     $acts = [System.Windows.Controls.WrapPanel]::new()
     $acts.Margin = [System.Windows.Thickness]::new(0, 6, 0, 6)
     $act = { param($label, $what, $tip) [void]$acts.Children.Add((New-ChatConsoleButton $label { param($s, $e) Invoke-ChatConsoleJobAction $script:ChatOverlayHost ([string]$s.Tag.Id) ([string]$s.Tag.Act) } -Small -Tag @{ Id = $j.id; Act = $what } -Tip $tip)) }
@@ -1422,7 +1518,10 @@ function Show-ChatConsoleDetails {
         'queued' {
             & $act 'Try now' 'now' 'Stop waiting for a reset: ask now, and send if the limit is over'
             & $act 'First' 'first' 'To the front of the queue'
-            & $act $(if ($C.Confirm[$j.id]) { 'Remove - sure?' } else { 'Remove' }) 'remove' 'Drop it, its prompt and its files'
+            # auto-continue's: one click, as in the Cut off list - the chat's
+            # Continue there undoes it, so one rule for both places
+            if (Get-ChatField $j 'auto') { & $act "Don't continue" 'dont' 'Not after this reset - its cut-off is not queued again; Continue in the Cut off list queues one' }
+            else { & $act $(if ($C.Confirm[$j.id]) { 'Remove - sure?' } else { 'Remove' }) 'remove' 'Drop it, its prompt and its files' }
         }
         'running' { & $act 'Cancel' 'cancel' 'Stop the run - it is marked failed' }
         default {
@@ -1486,8 +1585,11 @@ function Invoke-ChatConsoleJobAction {
     # what a button in the details does - the same core chatqrm, chatqrun
     # and chatq <n> call
     param($H, [string]$Id, [string]$Act)
+    # when the click came: finding the job reads the queue, and a slow read
+    # must not age the second half of a double-click past Remove's 0.4 s
+    $clickAt = Get-Date
     $C = $H.Con
-    $j = Find-ChatqJob $Id
+    $j = Find-ChatqJob $Id -Exact
     if (-not $j) { Set-ChatConsoleStatus $H 'that job is gone' 'warn'; $C.JobsSig = $null; return }
     $say = ''
     switch ($Act) {
@@ -1498,7 +1600,7 @@ function Invoke-ChatConsoleJobAction {
             # counts from 0.4 s to 5 s after it - the second half of a
             # double-click lands on "sure?" at once, and an old ask is stale.
             $asked = $C.Confirm[$j.id]
-            $age = if ($asked) { ((Get-Date) - $asked).TotalSeconds } else { -1 }
+            $age = if ($asked) { ($clickAt - $asked).TotalSeconds } else { -1 }
             if ($age -ge 0 -and $age -lt 0.4) { return }
             # the ask's time is taken again once the pane is redrawn: the
             # second half of a double-click waits in the queue while it draws,
@@ -1507,6 +1609,7 @@ function Invoke-ChatConsoleJobAction {
             $C.Confirm.Remove($j.id)
             if (Remove-ChatqJob $j 'the console') { $say = "removed #$($j.seq)"; $C.Sel = $null } else { $say = "#$($j.seq) is running - cancel it first" }
         }
+        'dont' { Invoke-ChatConsoleDontContinue $H $j.id $j.sessionId; return }
         'cancel' {
             $say = switch (Stop-ChatqJobRun $j) {
                 'cancelling' { "#$($j.seq) cancelling - stopped within a few seconds" }

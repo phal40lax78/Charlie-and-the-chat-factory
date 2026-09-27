@@ -153,7 +153,9 @@ function chatoverlay {
     .DESCRIPTION
     Each open chat is a row: project, title, its newest prompt, and whether it
     is working (green), waiting on you (amber, at the top), or idle (grey).
-    Chats the limit cut off are orange, with when it resets. Queued prompts
+    Chats the limit cut off are orange, with when it resets; once it is
+    over, the panel says how many it cut off and continues them if you say
+    so (chatq -AutoContinue off only marks them). Queued prompts
     are rows too (purple), or ride on their chat's row when it is open. On
     Windows, a chat that finished a turn while you were elsewhere, since
     you last opened it from the overlay, has a small blue dot - not one
@@ -172,7 +174,8 @@ function chatoverlay {
     handle to resize it (sideways for width, up and down for rows), collapse to
     one line, refresh usage, the console (chatconsole), settings (width, rows,
     opacity, theme, usage as lines or bars, full or compact rows, how many
-    recent chats), hide to the tray -
+    recent chats, and whether chats the limit cut off are asked about or
+    only marked), hide to the tray -
     the tray dot shows it again - and close. The hotkey (Ctrl+Alt+Shift+O)
     or the tray menu unlocks the whole panel to drag; it locks again by
     itself two minutes after the pointer leaves. Windows and macOS

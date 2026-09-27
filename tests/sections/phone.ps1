@@ -126,7 +126,7 @@ Check 'Set-ChatqNotifyConfig takes a pasted Join URL apart' ((Unprotect-ChatqSec
     (Get-ChatqConfig).join.device -eq 'group.phone' -and -not $r.Error) (($r.Messages | ForEach-Object Text) -join ' | ')
 $sp0 = $script:PhSpawns
 $env:CHATQ_WATCHER = $null
-$said = (chatnotify -Reply on 6>&1 | Out-String)
+$said = (chatnotify -Reply on 6>&1 | Out-String -Width 400)
 $env:CHATQ_WATCHER = '1'
 $rc0 = Get-ChatqReplyConfig
 $pj = & $phLastJoin
@@ -167,7 +167,7 @@ $phDx = New-ChatqRandomBytes 32
 $null = & $phSay 'phpair2' $pmsg
 $null = & $phSay 'phpairx' (New-PhPairMessage $pj.F $phDx 'Android - Chrome 128')
 $pc2 = @(Get-ChatqPairCandidates)
-$status = (chatnotify 6>&1 | Out-String)
+$status = (chatnotify 6>&1 | Out-String -Width 400)
 Check 'the same answer posted again is still one candidate; another phone''s is a second; chatnotify lists both with their codes' ($pc2.Count -eq 2 -and
     $pc2[1].Label -eq 'Android - Chrome 128' -and $status -like "*Pixel 8 - Chrome answered at * - code $code1*chatnotify -Confirm $($code1 -replace ' ', '')*" -and
     $status -like '*Android - Chrome 128 answered*' -and $status -like '*2 answers to confirm by code*') $status
@@ -178,7 +178,7 @@ $cJunk = Confirm-ChatqPairCandidate -Code '12'
 Check 'a code no answer has, or one that is not six digits, pairs nothing' ($cNone.Error -like '*no answer with the code*2 waiting*' -and $cJunk.Error -like '*six digits*' -and
     -not (Get-ChatqReplyConfig).Paired) "$($cNone.Error) | $($cJunk.Error)"
 $n0 = $script:PhJoins.Count
-$said = (chatnotify -Confirm $code1 6>&1 | Out-String)
+$said = (chatnotify -Confirm $code1 6>&1 | Out-String -Width 400)
 $rc = Get-ChatqReplyConfig
 $st = Get-ChatqReplyState
 $pdone = & $phLastJoin
@@ -193,9 +193,9 @@ $null = & $phSay 'phpairlate' (New-PhPairMessage $pj.F $phDx 'Android - Chrome 1
 Check 'an answer after the pairing ended: no candidate, nothing said, the phone paired stays' ($script:PhJoins.Count -eq $n0 -and (Get-ChatqReplyConfig).Key -ceq $rc.Key -and
     -not @((Get-ChatqReplyState).pairCandidates).Count -and (Confirm-ChatqPairCandidate -Code $code1).Error -like '*no pairing is waiting*')
 Check 'the status line names the phone' ((Get-ChatqPhoneStatusText) -like 'paired - Pixel 8 - Chrome - since *listening until *') (Get-ChatqPhoneStatusText)
-$bad = (chatnotify -Events done, bogus 6>&1 | Out-String)
+$bad = (chatnotify -Events done, bogus 6>&1 | Out-String -Width 400)
 Check 'an unknown event name saves nothing' (-not (Get-ChatqConfig).PSObject.Properties['phoneEvents'] -and $bad -like '*bogus*') $bad
-$status = (chatnotify 6>&1 | Out-String)
+$status = (chatnotify 6>&1 | Out-String -Width 400)
 Check 'chatnotify alone shows the replies line' ($status -like '*replies from the phone: paired - Pixel 8*') $status
 
 # replies off: the key stays, the window shuts, every alert out there is
@@ -235,7 +235,7 @@ Check 'the Join push carries the link, the icon, a notificationId for the chat a
 $aid = $j1.F['a']
 Check 'the link names the alert, the job and the chat - and no key, topic or server' ($aid -cmatch '^[a-z2-7]{10}$' -and $j1.F['e'] -eq 'needs input' -and
     $j1.F['n'] -eq "$($job.seq)" -and $j1.F['p'] -eq 'claude' -and $j1.F['j'] -eq 'needs-input' -and -not $j1.F.ContainsKey('x') -and
-    (@($j1.F.Keys | Sort-Object) -join ',') -eq 'a,c,e,j,n,p,v' -and $j1.Q['url'] -notlike "*$($rc.Topic)*" -and
+    (@($j1.F.Keys | Where-Object { $_ -notin 'f', 'o' } | Sort-Object) -join ',') -eq 'a,c,e,j,n,p,v' -and $j1.Q['url'] -notlike "*$($rc.Topic)*" -and
     $j1.F['c'] -eq $job.title.Substring(0, [Math]::Min(20, $job.title.Length))) (($j1.F.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ' ')
 $st = Get-ChatqReplyState
 Check 'the alert is registered with the chat''s config dir, a window opens, and a shell with no watcher starts one' ($st.alerts[$aid].jobId -eq $job.id -and
@@ -571,7 +571,7 @@ Check 'spent nonces: kept for twice the timestamp window of the configured hours
 # --- the reply page's address -------------------------------------------------------
 $rpBad = Set-ChatqNotifyConfig @{ ReplyPage = 'http://me.example/reply.html' }
 $rpBad2 = Set-ChatqNotifyConfig @{ ReplyPage = 'https://me.example/reply.html#x' }
-$said = (chatnotify -ReplyPage 'https://replies.example.org/reply.html' 6>&1 | Out-String)
+$said = (chatnotify -ReplyPage 'https://replies.example.org/reply.html' 6>&1 | Out-String -Width 400)
 $null = Send-ChatqAlert 'done' 'own page' 1 -Job $new
 $jp = & $phLastJoin
 Check '-ReplyPage: https only; the links point there, and a paired phone is told to pair again on the new site' ($rpBad.Error -and $rpBad2.Error -and
@@ -617,7 +617,7 @@ Check 'pairing with only ntfy over http: refused before anything changes - no pu
 $phBad = "$($script:ChatqReplyPath).bad"
 Remove-Item -LiteralPath $phBad -Force -EA SilentlyContinue
 [System.IO.File]::WriteAllBytes($script:ChatqReplyPath, (New-Object byte[] 64))
-$said = (chatnotify -Pair 6>&1 | Out-String)
+$said = (chatnotify -Pair 6>&1 | Out-String -Width 400)
 $rc2 = Get-ChatqReplyConfig
 $pj2 = & $phLastJoin
 $st2 = Get-ChatqReplyState
@@ -674,7 +674,7 @@ $script:ChatqPairWaitSeam = {
     # a wait that goes on: the pairing is ended so the loop does too
     if ($script:PhTicks -gt 5) { $cc = Get-ChatqConfig; $cc.reply.PSObject.Properties.Remove('pairing'); Save-ChatqJson $script:ChatqConfigPath $cc }
 }
-try { $said = (chatnotify -Reply renew 6>&1 | Out-String) }
+try { $said = (chatnotify -Reply renew 6>&1 | Out-String -Width 400) }
 finally { $script:ChatqAskSeam = $false; $script:ChatqPairWaitSeam = $null }
 $rc3 = Get-ChatqReplyConfig
 $n0 = $script:PhJoins.Count
@@ -819,7 +819,7 @@ finally {
 $null = Set-ChatqNotifyConfig @{ ReplyHours = 12 }
 $null = Send-ChatqAlert 'done' 'window again' 1
 $openBefore = Test-ChatqReplyOpen
-$said = (chatqrun -Stop 6>&1 | Out-String)
+$said = (chatqrun -Stop 6>&1 | Out-String -Width 400)
 Check 'chatqrun -Stop shuts the reply window, a watcher running or not' ($openBefore -and -not (Test-ChatqReplyOpen) -and -not (Get-ChatqReplyState).openUntil -and
     $said -like '*not running*') "$openBefore / $said"
 
@@ -927,11 +927,11 @@ $rw = & $lvRun $cw $lvBusyIdle
 $rk = & $lvRun (& $lvCtx) $lvBusyIdle 'print'
 Check 'a chat the watcher is running a job in, or an entry that is not interactive: no alert' ($rw.Count -eq 0 -and $rk.Count -eq 0) "$($rw.Count) $($rk.Count)"
 $lvBad = Set-ChatqNotifyConfig @{ LiveAlerts = 'maybe' }
-$said = (chatnotify -LiveAlerts off 6>&1 | Out-String)
+$said = (chatnotify -LiveAlerts off 6>&1 | Out-String -Width 400)
 $ro = & $lvRun (& $lvCtx) ($lvBusyIdle + @(@(14, 'waiting'), @(40, 'waiting')))
-$status = (chatnotify 6>&1 | Out-String)
+$status = (chatnotify 6>&1 | Out-String -Width 400)
 $null = Set-ChatqNotifyConfig @{ LiveAlerts = $true }
-$statusOn = (chatnotify 6>&1 | Out-String)
+$statusOn = (chatnotify 6>&1 | Out-String -Width 400)
 Check 'liveAlerts off (chatnotify -LiveAlerts off): no alert, and the status says so; on again; a value that is not on or off saves nothing' ($lvBad.Error -and
     $ro.Count -eq 0 -and (Get-ChatqConfig).liveAlerts -eq $true -and $said -like '*chats you run yourself: no phone alerts*' -and
     $status -like '*chats you run yourself: off*' -and $statusOn -like '*chats you run yourself: on - waiting on you or finished, while you are away 5 min*') "$said / $status / $statusOn"

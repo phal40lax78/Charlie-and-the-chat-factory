@@ -5,7 +5,7 @@ Section 'the job core'
 # what chatq writes is what it always wrote, plus sendNow at the end
 $jc = New-TestJob 'card redesign' 'field order'
 $fields = ($jc.PSObject.Properties | ForEach-Object Name) -join ','
-$want = 'v,id,seq,provider,sessionId,title,group,path,cwd,home,chatWhen,typed,rule,score,runnerUp,kind,promptFile,mode,modeAtQueue,model,runModel,first,sandbox,network,notBefore,state,attempts,retryAs,autoContinue,deferUntil,deferredSince,busyAlerted,createdAt,startedAt,endedAt,runnerPid,result,history,sendNow'
+$want = 'v,id,seq,provider,sessionId,title,group,path,cwd,home,chatWhen,typed,rule,score,runnerUp,kind,promptFile,mode,modeAtQueue,model,runModel,first,sandbox,network,notBefore,state,attempts,retryAs,autoContinue,auto,cutUuid,deferUntil,deferWhy,deferredSince,busyAlerted,createdAt,startedAt,endedAt,runnerPid,result,history,sendNow'
 Check 'a job made by chatq has the fields it always had, in order, and sendNow' ($fields -eq $want -and $jc.sendNow -eq $false) $fields
 $null = Remove-ChatqJob $jc 'test'
 $rowCard = Get-ChatqRowById $idCard

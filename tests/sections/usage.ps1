@@ -29,7 +29,7 @@ Check 'Claude''s usage: the overlay''s live figure where it is newer than the ca
     $ulive.Count -eq 1 -and ($ulive[0].Parts -join ',') -eq '5h 62%,week 22%' -and ($ulive[0].AsOfAt -gt $ucl.AsOfAt) -and
     $uold.Count -eq 1 -and ($uold[0].Parts -join ',') -eq '5h 83%,week 41%' -and
     $unone.Count -eq 1 -and ($unone[0].Parts -join ',') -eq '5h 83%,week 41%') "$($ulive[0].Parts -join ',') / $($uold[0].Parts -join ',') / $($unone[0].Parts -join ',')"
-$shown = (Write-ChatqList 6>&1 | Out-String)
+$shown = (Write-ChatqList 6>&1 | Out-String -Width 400)
 Check 'chatqlist shows it' ($shown -like '*usage  Claude 5h 83%*') ''
 # Both caches refresh only when their own tool runs, so the numbers can be
 # older than what the status line above them says - and a lane limited right
@@ -38,16 +38,16 @@ $was = Get-ChatqState
 Save-ChatqJson $script:ChatqStatePath ([ordered]@{
         pid = $PID; blocked = @{ claude = @{ until = (Get-Date).AddHours(1).ToUniversalTime().ToString('o'); type = 'five_hour'; source = 'transcript' } }; outage = @{}
     })
-$shown = Lock-Queue { Write-ChatqList 6>&1 | Out-String }
+$shown = Lock-Queue { Write-ChatqList 6>&1 | Out-String -Width 400 }
 Check 'a limited account reads 5h limited, never a percent from before it' ($shown -like '*Claude 5h limited*' -and $shown -notlike '*5h 83%*') (@($shown -split "`n" | Where-Object { $_ -like '*usage*' }) -join '')
 # and only the window that is blocked: a week gone says nothing about the 5 h
 Save-ChatqJson $script:ChatqStatePath ([ordered]@{
         pid = $PID; blocked = @{ claude = @{ until = (Get-Date).AddDays(2).ToUniversalTime().ToString('o'); type = 'weekly_all'; source = 'transcript' } }; outage = @{}
     })
-$shown = Lock-Queue { Write-ChatqList 6>&1 | Out-String }
+$shown = Lock-Queue { Write-ChatqList 6>&1 | Out-String -Width 400 }
 Check 'a weekly limit leaves the 5 h figure alone' ($shown -like '*Claude 5h 83%*' -and $shown -like '*week limited*') (@($shown -split "`n" | Where-Object { $_ -like '*usage*' }) -join '')
 Save-ChatqJson $script:ChatqStatePath $was
 [System.IO.File]::WriteAllText((Join-Path $claudeHome '.claude.json'),
     $cj.Replace("$fetched", [string]([DateTimeOffset]::Now.AddHours(-3).ToUnixTimeMilliseconds())), $utf8)
-$shown = (Write-ChatqList 6>&1 | Out-String)
+$shown = (Write-ChatqList 6>&1 | Out-String -Width 400)
 Check 'a reading hours old is marked stale' ($shown -match 'as of [^)]+ - stale') (@($shown -split "`n" | Where-Object { $_ -like '*usage*' }) -join '')

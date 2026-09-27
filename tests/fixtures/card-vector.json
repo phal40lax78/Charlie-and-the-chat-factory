@@ -1,0 +1,15 @@
+{
+  "master": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+  "aid": "abcdefghij",
+  "rid": "k2m3n4p5q6",
+  "tool": "Bash",
+  "inputRaw": "{\"command\":\"git push origin main # \ud55c\uae00\",\"description\":\"Push the release\"}",
+  "digest": "4toRh710vsr7n0tJt7X02Q",
+  "iv": "ICEiIyQlJicoKSorLC0uLw",
+  "card": "{\"v\":1,\"t\":\"Bash\",\"w\":\"git push origin main # \ud55c\uae00\",\"d\":\"Push the release\",\"f\":\"parser\",\"c\":\"Parser rewrite \ud55c\uae00\",\"n\":12,\"h\":\"4toRh710vsr7n0tJt7X02Q\",\"u\":1790000600000}",
+  "kc": "UwiQha54Xd3vLBMAoE24DoRC1_kiBnO54Nn6mO6o32E",
+  "sealed": "chatq1c.abcdefghij.ICEiIyQlJicoKSorLC0uLw.O-UQ_ELtfuTM77kXKmtEZRFYDL_u5l6qHSJmcGeN_PcAeUByVSqVUlrLbRwuip_DeaOiCM6irGPWVZ2pptnDnMFxxgE61Ljsfh76AvyY1SPl_Xw7Y0jfw-Y3rV8pJa_bN72kYDi8jEECe3X-J6PO97YmxfLIvzZWmRgtmiYmHtSEMRW75hA8qGy-krFfcz7XsqcSpSmVQIA7q1D_mOLFKUIxxgWOEaQfaHmD8I7LwSQ.l9ux5BPyJTvNToCjbcLyPsQ_Jr2EXh2UCmXon8ACFnc",
+  "replyIv": "EBESExQVFhcYGRobHB0eHw",
+  "permitPayload": "{\"v\":1,\"act\":\"permit\",\"text\":\"\",\"nonce\":\"AAAAAAAAAAAAAAAAAAAAAA\",\"ts\":1790000000000,\"h\":\"4toRh710vsr7n0tJt7X02Q\"}",
+  "permitMessage": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.qHVligj43ybikGlHQXCWFQxhrSb9vuQOyxxYfF8s3VLOGQLUMneEy-0gtPMkBz2OLZhfC9oQO425ThCjftsS4AXmc-6HtVu8rAydBMqhZaXNsAOKlNboYVzAQSJphw_z3BLc9lTWSRfGFFdOSGIqpRGQiRdrQDijUKWsRTT-y7c.MQI7W4K2oXHOF9wFI2ae9zVDlAeunm0elTQ18364OzM"
+}

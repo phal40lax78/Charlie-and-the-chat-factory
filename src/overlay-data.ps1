@@ -7,8 +7,10 @@
 # working, waiting on you or idle - the queue under them, and the newest
 # chats not open under those. A collector with
 # no UI builds a snapshot, and a renderer draws it: WPF on Windows, a JXA
-# panel on macOS. Nothing it does changes a chat, a job or the config; the
-# only files it writes are its own, below.
+# panel on macOS. Looking changes nothing - no chat, job or config; the
+# files a pass writes are its own, below. What you answer does: the reset
+# ask (Complete-ChatqResetAsk) queues continues and writes its markers in
+# data/auto, and the settings box writes the config.
 
 $script:ChatOverlayPath = Join-Path $script:ChatqData 'overlay.json'
 $script:ChatOverlayStatePath = Join-Path $script:ChatqData 'overlay-state.json'
@@ -96,6 +98,11 @@ function Get-ChatOverlayConfig {
         # how many of the newest chats not open go under the open ones; 0 is
         # no Recent section at all
         recent       = [int](& $clamp ([int](& $get 'recent' 5)) 0 20)
+        # ask or off: from config.json's top level, not overlay - it is not
+        # the panel's alone, and the watcher will read it too once its
+        # automatic mode exists. Set-ChatOverlayConfig never writes it;
+        # Set-ChatqAutoContinue does.
+        autoContinue = (Get-ChatqAutoContinue $Cfg)
     }
 }
 
@@ -1055,7 +1062,7 @@ function Close-ChatqAnsweredJobs {
             elseif ($seen) { $typed = $seen.TypedAt }
         }
         if (-not (Test-ChatqJobAnswered $j $typed)) { continue }
-        $cur = Find-ChatqJob $j.id
+        $cur = Find-ChatqJob $j.id -Exact
         if (-not $cur -or [string]$cur.state -ne 'needs-input') { continue }
         Complete-ChatqJob $cur 'skipped' ([pscustomobject]@{ kind = 'skipped'; reason = 'answered in the chat' }) 'answered in the chat'
         $Ctx.Answered.Remove([string]$j.id)
@@ -1417,15 +1424,64 @@ function Update-ChatOverlayRecent {
 }
 
 function Format-ChatOverlayCutOff {
-    # what a chat the limit or a 529 stopped is waiting on
-    param($CutOff, [datetime]$Now = (Get-Date))
+    # what a chat the limit or a 529 stopped is waiting on. -Auto: its
+    # auto-continue state (Get-ChatqAutoState), whose short words say it
+    param($CutOff, [datetime]$Now = (Get-Date), $Auto)
+    if ($Auto -and $Auto.Words) { return [string]$Auto.Words }
     if ($CutOff.Why -eq 'overloaded') { return '529 - waits for Claude' }
-    $r = $CutOff.ResetsAt
-    if ($r -and $r -gt $Now) {
-        $at = if ($r.Date -eq $Now.Date) { $r.ToString('HH:mm', [System.Globalization.CultureInfo]::InvariantCulture) } else { $r.ToString('ddd HH:mm', [System.Globalization.CultureInfo]::InvariantCulture) }
-        return "cut off - resets $at"
-    }
+    $at = Format-ChatOverlayResetAt (ConvertTo-ChatOverlayMs $CutOff.ResetsAt) $Now
+    if ($at) { return "cut off - resets $at" }
     return 'cut off - limit over'
+}
+
+function Format-ChatOverlayResetAt {
+    # A reset still ahead as a clock time: HH:mm on today's date, with the
+    # day otherwise; '' when there is none or it has passed. Pure.
+    param($ResetsAtMs, [datetime]$Now = (Get-Date))
+    if (-not $ResetsAtMs) { return '' }
+    $at = try { [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$ResetsAtMs).LocalDateTime } catch { $null }
+    if (-not $at -or $at -le $Now) { return '' }
+    $inv = [System.Globalization.CultureInfo]::InvariantCulture
+    if ($at.Date -eq $Now.Date) { return $at.ToString('HH:mm', $inv) }
+    return $at.ToString('ddd HH:mm', $inv)
+}
+
+function Format-ChatOverlayAskAt {
+    # When a limit that is over was over, for the reset ask's words ("limit
+    # over at 13:00"): HH:mm on today's date, with the day otherwise. Takes
+    # a [datetime] or epoch ms; '' for neither. Pure.
+    param($When, [datetime]$Now = (Get-Date))
+    $at = $null
+    if ($When -is [datetime]) { $at = if ($When.Kind -eq [System.DateTimeKind]::Utc) { $When.ToLocalTime() } else { $When } }
+    elseif ($When) { $at = try { [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$When).LocalDateTime } catch { $null } }
+    if (-not $at) { return '' }
+    $inv = [System.Globalization.CultureInfo]::InvariantCulture
+    if ($at.Date -eq $Now.Date) { return $at.ToString('HH:mm', $inv) }
+    return $at.ToString('ddd HH:mm', $inv)
+}
+
+function Get-ChatOverlayResetWindow {
+    # The one usage window whose reset a usage line shows, by its label, or
+    # $null: of the windows at their limit with a reset ahead, the latest -
+    # you are held until then - else the 5h window while its reset is ahead.
+    # Pure.
+    param($Windows, [datetime]$Now = (Get-Date))
+    $nowMs = ConvertTo-ChatOverlayMs $Now
+    $best = $null
+    $bestAt = [int64]0
+    foreach ($w in @($Windows)) {
+        if (-not $w) { continue }
+        $r = Get-ChatField $w 'resetsAt'
+        if (-not $r -or [int64]$r -le $nowMs -or -not (Get-ChatField $w 'limited')) { continue }
+        if ([int64]$r -gt $bestAt) { $best = $w; $bestAt = [int64]$r }
+    }
+    if ($best) { return [string](Get-ChatField $best 'label') }
+    foreach ($w in @($Windows)) {
+        if (-not $w -or [string](Get-ChatField $w 'label') -ne '5h') { continue }
+        $r = Get-ChatField $w 'resetsAt'
+        if ($r -and [int64]$r -gt $nowMs) { return '5h' }
+    }
+    return $null
 }
 
 function Get-ChatOverlayStateText {
@@ -1485,8 +1541,15 @@ function Get-ChatOverlayRows {
     -Unread: session ids that finished a turn while you were elsewhere,
     since you last opened them from the overlay (Update-ChatOverlayUnread);
     their rows carry unread, the rest not.
+    -Auto: auto-continue's state per cut-off chat's session id
+    (Get-ChatqAutoState). A cut-off row carries it as auto - state, words,
+    long, why, seq, jobId - and its words at the right. A continue
+    auto-continue queued stays on its chat's cut-off row, orange, instead
+    of taking the row away as a job you queued does: it gets no row of its
+    own. Running, it is any job's.
     #>
-    param([object[]]$Sessions, [hashtable]$Texts, [object[]]$Jobs, [hashtable]$Eta, [datetime]$Now = (Get-Date), [object[]]$CutOff, [hashtable]$Unread)
+    param([object[]]$Sessions, [hashtable]$Texts, [object[]]$Jobs, [hashtable]$Eta, [datetime]$Now = (Get-Date), [object[]]$CutOff, [hashtable]$Unread,
+        [hashtable]$Auto)
     $rankOf = @{ 'waiting' = 0; 'needs-input' = 0; 'cutoff' = 0.5; 'busy' = 1; 'running' = 2; 'idle' = 3; 'queued' = 4 }
     $ms = { param($v) ConvertTo-ChatOverlayMs $v }
     $nowMs = ConvertTo-ChatOverlayMs $Now
@@ -1533,14 +1596,36 @@ function Get-ChatOverlayRows {
     $rows = [System.Collections.Generic.List[object]]::new()
     foreach ($r in $bySid.Values) { $rows.Add($r) }
     $taken = @{}
-    foreach ($jw in @($Jobs)) { if ($jw -and $jw.Job.sessionId -and $jw.Job.state -in 'queued', 'running') { $taken[[string]$jw.Job.sessionId] = $true } }
+    # a continue auto-continue queued, still waiting: it rides on its
+    # chat's cut-off row rather than taking it away - while that row can say
+    # so, its state armed or due. With none (the switch turned to ask or
+    # off, a chat back from always, the phone's scan with no states at all)
+    # the row would read as a plain cut-off, and the job that still runs at
+    # the reset would show nowhere: it keeps a row of its own then.
+    $autoWaits = @{}
+    $onCut = @{}
+    foreach ($jw in @($Jobs)) {
+        if (-not $jw -or -not $jw.Job.sessionId -or $jw.Job.state -notin 'queued', 'running') { continue }
+        $jsid = [string]$jw.Job.sessionId
+        $as = if ($Auto) { $Auto[$jsid] } else { $null }
+        if ($jw.Job.state -eq 'queued' -and (Get-ChatField $jw.Job 'auto') -and $as -and [string]$as.State -in 'armed', 'due') { $autoWaits[$jsid] = $jw.Job }
+        else { $taken[$jsid] = $true }
+    }
     foreach ($c in @($CutOff)) {
         if (-not $c -or -not $c.Id -or $taken[[string]$c.Id]) { continue }
-        $words = Format-ChatOverlayCutOff $c $Now
+        $st = if ($Auto) { $Auto[[string]$c.Id] } else { $null }
+        $words = Format-ChatOverlayCutOff $c $Now -Auto $st
+        $aj = $autoWaits[[string]$c.Id]
+        $ai = if ($st) { [pscustomobject]@{ state = [string]$st.State; words = [string]$st.Words; long = [string]$st.Long; why = [string]$st.Why; seq = $st.Seq; jobId = $st.JobId } } else { $null }
+        $ji = if ($aj) { [pscustomobject]@{ seq = [int]$aj.seq; state = 'queued'; eta = $(if ($Eta) { $Eta[$aj.id] } else { $null }) } } else { $null }
         $open = $bySid[[string]$c.Id]
         if ($open) {
             # an open chat that is working again has moved on
-            if ($open.status -eq 'idle') { $open.status = 'cutoff'; $open.chat = 'cutoff'; $open.rank = $rankOf['cutoff']; $open.detail = $words }
+            if ($open.status -eq 'idle') {
+                $open.status = 'cutoff'; $open.chat = 'cutoff'; $open.rank = $rankOf['cutoff']; $open.detail = $words
+                Set-ChatqProp $open 'auto' $ai
+                if ($aj) { $open.job = $ji; $onCut[[string]$aj.id] = $true }
+            }
             continue
         }
         $rows.Add([pscustomobject]@{
@@ -1548,12 +1633,15 @@ function Get-ChatOverlayRows {
                 project = $(if ($c.Cwd) { Split-Path ([string]$c.Cwd).TrimEnd('\', '/') -Leaf } else { '' })
                 title = (Format-ChatTitle ([string]$c.Title) 80); prompt = $null; promptKind = $null
                 detail = $words; since = $(if ($c.At) { & $ms $c.At } else { $null }); sessionId = [string]$c.Id; pids = @(); cwd = [string]$c.Cwd
-                job = $null; order = 0; stateText = ''; path = [string]$c.Path; where = ''; unread = $false
+                job = $ji; order = 0; stateText = ''; path = [string]$c.Path; where = ''; unread = $false; auto = $ai
             })
+        if ($aj) { $onCut[[string]$aj.id] = $true }
     }
     $order = 0
     foreach ($jw in @($Jobs)) {
         if (-not $jw) { continue }
+        # already on its chat's cut-off row
+        if ($onCut[[string]$jw.Job.id]) { continue }
         $j = $jw.Job
         $state = [string]$j.state
         if ($null -eq $rankOf[$state]) { continue }
@@ -1604,6 +1692,14 @@ function Get-ChatOverlayNotes {
     if ($Header.watcher -eq 'stopped') { $out.Add([pscustomobject]@{ text = 'prompts queued, watcher stopped - chatqrun starts it'; tone = 'warn' }) }
     elseif ($Header.next) { $out.Add([pscustomobject]@{ text = "next queued prompt: $($Header.next)"; tone = 'dim' }) }
     if ($Header.error) { $out.Add([pscustomobject]@{ text = "$($Header.error) - data/logs/overlay.log"; tone = 'error' }) }
+    # The reset ask, last. kind 'ask': the Windows panel draws its own banner
+    # for it and skips this; -Print and the macOS panel show it as it is.
+    $ask = Get-ChatField $Header 'ask'
+    if ($ask) {
+        $n = [int](Get-ChatField $ask 'count')
+        $at = Format-ChatOverlayAskAt (Get-ChatField $ask 'resetsAt')
+        $out.Add([pscustomobject]@{ text = "limit over at $at - $n chat$(if ($n -ne 1) { 's' }) it cut off can continue"; tone = 'warn'; kind = 'ask' })
+    }
     return $out.ToArray()
 }
 
@@ -1623,6 +1719,16 @@ function New-ChatOverlayContext {
         Codex = $null; CodexFiles = @(); CodexListAt = $never; CodexStamp = $null; CodexAt = $never
         Commands = [System.Collections.Generic.List[object]]::new(); CommandId = 0
         CutOff = @(); CutCache = @{}; CutAt = $never; CutSig = $null
+        # The reset ask: CutScan is the whole cut-off look, which CutOff (the
+        # orange rows) is a part of; Ask what Get-ChatqResetAsk found this
+        # pass; AskState the answered cut-offs and AskShown the announced
+        # ones, each read when first needed. WantAsk: this host announces
+        # and acts on it (Windows, macOS) - never chatoverlay -Print. AskNews
+        # and AskSaid wait for the host to show them; AskPhone holds keys
+        # whose phone alert waits for you to be away; AskSavedKeys are those
+        # in the snapshot last saved, which the macOS menu showed.
+        CutScan = @(); Ask = $null; AskState = $null; AskShown = $null; WantAsk = $false
+        AskNews = $null; AskSaid = $null; AskPhone = @{}; AskSavedKeys = @()
         # the Recent list (Update-ChatOverlayRecent) - built only for a reader
         # that draws it (WantRecent) - and which chats finished a turn unseen,
         # with each chat process's parents (Update-ChatOverlayUnread) -
@@ -1633,6 +1739,12 @@ function New-ChatOverlayContext {
         Folders = @{}; RecentWhole = $false
         LastStatus = @{}; Unread = @{}; Chains = @{}; WantUnread = [bool]$script:ChatqIsWindows
         ViewSig = $null; SavedSig = $null; SavedAt = $never
+        # auto-continue's automatic mode (src/auto-continue.ps1): WantAuto,
+        # set by the Windows and macOS hosts, lets a pass queue; the states
+        # for the rows, the markers and the ended jobs they name, the switch,
+        # and what the last pass queued for the host to say
+        WantAuto = $false; AutoStates = @{}; AutoMarkers = $null; AutoEnded = @(); AutoOn = $false
+        AutoQueued = [System.Collections.Generic.List[object]]::new()
     }
 }
 
@@ -1656,10 +1768,27 @@ function Invoke-ChatOverlayCycle {
     # commands first: a stop must not wait on a slow pass
     # @() around the if: an empty array out of a branch would assign $null
     $Ctx.Verbs = @(if (-not $Peek) { Receive-ChatOverlayCommands })
+    # auto-continue's switch, from the Mac's menu or a shell: set here, for
+    # every host, and not handed on - a reload in its place
+    $Ctx.Verbs = @(Invoke-ChatOverlayAutoVerbs $Ctx $Ctx.Verbs)
     if ($Ctx.Verbs -contains 'reload') { $Ctx.Config = Get-ChatOverlayConfig }
     if ($Ctx.Verbs -contains 'refresh') { Request-ChatOverlayUsageRefresh $Ctx }
+    # The reset ask is acted on only by a host that shows it, and never in
+    # a -Peek pass. The macOS menu's answers come in as verbs naming the
+    # cut-offs its items showed ("ask-go k1,k2"): its title is set by a
+    # timer that does not fire while the menu is open, so the snapshot saved
+    # since can name one more, which it never showed. A bare verb, from a
+    # shell, is about the chats the saved snapshot named.
+    $askOn = $Ctx.Config.autoContinue -eq 'ask'
+    $act = $askOn -and $Ctx.WantAsk -and -not $Peek
+    $askVerb = @($Ctx.Verbs | Where-Object { [string]$_ -match '^ask-(go|leave)( |$)' }) | Select-Object -First 1
+    if ($act -and $askVerb) {
+        $askAnswer = if ($askVerb -like 'ask-go*') { 'continue' } else { 'leave' }
+        $askKeys = if ($askVerb -match '^ask-[a-z]+ (.+)$') { @($Matches[1] -split ',' | Where-Object { $_ }) } else { @($Ctx.AskSavedKeys) }
+        $null = Complete-ChatqResetAsk $Ctx $askAnswer $askKeys -Source mac
+    }
     foreach ($v in $Ctx.Verbs) {
-        if (-not $v -or $v -in 'stop', 'restart', 'reload', 'refresh') { continue }
+        if (-not $v -or $v -in 'stop', 'restart', 'reload', 'refresh' -or [string]$v -match '^ask-(go|leave)( |$)') { continue }
         # for a renderer in another process (macOS), by id and time
         $Ctx.CommandId++
         $Ctx.Commands.Add([pscustomobject]@{ id = $Ctx.CommandId; verb = $v; at = (ConvertTo-ChatOverlayMs $now) })
@@ -1754,28 +1883,114 @@ function Invoke-ChatOverlayCycle {
     # minute would otherwise bring its orange row back until the next look.
     $cutSig = (@($live | ForEach-Object { "$($_.SessionId)=$($_.Status)" } | Sort-Object) -join ',') + "|$($Ctx.JobsSig)"
     if ($cutSig -ne $Ctx.CutSig) { $Ctx.CutSig = $cutSig; $Ctx.CutAt = [datetime]::MinValue }
-    if (-not $Ctx.Config.cutOff) { $Ctx.CutOff = @() }
+    # The look serves the orange rows (cutOff), the reset ask and - on a
+    # host that queues - the automatic mode alike, so it runs while any is on.
+    $autoWant = $Ctx.WantAuto -and (Test-ChatqAutoWanted)
+    if (-not $Ctx.Config.cutOff -and -not $askOn -and -not $autoWant) { $Ctx.CutScan = @() }
     elseif (($now - $Ctx.CutAt).TotalSeconds -ge 60) {
         $Ctx.CutAt = $now
         $t0 = $sw.ElapsedMilliseconds
         # a chat at work is not cut off, and its transcript moves all the time
         $working = @($live | Where-Object { $_.Status -in 'busy', 'waiting' } | ForEach-Object { [string]$_.SessionId })
-        try {
-            # a week back, for a weekly limit that is still ahead; otherwise
-            # only what the last 12 hours cut off
-            $found = @(Get-ChatqCutOffChats @() -Hours 168 -Cache $Ctx.CutCache -Skip $working)
-            $Ctx.CutOff = @($found | Where-Object { ($_.ResetsAt -and $_.ResetsAt -gt $now) -or ($_.At -and $_.At -gt $now.AddHours(-12)) })
-        }
+        # a week back, for a weekly limit that is still ahead
+        try { $Ctx.CutScan = @(Get-ChatqCutOffChats @() -Hours 168 -Cache $Ctx.CutCache -Skip $working) }
         catch { $err = "cut off: $($_.Exception.Message)" }
+        # another process - the console's, a shell's - may have answered since
+        if ($askOn) { $Ctx.AskState = Read-ChatqAskState }
         $took = $sw.ElapsedMilliseconds - $t0
         if ($took -gt 250) { Write-ChatOverlayLog "the cut-off scan took $took ms" }
+    }
+    # An orange row stays while its reset is under 12 hours behind - or still
+    # ahead - or the cut-off itself is under 12 hours old: a chat asked about
+    # overnight keeps its row in the morning.
+    $Ctx.CutOff = @(if ($Ctx.Config.cutOff) {
+            $Ctx.CutScan | Where-Object { $_ -and (($_.ResetsAt -and $_.ResetsAt -gt $now.AddHours(-12)) -or ($_.At -and $_.At -gt $now.AddHours(-12))) }
+        })
+
+    # Auto-continue's automatic mode (src/auto-continue.ps1): each cut-off's
+    # state for its row, and - the hosts' own passes, not -Print or a -Peek -
+    # the scan that queues, over the look's last 13 hours (it takes nothing
+    # over 12 h old), with the list just read. Before the reset ask, which
+    # then finds the chats it queued for taken, and before the live alerts,
+    # so one about a chat the limit cut off finds its continue queued.
+    try {
+        $alive = @($entries | Where-Object { $_.SessionId -and $Ctx.Alive[(& $pk $_)] })
+        $scanRows = @($Ctx.CutScan | Where-Object { $_ -and $_.At -and $_.At -gt $now.AddHours(-13) })
+        if (Update-ChatOverlayAuto $Ctx $alive $now $eta -Scan:($autoWant -and -not $Peek) -Rows $scanRows) {
+            $jobs = @($Ctx.Jobs | ForEach-Object { $_.Job })
+            $queued = @($Ctx.Jobs | Where-Object { $_.Job.state -eq 'queued' })
+            $eta = Get-ChatqEta $jobs $Ctx.Blocks
+            Update-ChatOverlayAutoStates $Ctx $alive $now $eta
+        }
+    }
+    catch { $err = "auto-continue: $($_.Exception.Message)" }
+
+    # The reset ask: the chats the limit cut off that can go on now it is
+    # over. Not about a chat whose own claude is still open to continue it:
+    # a terminal's, or chatq's own runs. An empty entrypoint may be VS Code
+    # (Test-ChatVsCodeOwned reads it so), which does not continue by itself.
+    $Ctx.Ask = $null
+    if ($askOn) {
+        if ($null -eq $Ctx.AskState) { $Ctx.AskState = Read-ChatqAskState }
+        $held = @{}
+        foreach ($e in $entries) {
+            $sid = [string](Get-ChatField $e 'SessionId')
+            if (-not $sid -or -not $Ctx.Alive[(& $pk $e)]) { continue }
+            $kind = [string](Get-ChatField $e 'Kind')
+            $ep = [string](Get-ChatField $e 'Entrypoint')
+            if (($kind -and $kind -ne 'interactive') -or ($ep -and $ep -ne 'claude-vscode')) { $held[$sid] = $true }
+        }
+        # at the limit again, with its reset ahead: nothing could go yet
+        $limited = $false
+        $nowMs = ConvertTo-ChatOverlayMs $now
+        foreach ($u in @($usage)) {
+            if (-not $u -or [string]$u.provider -ne 'Claude') { continue }
+            foreach ($w in @($u.windows)) {
+                if ($w -and $w.label -in '5h', 'week' -and $w.limited -and $w.resetsAt -and [int64]$w.resetsAt -gt $nowMs) { $limited = $true }
+            }
+        }
+        try { $Ctx.Ask = Get-ChatqResetAsk -CutOff $Ctx.CutScan -Held $held -Asked $Ctx.AskState -Jobs $jobs -Limited $limited -Now $now }
+        catch { $err = "reset ask: $($_.Exception.Message)" }
+    }
+    if ($act -and $Ctx.Ask) {
+        # announced once per cut-off, across restarts too (the .shown markers)
+        if ($null -eq $Ctx.AskShown) { $Ctx.AskShown = Read-ChatqAskShown }
+        $new = @($Ctx.Ask.Keys | Where-Object { -not $Ctx.AskShown[$_] })
+        if ($new.Count) {
+            $Ctx.AskNews = [pscustomobject]@{ Ask = $Ctx.Ask; Keys = $new }
+            Add-ChatqAskShown -Keys $new
+            foreach ($k in $new) { $Ctx.AskShown[$k] = $true }
+            $n = [int]$Ctx.Ask.Count
+            $ids = (@($Ctx.Ask.Items | ForEach-Object { $s = [string]$_.Id; $s.Substring(0, [Math]::Min(8, $s.Length)) }) -join ' ')
+            Write-ChatOverlayLog "ask: $n cut-off chat$(if ($n -ne 1) { 's' }) can continue after the $(Format-ChatOverlayAskAt $Ctx.Ask.ResetsAt $now) reset - $ids" -Always
+            if ($Ctx.WantPhone) {
+                if (-not $Ctx.AskPhone) { $Ctx.AskPhone = @{} }
+                foreach ($k in $new) { $Ctx.AskPhone[$k] = $true }
+            }
+        }
     }
     # Windows only: off it, no chip opens a chat to clear a dot, and no
     # window in front is read to spare one, so every chat that finished a
     # turn would carry it for good
     if ($Ctx.WantUnread) { Update-ChatOverlayUnread $Ctx $live }
     if ($Ctx.WantPhone) { try { Update-ChatqLiveAlerts $Ctx $live } catch { } }
-    $rows = @(Get-ChatOverlayRows -Sessions $live -Texts $Ctx.Text -Jobs $Ctx.Jobs -Eta $eta -Now $now -CutOff $Ctx.CutOff -Unread $Ctx.Unread)
+    # The reset ask on the phone: one alert for the cut-offs announced here,
+    # once you are away. One answered or gone meanwhile drops out; sent or
+    # refused, they are done with.
+    $ap = $Ctx.AskPhone
+    if ($Ctx.WantPhone -and $ap -and $ap.Count) {
+        $still = @{}
+        if ($Ctx.Ask) { foreach ($k in @($Ctx.Ask.Keys)) { $still[$k] = $true } }
+        foreach ($k in @($ap.Keys)) { if (-not $still[$k]) { $ap.Remove($k) } }
+        if ($ap.Count) {
+            $said = Send-ChatqResetAskAlert $Ctx $Ctx.Ask @($ap.Keys) -Now $now
+            if ($said -ne 'wait') { $ap.Clear() }
+        }
+    }
+    # usage heads-ups from the figures above, and quiet hours' summary (src/phone-extras.ps1)
+    if ($Ctx.WantPhone) { try { Update-ChatqPhoneExtras $Ctx $usage $jobs $now } catch { } }
+    $rows = @(Get-ChatOverlayRows -Sessions $live -Texts $Ctx.Text -Jobs $Ctx.Jobs -Eta $eta -Now $now -CutOff $Ctx.CutOff -Unread $Ctx.Unread `
+            -Auto $Ctx.AutoStates)
     # the newest chats not open, less any with a row of its own already -
     # not for the macOS panel, which draws none (Start-ChatOverlayMacHost);
     # chatoverlay -Print lists them there too, from a context of its own
@@ -1793,6 +2008,8 @@ function Invoke-ChatOverlayCycle {
         needsInput = @($jobs | Where-Object { $_.state -eq 'needs-input' }).Count
         cutOff = @($rows | Where-Object { $_.status -eq 'cutoff' }).Count
         unread = @($rows | Where-Object { $_.unread }).Count
+        # of the cut off, how many auto-continue has a continue waiting for
+        auto = @($rows | Where-Object { $_.status -eq 'cutoff' -and (Get-ChatField $_ 'auto') -and $_.auto.state -in 'armed', 'due' }).Count
     }
     $next = $null
     foreach ($j in $jobs) { if ($j.state -eq 'queued' -and $eta[$j.id]) { $next = [string]$eta[$j.id]; break } }
@@ -1815,6 +2032,18 @@ function Invoke-ChatOverlayCycle {
         # a wait the endpoint named, so a restart keeps to it (Restore-ChatOverlayUsage)
         liveHold = $(if ($Ctx.HoldKind -eq 'server' -and $Ctx.HoldUntil -gt $now) { ConvertTo-ChatOverlayMs $Ctx.HoldUntil } else { $null })
         next = $next; watcher = $watch; error = $err; notes = @()
+        # the reset ask for a renderer to draw: its banner, tray items, menu
+        ask = $(if ($Ctx.Ask) {
+                [pscustomobject]@{
+                    count = [int]$Ctx.Ask.Count; resetsAt = (ConvertTo-ChatOverlayMs $Ctx.Ask.ResetsAt); keys = @($Ctx.Ask.Keys)
+                    titles = @($Ctx.Ask.Items | Select-Object -First 5 | ForEach-Object { Format-ChatTitle ([string]$_.Title) 60 })
+                    left = @($Ctx.Ask.Left | ForEach-Object { "$(Format-ChatTitle ([string]$_.Title) 60) - open in a terminal; its own claude continues it" })
+                }
+            }
+            else { $null })
+        # the switch, on / ask / off, for the Mac menu's check; autoOn as a
+        # yes or no beside it
+        autoContinue = [string]$Ctx.Config.autoContinue; autoOn = ($Ctx.Config.autoContinue -eq 'on')
     }
     $header.notes = @(Get-ChatOverlayNotes $header)
     # recent beside rows, not in them: the macOS panel and any older reader
@@ -1831,10 +2060,103 @@ function Invoke-ChatOverlayCycle {
     # refresh button's - sees a change first, and the file kept the old one
     # for up to 10 s
     if (-not $Peek -and ($body -ne $Ctx.SavedSig -or ($now - $Ctx.SavedAt).TotalSeconds -ge 10)) {
-        try { Save-ChatqText $script:ChatOverlayPath (ConvertTo-Json $snap -Depth 6 -Compress); $Ctx.SavedAt = $now; $Ctx.SavedSig = $body }
+        try {
+            Save-ChatqText $script:ChatOverlayPath (ConvertTo-Json $snap -Depth 6 -Compress); $Ctx.SavedAt = $now; $Ctx.SavedSig = $body
+            # what the macOS menu shows, and so what its answer is about
+            $Ctx.AskSavedKeys = @(if ($header.ask) { $header.ask.keys })
+        }
         catch { Write-ChatOverlayLog "overlay.json: $($_.Exception.Message)" }
     }
     return $snap
+}
+
+function Complete-ChatqResetAsk {
+    <#
+    Your answer to the reset ask - from the panel's chip or tray, the
+    console, or the macOS menu (-Source) - carried out. UI-free; never
+    throws. -Keys: the cut-offs you were shown; only those still in
+    $Ctx.Ask are acted on, and none left is Stale - the answer is about a
+    prompt that has changed, so nothing is done. continue: a continue queued
+    for each (Invoke-ChatqContinueChats), the watcher asked once; marked
+    answered only once it has a job, so one that failed is asked about
+    again. leave: all of them marked, nothing queued - their rows stay
+    orange. Returns @{ Text; Queued; Fails; Request; Stale }; Text, the
+    console's own wording, is left in $Ctx.AskSaid for the host to show.
+    #>
+    param($Ctx, [ValidateSet('continue', 'leave')][string]$Answer, [string[]]$Keys, [string]$Source = 'overlay')
+    $res = [pscustomobject]@{ Text = $null; Queued = @(); Fails = @(); Request = $null; Stale = $false }
+    try {
+        $ask = $Ctx.Ask
+        $want = @{}
+        foreach ($k in @($Keys)) { if ($k) { $want[[string]$k] = $true } }
+        $items = [System.Collections.Generic.List[object]]::new()
+        $itemKeys = [System.Collections.Generic.List[string]]::new()
+        if ($ask) {
+            $ai = @($ask.Items)
+            $ak = @($ask.Keys)
+            for ($i = 0; $i -lt $ai.Count -and $i -lt $ak.Count; $i++) {
+                if ($ak[$i] -and $want[[string]$ak[$i]]) { $items.Add($ai[$i]); $itemKeys.Add([string]$ak[$i]) }
+            }
+        }
+        if (-not $items.Count) { $res.Stale = $true; return $res }
+        # first: a second click finds nothing to answer
+        $Ctx.Ask = $null
+        $saved = @()
+        if ($Answer -eq 'continue') {
+            $r = Invoke-ChatqContinueChats -Items $items.ToArray()
+            $res.Queued = @($r.Queued)
+            $res.Fails = @($r.Fails)
+            if ($res.Queued.Count) { $res.Request = Request-ChatqWatcher -Wake poke }
+            # the jobs each chat now has: the ones just made, and for one
+            # that had one already, those waiting or running
+            $seqOf = @{}
+            foreach ($j in $res.Queued) { if ($j.sessionId) { $seqOf[[string]$j.sessionId] = @([int]$j.seq) } }
+            $had = @($r.Had)
+            $older = @($had | Where-Object { -not $seqOf.ContainsKey([string]$_) })
+            if ($older.Count) {
+                foreach ($j in @(Get-ChatqJobs)) {
+                    $sid = [string]$j.sessionId
+                    if ($sid -and $j.state -in 'queued', 'running' -and $sid -in $older) { $seqOf[$sid] = @($seqOf[$sid] | Where-Object { $null -ne $_ }) + [int]$j.seq }
+                }
+            }
+            $done = [System.Collections.Generic.List[string]]::new()
+            $seqs = @{}
+            for ($i = 0; $i -lt $items.Count; $i++) {
+                $sid = [string](Get-ChatField $items[$i] 'Id')
+                if ($sid -and $seqOf[$sid]) { $done.Add($itemKeys[$i]); $seqs[$itemKeys[$i]] = @($seqOf[$sid]) }
+            }
+            if ($done.Count) { $saved = @(Save-ChatqAskAnswer -Keys $done.ToArray() -Answer continue -Source $Source -Seqs $seqs -Extra (Get-ChatqAskExtra $items.ToArray() $itemKeys.ToArray())) }
+            $n = $res.Queued.Count
+            $fails = @($res.Fails)
+            if ($n -or $had.Count) {
+                $say = "queued $n continue$(if ($n -ne 1) { 's' }) - each goes when its limit is over$(if ($had.Count) { "; $($had.Count) had one already" })"
+                if ($fails.Count) { $say += "; $($fails -join '; ')" }
+            }
+            else { $say = "could not continue: $($fails -join '; ')" }
+            $res.Text = $say
+            $nums = (@($res.Queued | ForEach-Object { "#$($_.seq)" }) -join ' ')
+            Write-ChatOverlayLog "ask: continued $n$(if ($nums) { " - $nums" })$(if ($had.Count) { "; $($had.Count) had one already" })$(if ($fails.Count) { "; failed: $($fails -join '; ')" })" -Always
+        }
+        else {
+            $saved = @(Save-ChatqAskAnswer -Keys $itemKeys.ToArray() -Answer leave -Source $Source -Extra (Get-ChatqAskExtra $items.ToArray() $itemKeys.ToArray()))
+            Write-ChatOverlayLog "ask: left $($items.Count) as they are" -Always
+        }
+        # in memory too: the next pass reads the folder again only at its
+        # next look
+        if ($null -eq $Ctx.AskState) { $Ctx.AskState = @{} }
+        foreach ($k in $saved) { $Ctx.AskState[$k] = $true }
+        if ($saved.Count -lt $(if ($Answer -eq 'leave') { $itemKeys.Count } else { $done.Count })) {
+            Write-ChatOverlayLog "ask: $(if ($Answer -eq 'leave') { $itemKeys.Count } else { $done.Count }) to mark answered, $($saved.Count) marked - data/auto" -Always
+        }
+        # a fresh look at the queue and the cut-offs on the next pass
+        $Ctx.CutAt = [datetime]::MinValue
+        $Ctx.JobsSig = $null
+        $Ctx.AskSaid = $res.Text
+    }
+    catch {
+        Write-ChatOverlayLog "ask: $($_.Exception.Message)" -Always
+    }
+    return $res
 }
 
 function Send-ChatOverlayCommand {
@@ -1860,12 +2182,19 @@ function Receive-ChatOverlayCommands {
     $lines = try { [System.IO.File]::ReadAllLines($take) } catch { @() }
     Remove-Item -LiteralPath $take -Force -EA SilentlyContinue
     $cut = (Get-Date).ToUniversalTime().AddMinutes(-5)
+    # ask-go and ask-leave may name the cut-offs they answer - the macOS
+    # menu's keys, as it drew them: "ask-go k1,k2"; no other verb takes one
     return @(foreach ($l in @($lines)) {
-            if ($l -notmatch '^(\S+)\s+([a-z-]+)\s*$') { continue }
+            if ($l -notmatch '^(\S+)\s+([a-z-]+)(?:\s+([0-9A-Za-z_,-]{1,8000}))?\s*$') { continue }
             $verb = $Matches[2]
+            $arg = $Matches[3]
             $at = ConvertTo-ChatqDate $Matches[1]
             if (-not $at -or $at.ToUniversalTime() -lt $cut) { continue }
-            $verb
+            if ($arg) {
+                if ($verb -notin 'ask-go', 'ask-leave') { continue }
+                "$verb $arg"
+            }
+            else { $verb }
         })
 }
 
@@ -1908,7 +2237,7 @@ function Format-ChatOverlayReset {
 function Format-ChatOverlayTooltip {
     # the tray icon's tooltip. .NET Framework's NotifyIcon throws at 64
     # characters or more, so it is cut to 63 before it is ever assigned.
-    param($Snap)
+    param($Snap, [datetime]$Now = (Get-Date))
     $c = $Snap.counts
     $bits = @()
     $need = [int]$c.waiting + [int]$c.needsInput
@@ -1917,7 +2246,12 @@ function Format-ChatOverlayTooltip {
     # from the overlay (Update-ChatOverlayUnread): 63 characters hold no more
     # than "N new"
     if ($c -and $c.PSObject.Properties['unread'] -and [int]$c.unread) { $bits += "$($c.unread) new" }
-    if ($c -and $c.PSObject.Properties['cutOff'] -and [int]$c.cutOff) { $bits += "$($c.cutOff) cut off" }
+    # the reset ask's chats, and cut off only for the rest, so none counts twice
+    $ask = Get-ChatField $Snap.header 'ask'
+    $canGo = if ($ask) { [int](Get-ChatField $ask 'count') } else { 0 }
+    if ($canGo) { $bits += "$canGo can continue" }
+    $cutN = if ($c -and $c.PSObject.Properties['cutOff']) { [Math]::Max(0, [int]$c.cutOff - $canGo) } else { 0 }
+    if ($cutN) { $bits += "$cutN cut off" }
     if ($c.busy) { $bits += "$($c.busy) working" }
     if ($c.running) { $bits += "$($c.running) running" }
     if ($c.idle) { $bits += "$($c.idle) idle" }
@@ -1926,7 +2260,14 @@ function Format-ChatOverlayTooltip {
     $t = 'chatq: ' + ($bits -join ', ')
     $u = @($Snap.header.usage | Where-Object { $_ -and $_.provider -eq 'Claude' })[0]
     $w = if ($u) { @($u.windows | Where-Object { $_.label -eq '5h' })[0] } else { $null }
-    if ($w) { $t += " - 5h $($w.percent)%" }
+    if ($w) {
+        $t += " - 5h $($w.percent)%"
+        # its reset too, when 5h is the one that holds you (Get-ChatOverlayResetWindow)
+        if ((Get-ChatOverlayResetWindow @($u.windows) $Now) -eq '5h') {
+            $at = Format-ChatOverlayResetAt $w.resetsAt $Now
+            if ($at) { $t += ", resets $at" }
+        }
+    }
     if ($t.Length -gt 63) { $t = $t.Substring(0, 62) + $script:ChatqEllipsis }
     return $t
 }
@@ -1950,11 +2291,17 @@ function Write-ChatOverlayPrint {
             # one line a provider, its time at the end, as the panel has it
             Write-Host ('  {0,-8}' -f $u.provider) -NoNewline -ForegroundColor $(if ($u.stale) { 'DarkGray' } else { 'Gray' })
             $first = $true
+            # the one window whose reset the line shows (Get-ChatOverlayResetWindow)
+            $rw = Get-ChatOverlayResetWindow @($u.windows) $now
             foreach ($w in @($u.windows)) {
                 if (-not $first) { Write-Host " $($script:ChatqDot) " -NoNewline -ForegroundColor DarkGray }
                 $first = $false
                 Write-Host "$($w.label) " -NoNewline -ForegroundColor DarkGray
                 Write-Host "$($w.percent)%" -NoNewline -ForegroundColor $(if ($w.limited -or $w.severity -eq 'critical') { 'Red' } elseif ($w.severity -eq 'warning') { 'Yellow' } else { 'Gray' })
+                if ($rw -and [string]$w.label -eq $rw) {
+                    $at = Format-ChatOverlayResetAt $w.resetsAt $now
+                    if ($at) { Write-Host " resets $at" -NoNewline -ForegroundColor DarkGray }
+                }
             }
             Write-Host "   $($u.status)" -ForegroundColor DarkGray
             continue
@@ -1980,6 +2327,9 @@ function Write-ChatOverlayPrint {
     $color = @{ waiting = 'Yellow'; 'needs-input' = 'Yellow'; cutoff = 'DarkYellow'; busy = 'Green'; running = 'Blue'; idle = 'DarkGray'; queued = 'Magenta' }
     foreach ($r in $rows) {
         $right = [string]$r.stateText
+        # a cut-off row in full here: the console has the width the panel has not
+        $au = Get-ChatField $r 'auto'
+        if ($au -and $au.long) { $right = [string]$au.long }
         $proj = if ($r.project) { "$($r.project)  " } else { '' }
         # a chat in a terminal is marked; one in VS Code is what most are
         $term = if ([string](Get-ChatField $r 'where') -eq 'terminal') { '>_ ' } else { '' }

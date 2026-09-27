@@ -23,6 +23,8 @@
 
 $script:ChatqPermitMin = '2.1.259'   # --permission-prompts host|none
 $script:ChatqPermitDir = Join-Path $script:ChatqData 'permit'
+# a run whose bridge never came up says so here, for chatnotify, until one does
+$script:ChatqPermitFailPath = Join-Path $script:ChatqPermitDir 'bridge-failed.json'
 $script:ChatqPermitTool = 'mcp__chatqpermit__decide'
 $script:ChatqPermitDefaultTools = @('Bash', 'PowerShell', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'WebFetch')
 # the modes that prompt at all: dontAsk and bypassPermissions never do, and
@@ -35,6 +37,8 @@ $script:ChatqPermitAsked = [System.Collections.Generic.List[datetime]]::new()
 # and the exe the launch names instead of Windows PowerShell
 $script:ChatqPermitWaitSeconds = $null
 $script:ChatqPermitExeSeam = $null
+# a guarded folder's long and short forms (Get-ChatqPermitDirForms), by path
+$script:ChatqPermitDirForms = @{}
 
 function Get-ChatqPermitConfig {
     # config.json's permit block with its defaults: On (off unless true),
@@ -96,7 +100,9 @@ function Get-ChatqPermitStatusText {
     if (-not (Get-ChatqReplyConfig $Cfg).Links) { return 'on, but no phone is paired - runs deny as before' }
     $t = @($pc.Tools)
     $names = if ($t.Count -gt 3) { (@($t[0..2]) -join ', ') + ', ...' } else { $t -join ', ' }
-    return "on - $names asked on the phone, $($pc.WaitMinutes) min to answer"
+    $s = "on - $names asked on the phone, $($pc.WaitMinutes) min to answer"
+    if (Test-Path -LiteralPath $script:ChatqPermitFailPath) { $s += ' - the last run could not start the bridge, see data/logs/permit.log' }
+    return $s
 }
 
 function Get-ChatqPermitDataRule {
@@ -415,15 +421,125 @@ function Invoke-ChatqMcpRequest {
     }
 }
 
+function Get-ChatqPermitPathForms {
+    # Each way a tool could read $Path, all of them checked: as written,
+    # and on Windows Git Bash's /c/Users/... (Cygwin's /cygdrive/c/..., WSL's
+    # /mnt/c/...) as c:\Users\..., and ~ as the home folder
+    param([string]$Path)
+    $p = ([string]$Path).Trim().Trim('"', "'")
+    if (-not $p) { return @() }
+    $out = @($p)
+    if (-not $script:ChatqIsWindows) { return $out }
+    $s = $p.Replace('\', '/')
+    if ($s -match '^/(?:cygdrive/|mnt/)?([A-Za-z])(/.*)?$') { $out += ($Matches[1] + ':' + $(if ($Matches[2]) { $Matches[2] } else { '/' })) }
+    if ($s -match '^~(/.*)?$') { $out += ([string]$HOME + [string]$Matches[1]) }
+    return $out
+}
+
+function ConvertTo-ChatqPermitPath {
+    <#
+    A path as the file system would open it, for comparing, lower case: on
+    Windows backslashes, a \\?\ or \\.\ prefix off, \\localhost\c$\ (or
+    this machine's name) as c:\, an NTFS stream (::$DATA, :name) and each
+    part's trailing dots and spaces off - Windows drops those itself - then
+    made full against where claude runs, which also expands 8.3 short
+    names where the path, or a folder above it, is there. A path on
+    another machine is only tidied, never looked at. $null when it cannot
+    be made full.
+    #>
+    param([string]$Path)
+    $p = ([string]$Path).Trim()
+    if (-not $p) { return $null }
+    if (-not $script:ChatqIsWindows) {
+        try { return [System.IO.Path]::GetFullPath($p).Replace('/', '\').TrimEnd('\').ToLowerInvariant() } catch { return $null }
+    }
+    $p = $p.Replace('/', '\')
+    if ($p -match '^\\\\[?.]\\UNC\\(.*)$') { $p = '\\' + $Matches[1] }
+    elseif ($p -match '^\\\\[?.]\\(.*)$') { $p = $Matches[1] }
+    $me = [regex]::Escape([string][Environment]::MachineName)
+    if ($p -match ('^\\\\(?:localhost|127\.0\.0\.1|' + $me + ')\\([A-Za-z])\$(\\.*)?$')) { $p = $Matches[1] + ':' + $(if ($Matches[2]) { $Matches[2] } else { '\' }) }
+    # the stream: everything from a colon past the drive's
+    $i = $p.IndexOf(':', $(if ($p -match '^[A-Za-z]:') { 2 } else { 0 }))
+    if ($i -ge 0) { $p = $p.Substring(0, $i) }
+    $p = (@($p -split '\\') | ForEach-Object { if ($_ -eq '.' -or $_ -eq '..') { $_ } else { $_.TrimEnd('.', ' ') } }) -join '\'
+    if (-not $p) { return $null }
+    if (Test-ChatOverlayNetworkPath $p) { return $p.TrimEnd('\').ToLowerInvariant() }
+    try { $full = [System.IO.Path]::GetFullPath($p) } catch { return $null }
+    return $full.TrimEnd('\').ToLowerInvariant()
+}
+
+function Get-ChatqPermitDirForms {
+    # a guarded folder in each form a canonical path can take: long, and
+    # 8.3 short where its volume keeps short names. Asked once per folder.
+    param([string]$Dir)
+    $hit = $script:ChatqPermitDirForms[$Dir]
+    if ($hit) { return $hit }
+    $forms = [System.Collections.Generic.List[string]]::new()
+    $long = ConvertTo-ChatqPermitPath $Dir
+    if ($long) { $forms.Add($long) }
+    else { $forms.Add(([string]$Dir).Replace('/', '\').TrimEnd('\').ToLowerInvariant()) }
+    if ($script:ChatqIsWindows -and (Test-Path -LiteralPath $Dir -PathType Container)) {
+        try {
+            $short = ([string](New-Object -ComObject Scripting.FileSystemObject).GetFolder($Dir).ShortPath).TrimEnd('\').ToLowerInvariant()
+            if ($short -and -not $forms.Contains($short)) { $forms.Add($short) }
+        }
+        catch {}
+    }
+    $out = $forms.ToArray()
+    $script:ChatqPermitDirForms[$Dir] = $out
+    return $out
+}
+
 function Test-ChatqPermitUnder {
-    # is this path in the folder $Dir, or the folder itself - any case,
-    # either slash, relative to where claude runs
-    param([string]$Path, [string]$Dir)
+    <#
+    Is this path in the folder $Dir, or the folder itself: any case, either
+    slash, relative to where claude runs, in every form a tool could read
+    it (Get-ChatqPermitPathForms), made canonical (ConvertTo-ChatqPermitPath)
+    and held against the folder's long and short forms. Fails closed: a
+    path that cannot be made full counts as in it - unless -Lenient, for a
+    word picked out of a command, which may be no path at all.
+    #>
+    param([string]$Path, [string]$Dir, [switch]$Lenient)
     if (-not $Path) { return $false }
-    try { $full = [System.IO.Path]::GetFullPath($Path) } catch { $full = $Path }
-    $f = $full.Replace('/', '\').TrimEnd('\').ToLowerInvariant()
-    $d = ([string]$Dir).Replace('/', '\').TrimEnd('\').ToLowerInvariant()
-    return ($f -eq $d -or $f.StartsWith($d + '\'))
+    $ds = @(Get-ChatqPermitDirForms $Dir)
+    foreach ($form in @(Get-ChatqPermitPathForms $Path)) {
+        $f = ConvertTo-ChatqPermitPath $form
+        if ($null -eq $f) { if ($Lenient) { continue } else { return $true } }
+        foreach ($d in $ds) { if ($f -eq $d -or $f.StartsWith($d + '\')) { return $true } }
+    }
+    return $false
+}
+
+function Test-ChatqPermitCommandDir {
+    <#
+    Does a command name the folder $Dir? Best effort - a command can reach
+    a folder without naming it - but in every form a shell takes: the
+    folder long and 8.3 short, either slash; Git Bash's /c/... (and
+    /cygdrive/c/..., /mnt/c/..., which hold it); under the home folder as
+    ~, $HOME, ${HOME}, $env:USERPROFILE, %USERPROFILE%; and each word that
+    looks like a path, made canonical as an edit's is - which catches a
+    relative data\ run from chatq's own folder. Run inside $Dir, any
+    command does.
+    #>
+    param([string]$Command, [string]$Dir)
+    if (-not $Command) { return $false }
+    $c = $Command.Replace('/', '\').ToLowerInvariant()
+    $forms = @(Get-ChatqPermitDirForms $Dir)
+    $needles = [System.Collections.Generic.List[string]]::new()
+    $h = ([string]$HOME).Replace('/', '\').TrimEnd('\').ToLowerInvariant()
+    foreach ($d in $forms) {
+        $needles.Add($d)
+        if ($d -match '^([a-z]):(\\.*)$') { $needles.Add('\' + $Matches[1] + $Matches[2]) }
+        if ($h -and $d.StartsWith($h + '\')) {
+            $rest = $d.Substring($h.Length)
+            foreach ($hv in '~', '$home', '${home}', '$env:userprofile', '${env:userprofile}', '%userprofile%', '$userprofile', '${userprofile}') { $needles.Add($hv + $rest) }
+        }
+    }
+    foreach ($n in $needles) { if ($c.Contains($n)) { return $true } }
+    try { if (Test-ChatqPermitUnder ([Environment]::CurrentDirectory) $Dir -Lenient) { return $true } } catch {}
+    $words = @([regex]::Split($Command, '[\s''"`|;&<>()=,]+') | Where-Object { $_ -and ($_.Contains('\') -or $_.Contains('/') -or $_.StartsWith('~')) } | Select-Object -First 200)
+    foreach ($w in $words) { if (Test-ChatqPermitUnder $w $Dir -Lenient) { return $true } }
+    return $false
 }
 
 function Get-ChatqPermitRule {
@@ -448,15 +564,17 @@ function Get-ChatqPermitRule {
         $p = [string](Get-ChatField $ToolInput 'file_path')
         if (-not $p) { $p = [string](Get-ChatField $ToolInput 'notebook_path') }
         if (Test-ChatqPermitUnder $p $data) { return (& $never "an edit of chatq's own files") }
-        $n = $p.Replace('/', '\').ToLowerInvariant()
-        foreach ($end in '\.claude\settings.json', '\.claude\settings.local.json', '\.claude.json', '\.mcp.json') {
-            if ($n.EndsWith($end) -or $n -eq $end.TrimStart('\')) { return (& $never 'an edit of a Claude settings or MCP file') }
+        # as written, and canonical: a stream (::$DATA), trailing dots, a
+        # Git Bash /c/ path or a short name reach the same file
+        $ns = @($p.Replace('/', '\').ToLowerInvariant()) + @(Get-ChatqPermitPathForms $p | ForEach-Object { ConvertTo-ChatqPermitPath $_ } | Where-Object { $_ })
+        foreach ($n in $ns) {
+            foreach ($end in '\.claude\settings.json', '\.claude\settings.local.json', '\.claude.json', '\.mcp.json') {
+                if ($n.EndsWith($end) -or $n -eq $end.TrimStart('\')) { return (& $never 'an edit of a Claude settings or MCP file') }
+            }
         }
     }
     if ($Tool -in 'Bash', 'PowerShell') {
-        $c = ([string](Get-ChatField $ToolInput 'command')).Replace('/', '\').ToLowerInvariant()
-        $d = $data.Replace('/', '\').TrimEnd('\').ToLowerInvariant()
-        if ($c -and $c.Contains($d)) { return (& $never "a command that names chatq's data folder") }
+        if (Test-ChatqPermitCommandDir ([string](Get-ChatField $ToolInput 'command')) $data) { return (& $never "a command that names chatq's data folder") }
     }
     if ($State.Missed) { return (& $busy 'an earlier request in this run went unanswered') }
     if ($State.Asked -ge $State.MaxPerRun) { return (& $busy "$($State.MaxPerRun) calls were asked about in this run already") }
@@ -542,7 +660,8 @@ function Test-ChatqPermitAnswer {
     if ($act -notin 'permit', 'refuse') { return (& $fail "act $act") }
     $claims = $act
     if (-not $Req.Aid -or $v.Aid -cne $Req.Aid) { return (& $fail 'another alert''s answer') }
-    if ([string]$pl.h -cne $Req.Digest) { return (& $fail 'another request''s digest') }
+    # an allow names the request as the card showed it; a refuse needs not
+    if ($act -eq 'permit' -and [string]$pl.h -cne $Req.Digest) { return (& $fail 'another request''s digest') }
     $ts = $pl.ts -as [double]
     $lo = [DateTimeOffset]::new($Req.At).ToUnixTimeMilliseconds() - 60000
     $hi = [DateTimeOffset]::new($Req.Until).ToUnixTimeMilliseconds() + 60000
@@ -589,8 +708,11 @@ function Update-ChatqPermitPending {
                     else { $p.Aid = [string](Get-ChatField $s 'aid') }
                 }
             }
+            # an answer is read only once the alert it answers is known: one
+            # seen a step before its .sent.json would fail on the aid, and a
+            # sealed permit would then sit unread until its file changed
             $ansPath = Join-Path $State.Dir "$rid.ans.json"
-            if (-not $say -and (Test-Path -LiteralPath $ansPath)) {
+            if (-not $say -and $p.SentSeen -and (Test-Path -LiteralPath $ansPath)) {
                 $stamp = [System.IO.File]::GetLastWriteTimeUtc($ansPath).Ticks
                 if ($stamp -ne $p.AnsStamp) {
                     $p.AnsStamp = $stamp
@@ -601,7 +723,8 @@ function Update-ChatqPermitPending {
                         switch ($t.Verdict) {
                             'allow' { $allow = $true; $mark = 'allowed' }
                             'refuse' {
-                                $say = "The user denied this from their phone. Do not retry it.$(if ($t.Note) { " Their note: ""$($t.Note)""" })"
+                                $say = 'The user denied this from their phone. Do not retry it.'
+                                if ($t.Note) { $say += ' Their note: "' + $t.Note + '"' }
                                 $mark = 'refused'
                             }
                             'refuse-unverified' { $say = 'The user denied this from their phone. Do not retry it.'; $mark = 'refused' }
@@ -647,6 +770,9 @@ function Start-ChatqPermitBridge {
     $State = New-ChatqPermitBridgeState -JobId $JobId -RunId $RunId -WaitSeconds $WaitSeconds
     $u = New-Object System.Text.UTF8Encoding $false
     $State.Out = [Console]::OpenStandardOutput()
+    # and nothing else reaches it: a stray Write-Host from anything this
+    # calls would land between two messages and break claude's reading
+    try { [Console]::SetOut([System.IO.TextWriter]::Null) } catch {}
     $State.Reader = New-Object System.IO.StreamReader([Console]::OpenStandardInput(), $u, $false)
     $State.Task = $null
     Write-ChatqPermitLog ("bridge: up for job $JobId run $RunId in $([int]((Get-Date) - $t0).TotalMilliseconds) ms since the call - " +
@@ -662,6 +788,12 @@ function Start-ChatqPermitBridge {
                 if ($reply) { Write-ChatqMcpMessage $State $reply }
             }
             catch { Write-ChatqPermitLog "bridge: $($_.Exception.Message)" }
+            # once initialize is answered: the phone's key opened once, which
+            # loads what DPAPI needs, so the first answer is not seconds late
+            if (-not $State.Warm) {
+                $State.Warm = $true
+                try { $null = Get-ChatqReplyConfig } catch {}
+            }
         }
         try { Update-ChatqPermitPending $State } catch { Write-ChatqPermitLog "bridge: $($_.Exception.Message)" }
     }
@@ -679,19 +811,40 @@ function Hide-ChatqSecrets {
     for the phone anyway: what looks like a secret becomes ***. The value
     after a key word (token=, password:, Bearer ...), a flag's value, a
     URL's user info, known token prefixes, and a long run of letters and
-    digits - but not a commit id, pure hex of 7 to 40.
+    digits - but not a commit id, pure hex of 7 to 40. Only a plain literal
+    is ever hidden: a value with $, a backtick, ( ), | ; & < or > in it is
+    code, not a secret - SESSION_TOKEN="$(curl ... | sh)" stays as it is,
+    or the phone would approve a command whose working part it never saw.
     #>
     param([string]$Text)
     if (-not $Text) { return $Text }
-    $t = [regex]::Replace($Text, '(?i)\b(bearer)(\s+)\S+', '$1$2***')
+    $code = '[$`()|;&<>]'
+    $t = [regex]::Replace($Text, '(?i)\b(bearer)(\s+)(\S+)', {
+            param($m)
+            if ($m.Groups[3].Value -match $code) { return $m.Value }
+            return $m.Groups[1].Value + $m.Groups[2].Value + '***'
+        })
     $t = [regex]::Replace($t, '(?i)(?<k>\b\w*(?:pass(?:word|wd)?|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|auth(?:orization)?|cookie|session)\w*\b(?:\s*[:=]\s*|\s+))(?<v>"[^"]*"|''[^'']*''|\S+)', {
             param($m)
-            if ($m.Groups['v'].Value -eq '***') { return $m.Value }
+            $v = $m.Groups['v'].Value
+            if ($v -eq '***' -or $v -match $code) { return $m.Value }
             return $m.Groups['k'].Value + '***'
         })
-    $t = [regex]::Replace($t, '(?i)(--?(?:password|passwd|token|secret|api-?key)(?:=|\s+))\S+', '$1***')
-    $t = [regex]::Replace($t, '(?i)([a-z][a-z0-9+.-]*://)[^/\s:@]+:[^/\s@]+@', '$1***@')
-    $t = [regex]::Replace($t, '(?<![A-Za-z0-9_])(sk-|ghp_|gho_|github_pat_|xoxb-|xoxp-|AKIA|AIza|glpat-)\S+', '$1***')
+    $t = [regex]::Replace($t, '(?i)(--?(?:password|passwd|token|secret|api-?key)(?:=|\s+))(\S+)', {
+            param($m)
+            if ($m.Groups[2].Value -match $code) { return $m.Value }
+            return $m.Groups[1].Value + '***'
+        })
+    $t = [regex]::Replace($t, '(?i)([a-z][a-z0-9+.-]*://)([^/\s:@]+:[^/\s@]+)@', {
+            param($m)
+            if ($m.Groups[2].Value -match $code) { return $m.Value }
+            return $m.Groups[1].Value + '***@'
+        })
+    $t = [regex]::Replace($t, '(?<![A-Za-z0-9_])(sk-|ghp_|gho_|github_pat_|xoxb-|xoxp-|AKIA|AIza|glpat-)(\S+)', {
+            param($m)
+            if ($m.Groups[2].Value -match $code) { return $m.Value }
+            return $m.Groups[1].Value + '***'
+        })
     $t = [regex]::Replace($t, '[A-Za-z0-9_-]{32,}', {
             param($m)
             $s = $m.Value
@@ -713,11 +866,13 @@ function Get-ChatqPermitCut {
 
 function Get-ChatqPermitExcerpt {
     <#
-    What the phone shows of a request: @{ What; Detail }. The command, its
-    first 8 lines and 400 characters; for an edit the path within the chat's
-    folder, how many lines it replaces and the new text's start; for a write
-    whether it is new, its size and its start; a URL; else the input as
-    compact JSON. Redacted (Hide-ChatqSecrets) either way.
+    What the phone shows of a request: @{ What; Detail; Hidden }. The
+    command, its first 8 lines and 400 characters; for an edit the path
+    within the chat's folder, how many lines it replaces and the new text's
+    start; for a write whether it is new, its size and its start; a URL;
+    else the input as compact JSON. Redacted (Hide-ChatqSecrets) either
+    way. Hidden: the call's own words were redacted or cut - the card says
+    so (x), and the page tells the phone it is not seeing all of it.
     #>
     param([string]$Tool, $ToolInput, [string]$Cwd)
     $g = { param($n) Get-ChatField $ToolInput $n }
@@ -734,12 +889,14 @@ function Get-ChatqPermitExcerpt {
     $lines = { param($s) if (-not $s) { 0 } else { @(([string]$s) -split "`r?`n").Count } }
     $what = ''
     $detail = ''
+    $cut = $false
     switch -Exact ($Tool) {
         { $_ -in 'Bash', 'PowerShell' } {
             $cmd = [string](& $g 'command')
             $ls = @($cmd -split "`r?`n")
             $what = ($ls | Select-Object -First 8) -join "`n"
-            if ($ls.Count -gt 8) { $what += "`n" + $script:ChatqEllipsis }
+            if ($ls.Count -gt 8) { $what += "`n" + $script:ChatqEllipsis; $cut = $true }
+            if ($what.Length -gt 400) { $cut = $true }
             $what = Get-ChatqPermitCut $what 400
             $detail = Get-ChatqPermitCut ([string](& $g 'description')) 80
             break
@@ -761,8 +918,14 @@ function Get-ChatqPermitExcerpt {
             $n = & $lines $c
             $kb = (New-Object System.Text.UTF8Encoding $false).GetByteCount($c) / 1KB
             $size = if ($kb -ge 1) { '{0:0.0} KB' -f $kb } else { "$((New-Object System.Text.UTF8Encoding $false).GetByteCount($c)) bytes" }
-            $isNew = -not ($p -and (Test-Path -LiteralPath $p))
-            $what = "$(& $rel $p)`n$(if ($isNew) { 'new file' } else { 'overwrites' }), $n line$(if ($n -ne 1) { 's' }), $size`n$(Get-ChatqPermitCut $c 200)"
+            # A path the model chose on another machine is never looked at:
+            # the watcher's tick would open SMB to a host it picked, with the
+            # user's credentials, and wait on it (Test-ChatOverlayNetworkPath)
+            $kind = if (-not $p) { 'new file' }
+            elseif (Test-ChatOverlayNetworkPath $p) { 'writes a network path' }
+            elseif (Test-Path -LiteralPath $p) { 'overwrites' }
+            else { 'new file' }
+            $what = "$(& $rel $p)`n$kind, $n line$(if ($n -ne 1) { 's' }), $size`n$(Get-ChatqPermitCut $c 200)"
             break
         }
         'NotebookEdit' {
@@ -772,15 +935,20 @@ function Get-ChatqPermitExcerpt {
             break
         }
         'WebFetch' {
-            $what = Get-ChatqPermitCut ([string](& $g 'url')) 400
+            $u = [string](& $g 'url')
+            $cut = $u.Length -gt 400
+            $what = Get-ChatqPermitCut $u 400
             $detail = Get-ChatqPermitCut ([string](& $g 'prompt')) 100
             break
         }
         default {
-            $what = Get-ChatqPermitCut ($ToolInput | ConvertTo-Json -Compress -Depth 6) 300
+            $j = [string]($ToolInput | ConvertTo-Json -Compress -Depth 6)
+            $cut = $j.Length -gt 300
+            $what = Get-ChatqPermitCut $j 300
         }
     }
-    [pscustomobject]@{ What = (Hide-ChatqSecrets $what); Detail = (Hide-ChatqSecrets $detail) }
+    $w = Hide-ChatqSecrets $what
+    [pscustomobject]@{ What = $w; Detail = (Hide-ChatqSecrets $detail); Hidden = [bool]($cut -or $w -cne $what) }
 }
 
 function Get-ChatqPermitCardKeys {
@@ -828,25 +996,38 @@ function New-ChatqPermitCardJson {
     <#
     The card's plaintext: tool, what (w), Claude's own description (d), the
     folder, the chat's title, the job's number, the digest the answer must
-    name (h) and the deadline in epoch ms (u). At most 600 bytes of UTF-8,
-    w shrinking first, so the sealed card stays under ~950 characters and
-    Join's URL under 1900.
+    name (h), the deadline in epoch ms (u), and x=1 when w is not the whole
+    call - redacted or cut. At most 600 bytes of UTF-8,
+    so the sealed card stays under ~950 characters and Join's URL under
+    1900. The call is what there is to judge, so it gives way last: w down
+    to 120 characters first, then Claude's words and the chat's title to a
+    few, then w again - a Hangul command keeps its start that way.
     #>
     param([string]$Tool, $Excerpt, $Job, [string]$Digest, [datetime]$Until)
     $u8 = New-Object System.Text.UTF8Encoding $false
     $w = [string]$Excerpt.What
+    $w0 = $w
     $d = [string]$Excerpt.Detail
     $c = [string](Get-ChatField $Job 'title')
     if ($c.Length -gt 60) { $c = Get-ChatqPermitCut $c 59 }
     $f = if ($Job.cwd) { Split-Path ([string]$Job.cwd).TrimEnd('\', '/') -Leaf } else { '' }
+    if ($f.Length -gt 40) { $f = Get-ChatqPermitCut $f 39 }
     $ms = [DateTimeOffset]::new($Until.ToUniversalTime()).ToUnixTimeMilliseconds()
-    for ($round = 0; $round -lt 200; $round++) {
+    # each cut at least a character shorter, so a short one ends too
+    $shrink = { param($s, $by) Get-ChatqPermitCut $s.TrimEnd($script:ChatqEllipsis) ([Math]::Min($s.Length - 2, [int]($s.Length * $by))) }
+    $json = ''
+    for ($round = 0; $round -lt 300; $round++) {
         $o = [ordered]@{ v = 1; t = $Tool; w = $w; d = $d; f = $f; c = $c; n = [int](Get-ChatField $Job 'seq'); h = $Digest; u = $ms }
+        # x: the call is not all there - redacted, or cut here or above
+        if ((Get-ChatField $Excerpt 'Hidden') -or $w -cne $w0) { $o['x'] = 1 }
         $json = $o | ConvertTo-Json -Compress
         if ($u8.GetByteCount($json) -le 600) { return $json }
-        if ($w.Length -gt 1) { $w = Get-ChatqPermitCut $w.TrimEnd($script:ChatqEllipsis) ([int]($w.Length * 0.8)); continue }
-        if ($d.Length -gt 1) { $d = Get-ChatqPermitCut $d.TrimEnd($script:ChatqEllipsis) ([int]($d.Length * 0.7)); continue }
-        if ($c.Length -gt 1) { $c = Get-ChatqPermitCut $c.TrimEnd($script:ChatqEllipsis) ([int]($c.Length * 0.7)); continue }
+        if ($w.Length -gt 120) { $w = & $shrink $w 0.85; continue }
+        if ($d.Length -gt 16) { $d = & $shrink $d 0.7; continue }
+        if ($c.Length -gt 16) { $c = & $shrink $c 0.7; continue }
+        if ($w.Length -gt 2) { $w = & $shrink $w 0.85; continue }
+        if ($d.Length -gt 2) { $d = & $shrink $d 0.7; continue }
+        if ($c.Length -gt 2) { $c = & $shrink $c 0.7; continue }
         return $json
     }
     return $json
@@ -881,10 +1062,12 @@ function Send-ChatqPermitAlert {
     $inObj = try { [string]$Req.inputRaw | ConvertFrom-Json } catch { $null }
     $until = ConvertTo-ChatqDate $Req.until
     $ex = Get-ChatqPermitExcerpt $tool $inObj ([string]$Job.cwd)
-    $card = New-ChatqPermitCardJson $tool $ex $Job ([string]$Req.digest) $until
+    # the digest of what the card shows, made here - never the file's word
+    $digest = Get-ChatqPermitDigest ([string]$Req.rid) $tool ([string]$Req.inputRaw)
+    $card = New-ChatqPermitCardJson $tool $ex $Job $digest $until
     $text = Get-ChatqPermitPushText $tool $Job $until
     $permit = @{
-        run = [string]$Req.run; rid = [string]$Req.rid; digest = [string]$Req.digest; until = $until.ToUniversalTime().ToString('o')
+        run = [string]$Req.run; rid = [string]$Req.rid; digest = $digest; until = $until.ToUniversalTime().ToString('o')
         state = 'open'; tool = $tool; toolUseId = [string]$Req.toolUseId; asked = (Get-ChatqStamp); answeredAt = $null
     }
     $script:ChatqLastAlertAid = $null
@@ -948,6 +1131,9 @@ function Update-ChatqPermitRequests {
             if (-not $req) { continue }
             if (-not $seen) { $seen = @{ First = $now; Done = $false }; $Run.Seen[$rid] = $seen }
             $tool = [string]$req.tool
+            # claude gave up on it before the phone was asked (S35: a call it
+            # timed out itself) - nothing waits on an answer any more
+            if (Get-ChatField $req 'withdrawn') { $seen.Done = $true; continue }
             $decline = {
                 param($why)
                 $seen.Done = $true
@@ -968,6 +1154,16 @@ function Update-ChatqPermitRequests {
                 & $decline 'not a tool call of this run''s'
                 continue
             }
+            # The input the phone will be shown must be the one the digest
+            # names: the file is read as found, and a writer that changed
+            # inputRaw but kept digest would have the phone approve a call it
+            # never saw. Made again here from the file's own rid, tool and
+            # input; a forgery of both then fails the bridge's own copy of
+            # the digest, held in memory, and can only run out as a deny.
+            if ([string]$req.digest -cne (Get-ChatqPermitDigest $rid $tool ([string]$req.inputRaw))) {
+                & $decline 'the request changed on disk after it was asked'
+                continue
+            }
             $cfg = Get-ChatqConfig
             $ready = Test-ChatqPermitReady $cfg $Job
             if (-not $ready.Ok) { & $decline $ready.Why; continue }
@@ -982,14 +1178,20 @@ function Update-ChatqPermitRequests {
             Save-ChatqJob $Job
             Write-ChatqPermitLine $rid $Job $tool "asked, alert $($r.Aid), until $($until.ToString('HH:mm'))"
         }
-        # the open ones: answered (the bridge marks the file) or run out
+        # the open ones: answered (the bridge marks the file), withdrawn by
+        # claude, or run out
         foreach ($rid in @($Run.Open.Keys)) {
             $o = $Run.Open[$rid]
             $rq = Read-ChatqJson (Join-Path $Run.Dir "$rid.req.json")
             $answer = if ($rq) { [string](Get-ChatField $rq 'answer') } else { '' }
-            if ($answer -or $now -gt $o.Until) {
+            $withdrawn = $rq -and (Get-ChatField $rq 'withdrawn')
+            if ($answer -or $withdrawn -or $now -gt $o.Until) {
                 $Run.Open.Remove($rid)
-                if ($now -gt $o.Until -and $answer -notin 'allowed', 'refused') {
+                if ($withdrawn -and $answer -notin 'allowed', 'refused') {
+                    # a late Allow is then told the run is over, not "allowed"
+                    if (Set-ChatqPermitEntry $rid 'gone') { Write-ChatqPermitLine $rid $Job $o.Tool 'gone - claude stopped waiting' }
+                }
+                elseif ($now -gt $o.Until -and $answer -notin 'allowed', 'refused') {
                     if (Set-ChatqPermitEntry $rid 'timeout') { Write-ChatqPermitLine $rid $Job $o.Tool 'timeout' }
                 }
             }
@@ -1027,14 +1229,14 @@ function Close-ChatqPermitRun {
                 if ($pe.state -eq 'open') {
                     $u = ConvertTo-ChatqDate $pe.until
                     $pe.state = if ($u -and $u.ToUniversalTime() -lt $now) { 'timeout' } else { 'gone' }
-                    $moved += "$($pe.rid) $($pe.state)"
+                    $moved += [pscustomobject]@{ Rid = [string]$pe.rid; Tool = [string]$pe.tool; State = [string]$pe.state }
                 }
                 if ($pe.state -eq 'refused' -and $pe.toolUseId) { $refused.Add([string]$pe.toolUseId) }
                 if ($pe.state -eq 'timeout' -and $pe.toolUseId) { $late.Add([string]$pe.toolUseId) }
             }
             $moved
         }
-        foreach ($g in @($gone)) { if ($g) { $p = $g -split ' '; Write-ChatqPermitLine $p[0] $Job '' $p[1] } }
+        foreach ($g in @($gone)) { if ($g -and $g.Rid) { Write-ChatqPermitLine $g.Rid $Job $g.Tool $g.State } }
     }
     catch { Write-ChatqWatchLog "#$($Job.seq) permit: $($_.Exception.Message)" }
     try { if (Test-Path -LiteralPath $Run.Dir) { Remove-Item -LiteralPath $Run.Dir -Recurse -Force -EA SilentlyContinue } } catch {}
@@ -1112,9 +1314,11 @@ function Invoke-ChatqPermitReply {
             if ($Act -eq 'permit' -and $h -cne [string]$pe.digest) {
                 return @{ Say = 'the request changed after it was shown - nothing allowed'; Log = 'declined the answer names another request' }
             }
-            $job = if ($jobId) { Find-ChatqJob $jobId } else { $null }
+            $job = if ($jobId) { Find-ChatqJob $jobId -Exact } else { $null }
             $req = Join-Path (Join-Path $script:ChatqPermitDir $jobId) "$($pe.rid).req.json"
-            if (-not $job -or $job.state -ne 'running' -or [string](Get-ChatField $job 'runId') -cne [string]$pe.run -or -not (Test-Path -LiteralPath $req)) {
+            # a request claude stopped waiting on has nobody to hand it to
+            $rq = if (Test-Path -LiteralPath $req) { Read-ChatqJson $req } else { $null }
+            if (-not $job -or $job.state -ne 'running' -or [string](Get-ChatField $job 'runId') -cne [string]$pe.run -or -not $rq -or (Get-ChatField $rq 'withdrawn')) {
                 $pe.state = 'gone'
                 return @{ Say = "that run is over - nothing to $verb"; Log = 'gone' }
             }
@@ -1148,13 +1352,143 @@ function Get-ChatqPermitWaitText {
 }
 
 function Test-ChatqPermitStartFailed {
-    # did the run fail because the bridge never came up? The run's own
-    # words are the only sign (S35 item 3): its error names the server or
-    # the permission prompt tool, and nothing was ever asked
-    param($Out, [string]$StdErr)
+    <#
+    Did the run fail because the bridge never came up? As S35 saw it, the
+    run starts all the same - init lists chatqpermit as "failed" - and the
+    first prompt ends it, exit 1 and no result, with "MCP tool
+    mcp__chatqpermit__decide (passed via --permission-prompt-tool) not
+    found" on stderr. So: a failed run, nothing ever asked of the bridge,
+    and init's word or that error.
+    #>
+    param($Out, [string]$StdErr, $St, $Run)
     if (-not $Out -or $Out.kind -ne 'failed') { return $false }
+    if ($Run -and $Run.Seen -and $Run.Seen.Count) { return $false }
+    if ($St -and $St.PermitServer -eq 'failed') { return $true }
     $t = "$($Out.reason) $StdErr"
     return [bool]($t -match '(?i)chatqpermit|permission[ -]prompt[ -]tool')
+}
+
+function Complete-ChatqPermitStartFailure {
+    <#
+    The watcher's answer to a run whose bridge never came up: the job goes
+    back in the queue once, as after a dropped connection - as "continue"
+    when the prompt reached the chat - and permitOff keeps it from asking
+    the phone again, so the retry runs as every run did before permits.
+    chatnotify says so until a run's bridge comes up again.
+    #>
+    param($W, $Job, $Out, [string]$Prompt)
+    # a new chat this run made is resumed from now on, never made twice
+    Update-ChatqNewChatPath $Job
+    Set-ChatqProp $Job 'permitOff' $true
+    Set-ChatqProp $Job 'permitWaiting' $null
+    $landed = $Job.path -and (Test-ChatqPromptLanded $Job.path $Prompt $Job.startedAt $Job.provider)
+    if ($landed -and $Prompt -ne $script:ChatqContinueText) { Set-ChatqProp $Job 'retryAs' 'continue' }
+    # nothing in the chat says it stopped, so "has it moved on?" must not
+    # read the missing record as yes and drop the continue
+    Set-ChatqProp $Job 'autoContinue' $false
+    Set-ChatqProp $Job 'result' $Out
+    Set-ChatqJobState $Job 'queued' 'the phone''s permission bridge did not start - once more without it'
+    $why = ([string]$Out.reason -replace '\s+', ' ')
+    if ($why.Length -gt 300) { $why = $why.Substring(0, 300) + $script:ChatqEllipsis }
+    Write-ChatqWatchLog "#$($Job.seq) the permission bridge did not start - queued once more without it: $why"
+    Write-ChatqPermitLog "watcher: #$($Job.seq) the bridge did not start - $why"
+    try { Save-ChatqJson $script:ChatqPermitFailPath ([ordered]@{ at = (Get-ChatqStamp); seq = $Job.seq; why = $why }) } catch {}
+    Save-ChatqWatchState $W
+    Write-ChatqBoard
+}
+
+function Clear-ChatqPermitFailure {
+    # a run whose bridge came up: chatnotify stops saying the last one did not
+    if (Test-Path -LiteralPath $script:ChatqPermitFailPath) { Remove-Item -LiteralPath $script:ChatqPermitFailPath -Force -EA SilentlyContinue }
+}
+
+function ConvertFrom-ChatqPermitEntry {
+    # an alert's permit block as replies.json holds it, as a hashtable with
+    # its times as UTC strings, whichever PowerShell read it
+    param($P)
+    if (-not $P) { return $null }
+    $iso = { param($v) $x = ConvertTo-ChatqDate $v; if ($x) { $x.ToUniversalTime().ToString('o') } else { $null } }
+    $s = { param($n) $v = Get-ChatField $P $n; if ($null -ne $v -and '' -ne $v) { [string]$v } else { $null } }
+    return @{
+        run = & $s 'run'; rid = & $s 'rid'; digest = & $s 'digest'; until = & $iso (Get-ChatField $P 'until')
+        state = & $s 'state'; tool = & $s 'tool'; toolUseId = & $s 'toolUseId'
+        asked = & $iso (Get-ChatField $P 'asked'); answeredAt = & $iso (Get-ChatField $P 'answeredAt')
+    }
+}
+
+function ConvertTo-ChatqPermitEntry {
+    # and back, in a fixed order, for Save-ChatqReplyState
+    param($P)
+    return [ordered]@{
+        run = $P['run']; rid = $P['rid']; digest = $P['digest']; until = $P['until']; state = $P['state']
+        tool = $P['tool']; toolUseId = $P['toolUseId']; asked = $P['asked']; answeredAt = $P['answeredAt']
+    }
+}
+
+function Read-ChatqPermitChanges {
+    <#
+    Set-ChatqNotifyConfig's Permit, PermitWait and PermitTools, checked
+    before anything is saved: @{ Error; Any; On; Wait; Tools }. Tools is
+    @() for 'default' - the key goes, and the usual list is back.
+    #>
+    param([hashtable]$Changes)
+    $r = [pscustomobject]@{ Error = $null; Any = $false; On = $null; Wait = $null; Tools = $null }
+    $given = { param($n) $Changes.ContainsKey($n) -and $null -ne $Changes[$n] -and '' -ne $Changes[$n] }
+    if (& $given 'Permit') {
+        $v = $Changes['Permit']
+        $r.On = if ($v -is [bool]) { $v } else { switch (([string]$v).Trim().ToLower()) { 'on' { $true } 'off' { $false } default { $null } } }
+        if ($null -eq $r.On) { $r.Error = "-Permit takes on or off, not '$v'"; return $r }
+        $r.Any = $true
+    }
+    if (& $given 'PermitWait') {
+        $n = $Changes['PermitWait'] -as [int]
+        if ($null -eq $n -or $n -lt 1 -or $n -gt 25 -or [string]$n -ne ([string]$Changes['PermitWait']).Trim()) { $r.Error = '-PermitWait takes 1 to 25 minutes'; return $r }
+        $r.Wait = $n
+        $r.Any = $true
+    }
+    if ($Changes.ContainsKey('PermitTools') -and $null -ne $Changes['PermitTools']) {
+        $names = @(@($Changes['PermitTools']) | ForEach-Object { [string]$_ -split '[,\s]+' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+        if (-not $names.Count -or @($names | Where-Object { $_ -eq 'default' }).Count) { $r.Tools = @() }
+        else {
+            foreach ($t in $names) {
+                if ($t -cnotmatch '^([A-Z][A-Za-z0-9]{1,40}|mcp__[A-Za-z0-9_-]{1,120}\*?)$') {
+                    $r.Error = "no tool '$t' - a tool's name, like Bash, or an MCP one like mcp__server__*; 'default' for the usual list"
+                    return $r
+                }
+            }
+            $r.Tools = @($names | Select-Object -Unique)
+        }
+        $r.Any = $true
+    }
+    return $r
+}
+
+function Set-ChatqPermitChanges {
+    # what Read-ChatqPermitChanges passed, into config.json's permit block;
+    # the lines to say come back as @{ Text; Color }
+    param($Cfg, $R)
+    $said = [System.Collections.Generic.List[object]]::new()
+    if (-not $R -or -not $R.Any) { return $said.ToArray() }
+    $p = if ($Cfg.PSObject.Properties['permit'] -and $Cfg.permit) { $Cfg.permit } else { [pscustomobject]@{} }
+    if ($null -ne $R.On) { Set-ChatqProp $p 'on' ([bool]$R.On) }
+    if ($R.Wait) { Set-ChatqProp $p 'waitMinutes' ([int]$R.Wait) }
+    if ($null -ne $R.Tools) {
+        if (@($R.Tools).Count) { Set-ChatqProp $p 'tools' @($R.Tools) }
+        elseif ($p.PSObject.Properties['tools']) { $p.PSObject.Properties.Remove('tools') }
+    }
+    Set-ChatqProp $Cfg 'permit' $p
+    $pc = Get-ChatqPermitConfig $Cfg
+    $add = { param($t, $c) $said.Add([pscustomobject]@{ Text = $t; Color = $c }) }
+    if ($R.On -eq $true) {
+        & $add "permissions from the phone on - a queued run that needs one asks the phone and waits $($pc.WaitMinutes) min" 'Green'
+        $rc = Get-ChatqReplyConfig $Cfg
+        if (-not $rc.Paired) { & $add 'no phone is paired, so runs deny as before - chatnotify -Pair' 'Yellow' }
+        elseif (-not $rc.On) { & $add 'replies from the phone are off, so runs deny as before - chatnotify -Reply on' 'Yellow' }
+    }
+    elseif ($R.On -eq $false) { & $add 'permissions from the phone off - a run that needs one stops as needs input' 'DarkGray' }
+    elseif ($R.Wait) { & $add "permissions from the phone: $($pc.WaitMinutes) min to answer" 'Green' }
+    if ($null -ne $R.Tools) { & $add "permissions from the phone: $(@($pc.Tools) -join ', ') can be approved" 'Green' }
+    return $said.ToArray()
 }
 
 #endregion

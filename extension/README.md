@@ -16,6 +16,7 @@ queued prompt ran into it.
 - **Open chat...** in the command palette lists this window's Claude chats, newest first, with what runs each - open, working, a terminal, or a queued prompt - and opens the one you pick in a tab. A chat working elsewhere, in a terminal, or taking a queued prompt is never opened a second time. A chat Claude Code's own list hides after a `claude -p` run is listed again first, or offered in a terminal where it cannot be - never opened as a blank chat.
 - **After a queued run**, once the chat's old idle process is ended, the window shows it up to date in a tab of its own, with no window reload. Where that process is still running, it offers a reload instead.
 - **Phone alerts...** in the command palette opens the window that sets up alerts on your phone through Join - and answering them from the phone, with the phone paired once - with no terminal needed (Windows).
+- **Continues what the usage limit cut off:** once the limit is over the overlay asks, and continues the chats it cut off on a click - the default - or, chosen, a chat the limit stopped gets "Continue from where you left off." by itself a minute after the reset. **Auto-continue cut-off chats...** in the command palette picks Continue, Ask or Leave, the same switch as `chatq -AutoContinue on|ask|off` and the overlay's settings box, kept in `data/config.json` rather than a VS Code setting. After an automatic run the window offers to show the chat in words of its own.
 
 ![chatrm after Tab: the whole title filled in, quoted, with its age and match count, beside the chat panel](https://raw.githubusercontent.com/phal40lax78/VS-code-chat-manager/main/docs/demo-2-tab.png)
 
@@ -45,7 +46,12 @@ queued prompt ran into it.
    up.
 
 Updates come through VS Code. A window starts running a new version once
-you click **Restart Extensions** or reload. The first to do so replaces
+you click **Restart Extensions** or reload - and either ends every Claude
+chat of that window, mid-answer or not. So the version still running says
+when a new one is installed, names the chats a reload would stop, and
+offers **Reload when they're idle**: a status-bar item (click it to
+cancel) that reloads the window once every chat there has been idle for a
+minute. The first window to reload replaces
 the scripts in the tool folder and moves a running watcher and overlay
 onto the new copy. Terminals already open keep the old commands until
 they are reopened. A folder that is a git checkout is never written to.

@@ -47,14 +47,21 @@ function Get-ChatqJoinUrl {
     # reply link a tap opens; -NotificationId makes a later alert replace
     # this one on the phone. When even 20 characters of text do not fit, the
     # icon goes, then the chat's title inside the reply link (its c=).
+    # -Say and -Language: a line the phone reads aloud (Get-ChatqJoinSay),
+    # after the text in the query; dropped whole once the text is down to 20
+    # characters, before the icon - spoken words matter less than a
+    # notification that can be read.
     param([string]$Key, [string]$Device, [string]$Title, [string]$Text, [int]$Priority,
-        [string]$Url, [string]$NotificationId, [string]$Icon, [switch]$DismissOnTouch)
+        [string]$Url, [string]$NotificationId, [string]$Icon, [switch]$DismissOnTouch,
+        [string]$Say, [string]$Language)
     $base = 'https://joinjoaomgcd.appspot.com/_ah/api/messaging/v1/sendPush?'
     $dev = if ($Device -match '^[0-9a-fA-F]{32}$' -or $Device -match '^group\.') { 'deviceId' } else { 'deviceNames' }
     $t = [string]$Text
     $link = $Url
+    $spoken = [string]$Say
     while ($true) {
         $q = [ordered]@{ apikey = $Key; $dev = $Device; title = $Title; text = $t; priority = $Priority; group = 'chatq' }
+        if ($spoken) { $q.Insert(4, 'say', $spoken); if ($Language) { $q.Insert(5, 'language', $Language) } }
         if ($link) { $q['url'] = $link }
         if ($Icon) { $q['icon'] = $Icon }
         if ($NotificationId) { $q['notificationId'] = $NotificationId }
@@ -68,6 +75,7 @@ function Get-ChatqJoinUrl {
             $t = $t.Substring(0, $cut).TrimEnd() + $script:ChatqEllipsis
             continue
         }
+        if ($spoken) { $spoken = ''; continue }
         if ($Icon) { $Icon = ''; continue }
         if ($link -and $link -match '[#&]c=[^&]') { $link = $link -replace '([#&]c=)[^&]*', '$1'; continue }
         return $url
@@ -98,11 +106,31 @@ function Send-ChatqAlert {
       -NoReply   no link, nothing registered, no window: a refusal
       -PairLink  the link is this one, the pairing push's, and nothing is
                  registered; never through ntfy over http, which drops it
+      -UsageKind a usage alert's kind (threshold, soon, reset), kept with it
+                 in the registry: a soon one's link offers Send now
+    Quiet hours (src/phone-extras.ps1) come after presence: in the window,
+    the phone's alert is held for the summary unless urgent or -Loud, and
+    what goes then is never read aloud. Held alerts waiting once the window
+    is over go first, as the summary, ahead of this one - but not ahead of a
+    -Quick one: the summary is an ordinary alert, its command and its three
+    tries each, and a run waits on a -Quick push. The watcher's loop, the
+    outbox or the next ordinary alert sends it then.
+      -Card, -Permit, -Tag, -ToastText  a permission request (src/permit.ps1):
+                 its card, sealed for the phone under the alert's id as it
+                 goes into the link; what an answer must match, in the
+                 registry; Join's notification id; the toast's words. The
+                 alert's id is kept in $script:ChatqLastAlertAid
+    A permission request goes -Loud: past presence and past quiet hours,
+    since a run waits on it and a held one could only expire unanswered;
+    -Quick keeps it from being read aloud.
     #>
     param([string]$Event, [string]$Text, [int]$Priority = 0, [switch]$Loud, $Job,
-        [switch]$Quick, [switch]$NoReply, [string]$PairLink)
+        [switch]$Quick, [switch]$NoReply, [string]$PairLink,
+        [string]$UsageKind, [string]$Card, $Permit, [string]$Tag, [string]$ToastText)
+    if (-not $Quick -and -not $script:ChatqSendingSummary -and (Test-ChatqHeldWaiting)) { $null = Send-ChatqHeldSummary }
     $title = "chatq $($script:ChatqDot) $Event"
     $script:ChatqAlertReport = [System.Collections.Generic.List[string]]::new()
+    $script:ChatqLastAlertAid = $null
     try {
         New-ChatqDir $script:ChatqLogDir
         $line = "{0}`t{1}`t{2}" -f (Get-Date).ToString('o'), $Event, ($Text -replace '\s+', ' ')
@@ -113,7 +141,7 @@ function Send-ChatqAlert {
     $present = Test-ChatqUserPresent $cfg
     $toastOn = -not ($cfg.PSObject.Properties['toast'] -and $cfg.toast -eq $false)
     if ($toastOn) {
-        try { Show-ChatqToast $title $Text; $script:ChatqAlertReport.Add('toast: shown') }
+        try { Show-ChatqToast $title $(if ($ToastText) { $ToastText } else { $Text }); $script:ChatqAlertReport.Add('toast: shown') }
         catch { $script:ChatqAlertReport.Add("toast: $($_.Exception.Message)") }
     }
     if (-not $Quick) {
@@ -136,6 +164,8 @@ function Send-ChatqAlert {
         $script:ChatqLastAlertError = 'you are at the PC, so the phone was left alone'
         return $false
     }
+    if (Test-ChatqHoldAlert $cfg $Event $Text $Priority $Job -Loud:$Loud) { return $false }
+    $quietIn = Test-ChatqQuietIn $cfg
     # an answerable alert: registered before it goes, so a reply that comes
     # back at once finds it
     $rc = $null
@@ -144,9 +174,21 @@ function Send-ChatqAlert {
     elseif (-not $NoReply) {
         try {
             $rc = Get-ChatqReplyConfig $cfg
-            if ($rc.Links) { $reply = New-ChatqReplyAlert -Event $Event -Job $Job -Rc $rc }
+            if ($rc.Links) { $reply = New-ChatqReplyAlert -Event $Event -Job $Job -Rc $rc -UsageKind $UsageKind -Permit $Permit -Card $Card }
+            # the whole answer to the down topic ahead of the push, and the
+            # link made again to say so (src/phone-down.ps1)
+            if ($reply) { Update-ChatqReplyFull $rc $reply $Event $Job -Quick:$Quick }
         }
         catch { $reply = $null }
+    }
+    if ($reply -and $reply.Aid) { $script:ChatqLastAlertAid = $reply.Aid }
+    # A permission request is nothing without its entry and its card: the
+    # push would open nothing, for a request its sender then declines as
+    # not sent. So it does not go at all, and the decline says why.
+    if (($Permit -or $Card) -and -not ($reply -and $reply.Aid)) {
+        $script:ChatqAlertReport.Add('phone: skipped - the permission request could not be registered')
+        $script:ChatqLastAlertError = 'the permission request could not be registered'
+        return $false
     }
     $sent = $false
     $script:ChatqLastAlertError = $null
@@ -159,7 +201,7 @@ function Send-ChatqAlert {
             if (-not $sent -and -not $script:ChatqLastAlertError) { $script:ChatqLastAlertError = 'ntfy: not https - the pairing link cannot go that way' }
             continue
         }
-        $err = if ($ch -eq 'join') { Send-ChatqJoin $cfg $title $Text $Priority -Reply $reply -Job $Job -Quick:$Quick }
+        $err = if ($ch -eq 'join') { Send-ChatqJoin $cfg $title $Text $Priority -Reply $reply -Job $Job -Quick:$Quick -Event $Event -NoSay:$quietIn -Tag $Tag }
         else { Send-ChatqNtfy $cfg $title $Text $Priority -Click $(if ($reply) { $reply.Link } else { '' }) -Quick:$Quick }
         if ($err) { $script:ChatqAlertReport.Add("${ch}: $err"); $script:ChatqLastAlertError = "${ch}: $err" }
         else { $script:ChatqAlertReport.Add("${ch}: sent"); $sent = $true }
@@ -182,7 +224,12 @@ function Send-ChatqAlert {
 function Send-ChatqJoin {
     # $null when sent, else what went wrong. -Reply: New-ChatqReplyAlert's
     # answer, whose link a tap on the notification opens. -Quick: one try.
-    param($Cfg, [string]$Title, [string]$Text, [int]$Priority, $Reply, $Job, [switch]$Quick)
+    # -Event: which alert, for the line read aloud when join.say names it -
+    # never with -Quick (a push from inside a run) or -NoSay (quiet hours).
+    # -Tag: the notification id to use, for a push of its own (a permission
+    # request is not replaced by the chat's next alert)
+    param($Cfg, [string]$Title, [string]$Text, [int]$Priority, $Reply, $Job, [switch]$Quick,
+        [string]$Event, [switch]$NoSay, [string]$Tag)
     $key = Unprotect-ChatqSecret $Cfg.join.apiKey
     if (-not $key -or -not $Cfg.join.device) { return 'no key or device set' }
     # icon: chatq's own unless join.icon says otherwise ('' for none)
@@ -191,8 +238,10 @@ function Send-ChatqJoin {
     # instead of piling up under it
     $perChat = -not ($Cfg.join.PSObject.Properties['perChat'] -and $Cfg.join.perChat -eq $false)
     $nid = if ($perChat -and $Job -and $Job.sessionId) { 'chatq-' + ([string]$Job.sessionId).Substring(0, [Math]::Min(12, ([string]$Job.sessionId).Length)) } else { '' }
+    if ($Tag) { $nid = $Tag }
     $link = if ($Reply) { [string]$Reply.Link } else { '' }
-    $url = Get-ChatqJoinUrl $key $Cfg.join.device $Title $Text $Priority -Url $link -NotificationId $nid -Icon $icon -DismissOnTouch:([bool]$link)
+    $spoken = if ($Event -and -not $Quick -and -not $NoSay) { Get-ChatqJoinSay $Cfg $Event $Job $Text } else { $null }
+    $url = Get-ChatqJoinUrl $key $Cfg.join.device $Title $Text $Priority -Url $link -NotificationId $nid -Icon $icon -DismissOnTouch:([bool]$link) -Say $(if ($spoken) { $spoken.Say } else { '' }) -Language $(if ($spoken) { $spoken.Language } else { '' })
     if ($script:ChatqJoinSeam) { return (& $script:ChatqJoinSeam $url) }   # tests
     Enable-ChatqTls12
     $last = $null
@@ -266,6 +315,9 @@ function Invoke-ChatqAlertCommand {
         CHATQ_EVENT = $Event; CHATQ_TITLE = $Title; CHATQ_TEXT = $Text; CHATQ_PRIORITY = "$Priority"
         CHATQ_JOB = [string]$script:ChatqAlertJob; CHATQ_PRESENT = $(if ($Present) { '1' } else { '0' })
     }
+    # quiet hours hold the phone's alerts, not your command: it is told, and
+    # a Pushover or Telegram command can hold itself
+    $env2['CHATQ_QUIET'] = $(if (Test-ChatqQuietIn $Cfg) { '1' } else { '0' })
     $limit = if ($script:ChatqHookTimeoutSec) { $script:ChatqHookTimeoutSec } else { 30 }
     try {
         $p = Invoke-ChatqProcess -Exe $exe -ArgList @('-NoProfile', '-NonInteractive', '-EncodedCommand', $enc) `
@@ -467,7 +519,8 @@ function Get-ChatqEta {
         $nb = ConvertTo-ChatqDate $j.notBefore
         if ($nb) { $times += $nb }
         $du = ConvertTo-ChatqDate $j.deferUntil
-        if ($du -and $du -gt $now) { $times += $du; if (-not $why) { $why = 'chat busy' } }
+        # auto-continue's hold for a chat open in a VS Code panel is no busy chat
+        if ($du -and $du -gt $now) { $times += $du; if (-not $why) { $why = if ((Get-ChatField $j 'deferWhy') -eq 'vscode') { 'open in VS Code' } else { 'chat busy' } } }
         $ra = ConvertTo-ChatqDate $j.retryAt
         if ($ra -and $ra -gt $now) { $times += $ra; if (-not $why) { $why = 'retry' } }
         $at = $times | Where-Object { $_ -gt $now } | Sort-Object -Descending | Select-Object -First 1
@@ -658,6 +711,10 @@ function Write-ChatqList {
             "$($u.Provider) $($parts -join " $($script:ChatqDot) ")$a"
         })
     if ($use) { Write-Host ('  usage  ' + ($use -join "  $($script:ChatqDot)  ")) -ForegroundColor DarkGray }
+    # the chats the limit cut off that nothing is queued for, and what
+    # auto-continue does about them (src/auto-continue.ps1)
+    $cut = @(Get-ChatqCutOffChats $jobs)
+    Write-ChatqAutoLine $jobs $cut
 
     $open = @($jobs | Where-Object { $_.state -in 'queued', 'running', 'needs-input', 'failed' })
     if ($open) {
@@ -669,7 +726,7 @@ function Write-ChatqList {
         Write-Host ('  ' + (Format-ChatCell '#' $numW) + (Format-ChatCell 'chat' $chatW) + ' ' +
             (Format-ChatCell 'prompt' $promptW) + ' ' + 'sends') -ForegroundColor DarkGray
         foreach ($j in $open) {
-            $text = if ($j.kind -eq 'continue') { 'continue' } else { [string](Read-ChatqPrompt $j) }
+            $text = if ($j.kind -eq 'continue') { if (Get-ChatField $j 'auto') { 'continue (auto)' } else { 'continue' } } else { [string](Read-ChatqPrompt $j) }
             $ps = Get-ChatqPromptStats $text
             $when = ConvertTo-ChatqDate $j.chatWhen
             $age = if ($when) { " ($(Get-ChatAge $when))" } else { '' }
@@ -683,6 +740,8 @@ function Write-ChatqList {
                 'needs-input' { 'needs you' }
                 'failed' { 'failed' }
             }
+            # a run waiting on the phone to allow a call (src/permit.ps1)
+            if ($j.state -eq 'running') { $state += Get-ChatqPermitWaitText $j }
             $color = switch ($j.state) { 'needs-input' { 'Yellow' } 'failed' { 'Red' } 'running' { 'Green' } default { 'Gray' } }
             Write-Host ('  ' + (Format-ChatCell "$($j.seq)" $numW)) -NoNewline
             Write-Host ((Format-ChatCell "$($j.title)$age" $chatW) + ' ') -NoNewline -ForegroundColor Cyan
@@ -706,11 +765,11 @@ function Write-ChatqList {
         Write-Host '  nothing queued' -ForegroundColor DarkGray
     }
 
-    $cut = @(Get-ChatqCutOffChats $jobs)
     if ($cut) {
+        $autoSt = Get-ChatqAutoListStates $cut $jobs
         $names = ($cut | Select-Object -First 4 | ForEach-Object {
                 $w = if ($_.Why -eq 'overloaded') { '529' } else { 'limit' }
-                "$($_.Title) ($w $(if ($_.At) { $_.At.ToString('HH:mm') }))"
+                "$($_.Title) ($w $(if ($_.At) { $_.At.ToString('HH:mm') })$(Get-ChatqAutoListTag $autoSt[[string]$_.Id]))"
             }) -join ', '
         Write-Host "  cut off, nothing queued:  $names" -ForegroundColor Yellow
         Write-Host "    chatq '<title>' -Continue  queues a continue for one" -ForegroundColor DarkGray
@@ -758,10 +817,11 @@ function Write-ChatqBoard {
             [void]$sb.AppendLine('| # | chat | state | sends | prompt |')
             [void]$sb.AppendLine('|---|------|-------|-------|--------|')
             foreach ($j in @($open) + @($recent)) {
-                $text = if ($j.kind -eq 'continue') { 'continue' } else { [string](Read-ChatqPrompt $j) }
+                $text = if ($j.kind -eq 'continue') { if (Get-ChatField $j 'auto') { 'continue (auto)' } else { 'continue' } } else { [string](Read-ChatqPrompt $j) }
                 $ps = Get-ChatqPromptStats $text
                 $first = if ($ps.First.Length -gt 60) { $ps.First.Substring(0, 60) + $script:ChatqEllipsis } else { $ps.First }
                 $sends = if ($j.state -eq 'queued') { $eta[$j.id] } else { '' }
+                if ($j.state -eq 'running') { $sends = (Get-ChatqPermitWaitText $j) -replace "^ $([regex]::Escape($script:ChatqDot)) ", '' }
                 [void]$sb.AppendLine("| $($j.seq) | $(& $e $j.title) | $($j.state) | $(& $e $sends) | $(& $e $first) ($('{0:N0}' -f $ps.Chars) chars) |")
             }
             [void]$sb.AppendLine()

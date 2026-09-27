@@ -174,86 +174,82 @@ than 30 s after the chip's click, or the side bar's idle process under
 3. Decide whether chatq then stops its own run or lets both finish. Stopping
    loses less when the two are editing the same files.
 
-## Approve permission prompts from the phone
+## The reset ask: what 0.9.0 left out
 
-**Why deferred:** the chosen behaviour is to alert and park. Since 0.8.0 the
-way back from the phone exists: a `needs input` alert can be answered, and
-**Allow edits & continue** queues the parked job again in `acceptEdits`
-([Invoke-ChatqReply](src/phone.ps1)). That answers after the fact - the run
-already ended on the denial - and allows a mode, not the one tool call that
-was asked for. A chat run straight in VS Code that waits on a prompt cannot
-be answered at all: a reply to it is queued behind the prompt, which only
-someone at the PC can answer.
+- **Answering the ask from the phone.** The `limited` alert about it
+  ([Send-ChatqResetAskAlert](src/phone.ps1)) says "answer on the PC", and
+  its page offers Status alone. **Why deferred:** an answer queues runs
+  for several chats at once, and the reply wire has no act for that: every
+  act today names one session or one job. A new act is a change to the
+  MAC'd wire, the page and [Invoke-ChatqReply](src/phone.ps1), not a
+  label. **To close:** an act `ask-go` / `ask-leave` bound to the alert's
+  cut-off keys (carried in the push, as a job number is), checked by the
+  watcher against the markers in `data/auto/` so a stale or second answer
+  does nothing, and run through the same
+  [Invoke-ChatqContinueChats](src/commands.ps1) and
+  [Save-ChatqAskAnswer](src/queue.ps1) with `-Source phone`; the page's
+  `buttonsFor` offering **Continue N** and **Leave them** for an alert
+  that carries keys; tests in `tests/sections/phone.ps1` and
+  `tests/reply-page-check.js`.
+- **The continue chip on a cut-off row while the switch is ask or off.**
+  With the automatic mode not on, a cut-off row has no auto-continue state
+  and so no **continue** chip - its words and chip are as before 0.9.0, so
+  the default's panel did not change under its users
+  ([Update-ChatOverlayAutoStates](src/auto-continue.ps1)). **Why deferred:**
+  the ask and the console's Continue already cover it. **To close:** keep
+  the `off` state for rows, with the old words (`cut off - resets 13:00`)
+  as its short words, so the chip offers **continue** in every mode.
+- **A VS Code notification for the ask.** The ask shows in the overlay,
+  its tray, the console, a toast and the phone, but not in VS Code, where
+  you may be looking. **Why deferred:** the extension learns of work only
+  through request files, each about one chat and one window; the ask is
+  about several chats in any folders, and which window should say it -
+  every one, or one - is not settled. **To close:** a request of its own
+  kind in `data/`, read by every window, shown by one; **Continue** and **Leave them**
+  buttons running `Complete-ChatqResetAsk` through the tool folder's loader;
+  checks in `tests/extension-check.js`.
+- **A click on the macOS notification.** It opens Script Editor, since the
+  notification comes from `osascript`, so its text points at the `CQ`
+  menu instead ([Update-ChatOverlayMacAsk](src/overlay-mac.ps1)). **Why
+  deferred:** a notification that runs something on a click needs an app
+  bundle of its own, and the Mac panel has never run. **To close:** after
+  S24, `NSUserNotification` (or `UNUserNotificationCenter`) from the JXA
+  panel, its click opening the menu.
+- **The tray's items while the menu is open.** They, and the keys a click
+  answers for, keep what the menu showed when it opened
+  ([Update-ChatOverlayAsk](src/overlay-windows.ps1)); a chat that joins the
+  ask meanwhile waits for the next ask. **Why deferred:** a menu that
+  changes under the pointer could answer for a chat never shown. **To
+  close:** only if S41 shows it matters: put the menu in step as it opens.
+- **A stale answer while the console is open** acts on nothing and says
+  nothing; the console shows the ask as it is on its next redraw
+  ([Invoke-ChatOverlayAskAnswer](src/overlay-windows.ps1)). In the panel it
+  brings the panel up instead. **Why deferred:** `expand` would have taken
+  the console back to the panel. **To close:** a status line in the
+  console, "the chats changed - here they are now".
+- **The five minutes after a reset** are spike A1's hold, given to every
+  chat. **Why deferred:** A1 has not been run: whether a VS Code panel
+  continues a chat itself is still not known. **To close:** S41 item 2;
+  if panels do, count a panel chat as held (`Left`) as a terminal's is,
+  and the wait could shrink.
 
-**To close:**
-1. A `--permission-prompt-tool` MCP bridge for the headless run: on a
-   prompt it sends an alert through
-   [Send-ChatqAlert](src/alerts.ps1) - naming the tool and its input -
-   whose link offers **Allow** and **Deny**, and waits for the answer with
-   a timeout that denies.
-2. The answer comes the way every reply does: sealed, through the reply
-   topic, verified by the watcher ([Receive-ChatqReply](src/phone.ps1)).
-   Two new acts, bound to that alert's id; the watcher hands the verdict to
-   the waiting bridge through a file in `data/`, since the bridge is a
-   child of `claude -p` and cannot poll the topic itself.
-3. An Allow approves that call only. It never raises the job's mode, so
-   `reply.maxMode` still holds.
-4. Claude only; `codex exec` cannot ask mid-run. A chat in VS Code would
-   need Claude Code's own hooks instead (the `PermissionRequest` hook),
-   installed in the user's settings.
+## A reply with no tap in the browser
 
-## Code for 0.9.0 that nothing loads yet
+**Why deferred:** 0.9.0 shipped the cheap half: an alert's link takes
+`&text=`, the page puts it in the box ([prefill](docs/reply.html)), and
+README's Tasker recipe turns a notification's reply field into one tap on
+**Send**. The tap stays, on purpose. The page holds the phone's key, an
+alert's id is no secret, and anything can open a link; a link that sent by
+itself would send with the phone's key whatever its opener meant. The tap
+on Send is the consent, and nothing else on the phone can give it.
 
-**Why deferred:** two parts of 0.9.0 were written ahead of the rest of it
-and are checked in unfinished. Neither is in `$chatParts`, so
-VS-code-chat-manager.ps1 never loads them and the Marketplace package
-leaves them out ([build.js](extension/build.js) takes only the parts that
-list names); `install.ps1` copies them, unread. No test drives them yet.
-- [src/permit.ps1](src/permit.ps1), the bridge of
-  [phone-permit-spec.md](docs/phone-permit-spec.md):
-  [Start-ChatqPermitBridge](src/permit.ps1), the stdio MCP server
-  `claude -p` would ask, and the watcher's side,
-  [Update-ChatqPermitRequests](src/permit.ps1) and
-  [Invoke-ChatqPermitReply](src/permit.ps1).
-- [src/phone-down.ps1](src/phone-down.ps1), the PC -> phone channel of
-  [phone-board-spec.md](docs/phone-board-spec.md):
-  [Send-ChatqDown](src/phone-down.ps1) and the whole answer,
-  [Send-ChatqReplyText](src/phone-down.ps1). Its wire format already has
-  its vectors, `tests/fixtures/down-vector.json` and
-  `compose-vector.json`, made by
-  [make-down-vector.js](tests/fixtures/make-down-vector.js) with Node's
-  own crypto and zlib.
-
-**To close:** neither runs without changes elsewhere that are not made
-yet. [Send-ChatqAlert](src/alerts.ps1) takes `-Card`, `-Permit`, `-Tag`
-and `-ToastText` and keeps the alert's id; [Invoke-ChatqRun](src/queue.ps1)
-starts the run with the bridge; [Invoke-ChatqReply](src/phone.ps1) and the
-page take the new acts; [Get-ChatqReplyState](src/phone.ps1) reads what
-[Read-ChatqBoardState](src/phone-down.ps1) adds. Then both go into
-`$chatParts`, with the tests each spec names.
-
-## An inline reply without the browser
-
-**Why deferred:** a reply opens a page in the phone's browser, which works
-on any phone with Join and nothing more. Join, with Tasker and
-AutoNotification, can show a notification with a text field and buttons of
-its own, so a reply could be typed in the notification itself. But a reply
-has to be sealed with the phone's key, and the page keeps that key as one
-that will not export, in the browser's IndexedDB: nothing outside the page
-can use it.
-
-**To close:**
-1. A Tasker profile on Join's notifications (every title starts `chatq ·`)
-   that shows an AutoNotification with a reply field and the buttons
-   [buttonsFor](docs/reply.html) gives the event.
-2. Seal in a Tasker JavaScriptlet with the page's wire format - byte for
-   byte, held to `tests/fixtures/reply-vector.json` - which needs a key the
-   profile can read. That is a second copy of the phone's key, readable,
-   and would have to be a pairing of its own ([Start-ChatqReplyPairing](src/phone.ps1))
-   rather than the page's key copied out.
-3. Or skip the sealing on the phone: Tasker opens the page with the typed
-   text in the link's `#` part, and the page asks once and sends. Cheaper,
-   and still one tap into the browser.
+**To close:** sealing outside the page, in a Tasker JavaScriptlet with the
+page's wire format - byte for byte, held to
+`tests/fixtures/reply-vector.json`. That needs a key Tasker can read: a
+second, readable copy of the phone's key, so a pairing of its own
+([Start-ChatqReplyPairing](src/phone.ps1)) rather than the page's key
+copied out, with its own refusal when Tasker's store is read by another
+app. Worth it only if the one tap turns out to be the part people skip.
 
 ## The reply page on an origin of its own by default
 
@@ -387,9 +383,10 @@ ntfy over http, https is the fix.
   covers the rest. **To close:** the same chips in the details pane, written
   through `Set-ChatqProp`.
 - **Answering a permission prompt from the console.** A run that asks is
-  parked as needs-input. **Why deferred:** the same as for the phone, above.
-  **To close:** the same `--permission-prompt-tool` bridge, answered from
-  the console's details pane.
+  parked as needs-input, or since 0.9.0 asks the phone. **Why deferred:**
+  see "Approve permission prompts: what 0.9.0 left out", below. **To
+  close:** the same bridge ([src/permit.ps1](src/permit.ps1)), answered
+  from the console's details pane.
 - **Opening the chat in VS Code** from the console. **Why deferred:** the
   console was not in 0.6.0's scope. Since then the way exists: the overlay's
   open chip writes `data/open-request` and the extension opens the chat by
@@ -537,6 +534,100 @@ it from window titles).
 Claude processes (S30 item 12 checks it is the extension host). Judge busy
 over the chats whose process has that parent, and any window where none of
 its own chats is working can show the chat unasked, whatever its folders.
+Since 0.9.0 that judgement exists: [Get-ChatHostWork](src/host-work.ps1)
+lists one extension host's chats and what keeps each working, and the
+extension already looks at it before every reload
+([guardReload](extension/safe-restart.js)). What is left is letting a
+multi-root window act on it where it now asks.
+
+## Continue the chats a reload stopped
+
+**Why deferred:** since 0.9.0 an update of chatq waits, if asked, until
+the window's chats are idle ([safe-restart.js](extension/safe-restart.js)),
+and chatq's own reloads look first. But a window can still be reloaded or
+restarted under working chats - **Reload now**, VS Code's own **Restart
+Extensions** button, **Developer: Reload Window**, an update of another
+extension, VS Code updating itself - and each chat cut off mid-turn stays
+cut off: its answer half written, a permission prompt gone, a workflow's
+agents dead, and nobody told. The owner lost a session that way twice on
+2026-09-27. Continuing such a chat is what auto-continue does for a chat
+the usage limit cut off ([docs/auto-continue-spec.md](docs/auto-continue-spec.md)):
+a marker per cut-off, a continue queued, the ask on the overlay's row and
+the phone. That machinery is in 0.9.0 too
+([src/auto-continue.ps1](src/auto-continue.ps1)); this was left for after
+both were in one tree, so there is one way of continuing a chat, not two.
+
+**To close:**
+1. **Note what the old host ran, as it goes.** The wait's look (`Get-ChatHostWork`)
+   already knows each chat of the window and why it works. Write the
+   last look to `data/host-work/<host pid>.json` - chats, why, the
+   transcript's size - on every look while something works, and as the
+   notice goes out; a file per host, removed once all is idle.
+2. **At the next activation, find what was cut off.** The extension finds
+   a file whose host pid is no longer alive (`_alive`), or whose host is
+   not this one but whose chats this window now holds again. For each chat
+   listed as working, the transcript tells whether the turn was cut off:
+   its last message an assistant `tool_use` with no `tool_result`, or a
+   `user` prompt with no answer, and nothing written since the host ended
+   - Test-ChatTranscriptBusy's reading, taken as "cut off" once the
+   process that owed the answer is gone. A background workflow or agent
+   with no `<task-notification>` (Get-ChatBackgroundTasks) died too.
+3. **Offer to continue them through the cut-off ask** of auto-continue,
+   with a reason of their own (`restart` next to its `limit`): the same
+   marker file, so a chat is continued once, the same ask on the overlay's
+   row, the phone and the console, and the same queued job - a "continue"
+   in the chat's own mode. The prompt has to say what was lost - "the
+   window restarted mid-turn; your background workflow <name> did not
+   finish" - since `claude --resume` does not bring back a background
+   task. Nothing continues by itself unless the auto-continue switch says
+   so for that reason too.
+4. **Tests:** a host file with a chat cut off mid-`tool_use`, one idle
+   and one whose workflow never reported; the next activation offers the
+   first and the third, once, and nothing for a host still alive.
+
+## An update loaded without a reload
+
+**Why deferred:** since 0.9.0 an update of chatq loads by reloading the
+window ([restart](extension/safe-restart.js)), since VS Code's Developer
+command Restart Extension Host starts the hosts again from the
+extensions it already had and never loads a VSIX installed from the
+command line (checked in the 1.108.2 workbench). A reload also reloads
+the window's UI and its webviews, where the Extensions view's own
+**Restart Extensions** restarts only the hosts - but that runs through
+`updateRunningExtensions`, which no command reaches, and TESTING.md S45
+step 3 (the new version's log line after the wait) has still to be run by
+hand.
+
+**To close:** run S45 with the reload; if a later VS Code adds a command
+that runs `updateRunningExtensions`, use it in place of the reload.
+
+## Other extensions' updates, and VS Code's own restart
+
+**Why deferred:** the notice watches for a new version of chatq only. A
+new Claude Code extension, or any other, loads on the same reload and
+ends the same chats, and VS Code's own **Restart Extensions** button asks
+nothing. chatq cannot stop a restart it did not start.
+
+**To close:** the notice could watch every extension in `extensions.json`
+and say the same for any that needs a restart - with the wait the same
+wait - once it is clear owners want chatq to speak for other extensions.
+The button needs VS Code to let an extension veto or delay a host restart,
+which it does not.
+
+## A cheaper look at a window's chats
+
+**Why deferred:** each look the extension takes before a reload starts
+Windows PowerShell and loads every part of the script, about 3 s of one
+core here (TESTING.md), and a reload that waits takes one every 25
+seconds. A chat whose transcript is tens of megabytes is read
+whole each time for its background work, as `Test-ChatIdle` reads it; a
+look past 20 s counts as not known, and the wait never ends on it. Worth
+it for a wait someone asked for; not for anything that runs all the time.
+
+**To close:** keep one PowerShell for the length of a wait, fed a line per
+look, and give `Get-ChatBackgroundTasks` a cache there by path, size and
+write time that reads only what was appended - the overlay's
+`Update-ChatOverlayText` reads transcripts that way.
 
 ## Ending a chat's process off Windows
 
@@ -1138,3 +1229,347 @@ way still fails the job.
 
 **To close:** capture a real Codex 5xx/overload event. Then either watch
 status.openai.com the same way, or just retry with the same backoff.
+
+## Auto-continue after a 529
+
+**Why deferred:** [auto-continue](docs/auto-continue-spec.md) is for the
+usage limit only, and so is the reset ask. A 529 has no reset time, someone
+at the panel usually retries it at once, and chatq's own jobs already wait
+out an outage on status.claude.com. A chat nobody has open that a 529
+stopped still reads `529 - waits for Claude` and nothing is queued.
+
+**To close:** the same scan with `Why` `overloaded`
+([Get-ChatqAutoState](src/auto-continue.ps1) returns `overloaded` for it
+today), the job released by [Test-ChatqOutageOver](src/watcher.ps1) rather
+than a reset, and the moved-on check as for a limit.
+
+## Auto-continue for Codex chats chatq did not run
+
+**Why deferred:** there is no cut-off scan for Codex rollouts
+([Get-ChatqCutOffChats](src/queue.ps1) reads Claude's transcripts only). A
+Codex job chatq ran is already continued by the watcher after a limit.
+
+**To close:** a cut-off reader for rollouts - a `turn.failed` on the usage
+limit as the last event, its reset from `ConvertFrom-ChatqLimitText` - and
+the same checks; Codex writes no registry of what runs, so check 3 has
+nothing to go on and a chat open in the Codex panel would need another way
+to be told.
+
+## Auto-continue: spikes A1 and A2
+
+**Why deferred:** both need a real limit on Claude Code 2.1.234 or later,
+reached on purpose, which no build session can spend. A read of this
+machine's transcripts leans no for A1 - four panel cut-offs on 2.1.282 and
+2.1.283 got nothing after the reset until a typed `continue` - but whether
+those panels were on screen and idle is not recorded (TESTING.md). A3 was
+answered the same way: the uuid is stable.
+- A1: a chat open in a VS Code panel is held 5 minutes past the reset
+  ([Get-ChatqAutoHold](src/auto-continue.ps1)), and the reset ask waits
+  the same 5 minutes, in case the panel continues it itself. If A1 finds it
+  reliably does, such a chat should be left to the panel as a terminal's
+  is - a state `panel`, words `· VS Code continues it` - and the hold goes.
+  If it does not, the hold stays as a guard.
+- A2: `$script:ChatqContinueText`'s comment in [queue.ps1](src/queue.ps1)
+  says what Claude Code writes. The resume record it names was seen; the
+  wait's own continue was not.
+
+**To close:** S41 item 2 and S42 items 1 and 4 with a real limit.
+
+## Auto-continue and a registry entry that names no entrypoint
+
+**Why deferred:** the two modes read such an entry differently. The reset
+ask takes it for a VS Code panel, as `Test-ChatVsCodeOwned` does, and asks
+about the chat; the automatic mode takes it as holding the chat, as a
+terminal's would ([Get-ChatqAutoState](src/auto-continue.ps1)'s
+`terminal`), and leaves it. Asking is harmless, a second writer is not, so
+each errs its own safe way. Every entry on this machine names one (spike
+A4); an old Claude Code might not.
+
+**To close:** an entry with no entrypoint seen on a real Claude Code; then
+read it one way for both, by the process that wrote it.
+
+## Auto-continue on Linux, and the phone's switch
+
+**Why deferred:** there is no overlay on Linux, so only a watcher running for
+other jobs scans there; with none, nothing is auto-continued, and `chatqlist`
+says so - and the reset ask has nothing to ask with. Turning auto-continue
+on or off from the phone is left out on purpose: on grants unattended runs,
+and off from a phone that may not be yours would quietly stop work
+(docs/auto-continue-spec.md).
+
+**To close:** for Linux, a scan at shell start or a timer the user opts
+into; for the phone, nothing - it stays out unless that reasoning changes.
+
+## Usage heads-ups without the overlay
+
+**Why deferred:** the threshold heads-up comes from the Windows overlay's
+pass ([Update-ChatqUsageAlerts](src/phone-extras.ps1)), which asks the usage
+endpoint every few minutes whether or not anything is queued. The watcher
+runs only while something is queued or a reply window is open, so on macOS,
+Linux, or with the overlay stopped, there is no threshold alert; the soon
+and reset alerts come from the watcher and work everywhere. `chatnotify`
+says when the overlay is not running. Copilot's monthly quota, a second
+Claude account's windows (the overlay reads one config dir), and a way to
+hold the queue at a reset from the phone are left out too; **Skip** on a
+job's own alert holds one job.
+
+**To close:** a small usage look of the watcher's own, once in 15 minutes
+while it runs, through [Read-ChatqClaudeUsageCache](src/overlay-data.ps1)
+and the rollouts, feeding the same function; for a PC with nothing queued
+it would still need the overlay or a scheduled task.
+
+## Quiet hours: one window, this PC's clock
+
+**Why deferred:** kept simple on purpose. One daily window in the PC's own
+time zone ([Get-ChatqQuietHours](src/phone-extras.ps1)): no weekday
+schedule, no second window, not the phone's zone, and the toast and your
+command are never held (the command is told `CHATQ_QUIET=1` and decides).
+The summary answers no particular job - its alerts were never registered,
+since registering them would keep the reply window open all night for
+nothing - so a held `needs input` is answered through **Status** and
+`chatqrun` at the PC. Android's own Do Not Disturb is the phone's.
+
+**To close:** a list of windows with days in `quietHours`, read by the same
+[Test-ChatqQuietNow](src/phone-extras.ps1); a summary that answers jobs would
+register one alert per held job at summary time, not at hold time.
+
+## Voice: speaker or headphones, and the Korean language code
+
+**Why deferred:** Join's `say` speaks on whatever the audio output is, and
+Join cannot tell whether headphones are in, so nothing is read aloud until
+`join.say` names an event. Whether Android's text-to-speech takes `ko` or
+wants `ko-KR` is not confirmed on a phone (TESTING.md, S43);
+[Get-ChatqSayLanguage](src/phone-extras.ps1) sends `ko`, and a
+`join.sayLanguage` of `ko-KR` already picks the Korean words. The soon
+alert's spoken line, `Claude limit resets soon`, is not in the spec's
+table, which names only the threshold and reset lines.
+
+**To close:** S43 step 3 on a real phone; if `ko` is not read as Korean,
+make `auto` send `ko-KR`. Headphones-only speech is a Tasker profile's job.
+
+## The Tasker recipe, unchecked on a phone
+
+**Why deferred:** README's recipe rests on two things Join's and
+AutoNotification's pages do not state: that Join's *Push Received* event
+fires for a push that also makes a notification and names its link
+`%joinurl`, and that AutoNotification's reply field arrives as `%anreply`.
+Step 1 of the recipe checks both before anything is built, and route B
+needs neither of AutoNotification's.
+
+**To close:** S43 step 4 on a real phone, and README's variable names
+corrected to what the phone shows. If Join's event never fires for a
+notification push, a Tasker-only push (a `join.tasker` mode, Join text with
+no title) is the fallback.
+
+## Approve permission prompts: what 0.9.0 left out
+
+0.9.0 asks the phone about a permission prompt in a run chatq queued
+([src/permit.ps1](src/permit.ps1),
+[phone-permit-spec.md](docs/phone-permit-spec.md)). Left out:
+- **Chats run straight in VS Code or a terminal.** **Why deferred:** only a
+  `PermissionRequest` hook in the user's `~/.claude/settings.json` reaches
+  them, and chatq has never written the user's Claude settings. **To
+  close:** a hook command that hands the request to the watcher the way
+  the bridge does - a request file, a sealed card, the phone's sealed
+  answer checked by the hook itself - installed only by an explicit
+  command, and removed by one.
+- **Answering at the PC** (the console, the overlay, a toast button).
+  **Why deferred:** the bridge believes an allow only on the phone's MAC,
+  since anything can write into `data/`; a PC-side allow needs a secret the
+  bridge can trust that no chat can read. **To close:** a per-run secret the
+  watcher hands the bridge outside `data/` (its environment, say), and an
+  answer MAC'd with it from the console's details pane.
+- **The reply page on an origin of its own** (above) matters more now: a
+  script on another `phal40lax78.github.io` page could post an Allow with
+  the phone's key while a permission alert is open. The README and the
+  setup window's tooltip say to serve the page from a site of your own
+  first; closing that entry closes this.
+- **S35 items 5-8 are unrun** (TESTING.md): the `//c/...` form of the data
+  deny rules, elicitation under `host`, `auto`'s classifier, and two calls
+  in one message. **Why deferred:** the spike's budget of five real runs
+  went on items 1-4 and one run end to end. **To close:** run them, and if
+  the `//c/...` form does not hold, drop those rules from
+  [New-ChatqPermitRun](src/permit.ps1) - the bridge's own rule and the
+  phone's MAC hold without them.
+- **"Always allow", an edited command, `AskUserQuestion`, a plan, Codex.**
+  Out of scope by design (the spec's section 11); `codex exec` cannot ask
+  mid-run at all.
+
+## The phone board answers in seconds, not at once
+
+**Why deferred:** the watcher polls the reply topic - every 20 s listening
+all the time, 6 s for two minutes after the phone asked for something
+([Get-ChatqReplyPollSeconds](src/phone-down.ps1)) - so a board or an ack
+comes 3 to 20 s after the tap. ntfy can hold a stream open (`/json`
+without `poll=1`) and hand each message over as it is posted, about a
+second end to end, but the watcher's loop is built around short polls
+that never block it: a stream needs a reader of its own.
+
+**To close:** a runspace in the watcher holding `GET /<topic>/json` open,
+passing each line to the loop through a queue, and reconnecting with a
+backoff; [Invoke-ChatqReplyPoll](src/phone.ps1) stays for the catch-up
+after a sleep, `since` its last id. The same 250-a-day budget is
+untouched: a stream is one request.
+
+## A home-screen app for the phone board
+
+**Why deferred:** the board is reached from a bookmark or **Add to Home
+screen** of the bare page. A web app manifest and a service worker would
+give it an icon of its own, a full-screen start and an offline card, but
+the page is one static file that loads nothing - its CSP has no
+`manifest-src` or `worker-src` - and a service worker on the shared
+`github.io` origin would be one more script there.
+
+**To close:** a `manifest.webmanifest` beside the page (name, icon as a
+`data:` URI, `display: standalone`, `start_url` the page), `manifest-src
+'self'` in the CSP, and `reply-page-check.js` allowing exactly that one
+`<link rel="manifest">`. No service worker: nothing is to be cached while
+decrypted text lives only in the page's memory.
+
+## Listening all the time off Windows
+
+**Why deferred:** `reply.listen always` is begun again by a shell's start
+and by the Windows overlay's host
+([Start-ChatqReplyStanding](src/phone-down.ps1)); on macOS and Linux only
+a shell does, since no overlay host runs there to do it, so after a reboot
+the board has nobody listening until a PowerShell is opened. The board
+itself works there - its scan
+([Get-ChatqBoardScan](src/phone-board.ps1)) needs no overlay - but none of
+it has been run off Windows.
+
+**To close:** start it from the macOS overlay's collector as the Windows
+host does, or from a launchd/systemd unit of chatq's own; then S44 in
+TESTING.md on a Mac.
+
+## One job maker for a reply and the board
+
+**Why deferred:** the spec wanted the body of
+[Invoke-ChatqReply](src/phone.ps1)'s `prompt` case factored out as
+[New-ChatqPhoneJob](src/phone-board.ps1) and called from both. 0.9.0 was
+built by several hands at once from one commit, and rewriting a case of a
+function every one of them touches would have made their merges
+conflict, so the board has its own copy of the same steps - the text
+checked, the chat's own mode brought down to `reply.maxMode`, a Codex
+sandbox no wider than `workspace-write`, rule `phone`, links defused.
+
+**To close:** now that 0.9.0 is one tree, have the `prompt` case call
+[New-ChatqPhoneJob](src/phone-board.ps1) (it takes `-JobHome` and the
+cap as the case does) and keep the case's own words about a needs-input
+job it answers; `phone.ps1`'s cap checks then hold both.
+
+## The board's chat view shows the cap, not the chat's mode
+
+**Why deferred:** a chat's own mode is in its transcript, and the board is
+built every 30 s from what the overlay already knows, which has no mode,
+so the chat view's chip says `at most acceptEdits` for every chat the
+board shows. **Older chats** - the list, `act list` - say each one's own
+mode, from a bounded read ([Get-ChatqPhoneChatMeta](src/phone-board.ps1))
+the board does not make every 30 s. Codex chats also show no live state:
+the registry the overlay reads is Claude's.
+
+**To close:** read the last `permissionMode` where the overlay already
+reads each open chat's tail
+([Update-ChatOverlayText](src/overlay-data.ps1)), carry it in
+`overlay.json`'s rows, and project it in
+[ConvertTo-ChatqPhoneBoard](src/phone-board.ps1) as the list does
+(`m`, `mc`).
+
+## The phone board and auto-continue
+
+**Why deferred:** the board and auto-continue were built side by side and
+met only in the 0.9.0 merge. The board's cut-off rows carry no
+auto-continue state: [ConvertTo-ChatqPhoneBoard](src/phone-board.ps1) and
+the board's own scan ([Get-ChatqBoardScan](src/phone-board.ps1)) pass no
+`-Auto` to [Get-ChatOverlayRows](src/overlay-data.ps1), so the phone shows
+`cut off` where the overlay shows `#12 auto 13:01`, and offers **Continue at
+reset** while the switch is on and would queue one by itself. Nothing
+breaks; the words differ.
+
+Since the review of the integrated 0.9.0 the board's **Continue at
+reset** writes that marker ([Invoke-ChatqCompose](src/phone-board.ps1),
+through [Save-ChatqAskAnswer](src/queue.ps1) with `-Source phone`), so a
+skip from the phone counts as declined and never comes back; and a kept
+auto-continue with no state to show - the board's scan passes none - has
+a row of its own there ([Get-ChatOverlayRows](src/overlay-data.ps1)).
+What is left is the words.
+
+**To close:** carry the overlay's auto words in `overlay.json`'s rows and
+project them in the board as the overlay's row does; checks in
+`tests/sections/phone-board.ps1` and `board-page-check.js`.
+
+## A permission request bound to the stream's own input
+
+**Why deferred:** since the 0.9.0 review the watcher makes a request's
+digest again from the file's rid, tool and input and declines a file
+changed after it was asked ([Update-ChatqPermitRequests](src/permit.ps1));
+a writer that changes both input and digest gets a card the bridge's own
+copy of the digest will never allow, so it can only run out as a deny.
+What the watcher still does not check is that the input is the one the
+stream showed for that `tool_use` id: it holds the tool's name by id
+([New-ChatqRunState](src/queue.ps1)'s `ToolIds`), not its input.
+
+**To close:** keep a hash of each `tool_use`'s input beside its name as
+the stream is read, and decline a request whose input does not hash the
+same - once it is known that the input claude hands the permission tool
+is byte for byte the one its stream line carries (key order, escapes),
+which S35 did not look at.
+
+## chatq's data folder named in a command, every way
+
+**Why deferred:** [Test-ChatqPermitCommandDir](src/permit.ps1) looks for
+the folder in a Bash or PowerShell command long and short, in Git Bash's
+`/c/...` form, under `~`, `$HOME` and `%USERPROFILE%`, as each path-like
+word made canonical, and in any command run inside it. A command can
+still reach it without naming it so: a mix of long and 8.3 parts, a
+variable of its own, a string put together at run time. The spec always
+called this rule best effort; the phone's own card and its Deny are the
+guard after it. An edit's path is made canonical
+([ConvertTo-ChatqPermitPath](src/permit.ps1)), but only as a string and
+through `GetFullPath`: a `subst` drive, a junction or a symbolic link that
+leads into `data/` is one more name it does not follow.
+
+**To close:** for commands, nothing short of running them; if a real case
+turns up, add its form to the needles and a row to the rules' table in
+`tests/sections/permit.ps1`. For an edit's path, open the deepest folder
+of it that exists and ask Windows for its final path
+(`GetFinalPathNameByHandle`), in a helper with a timeout, since a path on
+another machine must never be opened from the bridge.
+
+## A phone-made chat's title in later alerts
+
+**Why deferred:** a new chat started from the phone with no name takes
+its prompt's first line as its title, and since the 0.9.0 review the
+push that says it was queued names neither. But every later alert about
+that job - started, done, needs input - carries the chat's title, as
+every alert does (README: what an alert's text carries passes through
+the push service's servers).
+
+**To close:** give a phone-made chat with no name a neutral title
+(`phone chat 14:02`) until Claude's own ai-title arrives, and take the
+chat's title from the transcript from then on.
+
+## A board from a scan is up to 40 s old
+
+**Why deferred:** with no overlay running the board is built from a scan
+of the registry and the transcripts, which inside a run held up the run's
+output and its permission requests, so since the 0.9.0 review one is sent
+again for 40 s ([Get-ChatqPhoneBoardAnswer](src/phone-board.ps1)). An act
+from the phone drops it at once, but a job that starts or ends by itself
+meanwhile shows up to 40 s late.
+
+**To close:** keep the scan's rows for 40 s but build the queue part from
+the jobs on every ask, as the overlay's snapshot path does.
+
+## A run chatq did not start, into a chat no window holds
+
+**Why deferred:** since the 0.9.0 review a reload's wait counts every
+running chatq job, even into a chat no process of the window holds any
+more ([Get-ChatHostWork](src/host-work.ps1)): a run before it may have
+ended the window's idle process on purpose, and a tab still shows the
+chat. Someone's own `claude -p` going into such a chat is not counted:
+nothing ties it to this window once the window's process is gone, and an
+endless script of `claude -p` calls would hold every reload.
+
+**To close:** note in `data/` the chats each host's idle process was
+ended for ([Stop-ChatIdleProcess](src/live-chats.ps1) knows the host
+pids), and count any print-mode run into those for that host.

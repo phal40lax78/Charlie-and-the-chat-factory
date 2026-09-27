@@ -173,9 +173,18 @@ function New-ChatqJobRecord {
         attempts = 0
         retryAs = 'full'
         # set when the watcher itself turned the job into a "continue" (limit or
-        # 529 mid-run); only then is it dropped if the chat moved on meanwhile
+        # 529 mid-run); only then is it dropped if the chat moved on meanwhile.
+        # Not the auto-continue setting, and not what auto means below.
         autoContinue = $false
+        # true for the continue auto-continue queued for a chat the limit cut
+        # off (src/auto-continue.ps1), with that cut-off's id past its chat -
+        # its limit record's uuid (Get-ChatqCutId)
+        auto = $false
+        cutUuid = $null
         deferUntil = $null
+        # why it waits till deferUntil: vscode, auto-continue's hold for a
+        # chat open in a VS Code panel; unset, a chat that was busy
+        deferWhy = $null
         deferredSince = $null
         busyAlerted = $false
         createdAt = Get-ChatqStamp
@@ -196,11 +205,13 @@ function Register-ChatqJob {
     # Returns the files it has and those it could not take in. -NoLinks: the
     # prompt's links are left as text and bring nothing in - a prompt typed
     # on the phone, where nobody at the PC chose a file.
-    param($Job, [switch]$NoLinks)
+    # -LogNote: more for the jobs.log line - auto-continue's "auto - limit
+    # 12:40, resets 13:00"
+    param($Job, [switch]$NoLinks, [string]$LogNote)
     Save-ChatqJob $Job
     $missed = if ($NoLinks) { @() } else { @(Sync-ChatqAttachments $Job) }
     $files = @(Get-ChatqAttachments $Job)
-    Write-ChatqJobLog "#$($Job.seq) queued ($($Job.kind)$(if ($files) { ", $($files.Count) file$(if ($files.Count -ne 1) { 's' })" })) $($script:ChatqDot) $($Job.title)"
+    Write-ChatqJobLog "#$($Job.seq) queued ($($Job.kind)$(if ($LogNote) { ", $LogNote" })$(if ($files) { ", $($files.Count) file$(if ($files.Count -ne 1) { 's' })" })) $($script:ChatqDot) $($Job.title)"
     return [pscustomobject]@{ Files = $files; Missed = $missed }
 }
 
@@ -223,10 +234,14 @@ function New-ChatqJob {
     in it is written "]\(", which no markdown link reads, so neither the
     first sync nor the watcher's before it sends finds one. A link added
     later at the PC (chatq <n>) works as in any job.
+    -Set: fields put on the job before it is saved - auto-continue's auto,
+    cutUuid, deferUntil and deferWhy - so no watcher ever reads it without
+    them. -LogNote goes on its jobs.log line.
     #>
     param($Row, [string]$Prompt, [ValidateSet('prompt', 'continue', 'new')][string]$Kind = 'prompt', $Info,
         [string]$Mode, [string]$Model, $NotBefore, [switch]$First, [switch]$SendNow, $Sources, [switch]$MoveSources,
-        [string]$Typed, $Resolve, [string]$Rule, [string]$Title, [object[]]$Jobs, [string]$Cwd, $JobHome, [switch]$NoLinks)
+        [string]$Typed, $Resolve, [string]$Rule, [string]$Title, [object[]]$Jobs, [string]$Cwd, $JobHome, [switch]$NoLinks,
+        [hashtable]$Set, [string]$LogNote)
     $fail = { param($c, $t) [pscustomobject]@{ Error = $t; Code = $c; Job = $null; Files = @(); Missed = @() } }
     if ($Kind -eq 'new') {
         $dir = if ($Cwd) { try { [System.IO.Path]::GetFullPath($Cwd) } catch { $null } } else { $null }
@@ -264,7 +279,8 @@ function New-ChatqJob {
     $homeArg = @{}
     if ($PSBoundParameters.ContainsKey('JobHome')) { $homeArg['JobHome'] = $JobHome }
     $job = New-ChatqJobRecord $slot $Row $Info -Kind $Kind -Mode $Mode -Model $Model -NotBefore $NotBefore -First:$First -SendNow:$SendNow -Typed $Typed -Resolve $Resolve -Rule $Rule -Title $Title @homeArg
-    $reg = Register-ChatqJob $job -NoLinks:$NoLinks
+    if ($Set) { foreach ($k in @($Set.Keys)) { Set-ChatqProp $job $k $Set[$k] } }
+    $reg = Register-ChatqJob $job -NoLinks:$NoLinks -LogNote $LogNote
     return [pscustomobject]@{ Error = $null; Code = $null; Job = $job; Files = $reg.Files; Missed = $reg.Missed }
 }
 
@@ -296,6 +312,37 @@ function Get-ChatqRowById {
         Id = $rec.Id; Title = $rec.Title; Titled = $rec.TitleSource; Group = $rec.Group; Hidden = $false
         When = $(if ($rec.When) { $rec.When.ToString('o') } else { $null }); First = @($rec.First); Last = @($rec.Last)
     }
+}
+
+function Invoke-ChatqContinueChats {
+    <#
+    "Continue from where you left off." for each chat the limit or a 529
+    stopped - one New-ChatqJob each - for the console's Continue all and the
+    overlay's reset ask. A chat that already has a job waiting or running is
+    left alone and named in Had: a list is redrawn only on the next pass,
+    and a second click would queue it twice. -Items: objects with Id, Title,
+    Path and Cwd. Returns @{ Queued = the job records; Had = session ids;
+    Fails = "title: why" }. The watcher is not asked: a caller does that
+    once, when Queued is not empty.
+    #>
+    param([object[]]$Items)
+    $queued = [System.Collections.Generic.List[object]]::new()
+    $had = [System.Collections.Generic.List[string]]::new()
+    $fails = [System.Collections.Generic.List[string]]::new()
+    $taken = @{}
+    foreach ($j in @(Get-ChatqJobs)) { if ($j.state -in 'queued', 'running' -and $j.sessionId) { $taken[[string]$j.sessionId] = $true } }
+    foreach ($i in @($Items)) {
+        if (-not $i) { continue }
+        $id = [string](Get-ChatField $i 'Id')
+        $title = [string](Get-ChatField $i 'Title')
+        if ($id -and $taken[$id]) { $had.Add($id); continue }
+        $row = Get-ChatqRowById $id 'claude' ([string](Get-ChatField $i 'Path')) ([string](Get-ChatField $i 'Cwd'))
+        if (-not $row) { $fails.Add("${title}: not found"); continue }
+        $made = New-ChatqJob -Row $row -Kind continue -Rule 'continue'
+        if ($made.Error) { $fails.Add("${title}: $($made.Error)") }
+        else { $queued.Add($made.Job); $taken[$id] = $true }
+    }
+    return [pscustomobject]@{ Queued = $queued.ToArray(); Had = $had.ToArray(); Fails = $fails.ToArray() }
 }
 
 function Remove-ChatqJob {
@@ -509,6 +556,15 @@ function chatq {
     Take what is on the clipboard now: a screenshot, files copied in Explorer,
     or text. Text becomes the prompt, or is added under the one given. In the
     editor tab, Ctrl+V pastes an image into the prompt too.
+    .PARAMETER AutoContinue
+    What becomes of a chat the usage limit cuts off. With no title, the
+    switch for every chat: ask (the default) - once the limit is over, the
+    overlay says how many chats it cut off, and continues them if you say
+    so; on - "continue" is queued for each by itself, a minute after the
+    reset; off - they are only marked. With a title or a job number, that
+    chat's own: always (continued even with the switch on ask or off),
+    never, or default (follow the switch). Run it on its own - it queues
+    nothing.
     .EXAMPLE
     chatq 'Parser rewrite and plugin unification' -Prompt 'Also update the changelog'
     .EXAMPLE
@@ -517,6 +573,10 @@ function chatq {
     chatq 'Card layout redesign' -Prompt 'Match these two mock-ups' -Attach .\a.png, .\b.png
     .EXAMPLE
     chatq 'Card layout redesign' -Prompt 'What is wrong in this screenshot?' -Paste
+    .EXAMPLE
+    chatq -AutoContinue off
+    .EXAMPLE
+    chatq 'Parser rewrite' -AutoContinue never
     #>
     param(
         [Parameter(Position = 0, ValueFromRemainingArguments)][string[]]$Target,
@@ -531,9 +591,17 @@ function chatq {
         [string]$Model,
         [switch]$First,
         [string[]]$Attach,
-        [switch]$Paste
+        [switch]$Paste,
+        [ValidateSet('on', 'ask', 'off', 'always', 'never', 'default')][string]$AutoContinue
     )
     Set-StrictMode -Off
+    # chatq -AutoContinue: a setting, not a job (src/auto-continue.ps1).
+    # Refused beside anything that would queue, so a prompt typed with it is
+    # never taken as queued.
+    if ($PSBoundParameters.ContainsKey('AutoContinue')) {
+        Invoke-ChatqAutoCommand -Value $AutoContinue -Target ((@($Target) -join ' ').Trim()) -Given @($PSBoundParameters.Keys) -WhatIf:$WhatIf -Provider $Provider -AllProjects:$AllProjects
+        return
+    }
     $t = (@($Target) -join ' ').Trim()
     if (-not $t) { Write-ChatqCheatSheet; Write-ChatqList; return }
 
@@ -926,6 +994,23 @@ function chatnotify {
     in front, since away means nobody is looking at it. -LiveAlerts off
     keeps the phone to what chatq runs.
 
+    Usage heads-ups: 'usage' alerts when a 5-hour or weekly window reaches
+    -UsageAt (90; up to three, 75, 90), from the overlay; and, from the
+    watcher, 10 minutes before a limit resets with prompts queued - the
+    phone's page offers Send now - and when it has. -UsageAlerts off,
+    -UsageReset off.
+
+    Quiet hours: -QuietHours 00:00-07:00 (this PC's clock) holds the
+    phone's alerts, except -Urgent (failed, unless named otherwise; none
+    for nothing), and sends them as one summary when the window ends. The
+    toast and your command still run; the command gets CHATQ_QUIET=1.
+    -QuietHours off sends what was held at once.
+
+    -Say 'needs input', failed: Join reads a short line aloud on the phone
+    for those events - through its speaker too, when no headphones are
+    in. -SayLanguage auto (Korean for a Hangul title), en, ko or another
+    code; none for nothing.
+
     -Reply on: each phone alert carries a link to a page where you type the
     next prompt for that chat - or allow edits, retry, skip, stop, ask for
     the status - and the watcher picks it up. The phone is paired once first
@@ -944,6 +1029,23 @@ function chatnotify {
     and every <user>.github.io project page shares one. -Setup opens all of
     this in a window (Windows); -Devices lists the devices on your Join
     account.
+
+    -Permit on: a queued Claude run that meets a permission prompt asks the
+    phone - a push that names the chat and the kind of call, and a page
+    that shows the call itself, sealed for the phone - and waits
+    -PermitWait minutes (10) for Allow once or Deny. Off by default: it lets
+    the phone make a command run on this PC. -PermitTools names what the
+    phone may approve (default: Bash, PowerShell, Edit, Write, MultiEdit,
+    NotebookEdit, WebFetch; mcp__server__* for an MCP server's tools).
+
+    The page shows Claude's whole answer with done, needs input and failed
+    (-FullText off leaves the alert's excerpt only), and opened from a
+    bookmark it is the overlay on the phone - usage, every chat, the queue -
+    where you can queue to any chat, act on the queue, or start a chat in a
+    folder chatq knows (-Compose off turns that off; -NewMode sets the mode
+    a new one runs in, capped as replies are). The PC reads the phone while
+    an alert is out; -Listen always keeps a hidden PowerShell listening
+    while a phone is paired, asking ntfy.sh every 20 s.
 
     chatqnotify is the old name, from when this only served chatq's queue,
     and still works.
@@ -967,13 +1069,25 @@ function chatnotify {
     chatnotify -Test
     .EXAMPLE
     chatnotify -LiveAlerts off
+    .EXAMPLE
+    chatnotify -UsageAt 75, 90
+    .EXAMPLE
+    chatnotify -QuietHours 00:00-07:00 -Urgent failed, 'needs input'
+    .EXAMPLE
+    chatnotify -Say 'needs input', failed
+    .EXAMPLE
+    chatnotify -Permit on -PermitWait 15
     #>
     param(
         [string]$ApiKey, [string]$Device, [switch]$Test, [switch]$Off,
         [string]$Ntfy, [string]$NtfyServer, [string]$NtfyToken,
         [string]$Command, [ValidateSet('on', 'off')][string]$Toast, [int]$QuietMinutes = -1,
         [switch]$Setup, [ValidateSet('on', 'off', 'renew')][string]$Reply, [string[]]$Events, [switch]$Devices, [switch]$Pair,
-        [string]$Confirm, [string]$ReplyPage, [ValidateSet('on', 'off')][string]$LiveAlerts
+        [string]$Confirm, [string]$ReplyPage, [ValidateSet('on', 'off')][string]$LiveAlerts,
+        [ValidateSet('on', 'off')][string]$UsageAlerts, [string[]]$UsageAt, [ValidateSet('on', 'off')][string]$UsageReset,
+        [string]$QuietHours, [string[]]$Urgent, [string[]]$Say, [string]$SayLanguage,
+        [ValidateSet('on', 'off')][string]$Permit, [string]$PermitWait, [string[]]$PermitTools,
+        [ValidateSet('on', 'off')][string]$FullText, [ValidateSet('on', 'off')][string]$Compose, [ValidateSet('alerts', 'always')][string]$Listen, [string]$NewMode
     )
     Set-StrictMode -Off
     if ($PSBoundParameters.ContainsKey('Confirm')) {
@@ -994,6 +1108,9 @@ function chatnotify {
         Write-Host '      chatnotify -QuietMinutes 5 / -Toast on / -Test' -ForegroundColor Cyan
         Write-Host '      chatnotify -Ntfy <topic> [-NtfyServer <url>] / -Command <ps>   other channels' -ForegroundColor Cyan
         Write-Host '      chatnotify -LiveAlerts on|off / -ReplyPage <https URL>' -ForegroundColor Cyan
+        Write-Host '      chatnotify -UsageAt 90 / -UsageReset on|off / -QuietHours 00:00-07:00 / -Say ''needs input''' -ForegroundColor Cyan
+        Write-Host '      chatnotify -Permit on|off [-PermitWait <min>]                 approve tool calls from the phone' -ForegroundColor Cyan
+        Write-Host '      chatnotify -FullText on|off / -Compose on|off / -Listen alerts|always / -NewMode <mode>' -ForegroundColor Cyan
         return
     }
     if ($Devices) {
@@ -1026,6 +1143,15 @@ function chatnotify {
     if ($PSBoundParameters.ContainsKey('Events')) { $ch['Events'] = $Events }
     if ($PSBoundParameters.ContainsKey('ReplyPage')) { $ch['ReplyPage'] = $ReplyPage }
     if ($LiveAlerts) { $ch['LiveAlerts'] = $LiveAlerts }
+    foreach ($xn in 'UsageAlerts', 'UsageAt', 'UsageReset', 'QuietHours', 'Urgent', 'Say', 'SayLanguage') { if ($PSBoundParameters.ContainsKey($xn)) { $ch[$xn] = $PSBoundParameters[$xn] } }
+    if ($Permit) { $ch['Permit'] = $Permit }
+    if ($PSBoundParameters.ContainsKey('PermitWait')) { $ch['PermitWait'] = $PermitWait }
+    if ($PSBoundParameters.ContainsKey('PermitTools')) { $ch['PermitTools'] = $PermitTools }
+    # the whole answer, the board and new chats, listening all the time
+    if ($FullText) { $ch['FullText'] = $FullText }
+    if ($Compose) { $ch['Compose'] = $Compose }
+    if ($Listen) { $ch['Listen'] = $Listen }
+    if ($NewMode) { $ch['NewMode'] = $NewMode }
     # renew is what pairing afresh used to be called, and does the same
     if ($Reply -eq 'renew') { $Pair = $true }
     elseif ($Reply) { $ch['Reply'] = $Reply }
@@ -1047,6 +1173,7 @@ function chatnotify {
         # -Loud: typed at the PC by definition, and meant for the phone anyway
         $ok = Send-ChatqAlert 'test' "chatq reaches this device $($script:ChatqDot) $([Environment]::MachineName)" 1 -Loud
         foreach ($r in @($script:ChatqAlertReport)) { Write-Host "  $r" -ForegroundColor $(if ($r -match ': (sent|shown|ran)$') { 'Green' } else { 'Yellow' }) }
+        if (Test-ChatqQuietIn (Get-ChatqConfig)) { Write-Host '  quiet hours now - only urgent alerts and tests go' -ForegroundColor DarkGray }
         if ($ok) {
             Write-Host '  check your phone' -ForegroundColor Green
             if ((Get-ChatqReplyConfig).Links) { Write-Host '  tap it for the reply page - "Send a test reply" comes back here as a push' -ForegroundColor DarkGray }
@@ -1066,6 +1193,7 @@ function chatnotify {
             Write-Host "  the phone gets: $(@($cfg.phoneEvents) -join ', ') (and tests and replies)" -ForegroundColor DarkGray
         }
         Write-Host "  chats you run yourself: $(Get-ChatqLiveAlertStatusText $cfg)" -ForegroundColor DarkGray
+        Write-ChatqNotifyExtrasStatus $cfg
         $rst = Get-ChatqPhoneStatusText $cfg
         Write-Host "  replies from the phone: $rst" -ForegroundColor DarkGray
         if ($rst -eq 'not paired') { Write-Host '    chatnotify -Pair sends the pairing alert to tap' -ForegroundColor DarkGray }
@@ -1076,6 +1204,8 @@ function chatnotify {
         }
         $rcs = Get-ChatqReplyConfig $cfg
         if ($rcs.Wanted -and $rcs.MaxMode -ne 'acceptEdits') { Write-Host "    a reply runs a job in $($rcs.MaxMode) at most" -ForegroundColor DarkGray }
+        Write-Host "  permissions from the phone: $(Get-ChatqPermitStatusText $cfg)" -ForegroundColor DarkGray
+        Write-ChatqBoardNotifyStatus $cfg
         if ($any) { Write-Host '  chatnotify -Test sends one' -ForegroundColor DarkGray }
         else {
             Write-Host '  no phone alerts yet - Join or ntfy:' -ForegroundColor DarkGray
@@ -1091,6 +1221,7 @@ function Write-ChatqCheatSheet {
     Write-Host ''
     Write-Host '  chatq <title> [-Prompt s]   queue a prompt for that chat (no -Prompt: editor)' -ForegroundColor Cyan
     Write-Host '  chatq <title> -Continue     queue "continue" for a chat the limit cut off' -ForegroundColor Cyan
+    Write-Host '  chatq [<title>] -AutoContinue ask|on|off|never  what the limit cuts off: ask, continue by itself, or leave' -ForegroundColor Cyan
     Write-Host '  chatq <n>                   open queued prompt n' -ForegroundColor Cyan
     Write-Host '  chatqlist [-Board]          the queue; -Board = live board in VS Code' -ForegroundColor Cyan
     Write-Host '  chatqrm <n> [-Force]        drop a job; -Force cancels a running one' -ForegroundColor Cyan

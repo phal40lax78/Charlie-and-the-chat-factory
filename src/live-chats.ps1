@@ -514,7 +514,9 @@ function Show-ChatFresh {
     #>
     param([string]$SessionId, [string]$Cwd, [string]$Title, [string]$TitleB64, [string]$ConfigDir,
         [string]$Transcript, [ValidateSet('run', 'chip', 'button')][string]$Via = 'chip',
-        [int]$Seconds = $script:ChatIdleSeconds, $Away = $null)
+        [int]$Seconds = $script:ChatIdleSeconds, $Away = $null,
+        # -Auto: the run was auto-continue's; the request says "auto": true
+        [switch]$Auto)
     $codes = @{ ok = 0; held = 10; running = 15; other = 20; 'not-raised' = 25; missing = 30; 'no-code' = 40; 'code-failed' = 41; bad = 50 }
     $logIt = $false
     $done = {
@@ -568,7 +570,7 @@ function Show-ChatFresh {
     $outcome = switch ($j.OldProcess) { 'held' { 'held' } 'other' { 'other' } default { 'ok' } }
     if ($Via -eq 'run') {
         Write-ChatReloadRequest -Title $Title -Cwd $Cwd -Kind 'ran' -Busy $busy -Away $Away -SessionId $SessionId `
-            -ConfigHome $ConfigDir -OldProcess $j.OldProcess -HostPids $j.HostPids -Transcript $Transcript
+            -ConfigHome $ConfigDir -OldProcess $j.OldProcess -HostPids $j.HostPids -Transcript $Transcript -Auto:$Auto
     }
     elseif ($Via -eq 'chip' -and $j.OldProcess -ne 'other') {
         Write-ChatOpenRequest -SessionId $SessionId -Cwd $Cwd -Title $Title -ConfigHome $ConfigDir -Busy $busy `

@@ -29,10 +29,11 @@ function Get-Slug([string]$Path) { $Path.TrimEnd('\', '/') -replace '[^A-Za-z0-9
 
 function New-FakeChat {
     # one Claude transcript: a prompt and a reply per entry in $Prompts, the
-    # title record, and optionally the synthetic limit record at the end
+    # title record, and optionally the synthetic limit record at the end -
+    # its uuid -LimitUuid, which names that cut-off (Get-ChatqCutKey)
     param([string]$Proj, [string]$Id, [string]$Title, [double]$HoursAgo, [string[]]$Prompts,
         [string]$Mode = 'auto', [switch]$CutOff, [int64]$ResetsAt, [int]$PadBytes = 0, [switch]$ModeFarBack,
-        [switch]$Overloaded, [string]$LimitType = 'five_hour', [string]$HomeDir = $claudeHome)
+        [switch]$Overloaded, [string]$LimitType = 'five_hour', [string]$HomeDir = $claudeHome, [string]$LimitUuid = [guid]::NewGuid().ToString())
     $dir = Join-Path (Join-Path $HomeDir 'projects') (Get-Slug $Proj)
     $null = New-Item -ItemType Directory -Path $dir -Force
     $path = Join-Path $dir "$Id.jsonl"
@@ -58,7 +59,7 @@ function New-FakeChat {
     }
     [void]$sbuf.AppendLine(([ordered]@{ type = 'ai-title'; aiTitle = $Title; sessionId = $Id } | ConvertTo-Json -Compress))
     if ($CutOff) {
-        $s = [ordered]@{ parentUuid = $null; isSidechain = $false; type = 'assistant'; uuid = [guid]::NewGuid().ToString(); timestamp = $t.ToString('o')
+        $s = [ordered]@{ parentUuid = $null; isSidechain = $false; type = 'assistant'; uuid = $LimitUuid; timestamp = $t.ToString('o')
             message = [ordered]@{ model = '<synthetic>'; role = 'assistant'; content = @([ordered]@{ type = 'text'; text = "You've hit your session limit" }) }
             quotaLimits = [ordered]@{ status = 'rejected'; resetsAt = $ResetsAt; rateLimitType = $LimitType }
             error = 'rate_limit'; isApiErrorMessage = $true; cwd = $Proj; sessionId = $Id }
@@ -232,6 +233,10 @@ $script:ChatqToastSeam = { param($t, $x) $script:Toasts.Add("$t|$x") }
 $script:ChatqIdleSeam = 99999
 $script:Ntfys = [System.Collections.Generic.List[object]]::new()
 $script:ChatqNtfySeam = { param($server, $body, $headers) $script:Ntfys.Add([pscustomobject]@{ Server = $server; Body = $body; Headers = $headers }) }
+# nor to the phone's down topic (src/phone-down.ps1): the whole answer an
+# alert sends ahead of its push lands here, from the first section on
+$script:Downs = [System.Collections.Generic.List[object]]::new()
+$script:ChatqDownSeam = { param($m, $u, $h, $b) $script:Downs.Add([pscustomobject]@{ Method = $m; Url = $u; Headers = $h; Body = $b }); $null }
 $script:ChatNoGhostWatch = $true
 # and no real background watcher: one would outlive the sandbox it runs in
 $script:ChatqSpawn = { $true }

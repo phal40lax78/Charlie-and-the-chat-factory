@@ -14,18 +14,45 @@ $script:ChatOverlayJxa = @'
 var CO = {
   clamp: function (v, lo, hi) { return Math.max(lo, Math.min(hi, v)); },
   pad: function (n) { return (n < 10 ? '0' : '') + n; },
+  // English whatever the Mac's language, as the Windows panel's are
+  days: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
   until: function (ms, now) {
     if (!ms) { return ''; }
     var s = (ms - now) / 1000;
     if (s <= 0) { return 'reset'; }
     if (s >= 86400) {
       var d = new Date(ms);
-      return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()] + ' ' + CO.pad(d.getHours()) + ':' + CO.pad(d.getMinutes());
+      return CO.days[d.getDay()] + ' ' + CO.pad(d.getHours()) + ':' + CO.pad(d.getMinutes());
     }
     var m = Math.floor(s / 60);
     if (m >= 60) { return Math.floor(m / 60) + 'h ' + (m % 60) + 'm'; }
     if (m >= 1) { return m + 'm'; }
     return Math.ceil(s) + 's';
+  },
+  // the clock time a limit is over: HH:mm today, with the weekday after;
+  // nothing once it has passed. Format-ChatOverlayResetAt's twin.
+  at: function (ms, now) {
+    if (!ms || ms <= now) { return ''; }
+    var d = new Date(ms), n = new Date(now);
+    var hm = CO.pad(d.getHours()) + ':' + CO.pad(d.getMinutes());
+    if (d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate()) { return hm; }
+    return CO.days[d.getDay()] + ' ' + hm;
+  },
+  // the label of the one window whose reset a usage line shows, or null: of
+  // the limited ones, the latest reset - you are blocked until then - else
+  // the 5h window's. Get-ChatOverlayResetWindow's twin.
+  resetFor: function (windows, now) {
+    var best = null, i, w;
+    for (i = 0; i < (windows || []).length; i++) {
+      w = windows[i];
+      if (w.limited && w.resetsAt > now && (!best || w.resetsAt > best.resetsAt)) { best = w; }
+    }
+    if (best) { return best.label; }
+    for (i = 0; i < (windows || []).length; i++) {
+      w = windows[i];
+      if (w.label === '5h' && w.resetsAt > now) { return w.label; }
+    }
+    return null;
   },
   colors: {
     waiting: [0.96, 0.73, 0.26], 'needs-input': [0.96, 0.73, 0.26], busy: [0.30, 0.76, 0.54],
@@ -68,11 +95,15 @@ var CO = {
       if (!bars) {
         // one line a provider, when its figure is from at the end
         var line = [[(u.provider + '        ').slice(0, 8), u.stale ? 'faint' : 'text', true]];
+        // one reset time a line: the window you wait on, not every one
+        var rw = CO.resetFor(u.windows, now), told = false;
         for (j = 0; j < u.windows.length; j++) {
           var v = u.windows[j];
           if (j) { line.push([' \u00B7 ', 'faint', false]); }
           line.push([v.label + ' ', 'dim', false]);
           line.push([v.percent + '%', u.stale ? 'faint' : (v.limited ? 'critical' : (v.severity === 'warning' || v.severity === 'critical' ? v.severity : 'text')), true]);
+          var t = !told && rw !== null && v.label === rw ? CO.at(v.resetsAt, now) : '';
+          if (t) { told = true; line.push([' resets ' + t, v.limited ? 'critical' : 'dim', false]); }
         }
         if (u.status) { line.push(['   ' + u.status, 'faint', false]); }
         out.push(line);
@@ -121,6 +152,37 @@ var CO = {
     var c = (snap && snap.counts) || {};
     var need = (c.waiting || 0) + (c.needsInput || 0);
     return need ? 'CQ ' + need : 'CQ';
+  },
+  // the menu's continue item while the snapshot asks about cut-off chats;
+  // '' hides it and Leave them
+  askTitle: function (snap) {
+    var a = snap && snap.header && snap.header.ask;
+    if (!a || !a.count) { return ''; }
+    return 'Continue ' + a.count + ' cut-off chat' + (a.count === 1 ? '' : 's');
+  },
+  // the cut-offs the menu's items stand for, as the snapshot they were
+  // drawn from named them - a key is id_uuid, nothing else goes in
+  askKeys: function (snap) {
+    var a = snap && snap.header && snap.header.ask;
+    var ks = (a && a.keys) || [];
+    return ks.map(String).filter(function (k) { return /^[0-9A-Za-z-]+_[0-9A-Za-z-]+$/.test(k); }).join(',');
+  },
+  // the line an answer writes to overlay-cmd: the verb and the keys it
+  // showed. The item's title is set on a timer that does not fire while the
+  // menu is open, so the host answers these, never its newer snapshot's;
+  // none drawn is "none", which answers nothing
+  askLine: function (verb, keys) {
+    return verb + ' ' + (keys || 'none');
+  },
+  // auto-continue's automatic mode as the snapshot has it: on only when it
+  // says so - the default, ask, and off are not
+  autoOn: function (snap) {
+    var h = snap && snap.header;
+    return !!(h && (h.autoContinue === 'on' || (h.autoContinue === undefined && h.autoOn === true)));
+  },
+  // the verb a click on the menu item writes: on, or back to the default
+  autoVerb: function (snap) {
+    return CO.autoOn(snap) ? 'auto-ask' : 'auto-on';
   }
 };
 
@@ -272,6 +334,8 @@ function run(argv) {
     var verbs = CO.applyCommands(snap && snap.commands, startedAt, seen);
     for (var i = 0; i < verbs.length; i++) { apply(verbs[i]); }
     item.button.setTitle(CO.menuTitle(snap));
+    stepAsk();
+    try { autoItem.setState(CO.autoOn(snap) ? 1 : 0); } catch (e) {}
     if (!hidden) { paint(now); }
     var f = panel.frame, key = f.origin.x + ',' + f.origin.y;
     if (lastFrame && key !== lastFrame) { saveState(); }
@@ -285,20 +349,58 @@ function run(argv) {
       'toggleLock:': { types: ['void', ['id']], implementation: function (m) { apply('toggle'); } },
       'toggleHide:': { types: ['void', ['id']], implementation: function (m) { apply(hidden ? 'show' : 'hide'); } },
       'moveHome:': { types: ['void', ['id']], implementation: function (m) { apply('reset'); } },
-      'quit:': { types: ['void', ['id']], implementation: function (m) { append(cmdPath, new Date().toISOString() + ' stop\n'); app.terminate(null); } }
+      // the collector sets it (Set-ChatqAutoContinue), and the next
+      // snapshot's autoContinue moves the check
+      'toggleAuto:': { types: ['void', ['id']], implementation: function (m) { try { append(cmdPath, new Date().toISOString() + ' ' + CO.autoVerb(snap) + '\n'); } catch (e) {} } },
+      'quit:': { types: ['void', ['id']], implementation: function (m) { append(cmdPath, new Date().toISOString() + ' stop\n'); app.terminate(null); } },
+      // the host answers, as it does a stop: it holds the ask and the jobs
+      'askGo:': { types: ['void', ['id']], implementation: function (m) { try { append(cmdPath, new Date().toISOString() + ' ' + CO.askLine('ask-go', askKeys) + '\n'); } catch (e) {} } },
+      'askLeave:': { types: ['void', ['id']], implementation: function (m) { try { append(cmdPath, new Date().toISOString() + ' ' + CO.askLine('ask-leave', askKeys) + '\n'); } catch (e) {} } }
     }
   });
   var target = $.ChatOverlayTarget.alloc.init;
+  // at the very top, as on Windows, and only while the snapshot asks. None
+  // of this has run on a Mac, so a bridge call that fails costs the ask
+  // items, never the panel.
+  // askKeys: what the items stand for, as last drawn - an answer names them
+  var askGo = null, askLeave = null, askSep = null, askShown = null, askKeys = '';
+  try {
+    askGo = add('Continue cut-off chats', 'askGo:');
+    askLeave = add('Leave them', 'askLeave:');
+    askSep = $.NSMenuItem.separatorItem;
+    menu.addItem(askSep);
+  } catch (e) {}
+  var stepAsk = function () {
+    var t = CO.askTitle(snap), a = snap && snap.header && snap.header.ask;
+    var tip = ((a && a.titles) || []).join('\n');
+    var keys = t ? CO.askKeys(snap) : '';
+    if (t + '|' + tip + '|' + keys === askShown) { return; }
+    askShown = t + '|' + tip + '|' + keys;
+    askKeys = keys;
+    try {
+      if (askGo) {
+        askGo.setTitle(t || 'Continue cut-off chats');
+        askGo.setToolTip(tip);
+        askGo.setHidden(!t);
+      }
+      if (askLeave) { askLeave.setHidden(!t); }
+      if (askSep) { askSep.setHidden(!t); }
+    } catch (e) {}
+  };
+  stepAsk();
   add('VS-code-chat-manager overlay', null);
   menu.addItem($.NSMenuItem.separatorItem);
   var lockItem = add(locked ? 'Unlock to move' : 'Lock', 'toggleLock:');
   var hideItem = add(hidden ? 'Show' : 'Hide', 'toggleHide:');
   add('Move to top right', 'moveHome:');
+  var autoItem = add('Auto-continue cut-off chats', 'toggleAuto:');
+  try { autoItem.setState(CO.autoOn(read(snapPath)) ? 1 : 0); } catch (e) {}
   menu.addItem($.NSMenuItem.separatorItem);
   add('Quit', 'quit:');
   item.setMenu(menu);
 
   snap = read(snapPath);
+  stepAsk();
   paint(Date.now());
   if (!hidden) { panel.orderFrontRegardless; }
   $.NSTimer.scheduledTimerWithTimeIntervalTargetSelectorUserInfoRepeats(1.0, target, 'tick:', $(), true);
@@ -307,6 +409,51 @@ function run(argv) {
 
 if (typeof module !== 'undefined') { module.exports = CO; }
 '@
+
+# a notification (Show-ChatOverlayMacNotice), handed here instead of to
+# osascript - tests
+$script:ChatOverlayMacNotifySeam = $null
+
+function Show-ChatOverlayMacNotice {
+    # A macOS notification through osascript. The script goes in on stdin,
+    # so no argument quoting stands between the text and AppleScript; the
+    # text is escaped for an AppleScript string. Never throws.
+    param([string]$Text, [string]$Title = 'chatq')
+    $q = { param($s) '"' + (($s -replace '[\r\n]+', ' ') -replace '\\', '\\' -replace '"', '\"') + '"' }
+    $as = "display notification $(& $q $Text) with title $(& $q $Title)"
+    if ($script:ChatOverlayMacNotifySeam) { $null = & $script:ChatOverlayMacNotifySeam ([pscustomobject]@{ Title = $Title; Text = $Text; Script = $as }); return }   # tests
+    try { $null = $as | & osascript 2>$null }
+    catch { Write-ChatOverlayLog "notice: $($_.Exception.Message)" }
+}
+
+function Update-ChatOverlayMacAsk {
+    # After each pass: the ask the collector just found news of, and what an
+    # answer from the menu did, as notifications - then both are cleared,
+    # so each is said once. A click on one does nothing useful on macOS
+    # (it opens Script Editor), so the text points at the menu instead.
+    param($Ctx)
+    if ($Ctx.AskNews) {
+        $a = $Ctx.AskNews.Ask
+        $Ctx.AskNews = $null
+        try {
+            $n = [int]$a.Count
+            $titles = @(@($a.Items) | Select-Object -First 3 | ForEach-Object { Format-ChatTitle $_.Title 40 })
+            $list = $titles -join ', '
+            if ($n -gt $titles.Count) { $list += " and $($n - $titles.Count) more" }
+            # the day too once it is not today, as the note and the Windows balloon say it
+            $at = Format-ChatOverlayAskAt $a.ResetsAt
+            $chats = if ($n -eq 1) { '1 chat' } else { "$n chats" }
+            $head = if ($at) { "limit over at $at - " } else { '' }
+            Show-ChatOverlayMacNotice "$head$chats it cut off can continue: $list. Continue or leave them from the CQ menu."
+        }
+        catch { Write-ChatOverlayLog "ask: $($_.Exception.Message)" }
+    }
+    if ($Ctx.AskSaid) {
+        $t = [string]$Ctx.AskSaid
+        $Ctx.AskSaid = $null
+        Show-ChatOverlayMacNotice $t
+    }
+}
 
 function Start-ChatOverlayMacHost {
     <#
@@ -333,9 +480,15 @@ function Start-ChatOverlayMacHost {
         # the panel here draws rows alone: a Recent list would be built, and
         # its transcripts listed and read, for nothing
         $ctx.WantRecent = $false
+        # this host announces the reset ask and takes the menu's answer
+        $ctx.WantAsk = $true
+        # and its passes queue continues while the switch is on (src/auto-continue.ps1)
+        $ctx.WantAuto = $true
         Restore-ChatOverlayUsage $ctx
         # a snapshot on disk before the panel first looks for one
         [void](Invoke-ChatOverlayCycle $ctx)
+        # the first pass marks what it found as announced: say it now
+        Update-ChatOverlayMacAsk $ctx
         $launch = {
             # quoted by hand: Start-Process joins these with spaces as they are
             $S.Child = Start-Process -FilePath 'osascript' -PassThru -ArgumentList @('-l', 'JavaScript',
@@ -349,6 +502,7 @@ function Start-ChatOverlayMacHost {
             & $launch
             $why = Invoke-ChatOverlayCollectLoop $ctx -OnCycle {
                 param($snap)
+                Update-ChatOverlayMacAsk $ctx
                 if ($S.Child -and $S.Child.HasExited) {
                     $recent = @($S.Starts | Where-Object { $_ -gt (Get-Date).AddMinutes(-10) })
                     if ($recent.Count -ge 3) { Write-ChatOverlayLog 'the panel keeps exiting - stopping; see data/logs/overlay.err'; return 'panel' }

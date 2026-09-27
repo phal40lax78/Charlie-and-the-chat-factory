@@ -1019,6 +1019,14 @@ order:
 4. Voice: only when sent, not in quiet hours, event in `join.say`.
 5. Reply link (`w=1` for a soon usage alert), then the channels.
 
+Met in the 0.9.0 merge: a permission request
+([phone-permit-spec.md](phone-permit-spec.md)) is sent `-Loud -Quick`, so
+it passes steps 2 and 3 - a run waits on it, and a held one could only
+expire - and is never spoken. `permission` also passes step 1 always.
+At step 5 the whole answer ([phone-board-spec.md](phone-board-spec.md))
+goes to the down topic before the channels, and the link made again then
+keeps `w=1` and a permission card's `r=`.
+
 `chatnotify` alone prints, after the live-alerts line:
 
 ```

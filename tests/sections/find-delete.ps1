@@ -28,12 +28,12 @@ $hIdx = $ps.BeginInvoke()
 $null = $held.Wait(5000)
 $before = @(Get-ChatIndex)
 $extra = [pscustomobject]@{ Provider = 'claude'; Path = 'X:\held.jsonl'; Size = 1; Mtime = 1; Id = 'held-row'; Title = 'held'; Titled = 'ai'; Group = 'x'; Hidden = $false; When = (Get-Date).ToString('o'); First = @(); Last = @() }
-$warn = Save-ChatIndex @($before + $extra) 3>&1 | Out-String
+$warn = Save-ChatIndex @($before + $extra) 3>&1 | Out-String -Width 400
 $ps.EndInvoke($hIdx); $ps.Dispose()
 Check 'the index is saved even while a reader holds it a moment' (@(Get-ChatIndex | Where-Object { $_.Id -eq 'held-row' }).Count -eq 1 -and -not $warn.Trim()) $warn
 Save-ChatIndex $before
 $fh = [System.IO.File]::Open($script:ChatIndexPath, 'Open', 'Read', 'ReadWrite')
-try { $warn = Save-ChatIndex @($before + $extra) 3>&1 | Out-String } finally { $fh.Dispose() }
+try { $warn = Save-ChatIndex @($before + $extra) 3>&1 | Out-String -Width 400 } finally { $fh.Dispose() }
 Check 'a hold that outlasts the tries says so, never silently' ($warn -like '*chat index was not saved*' -and -not @(Get-ChatIndex | Where-Object { $_.Id -eq 'held-row' })) $warn
 
 chatrm 'Doomed chat one' -Force *> $null

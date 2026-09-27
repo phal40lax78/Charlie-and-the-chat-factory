@@ -2,7 +2,7 @@
     "name": "vs-code-chat-manager",
     "displayName": "VS Code Chat Manager",
     "description": "Find, delete and archive Claude Code, Codex and Copilot chats; queue prompts for when the usage limit resets; see every running chat in an always-on-top overlay. Installs its PowerShell commands and keeps them up to date.",
-    "version": "0.8.1",
+    "version": "0.9.0",
     "publisher": "redaechan",
     "license": "MIT",
     "icon": "icon.png",
@@ -72,6 +72,11 @@
             {
                 "command": "chatManager.phoneAlerts",
                 "title": "Phone alerts...",
+                "category": "Chat Manager"
+            },
+            {
+                "command": "chatManager.autoContinue",
+                "title": "Auto-continue cut-off chats...",
                 "category": "Chat Manager"
             }
         ],

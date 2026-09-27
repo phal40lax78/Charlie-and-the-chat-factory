@@ -740,7 +740,9 @@ Check 'inside a named wait it says it did not ask - at the end of Claude''s line
 $cq.Config.usageView = 'bars'
 $snapB = Invoke-ChatOverlayCycle $cq -Peek
 $cq.Config.usageView = 'lines'
-Check 'as bars too: the same few words by the name, and no row of their own' ((& $clOf $snapB) -eq 'not asked - wait' -and -not @($snapB.header.notes).Count) "$(& $clOf $snapB) | $(@($snapB.header.notes).Count)"
+# the sandbox's own cut-offs may bring the reset ask's note: that is no usage note
+$usageNotes = @($snapB.header.notes | Where-Object { -not ($_.PSObject.Properties['kind'] -and $_.kind -eq 'ask') })
+Check 'as bars too: the same few words by the name, and no row of their own' ((& $clOf $snapB) -eq 'not asked - wait' -and -not $usageNotes.Count) "$(& $clOf $snapB) | $(@($usageNotes | ForEach-Object { $_.text }) -join ' / ')"
 # each usage line's end, and when a time needs its date
 $nowS = Get-Date '2026-09-23T22:30:00'
 $msOf = { param($d) [DateTimeOffset]::new($d).ToUnixTimeMilliseconds() }
@@ -1391,7 +1393,7 @@ Update-ChatOverlayView `$H `$snap
 # the handle, beside the grip
 `$hd = `$H.CtlLine.Children[1]
 `$handle = `$hd -eq `$H.CtlSize -and `$hd.ToolTip -eq 'Drag to resize - sideways for width, up and down for rows' -and `$hd.Cursor -eq [System.Windows.Input.Cursors]::SizeNESW -and
-    `$H.CtlLine.Children[2] -eq `$H.CtlButtons[1] -and `$H.CtlButtons[4].ToolTip -eq 'Settings - size, rows, opacity, theme, usage, compact rows, recent chats' -and
+    `$H.CtlLine.Children[2] -eq `$H.CtlButtons[1] -and `$H.CtlButtons[4].ToolTip -eq 'Settings - size, rows, opacity, theme, usage, compact rows, recent chats, cut-off chats' -and
     `$H.CtlButtons[6].ToolTip -like 'Close the overlay - it starts again with the next shell or VS Code window*'
 # the sliders: whole numbers, their values beside them
 Set-ChatOverlaySettingsOpen `$H `$true
@@ -1807,6 +1809,10 @@ Update-ChatConsoleStaging `$H
 Invoke-ChatConsolePaste `$H (Get-ChatConsoleClipboard)
 `$staged = (@(`$C.Staged | ForEach-Object Name | Sort-Object) -join ',')
 `$C.Prompt.Text = 'from the console'
+# a pass first: a process's first one over the whole sandbox can take most
+# of the 10 s a watcher Send asks for has to come up in, and Send's own pass
+# would then find the stand-in watcher late and say it did not start
+`$null = Invoke-ChatOverlayCycle `$H.Ctx -Peek
 Invoke-ChatConsoleSend `$H
 `$j = @(Get-ChatqJobs | Where-Object { (Read-ChatqPrompt `$_) -eq 'from the console' })[0]
 `$files = (@(Get-ChatqAttachments `$j | ForEach-Object Name | Sort-Object) -join ',')

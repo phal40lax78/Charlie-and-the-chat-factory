@@ -55,6 +55,21 @@ const openMessage = (message, k) => {
         return null;
     }
 };
+// the same for a message about no alert, "chatq3c.", under k_phone
+const openComposeMessage = (message, k) => {
+    const parts = String(message).split('.');
+    if (parts.length !== 5 || parts[0] !== 'chatq3c' || !/^[a-z2-7]{10}$/.test(parts[1])) return null;
+    const want = hmac(hmac(k, 'mac'), parts.slice(0, 4).join('.'));
+    const got = unb64(parts[4]);
+    if (got.length !== want.length || !nodeCrypto.timingSafeEqual(got, want)) return null;
+    try {
+        const d = nodeCrypto.createDecipheriv('aes-256-cbc', hmac(k, 'enc'), unb64(parts[2]));
+        const text = Buffer.concat([d.update(unb64(parts[3])), d.final()]).toString('utf8');
+        return { cid: parts[1], text, json: JSON.parse(text) };
+    } catch (e) {
+        return null;
+    }
+};
 // the PC's private key, from the fixture's .NET-shaped fields
 const pairKey = (() => {
     try {
@@ -187,7 +202,7 @@ const randomAid = () => Array.from(nodeCrypto.randomBytes(10), (b) => 'abcdefghi
             [2, 3, 4].every((i) => openMessage(flip(s1.message, i), Buffer.from(rk)) === null));
         check('nor does another alert\'s key', openMessage(s1.message, nodeCrypto.randomBytes(32)) === null);
         const lost = [];
-        for (const act of ['prompt', 'retry', 'allow', 'skip', 'stop', 'status', 'ping']) {
+        for (const act of ['prompt', 'retry', 'allow', 'skip', 'stop', 'status', 'ping', 'wake']) {
             const o = openMessage((await C.seal(rk, raid, act, act === 'prompt' ? 'x' : '')).message, Buffer.from(rk));
             if (!o || o.json.act !== act) lost.push(act);
         }
@@ -415,18 +430,75 @@ const randomAid = () => Array.from(nodeCrypto.randomBytes(10), (b) => 'abcdefghi
         check('a j=live link parses to job live and keeps it in the tab\'s fragment',
             lp.ok && lp.f.job === 'live' && /(^|&)j=live(&|$)/.test(P.alertFragment(lp.f)) &&
             P.buttonsFor(lp.f.event, lp.f.provider, lp.f.jobless, lp.f.job).more.map((x) => x.act).join() === 'status', JSON.stringify(lp));
-        const ACTS = ['prompt', 'retry', 'allow', 'skip', 'stop', 'status', 'ping'];
+        // auto-continue (0.9.0): limited about a continue still queued offers
+        // Don't continue - skip, which the watcher knows, two taps
+        const lim = P.buttonsFor('limited', 'claude', false, 'queued');
+        const dont = lim.more[0] || {};
+        check('limited, a continue queued (j=queued): Send | Don\'t continue, two taps | Status, and the box says the prompt goes after it',
+            lim.send.act === 'prompt' && lim.more.map((x) => x.act).join() === 'skip,status' && dont.label === 'Don\'t continue' &&
+            dont.confirm === 'Tap again - it will not continue' && lim.placeholder === 'Next prompt - goes after the continue' &&
+            P.buttonsFor('limited', 'claude', false, 'live').more.map((x) => x.act).join() === 'status' &&
+            P.buttonsFor('limited', 'claude', false, 'running').more.map((x) => x.act).join() === 'status', JSON.stringify(lim));
+        const ACTS = ['prompt', 'retry', 'allow', 'skip', 'stop', 'status', 'ping', 'wake',
+            'permit', 'refuse'];
         const offered = new Set();
-        for (const e of ['done', 'needs input', 'failed', 'started', 'test', 'limited', 'overloaded', 'waiting', 'reply', '']) {
+        for (const e of ['done', 'needs input', 'failed', 'started', 'test', 'limited', 'overloaded', 'waiting', 'reply', 'usage', 'summary', '']) {
             for (const p of ['claude', 'codex', '']) {
                 for (const x of [false, true]) {
-                    const b = P.buttonsFor(e, p, x);
-                    [b.send].concat(b.more).forEach((y) => offered.add(y.act));
+                    for (const w of [false, true]) {
+                        const b = P.buttonsFor(e, p, x, '', w);
+                        [b.send].concat(b.more).forEach((y) => offered.add(y.act));
+                    }
                 }
             }
         }
+        // a permission request: with a card that opened, and with none
+        for (const perm of [{ u: 1790000600000, h: 'AAAAAAAAAAAAAAAAAAAAAA' }, null]) {
+            const b = P.buttonsFor('permission', 'claude', false, 'running', false, perm, 1790000000000);
+            [b.send].concat(b.more).forEach((y) => offered.add(y.act));
+        }
         check('every act a button sends is one the watcher knows, and every one is offered somewhere',
             [...offered].every((a) => ACTS.includes(a)) && ACTS.every((a) => offered.has(a)) && P.ACTS.join() === ACTS.join(), [...offered].join());
+
+        // --- usage alerts, and text from outside the page (phone-extras-spec) ---
+        const wl = P.parseFragment(alertLink({ e: 'usage', n: '', c: '', p: '', j: '', x: '1', w: '1' }));
+        check('a usage alert about a reset coming: w=1 read as wake, and kept in the tab\'s fragment',
+            wl.ok && wl.f.wake === true && wl.f.jobless === true && /(^|&)w=1(&|$)/.test(P.alertFragment(wl.f)) &&
+            P.parseFragment(alertLink({})).f.wake === false && !/(^|&)w=/.test(P.alertFragment(P.parseFragment(alertLink({})).f)), JSON.stringify(wl.f));
+        check('usage with wake: no box, Send now big (wake), Status small; without: Status alone',
+            acts('usage', '', true) === 'status|' && (() => { const b = P.buttonsFor('usage', '', true, '', true); return b.send.act === 'wake' && b.send.label === 'Send now' &&
+                b.more.map((y) => y.act).join() === 'status' && b.text === false && /a probe goes first/.test(b.about); })() &&
+            /About usage limits/.test(P.buttonsFor('usage', '', true, '').about) && acts('summary', '', true) === 'status|' &&
+            P.buttonsFor('done', 'claude', true, '', true).send.act === 'status');
+        check('Send now says so once sent', P.sentText({ act: 'wake', label: 'Send now' }) === 'Sent "Send now". The PC answers with a push.');
+        const tx = (t) => P.parseFragment('#v=2&a=abcdefghij&e=done&n=3&c=x' + (t === undefined ? '' : '&text=' + t));
+        const t1 = tx('hello%20world');
+        check('text=: read into f.text, the link otherwise the same', t1.ok && t1.mode === 'alert' && t1.f.text === 'hello world' && t1.f.aid === 'abcdefghij', JSON.stringify(t1));
+        check('text=: + is a space, %2B a plus', tx('a+b%2Bc').f.text === 'a b+c');
+        check('text=: Hangul and a 4-byte emoji survive, CRLF is a newline, NUL and other controls go, the tab stays',
+            tx('%ED%95%9C%20%F0%9F%98%80').f.text === HANGUL[0] + ' ' + String.fromCodePoint(0x1F600) && tx('a%0D%0Ab%00c%07%09d').f.text === 'a\nbc\td', JSON.stringify(tx('a%0D%0Ab%00c%07%09d').f.text));
+        const brokenText = tx('%E0%A4');
+        check('text=: a broken escape is no text - and the link is still good', brokenText.ok === true && brokenText.f.text === '' && brokenText.f.event === 'done');
+        check('text=: over 16,000 characters is dropped, not cut', tx('a'.repeat(16001)).f.text === '' && tx('a'.repeat(16000)).f.text.length === 16000 && P.TEXT_MAX === 16000);
+        check('text=: none is empty; surrounding space trimmed', tx().f.text === '' && tx('%20%20hi%0A').f.text === 'hi');
+        const pairWithText = P.parseFragment(pairLink({}) + '&text=hello');
+        check('text= on a pairing link is not read; a v1 link is refused whole as ever', pairWithText.ok && pairWithText.mode === 'pair' && !('text' in pairWithText.f) &&
+            P.parseFragment('#v=1&a=abcdefghij&e=done&text=hi').why === 'old');
+        check('the tab\'s kept fragment never carries the text', !/text/.test(P.alertFragment(t1.f)) && P.parseFragment(P.alertFragment(t1.f)).f.text === '');
+        const specDone = P.buttonsFor('done', 'claude', false, 'done'), specTest = P.buttonsFor('test');
+        const pTest = P.prefill(specTest, { text: 'hi' }, null);
+        const pNew = P.prefill(specDone, { text: 'hi' }, null);
+        const pOver = P.prefill(specDone, { text: 'hi' }, { text: 'what I typed' });
+        const pSame = P.prefill(specDone, { text: 'hi' }, { text: 'hi' });
+        const pNone = P.prefill(specDone, { text: '' }, { text: 'draft' });
+        check('prefill: an alert that takes no text drops it and says so',
+            pTest.text === null && pTest.note === 'This alert takes no text - what was sent along was left out.' && P.prefill(specTest, { text: '' }, null).note === '');
+        check('prefill: the link\'s text wins, with the note; over a different draft the note says it replaced it',
+            pNew.text === 'hi' && pNew.note === P.PREFILL_NOTE && P.PREFILL_NOTE === 'Filled in from outside the page - check it, then Send.' &&
+            pOver.text === 'hi' && /It replaced what was typed here before\.$/.test(pOver.note) && pSame.note === P.PREFILL_NOTE);
+        check('prefill: no text from the link - the draft as ever, no note', pNone.text === 'draft' && pNone.note === '' && P.prefill(specDone, { text: '' }, null).text === '');
+        check('nothing a link can say names an act: no field of parseFragment\'s answer is act, send, press or confirm',
+            ['act', 'send', 'press', 'confirm', 'go'].every((k) => !(k in P.parseFragment(alertLink({ act: 'stop', send: '1', press: '1', confirm: '1', go: '1' })).f)));
 
         // --- the payload limit ---------------------------------------------------
         if (C) {
@@ -446,6 +518,9 @@ const randomAid = () => Array.from(nodeCrypto.randomBytes(10), (b) => 'abcdefghi
             check('and a quote or newline as the escape JSON writes', P.payloadBytes('"\n') - P.payloadBytes('') === 4);
         }
     }
+
+    // --- a permission request's card and answer (docs/phone-permit-spec.md) ----
+    await checkPermitLogic();
 
     // --- the whole page, against a fake DOM ------------------------------------
     await driveThePage();
@@ -469,20 +544,76 @@ const randomAid = () => Array.from(nodeCrypto.randomBytes(10), (b) => 'abcdefghi
     const fetches = html.match(/\bfetch\(/g) || [];
     const at = html.indexOf('fetch(');
     const opts = at < 0 ? '' : html.slice(at, html.indexOf('})', at) + 2);
-    check('one request only, a fetch - no XHR, beacon, socket or event source',
-        fetches.length === 1 && !/XMLHttpRequest|sendBeacon|WebSocket|EventSource|importScripts|\bimport\(/.test(html));
+    // the POST, and since 0.9.0 the GET that reads the down topic
+    const at2 = html.indexOf('fetch(', at + 1);
+    const getOpts = at2 < 0 ? '' : html.slice(at2, html.indexOf('})', at2) + 2);
+    check('two requests only, both fetch - the POST and the GET of the down topic; no XHR, beacon, socket or event source',
+        fetches.length === 2 && !/XMLHttpRequest|sendBeacon|WebSocket|EventSource|importScripts|\bimport\(/.test(html));
+    check('the GET: no header at all, no cookie, no referrer - a CORS simple request',
+        /method:\s*'GET'/.test(getOpts) && !/headers:/.test(getOpts) && /credentials:\s*'omit'/.test(getOpts) && /referrerPolicy:\s*'no-referrer'/.test(getOpts), getOpts);
     check('the POST: Content-Type text/plain and no other header - a CORS simple request',
         /method:\s*'POST'/.test(opts) && /headers:\s*\{\s*'Content-Type':\s*'text\/plain'\s*\}/.test(opts) && (opts.match(/headers:/g) || []).length === 1, opts);
     check('the POST sends no cookie and no referrer', /credentials:\s*'omit'/.test(opts) && /referrerPolicy:\s*'no-referrer'/.test(opts));
     const named = [...html.matchAll(/\bact:\s*'([^']*)'/g)].map((m) => m[1]);
+    // an alert's acts, read (the whole answer again), and the board's
+    // (docs/phone-board-spec.md) - tests/board-page-check.js holds those to
+    // the watcher's own list
+    const boardActs = ['read', 'board', 'list', 'send', 'new', 'continue', 'now'];
     check('every act written in the page is one the watcher knows', named.length > 0 &&
-        named.every((a) => ['prompt', 'retry', 'allow', 'skip', 'stop', 'status', 'ping'].includes(a)), named.join());
+        named.every((a) => ['prompt', 'retry', 'allow', 'skip', 'stop', 'status', 'ping', 'wake', 'permit', 'refuse'].concat(boardActs).includes(a)), named.join());
     check('the key is kept in IndexedDB chatq / phone, imported as a key that will not export; localStorage chatq-phone only without it',
         /var DB = 'chatq', DB_STORE = 'phone'/.test(html) && /indexedDB\.open\(DB, 1\)/.test(html) &&
         /importKey\('raw', d, \{ name: 'HMAC', hash: 'SHA-256' \}, false, \['sign'\]\)/.test(html) && !/importKey\('raw'[^)]*\btrue\b/.test(html) &&
         /'chatq-phone'/.test(html) && (html.match(/localStorage\.setItem\(/g) || []).length === 2 && /localStorage\.setItem\(PHONE, P\.phoneRecord/.test(html));
     check('no request event is told preventDefault inside a transaction: a failed write aborts, never completes as kept',
         !/tx\.onerror[^\n]*preventDefault/.test(html));
+    // No auto-send: press(, deliver( and seal( are called only from inside
+    // a click or keydown handler, or from press itself - so a link, a
+    // reload or any code that runs as the page opens can never send. A
+    // crude walk over the script (strings and comments skipped, braces
+    // counted) finds what each call sits inside.
+    {
+        const js = (html.match(/<script>([\s\S]*?)<\/script>/) || [])[1] || '';
+        const opens = [];
+        const calls = [];
+        for (let i = 0; i < js.length; i++) {
+            const c = js[i];
+            if (c === '/' && js[i + 1] === '/') { const nl = js.indexOf('\n', i); i = nl < 0 ? js.length : nl; continue; }
+            if (c === '/' && js[i + 1] === '*') { const e = js.indexOf('*/', i + 2); i = e < 0 ? js.length : e + 1; continue; }
+            if (c === '\'' || c === '"') { let j = i + 1; while (j < js.length && js[j] !== c) { if (js[j] === '\\') j++; j++; } i = j; continue; }
+            if (c === '/' && /[(,=:[!&|?{};]$|^$/.test(js.slice(0, i).trimEnd().slice(-1))) {
+                // a regex literal: to its closing slash, past any [...] in it
+                let j = i + 1, cls = false;
+                while (j < js.length && (cls || js[j] !== '/')) { if (js[j] === '\\') j++; else if (js[j] === '[') cls = true; else if (js[j] === ']') cls = false; j++; }
+                i = j;
+                continue;
+            }
+            if (c === '{') { opens.push(i); continue; }
+            if (c === '}') { opens.pop(); continue; }
+            if (/[\w$.]/.test(js[i - 1] || '')) continue;
+            const m = /^(?:C\.)?(press|deliver|seal)\(/.exec(js.slice(i, i + 12));
+            if (!m) continue;
+            if (/function\s+$/.test(js.slice(Math.max(0, i - 20), i))) continue;
+            calls.push({ name: m[1], at: i, stack: opens.slice() });
+            i += m[0].length - 1;
+        }
+        // askAlertRead seals act read - the whole answer sent again, which
+        // changes nothing on the PC - and runs only as a panel button's
+        // click (drawPanel's ask): held to that just below
+        const allowed = (pos) => {
+            const head = js.slice(Math.max(0, pos - 160), pos);
+            return /function press\s*\([^)]*\)\s*$/.test(head) || /addEventListener\('(click|keydown)',\s*function\s*\([^)]*\)\s*$/.test(head) ||
+                /async function askAlertRead\s*\(\)\s*$/.test(head);
+        };
+        const bad = calls.filter((c) => !c.stack.some(allowed));
+        check('no auto-send: every press(, deliver( and seal( is inside a click or keydown handler, or press itself',
+            calls.length >= 6 && calls.some((c) => c.name === 'seal') && calls.some((c) => c.name === 'deliver') && bad.length === 0,
+            calls.length + ' calls; outside: ' + bad.map((c) => c.name + ' @ ' + js.slice(c.at - 60, c.at + 20).replace(/\s+/g, ' ')).join(' | '));
+        const readCalls = [...js.matchAll(/askAlertRead\(/g)].map((m) => js.slice(Math.max(0, m.index - 40), m.index));
+        check('askAlertRead is called only from a panel button\'s click, as its ask',
+            readCalls.length === 2 && readCalls.some((h) => /async function $/.test(h)) && readCalls.some((h) => /var ask = function \(\) \{ $/.test(h)) &&
+            /ask\.addEventListener\('click', extra\.ask\)/.test(js), readCalls.join(' | '));
+    }
     check('the box autofocuses', /<textarea\b[^>]*\bautofocus\b/.test(html));
     check('dark and light by prefers-color-scheme', /@media \(prefers-color-scheme: dark\)/.test(html) && /<meta name="color-scheme" content="light dark">/.test(html));
     check('the keyboard resizes the page rather than covering Send', /interactive-widget=resizes-content/.test(html));
@@ -496,6 +627,97 @@ const randomAid = () => Array.from(nodeCrypto.randomBytes(10), (b) => 'abcdefghi
     console.log('  FAIL  threw: ' + (e && e.stack || e));
     process.exit(failed + 1);
 });
+
+// A card sealed the way the PC seals one (Protect-ChatqPermitCard), by
+// Node's own crypto: the page is only ever asked to open it
+function sealCard(d, aid, obj, iv) {
+    const kc = hmac(Buffer.from(d), 'chatq-card:' + aid);
+    iv = iv || nodeCrypto.randomBytes(16);
+    const c = nodeCrypto.createCipheriv('aes-256-cbc', hmac(kc, 'enc'), iv);
+    const ct = Buffer.concat([c.update(Buffer.from(typeof obj === 'string' ? obj : JSON.stringify(obj), 'utf8')), c.final()]);
+    const head = 'chatq1c.' + aid + '.' + b64url(iv) + '.' + b64url(ct);
+    return head + '.' + b64url(hmac(hmac(kc, 'mac'), head));
+}
+
+// The card, the permit's payload and the buttons, held to
+// tests/fixtures/card-vector.json (Node's own crypto) and to the watcher:
+// every act the page can send is one Invoke-ChatqReply has a case for.
+async function checkPermitLogic() {
+    let cv = null;
+    try { cv = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'card-vector.json'), 'utf8')); } catch (e) { }
+    check('the card fixture is there, ASCII', !!cv && /^[\x00-\x7f]*$/.test(fs.readFileSync(path.join(__dirname, 'fixtures', 'card-vector.json'), 'latin1')));
+    if (!cv || !C || !P) return;
+    const master = C.unb64url(cv.master);
+    const want = JSON.parse(cv.card);
+    const fromBytes = await C.openCard(master, cv.aid, cv.sealed);
+    const fromKey = await C.openCard(await C.phoneKey(new Uint8Array(master)), cv.aid, cv.sealed);
+    check('openCard: the fixture\'s card opens with the raw key and with the kept CryptoKey, to the card exactly',
+        JSON.stringify(fromBytes) === JSON.stringify(want) && JSON.stringify(fromKey) === JSON.stringify(want) && want.w.indexOf(HANGUL) > 0, JSON.stringify(fromBytes));
+    check('the card fixture: its seal is Node\'s, and the card names the request\'s own digest',
+        sealCard(master, cv.aid, cv.card, unb64(cv.iv)) === cv.sealed && want.h === cv.digest &&
+        cv.digest === b64url(nodeCrypto.createHash('sha256').update(Buffer.from('chatq-permit\n' + cv.rid + '\n' + cv.tool + '\n' + cv.inputRaw, 'utf8')).digest().subarray(0, 16)));
+    const parts = cv.sealed.split('.');
+    const flip = (i) => { const p = parts.slice(); const c = p[i][3]; p[i] = p[i].slice(0, 3) + (c === 'A' ? 'B' : 'A') + p[i].slice(4); return p.join('.'); };
+    const bad = [flip(2), flip(3), flip(4)];
+    const opened = await Promise.all(bad.map((m) => C.openCard(master, cv.aid, m)));
+    check('openCard: a changed byte in the iv, the ciphertext or the MAC gives null', opened.every((o) => o === null));
+    check('openCard: another alert\'s id, another key, a reply message or junk gives null',
+        (await C.openCard(master, 'zzzzzzzzzz', cv.sealed)) === null && (await C.openCard(new Uint8Array(nodeCrypto.randomBytes(32)), cv.aid, cv.sealed)) === null &&
+        (await C.openCard(master, cv.aid, cv.permitMessage)) === null && (await C.openCard(master, cv.aid, 'chatq1c.abcdefghij.x.y.z')) === null &&
+        (await C.openCard(master, cv.aid, '')) === null);
+    // the permit: h last, and only when given
+    check('buildPayload without h is the reply fixture\'s payload still; with h, the permit fixture\'s',
+        C.buildPayload('prompt', 'yes, commit it ' + HANGUL, 'AAAAAAAAAAAAAAAAAAAAAA', 1790000000000) === vec.payload &&
+        C.buildPayload('permit', '', 'AAAAAAAAAAAAAAAAAAAAAA', 1790000000000, cv.digest) === cv.permitPayload);
+    const sp = await C.seal(await C.alertKey(master, cv.aid), cv.aid, 'permit', '', { iv: C.unb64url(cv.replyIv), nonce: 'AAAAAAAAAAAAAAAAAAAAAA', ts: 1790000000000 }, cv.digest);
+    const spo = openMessage(sp.message, alertKeyOf(master, cv.aid));
+    check('the sealed permit: the fixture\'s message byte for byte, and h opens intact', sp.message === cv.permitMessage && !!spo && spo.json.h === cv.digest &&
+        Object.keys(spo.json).join() === 'v,act,text,nonce,ts,h', sp.message);
+    const rk = new Uint8Array(nodeCrypto.randomBytes(32)), raid = randomAid();
+    const lost = [];
+    for (const act of ['permit', 'refuse']) {
+        const o = openMessage((await C.seal(rk, raid, act, act === 'refuse' ? 'not now ' + HANGUL : '', undefined, act === 'permit' ? cv.digest : undefined)).message, Buffer.from(rk));
+        if (!o || o.json.act !== act || (act === 'permit') !== ('h' in o.json)) lost.push(act);
+    }
+    check('round trip: permit (with h) and refuse (without)', lost.length === 0, lost.join());
+
+    // the buttons, and what the page shows
+    const now = 1790000000000;
+    const card = { v: 1, t: 'Bash', w: 'git push', d: 'Push', f: 'parser', c: 'Parser', n: 12, h: cv.digest, u: now + 12 * 60000 };
+    const open = P.buttonsFor('permission', 'claude', false, 'running', false, card, now);
+    check('a permission request with its card: Allow once (a second tap), Deny, Status; the box a note for Deny, optional',
+        open.send.act === 'permit' && open.send.label === 'Allow once' && open.send.confirm === 'Tap again to allow' &&
+        open.more.map((b) => b.act + ':' + b.label).join('|') === 'refuse:Deny|status:Status' && !open.more[0].confirm && open.text === true && open.optional === true &&
+        open.placeholder === 'A note for Claude, with Deny (optional)' && open.hint === 'the note goes only with Deny');
+    const late = P.buttonsFor('permission', 'claude', false, 'running', false, card, card.u);
+    const none = P.buttonsFor('permission', 'claude', false, 'running', false, null, now);
+    const acts = (b) => [b.send].concat(b.more).map((y) => y.act);
+    check('no Allow after the deadline (Status alone), nor without a card that opened (Deny and Status)',
+        acts(late).join() === 'status' && late.text === false && acts(none).join() === 'refuse,status' && none.text === true &&
+        acts(late).concat(acts(none)).indexOf('permit') < 0);
+    check('ACTS holds permit and refuse', P.ACTS.indexOf('permit') >= 0 && P.ACTS.indexOf('refuse') >= 0);
+    const ps1 = fs.readFileSync(path.join(root, 'src', 'phone.ps1'), 'latin1');
+    check('and each is an act the watcher has a case for (Invoke-ChatqReply)', P.ACTS.every((a) => ps1.indexOf("'" + a + "' {") >= 0), P.ACTS.filter((a) => ps1.indexOf("'" + a + "' {") < 0).join());
+    const pv = P.permitView(Object.assign({}, card, { c: 'Parser rewrite ' + HANGUL }), {}, now);
+    check('the card shown: #12 and the chat, Allow this once?, the call, the tool and folder, Claude\'s words, the time left, the fine print',
+        pv.state === 'open' && pv.kicker === '#12 Parser rewrite ' + HANGUL && pv.head === 'Allow this once?' && pv.what === 'git push' &&
+        pv.where === 'Bash \u00b7 in parser' && pv.detail === 'Claude: Push' && /^answer by \d\d:\d\d - 12 min left$/.test(pv.left) &&
+        pv.fine === 'Allow runs this one call. It changes nothing else the run may do.' && !pv.body, JSON.stringify(pv));
+    const px = P.permitView(Object.assign({}, card, { x: 1 }), {}, now);
+    check('a card whose call is not all there (x): says so, and to deny what cannot be told', px.state === 'open' &&
+        /^Not all of this call is shown - parts are hidden \(\*\*\*\) or cut\. If you cannot tell what it does, Deny\.$/.test(px.body), JSON.stringify(px));
+    const pl = P.permitView(card, {}, card.u + 1);
+    const pn = P.permitView(null, { seq: '12', title: 'Parser' }, now);
+    check('too late: At <time> the run went on without it; no card: nothing to approve here',
+        pl.state === 'late' && pl.head === 'Too late' && /^At \d\d:\d\d the run went on without it\.$/.test(pl.body) &&
+        pn.state === 'none' && pn.head === 'Nothing to approve here' && /sealed for another key, or changed on the way/.test(pn.body) && pn.kicker === '#12 Parser');
+    // the link: r read only in a card's own shape, and kept for a reload
+    const withCard = P.parseFragment('#v=2&a=abcdefghij&e=permission&n=12&c=x&p=claude&j=running&r=' + encodeURIComponent(cv.sealed));
+    const junk = P.parseFragment('#v=2&a=abcdefghij&e=permission&n=12&r=' + encodeURIComponent('<script>'));
+    check('a permission link: r read as the card, kept in the tab\'s fragment; anything else in r is dropped',
+        withCard.ok && withCard.f.card === cv.sealed && P.parseFragment(P.alertFragment(withCard.f)).f.card === cv.sealed &&
+        junk.ok && junk.f.card === '' && P.alertFragment(junk.f).indexOf('r=') < 0);
+}
 
 // An in-memory IndexedDB, as much of one as the page uses: open with an
 // upgrade, object stores, get / put / delete in a transaction that completes
@@ -706,7 +928,13 @@ async function driveThePage() {
         page.open = (i) => (posts[i] ? openMessage(posts[i].o.body, alertKeyOf(D, posts[i].o.body.split('.')[1])) : null);
         page.cardKind = () => (doc.els.card.hidden ? null : doc.els.card.getAttribute('data-kind'));
         // the page reads what the phone keeps before it shows anything
-        page.ready = await waitFor(() => !doc.els.app.hidden || !doc.els.card.hidden);
+        page.ready = await waitFor(() => !doc.els.app.hidden || !doc.els.card.hidden || (doc.els.board && !doc.els.board.hidden));
+        // the bare page on a paired phone is the board, which asks for itself
+        page.board = () => !!doc.els.board && !doc.els.board.hidden;
+        page.openCompose = (i, d) => {
+            const m = posts[i] && /^chatq3c\.([a-z2-7]{10})\./.exec(posts[i].o.body);
+            return m ? openComposeMessage(posts[i].o.body, hmac(Buffer.from(d), 'chatq-phone:' + m[1])) : null;
+        };
         return page;
     };
     if (!script || !ids.includes('text') || !ids.includes('pair')) {
@@ -785,8 +1013,11 @@ async function driveThePage() {
         sameAgain.cardKind() === 'same' && sameAgain.$('pair').hidden && sameAgain.$('cardHead').textContent === 'This pairing alert is already used' &&
         sameAgain.$('cardBig').textContent === code.slice(0, 3) + ' ' + code.slice(3) && sameAgain.posts.length === 0);
     const home = await load('');
-    check('paired, and no link: this phone is paired, with whom, and its code', home.cardKind() === 'home' && /chatq on DESKTOP-7/.test(home.$('cardBody').textContent) &&
-        home.$('cardAfter').textContent.indexOf(code.slice(0, 3) + ' ' + code.slice(3)) >= 0 && home.$('cardWarn').hidden);
+    await waitFor(() => home.posts.length === 1);
+    const ho = phoneD ? home.openCompose(0, phoneD) : null;
+    check('paired, and no link: the board - "chatq on <host>", and it asks the PC for itself, sealed with the kept key', home.board() && home.cardKind() === null &&
+        /chatq on DESKTOP-7/.test(home.$('bHost').textContent) && !!ho && ho.json.act === 'board' && home.posts[0].url === SERVER + '/chatq-newtopicnewtopicnewtopi' &&
+        home.$('bNote').hidden, home.$('bHost').textContent + ' / ' + (ho && ho.text));
     // an alert link now opens the form, the key derived from what was kept
     if (phoneD) {
         const a = await load(frag({ e: 'done', n: '3', c: 'paired now' }));
@@ -853,7 +1084,7 @@ async function driveThePage() {
                 !!fro && fro.json.text === 'from the fallback' && local.has('chatq-phone'));
             store.clear();
             const fh = await load('', opt);
-            check('no IndexedDB: the home card says the key is readable', fh.cardKind() === 'home' && fh.$('cardWarn').textContent === P.READABLE);
+            check('no IndexedDB: the board says the key is readable', fh.board() && fh.$('bNote').textContent.indexOf(P.READABLE) >= 0);
         }
     }
     dbs.clear();
@@ -868,11 +1099,12 @@ async function driveThePage() {
     local.clear();
     local.set('chatq-phone', phoneRec(D));
     const stay = await load('', { noIdb: true });
-    check('a v2 record where there is no IndexedDB: used where it is, and said to be readable',
-        stay.cardKind() === 'home' && local.has('chatq-phone') && stay.$('cardWarn').textContent === P.READABLE &&
-        stay.$('cardAfter').textContent.indexOf(codeOf(D).slice(0, 3) + ' ' + codeOf(D).slice(3)) >= 0);
+    await waitFor(() => stay.posts.length === 1);
+    const so = stay.openCompose(0, D);
+    check('a v2 record where there is no IndexedDB: used where it is - the board asks with it - and said to be readable',
+        stay.board() && local.has('chatq-phone') && stay.$('bNote').textContent.indexOf(P.READABLE) >= 0 && !!so && so.json.act === 'board');
     const failMove = await load('', { idb: { failPut: true } });
-    check('a v2 record IndexedDB will not take: kept in localStorage, still used', failMove.cardKind() === 'home' && local.has('chatq-phone') && kept() === undefined);
+    check('a v2 record IndexedDB will not take: kept in localStorage, still used', failMove.board() && local.has('chatq-phone') && kept() === undefined);
     // an older v3 pairing in IndexedDB loses to the v2 record: that one is newer
     {
         const oldKey = await webcrypto.subtle.importKey('raw', nodeCrypto.randomBytes(32), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
@@ -1069,6 +1301,44 @@ async function driveThePage() {
     long.$('send').fire('click');
     await new Promise((r) => realSetTimeout(r, 30));
     check('and a press sends nothing', long.posts.length === 0);
+
+    // text= from outside the page (a Tasker reply): into the box, never sent
+    store.clear();
+    const pre = await load(frag({ e: 'done', a: 'prefillaaa', c: 'Tasker', text: 'from tasker ' + HANGUL }));
+    await new Promise((r) => realSetTimeout(r, 30));
+    const preDraft = JSON.parse(store.get('chatq-draft:prefillaaa') || 'null');
+    check('text= fills the box, says so, counts it and turns Send on - and sends nothing',
+        pre.$('text').value === 'from tasker ' + HANGUL && !pre.$('prefill').hidden && pre.$('prefill').textContent === P.PREFILL_NOTE &&
+        pre.$('count').textContent === P.counter('from tasker ' + HANGUL).label && !pre.$('send').disabled && pre.posts.length === 0 &&
+        pre.doc.activeElement === pre.$('text'), pre.$('text').value + ' | ' + pre.$('prefill').textContent);
+    check('text= leaves the bar at once, the tab keeps the alert without it, and the draft holds it',
+        pre.loc.hash === '' && !/text/.test(store.get('chatq-reply') || '') && !!preDraft && preDraft.text === 'from tasker ' + HANGUL, store.get('chatq-reply'));
+    const preRe = await load('');
+    check('a reload: the text still in the box, from the draft, no note, nothing sent',
+        preRe.$('text').value === 'from tasker ' + HANGUL && preRe.$('prefill').hidden && preRe.posts.length === 0);
+    preRe.$('text').value = 'typed here';
+    preRe.$('text').fire('input');
+    const preOver = await load(frag({ e: 'done', a: 'prefillaaa', c: 'Tasker', text: 'second reply' }));
+    check('a second text= for the same alert replaces what was typed, and the note says so',
+        preOver.$('text').value === 'second reply' && /It replaced what was typed here before\.$/.test(preOver.$('prefill').textContent) && preOver.posts.length === 0,
+        preOver.$('prefill').textContent);
+    preOver.$('send').fire('click');
+    await waitFor(() => preOver.posts.length === 1 && preOver.$('status').getAttribute('data-kind') === 'ok');
+    const preSent = preOver.open(0);
+    check('and it goes only on the tap on Send, as a prompt', !!preSent && preSent.json.act === 'prompt' && preSent.json.text === 'second reply');
+    const preTest = await load(frag({ e: 'test', n: '', c: '', p: '', j: '', x: '1', a: 'prefilltst', text: 'ignored' }));
+    check('text= on a test alert: no box, the text dropped, the note says so, nothing sent',
+        preTest.$('compose').hidden && !preTest.$('prefill').hidden && /takes no text/.test(preTest.$('prefill').textContent) && preTest.posts.length === 0 &&
+        !store.has('chatq-draft:prefilltst'));
+    const preBad = await load(frag({ e: 'done', a: 'prefillbad' }) + '&text=%E0%A4');
+    check('text= with a broken escape: the alert opens, the box empty, no note', !preBad.$('app').hidden && preBad.$('text').value === '' && preBad.$('prefill').hidden);
+    const preUsage = await load(frag({ e: 'usage', n: '', c: '', p: '', j: '', x: '1', w: '1', a: 'usagewakea' }));
+    check('a usage alert with w=1: Send now big, Status small, no box', preUsage.$('compose').hidden && preUsage.$('send').textContent === 'Send now' &&
+        preUsage.more().map((b) => b.getAttribute('data-act')).join() === 'status');
+    preUsage.$('send').fire('click');
+    await waitFor(() => preUsage.posts.length === 1 && preUsage.$('status').getAttribute('data-kind') === 'ok');
+    const preWake = preUsage.open(0);
+    check('and Send now sends act wake', !!preWake && preWake.json.act === 'wake' && preWake.json.text === '');
     dbs.clear();
     local.set('chatq-phone', '{"v":2,"s":"http://ntfy.sh"}');
     const broken = await load(frag({}));
@@ -1078,4 +1348,63 @@ async function driveThePage() {
     dbs.set('chatq', { version: 1, stores: new Map([['phone', new Map([['phone', { v: 3, s: SERVER, t: TOPIC, key: openKey, at: 1, h: 'X', code: '123456' }]])]]) });
     const exportable = await load(frag({}));
     check('a kept v3 record whose key would export: treated as not paired', exportable.cardKind() === 'unpaired');
+
+    // --- a permission request ------------------------------------------------------
+    // the phone paired with D again; its card sealed for D by Node, as the PC seals it
+    dbs.clear();
+    local.clear();
+    store.clear();
+    local.set('chatq-phone', phoneRec(D));
+    const pcard = { v: 1, t: 'Bash', w: 'git push origin main', d: 'Push the release', f: 'parser', c: 'Parser rewrite ' + HANGUL, n: 12, h: 'hhhhhhhhhhhhhhhhhhhhhh', u: clock + 12 * 60000 };
+    const pfrag = (x, c) => frag(Object.assign({ a: 'permitaaaa', e: 'permission', j: 'running', r: sealCard(D, (x && x.a) || 'permitaaaa', c || pcard) }, x));
+    const pp = await load(pfrag({}));
+    check('a permission request: "Allow this once?", the chat, the call from the card, the tool and folder, Claude\'s words, the time left and the fine print',
+        !pp.$('app').hidden && !pp.$('permit').hidden && pp.$('ev').textContent === 'permission' && pp.$('title').textContent === 'Allow this once?' &&
+        pp.$('meta').textContent === '#12 Parser rewrite ' + HANGUL && pp.$('permitWhat').textContent === 'git push origin main' &&
+        pp.$('permitWhere').textContent === 'Bash \u00b7 in parser' && pp.$('permitDetail').textContent === 'Claude: Push the release' &&
+        /^answer by \d\d:\d\d - 12 min left$/.test(pp.$('permitLeft').textContent) && pp.$('permitBody').hidden &&
+        pp.$('permitFine').textContent === 'Allow runs this one call. It changes nothing else the run may do.', pp.$('title').textContent + ' | ' + pp.$('meta').textContent);
+    check('Allow once is the big button, on with the box empty; Deny and Status small; the box for a note',
+        pp.$('send').textContent === 'Allow once' && !pp.$('send').disabled && pp.more().map((b) => b.textContent).join('|') === 'Deny|Status' &&
+        !pp.$('compose').hidden && pp.$('text').placeholder === 'A note for Claude, with Deny (optional)');
+    pp.$('send').fire('click');
+    check('Allow: the first tap only asks', pp.posts.length === 0 && pp.$('send').textContent === 'Tap again to allow' && pp.$('send').getAttribute('data-armed') === '1');
+    pp.$('text').value = 'x';
+    pp.$('text').fire('input');
+    pp.$('text').value = '';
+    pp.$('text').fire('input');
+    check('Allow: typing meanwhile does not take the question back', pp.$('send').textContent === 'Tap again to allow');
+    clock += 120;
+    pp.$('send').fire('click');
+    await new Promise((r) => realSetTimeout(r, 20));
+    check('Allow: a second tap 120 ms later does nothing', pp.posts.length === 0 && pp.$('send').getAttribute('data-armed') === '1');
+    clock += 500;
+    pp.$('send').fire('click');
+    await waitFor(() => pp.posts.length === 1 && pp.$('status').getAttribute('data-kind') === 'ok');
+    const po1 = pp.open(0);
+    check('Allow: a second tap past 500 ms sends a permit naming the card\'s h, no text, to the paired topic',
+        !!po1 && po1.json.act === 'permit' && po1.json.h === pcard.h && po1.json.text === '' && po1.aid === 'permitaaaa' && pp.posts[0].url === SERVER + '/' + TOPIC &&
+        pp.$('statusText').textContent === 'Sent - the PC reads it within about 5 s.', po1 && po1.text);
+    const pd = await load(pfrag({}));
+    pd.$('text').value = 'not on main ' + HANGUL;
+    pd.$('text').fire('input');
+    pd.btn('refuse').fire('click');
+    await waitFor(() => pd.posts.length === 1 && pd.$('status').getAttribute('data-kind') === 'ok');
+    const po2 = pd.open(0);
+    check('Deny: one tap, the note along, no h', !!po2 && po2.json.act === 'refuse' && po2.json.text === 'not on main ' + HANGUL && !('h' in po2.json), po2 && po2.text);
+    const pn = await load(pfrag({ a: 'permitbbbb' }));
+    check('a note is kept per alert: another request\'s box starts empty', pn.$('text').value === '');
+    const pback = await load(pfrag({}));
+    check('and the first one\'s note is back', pback.$('text').value === 'not on main ' + HANGUL);
+    const plate = await load(pfrag({ a: 'permitcccc' }, Object.assign({}, pcard, { u: clock - 60000 })));
+    check('past its deadline: "Too late", when the run went on, Status alone - no Allow, no box',
+        plate.$('title').textContent === 'Too late' && /^At \d\d:\d\d the run went on without it\.$/.test(plate.$('permitBody').textContent) &&
+        plate.$('send').textContent === 'Status' && plate.more().length === 0 && plate.$('compose').hidden && plate.$('permitWhat').hidden);
+    const noCard = await load(frag({ a: 'permitdddd', e: 'permission', j: 'running' }));
+    const otherKey = await load(pfrag({ a: 'permiteeee' }).replace(/r=[^&]*/, 'r=' + encodeURIComponent(sealCard(nodeCrypto.randomBytes(32), 'permiteeee', pcard))));
+    const noAllow = (pg) => [pg.$('send')].concat(pg.more()).every((b) => b.getAttribute('data-act') !== 'permit');
+    check('no card, or one sealed for another key: "Nothing to approve here", Deny and Status, and no Allow anywhere',
+        [noCard, otherKey].every((pg) => pg.$('title').textContent === 'Nothing to approve here' && /sealed for another key/.test(pg.$('permitBody').textContent) &&
+            pg.$('send').getAttribute('data-act') === 'refuse' && pg.more().map((b) => b.getAttribute('data-act')).join() === 'status' && noAllow(pg) && pg.$('permitWhat').hidden),
+        noCard.$('title').textContent + ' / ' + otherKey.$('title').textContent);
 }

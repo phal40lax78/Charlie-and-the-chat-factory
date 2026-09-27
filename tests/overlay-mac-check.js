@@ -1,6 +1,7 @@
 // Checks the macOS overlay's JXA without a Mac: lifts the here-string out of
 // src/overlay-mac.ps1, compiles it, and drives its pure part (CO) - the
-// countdowns, the lines the panel draws, which commands it takes. Everything
+// countdowns and reset times, the lines the panel draws, which commands it
+// takes, and when the menu offers to continue cut-off chats. Everything
 // that touches Cocoa sits in run(), which only osascript on a Mac can run;
 // TESTING.md has the checklist for that.
 //
@@ -89,6 +90,71 @@ if (CO) {
         Object.keys(CO.colors).every(k => Array.isArray(CO.light[k])) && CO.color('busy', 'light') !== CO.color('busy', 'dark') &&
         CO.color('no-such', 'light') === CO.light.text);
     check('opacity held to 0.3-1, 0.94 when unset', CO.opacityOf({ opacity: 0.1 }) === 0.3 && CO.opacityOf({ opacity: 0.8 }) === 0.8 && CO.opacityOf(null) === 0.94);
+
+    // the reset time: noon local, so an hour on is the same date in any
+    // zone; what is expected is built from new Date(ms), as the panel does
+    const noon = new Date(2026, 8, 23, 12, 0, 0).getTime();
+    const hm = ms => { const d = new Date(ms); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
+    const day = ms => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(ms).getDay()];
+    const in1h = noon + 3600000, in2d = noon + 2 * 86400000;
+    check('CO.at: HH:mm today, the weekday on another day, nothing once passed or unset',
+        CO.at(in1h, noon) === hm(in1h) && /^\d\d:\d\d$/.test(CO.at(in1h, noon)) &&
+        CO.at(in2d, noon) === day(in2d) + ' ' + hm(in2d) && /^[A-Z][a-z]{2} \d\d:\d\d$/.test(CO.at(in2d, noon)) &&
+        CO.at(noon - 1000, noon) === '' && CO.at(noon, noon) === '' && CO.at(null, noon) === '' && CO.at(0, noon) === '');
+    const w5 = (o) => Object.assign({ label: '5h', percent: 42, severity: 'normal', limited: false, resetsAt: in1h }, o);
+    const wk = (o) => Object.assign({ label: 'week', percent: 46, severity: 'normal', limited: false, resetsAt: in2d }, o);
+    check('CO.resetFor: the latest limited reset ahead, else the 5h one ahead, else null',
+        CO.resetFor([w5({ limited: true }), wk({ limited: true })], noon) === 'week' &&
+        CO.resetFor([w5({ limited: true }), wk()], noon) === '5h' &&
+        CO.resetFor([w5(), wk({ limited: true, resetsAt: noon - 1000 })], noon) === '5h' &&
+        CO.resetFor([w5(), wk()], noon) === '5h' &&
+        CO.resetFor([w5({ resetsAt: noon - 1000 }), wk()], noon) === null &&
+        CO.resetFor([wk({ label: 'chat' })], noon) === null &&
+        CO.resetFor(null, noon) === null && CO.resetFor([], noon) === null);
+    const resetSnap = (windows, view) => ({ at: noon, config: { maxRows: 2, usageView: view }, rows: [],
+        header: { notes: [], usage: [{ provider: 'Claude', stale: false, status: '11:58', windows: windows }] } });
+    const runs = (s) => CO.lines(s, noon, true)[0];
+    const plain = runs(resetSnap([w5(), wk()]));
+    const plainRun = plain.filter(r => r[0].indexOf(' resets ') === 0);
+    check('lines view: " resets HH:mm" after the 5h percent, dim, once a line',
+        plain.map(r => r[0]).join('').indexOf('5h 42% resets ' + hm(in1h) + ' \u00B7 week 46%') > 0 &&
+        plainRun.length === 1 && plainRun[0][1] === 'dim' && plainRun[0][2] === false);
+    const blocked = runs(resetSnap([w5({ limited: true, percent: 100 }), wk({ limited: true, percent: 100 })]));
+    const blockedRun = blocked.filter(r => r[0].indexOf(' resets ') === 0);
+    check('lines view: when limited, the latest reset, and critical',
+        blocked.map(r => r[0]).join('').indexOf('week 100% resets ' + day(in2d) + ' ' + hm(in2d)) > 0 &&
+        blockedRun.length === 1 && blockedRun[0][1] === 'critical');
+    check('no reset text once it passed, with no reset, or in the bars view',
+        !runs(resetSnap([w5({ resetsAt: noon - 1000 }), wk()])).some(r => r[0].indexOf(' resets ') === 0) &&
+        !runs(resetSnap([w5({ resetsAt: undefined }), wk()])).some(r => r[0].indexOf(' resets ') === 0) &&
+        !CO.lines(resetSnap([w5(), wk()], 'bars'), noon, true).some(l => l.some(r => r[0].indexOf(' resets ') === 0)));
+    const askNote = { text: 'limit over at 13:00 - 3 chats it cut off can continue', tone: 'warn', kind: 'ask' };
+    const askFlat = CO.lines({ at: noon, rows: [], header: { usage: [], notes: [askNote], ask: { count: 3 } } }, noon, true);
+    check('the ask note is drawn as notes are, in warn', askFlat.some(l => l[0][0] === askNote.text && l[0][1] === 'warn'));
+    check('the menu offers to continue only while the snapshot asks',
+        CO.askTitle({ header: { ask: { count: 3 } } }) === 'Continue 3 cut-off chats' &&
+        CO.askTitle({ header: { ask: { count: 1 } } }) === 'Continue 1 cut-off chat' &&
+        CO.askTitle({ header: { ask: null } }) === '' && CO.askTitle({ header: {} }) === '' && CO.askTitle(null) === '');
+    check('the menu answers through overlay-cmd as quit does, naming the cut-offs its items showed',
+        /CO\.askLine\('ask-go', askKeys\) \+ '\\n'/.test(js) && /CO\.askLine\('ask-leave', askKeys\) \+ '\\n'/.test(js) && /' stop\\n'/.test(js) &&
+        /askKeys = keys;/.test(js));
+    check('its keys: the drawn snapshot\'s, only id_uuid shapes; none drawn says none, which answers nothing',
+        CO.askKeys({ header: { ask: { count: 2, keys: ['a1-b_c2', 'bad key', 'x_y'] } } }) === 'a1-b_c2,x_y' && CO.askKeys({ header: {} }) === '' && CO.askKeys(null) === '' &&
+        CO.askLine('ask-go', 'a1-b_c2,x_y') === 'ask-go a1-b_c2,x_y' && CO.askLine('ask-leave', '') === 'ask-leave none');
+
+    // auto-continue's automatic mode (0.9.0): the CQ menu's item, checked
+    // while the snapshot says on, and a click writes the verb for the
+    // collector to set - on, or back to the default, ask
+    check('auto-continue: checked only while the snapshot says on - ask, off or nothing are not; a click asks for on, or back to ask',
+        !CO.autoOn(null) && !CO.autoOn({ header: {} }) && !CO.autoOn({ header: { autoContinue: 'ask' } }) && !CO.autoOn({ header: { autoContinue: 'off', autoOn: false } }) &&
+        CO.autoOn({ header: { autoContinue: 'on', autoOn: true } }) &&
+        CO.autoVerb({ header: { autoContinue: 'on' } }) === 'auto-ask' && CO.autoVerb({ header: { autoContinue: 'ask' } }) === 'auto-on' && CO.autoVerb({ header: { autoContinue: 'off' } }) === 'auto-on');
+    check('auto-continue: the item is in the CQ menu, its check kept by each tick, its click through overlay-cmd',
+        /add\('Auto-continue cut-off chats', 'toggleAuto:'\)/.test(js) && /autoItem\.setState\(CO\.autoOn\(snap\) \? 1 : 0\)/.test(js) &&
+        /'toggleAuto:'[\s\S]*?CO\.autoVerb\(snap\)/.test(js));
+    const autoRow = { key: 'c:1', status: 'cutoff', rank: 0.5, project: 'p', title: 'cut chat', prompt: null, stateText: '#12 auto 13:01' };
+    const autoFlat = CO.lines({ at: noon, config: { maxRows: 4 }, rows: [autoRow], header: { usage: [], notes: [] } }, noon, true).map(l => l.map(r => r[0]).join(''));
+    check('auto-continue: a cut-off row shows its words as the rows give them', autoFlat.some(l => l.indexOf('cut chat') >= 0 && /#12 auto 13:01$/.test(l)), autoFlat.join(' / '));
 }
 console.log('');
 console.log('  ' + (total - failed) + ' passed, ' + failed + ' failed');

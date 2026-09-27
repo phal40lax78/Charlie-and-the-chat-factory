@@ -1,19 +1,164 @@
 # Spec: auto-continue for chats the limit cut off
 
-Status: accepted 2026-09-27, being built for 0.9.0. Written against
-0.8.0. The owner asked for it on by default with a switch to turn it off,
-and took the decisions at the end as proposed. Spikes A3 and A4 can be
-answered from this machine's files; A1 and A2 need a real limit and wait
-for one, with the 5-minute hold standing in until then. The command
+Status: accepted 2026-09-27; amended the same day (below) - 0.9.0 built
+both modes, the ask and the automatic one. Written against 0.8.0. The
+owner asked for it on by default with a switch to turn it off, and took
+the decisions at the end as proposed. Spikes A3 and A4 were answered from
+this machine's files (below); A1 and A2 need a real limit and wait for
+one, with the 5-minute hold standing in until then. The command
 `chatqnotify` is called `chatnotify` here (the old name stays as an alias).
+
+Amended 2026-09-27: the owner asked that the default ask first. The ask
+mode is built (0.9.0, below). The automatic mode the rest of this spec
+describes is the opt-in `autoContinue: "on"`, built in the same 0.9.0 in
+[src/auto-continue.ps1](../src/auto-continue.ps1); where this spec says
+"on by default", read "on once chosen". How the two were fitted together is
+in [Both modes, built](#both-modes-built).
 
 ## Goal
 
 When the usage limit cuts off a Claude chat, chatq queues *"Continue from
 where you left off."* for it by itself. The continue goes a minute after
-the limit resets. It is on by default. One switch turns it off for every
+the limit resets. It is the opt-in value `"on"` of `autoContinue`; the
+default asks first (below). One switch turns it off for every
 chat, and each chat can be set to always or never. Every surface that
 shows a cut-off chat says what will happen to it and lets you cancel it.
+
+## Ask at the reset (the default, built)
+
+Built in 0.9.0, as the default value `"ask"` of `autoContinue`; `"off"`
+keeps the rows as they were, only orange. Nothing in it continues a chat
+unless you say so.
+
+- **The setting.** [Get-ChatqAutoContinue](../src/queue.ps1) reads the
+  top-level `autoContinue`: `false` or `"false"` or `"off"` is `off`,
+  `"on"` the automatic mode, anything else - missing, `true` - is `ask`,
+  so nothing written before turns on the automatic mode.
+  [Set-ChatqAutoContinue](../src/queue.ps1) `-Value on|ask|off` writes it. [Get-ChatOverlayConfig](../src/overlay-data.ps1)
+  carries it as `autoContinue`.
+- **Which chats.** [Get-ChatqResetAsk](../src/queue.ps1), pure, takes the
+  whole scan ([Get-ChatqCutOffChats](../src/queue.ps1), whose rows now
+  carry `LimitUuid`) and returns one ask for every cut-off that is a limit
+  (not a 529), whose reset has a time and is at least
+  `$script:ChatqAskAfterMinutes` (5) and under 12 hours behind, with no job
+  queued or running and no answer marker. A chat a terminal or any
+  non-panel entry holds goes to `Left`, named, not asked about. While a 5 h
+  or weekly window is limited with its reset ahead, nothing is asked. The
+  5 minutes are this spec's panel hold (A1), given to every chat so there
+  is one prompt.
+- **Once per cut-off.** [Get-ChatqCutKey](../src/queue.ps1) is the marker
+  name of this spec's check 7: `<sessionId>_<limitUuid>`, or the record's
+  time in UTC ticks on a record with no `uuid`.
+  [Save-ChatqAskAnswer](../src/queue.ps1) writes the answer marker,
+  [Read-ChatqAskState](../src/queue.ps1) reads them,
+  [Read-ChatqAskShown](../src/queue.ps1) and
+  [Add-ChatqAskShown](../src/queue.ps1) keep the `.shown` files that stop a
+  restarted overlay announcing an ask again.
+- **The collector.** [Invoke-ChatOverlayCycle](../src/overlay-data.ps1)
+  keeps the whole scan as `CutScan`, runs it while `overlay.cutOff` or the
+  ask is on, and asks every pass. Only the Windows and macOS hosts
+  (`WantAsk`) announce or act; `-Print` shows the ask as a note. Its
+  `header.ask` carries the count, the reset, the keys and up to five
+  titles. The rows' window widened: a cut-off stays while its reset is
+  under 12 hours ago or it is under 12 hours old.
+- **The answer.** [Complete-ChatqResetAsk](../src/overlay-data.ps1) acts
+  only on the chats the answer's surface showed; one that changed meanwhile
+  acts on nothing. Continue runs
+  [Invoke-ChatqContinueChats](../src/commands.ps1) - the console's loop,
+  made shared - and marks only the chats that got a job or had one, so a
+  failed one is asked about again. Leave marks them all.
+- **Windows.** A toast ([Show-ChatOverlayBalloon](../src/overlay-windows.ps1));
+  a click on it opens the console, never answers. A banner
+  ([Add-ChatOverlayAsk](../src/overlay-windows.ps1)) whose chip carries
+  **continue N** and **leave them**
+  ([Get-ChatOverlayChipActions](../src/overlay-windows.ps1)); the tray's
+  items ([Update-ChatOverlayAsk](../src/overlay-windows.ps1)); both answer
+  through [Invoke-ChatOverlayAskAnswer](../src/overlay-windows.ps1). The
+  settings box's **Cut off** row, Ask or Leave
+  ([Set-ChatOverlayAutoChoice](../src/overlay-windows.ps1)). The console's
+  **Cut off** header and **Leave them**; its **Continue** answers the ask
+  too ([Save-ChatConsoleAskAnswer](../src/console.ps1)).
+- **macOS.** Two items at the top of the `CQ` menu, sent as the verbs
+  `ask-go` and `ask-leave` through `overlay-cmd`, and a notification
+  ([Update-ChatOverlayMacAsk](../src/overlay-mac.ps1)). Each verb names
+  the cut-offs the items were drawn for, `ask-go <key>,<key>` - the
+  menu's title is set on a timer that stops while the menu is open, so
+  the host's newer snapshot may name one it never showed - and only those
+  are answered ([Invoke-ChatOverlayCycle](../src/overlay-data.ps1)). A
+  bare verb, from a shell, answers the saved snapshot's.
+- **The console with `overlay.cutOff` off.** The ask still runs, and its
+  toast opens the console: its **Cut off** list takes the ask's own chats
+  when no row was drawn for them
+  ([Get-ChatConsoleChatItems](../src/console.ps1)).
+- **The phone.** [Send-ChatqResetAskAlert](../src/phone.ps1): one
+  `limited` alert with no session, when you are away. The page offers
+  Status alone; answering there is FUTURE_WORK.
+- **The CLI.** `chatq -AutoContinue ask|off`, alone, with `-WhatIf`.
+- **The reset time on the overlay**, asked for with it:
+  [Get-ChatOverlayResetWindow](../src/overlay-data.ps1) picks the window a
+  usage line shows the reset of, [Format-ChatOverlayResetAt](../src/overlay-data.ps1)
+  words a reset ahead and [Format-ChatOverlayAskAt](../src/overlay-data.ps1)
+  one passed; the lines view, the collapsed line and the tray tooltip show
+  it.
+
+What the automatic mode adds as `"on"`: the scan that queues by itself
+(`Invoke-ChatqAutoContinueScan` and the watcher's own scan), `since`, the
+per-chat `always`/`never`, the job fields, the watcher's hold, gone-skip
+and streak, the states and their row words, **don't continue**, and the
+`limited` alert about an `auto` job. It reads the ask's markers: a cut-off
+answered `leave` is its `declined`, one answered `continue` already has
+its job.
+
+## Both modes, built
+
+Built in 0.9.0 on top of the ask, as the two authors agreed:
+
+- **One setting, three values.** [Get-ChatqAutoContinue](../src/queue.ps1)
+  reads only the word `"on"` as on; `true`, as this spec once wrote the
+  switch, still reads as ask, so nothing written before turns it on.
+  [Set-ChatqAutoContinue](../src/queue.ps1) `-Value on|ask|off` is the one
+  writer; turning it on writes `since` anew
+  ([Reset-ChatqAutoSince](../src/auto-continue.ps1)), so only cut-offs from
+  then on are continued. What each value prints is
+  [Get-ChatqAutoSwitchSay](../src/auto-continue.ps1)'s. Its lines read
+  `auto-continue: on|ask|off - ...`, the ask's shape.
+- **One marker per cut-off, for both.** The automatic mode names its marker
+  with [Get-ChatqCutKey](../src/queue.ps1) and writes the ask's shape -
+  `at`, `answer: continue`, `source` (`overlay` or `watcher`), `seq` - plus
+  what it reads back: `sessionId`, `cutUuid`, `cutAt`, `resetsAt`, `jobId`,
+  and `error` when its job could not be made. The ask's answers carry
+  `sessionId` and `resetsAt` too ([Get-ChatqAskExtra](../src/auto-continue.ps1)),
+  so a later cut-off of that chat with the same reset (A3) is held by
+  either. `leave` is `declined`; a `continue` whose job failed is `failed`.
+  The job's `cutUuid` is the key's part after the session id
+  ([Get-ChatqCutId](../src/auto-continue.ps1)): the uuid, or the record's
+  UTC ticks.
+- **Which runs when.** `on`: the scan, no ask. `ask`: the ask, and the scan
+  only for chats set to `always`. `off`: the scan only for those. A mode
+  that does nothing for a chat leaves its row as it was: no state, the old
+  words (`cut off - resets 13:00`), open alone on its chip.
+- **The surfaces.** The settings row is **Continue**, **Ask** and **Leave**
+  ([Set-ChatOverlayAutoChoice](../src/overlay-windows.ps1)); the tray item
+  and the Mac menu item are checked while it is `on`, and unchecking goes
+  back to `ask` (verbs `auto-on`, `auto-ask`, `auto-off` through
+  `overlay-cmd`, [Invoke-ChatOverlayAutoVerbs](../src/auto-continue.ps1)).
+  The chip's actions are one list for both
+  ([Get-ChatOverlayChipActions](../src/overlay-windows.ps1)), a release
+  acting only on the chip it was pressed on
+  ([Invoke-ChatOverlayChipRelease](../src/overlay-windows.ps1)). The palette
+  command offers Continue, Ask and Leave. `chatq -AutoContinue` takes
+  `on|ask|off|always|never|default`.
+- **The overlay owner's comments** on this spec, applied: the chip records
+  which chip was pressed and rebuilds its face per row - tooltips too - before
+  it is measured; auto chips keep clear of the row's words, which their
+  tooltip also carries in full; neither auto chip goes near the unread dot;
+  the row's words are short, in full in the tooltip, the console detail and
+  `-Print`; a row with no where mark keeps an empty slot so every title
+  starts at one column; the seven-row box is checked with the panel at the
+  screen's top; one confirm rule for Don't continue - one click, in the Cut
+  off list and the queue alike, since Continue undoes it; the tray's toggle
+  goes through `Invoke-ChatOverlayVerb`, held while the console runs a loop
+  of its own; and the collapsed line counts `(1 auto)`.
 
 ## What there is today
 
@@ -43,7 +188,9 @@ never scanned. Each row has `Id`, `Title`, `Group`, `At`, `ResetsAt`,
   orange row to the job's row. [Format-ChatOverlayCutOff](../src/overlay-data.ps1)
   writes `cut off - resets 13:00`, `cut off - resets Mon 13:00`,
   `cut off - limit over`, or `529 - waits for Claude`.
-  `overlay.cutOff: false` turns the rows and the scan off.
+  `overlay.cutOff: false` turns the rows and the scan off. (Since 0.9.0 a
+  cut-off stays while its reset is under 12 hours ago, too, and the scan
+  runs with `cutOff` false while the ask is on.)
 - **The console** ([Get-ChatConsoleChatItems](../src/console.ps1)) lists
   those rows under **Cut off**. Each has **Continue**, and the section has
   **Continue all**. [Invoke-ChatConsoleContinue](../src/console.ps1) makes
@@ -295,13 +442,16 @@ collapsed line and the tray still count it as `cut off`.
 
 ## The settings and their files
 
-- **`data/config.json`, `autoContinue`**: `true` (default) or `false`. The
-  global switch. It sits at the top level, beside `liveIdle` and
-  `maxRetries`, and not under `overlay`, because the watcher reads it too.
-  [Set-ChatqAutoContinue](../src/queue.ps1) (new) is the one writer for
-  every surface.
+- **`data/config.json`, `autoContinue`**: a string, `"ask"` (the default),
+  `"on"` or `"off"`. The global switch.
+  It sits at the top level, beside `liveIdle` and `maxRetries`, and not
+  under `overlay`, because the watcher reads it too. `false` reads as
+  `"off"`, `true` and anything unknown as `"ask"`
+  ([Get-ChatqAutoContinue](../src/queue.ps1)).
+  [Set-ChatqAutoContinue](../src/queue.ps1) is the one writer for every
+  surface.
 - **`data/auto-continue.json`**, written by
-  [Save-ChatqAutoState](../src/queue.ps1) (new) through `Save-ChatqJson`:
+  [Save-ChatqAutoState](../src/auto-continue.ps1) through `Save-ChatqJson`:
 
   ```json
   {
@@ -315,15 +465,29 @@ collapsed line and the tray still count it as `cut off`.
   }
   ```
 
-  - `since` is written by the first scan that finds no file.
+  - `since` is written as the switch turns to `on`, and by a scan that
+    finds none (the switch set by hand, or a chat set to `always`).
   - `chats.<id>.auto` is `always` or `never`. `default` removes the entry.
     `title` is only there so a person reading the file knows the chat.
 - **`data/auto/<sessionId>_<limitUuid>.json`**: one marker per cut-off,
-  made with `FileMode.CreateNew` by [New-ChatqAutoMarker](../src/queue.ps1)
-  (new). It holds `{ at, jobId, seq, resetsAt, source }`, where `source` is
-  `overlay` or `watcher`. A scan deletes markers over 8 days old. A marker
-  whose job could not be made holds `error` instead. That cut-off is never
-  tried again, and the reason is logged once.
+  shared by both modes and named by [Get-ChatqCutKey](../src/queue.ps1)
+  (the record's UTC ticks stand in for a missing `uuid`), made with
+  `FileMode.CreateNew`. The ask writes them now through
+  [Save-ChatqAskAnswer](../src/queue.ps1):
+  `{ at, answer, source, seq }`, where `answer` is `continue` or `leave`,
+  `source` is `overlay`, `console` or `mac`, and `seq` the jobs it made.
+  This mode's [New-ChatqAutoMarker](../src/auto-continue.ps1) writes the
+  same shape, `answer` `continue` and `source` `overlay` or `watcher`, with
+  `sessionId`, `cutUuid`, `cutAt`, `resetsAt` and `jobId` beside it, and
+  treats a marker the ask wrote as already decided: `leave` is its
+  `declined`, `continue` already has its job. A marker whose job could not
+  be made holds `error` instead.
+  That cut-off is never tried again, and the reason is logged once.
+- **`data/auto/<key>.shown`**: an empty file once an ask about that
+  cut-off was announced (toast, notification, phone), so a restarted
+  overlay does not announce it again ([Add-ChatqAskShown](../src/queue.ps1)).
+  Both kinds are deleted once over 8 days old, by any read of either
+  ([Read-ChatqAskState](../src/queue.ps1), [Read-ChatqAskShown](../src/queue.ps1)).
 
 Nothing is written outside `data/`.
 
@@ -371,13 +535,16 @@ Nothing is written outside `data/`.
   it: "Parser rewrite… will not be continued after this reset." or
   "Queued #13, a continue for Parser rewrite…".
 - [Test-ChatOverlayRowOpenable](../src/overlay-windows.ps1) stays as it is.
-  A new [Get-ChatOverlayChipActions](../src/overlay-windows.ps1) (pure)
-  returns the chips for a row: `open` when openable, plus the auto chip
-  by the row's `auto.state`. A cut-off row with no `cwd` still gets its
-  auto chip. [New-ChatOverlayChipContent](../src/overlay-windows.ps1)
-  draws from that list.
+  [Get-ChatOverlayChipActions](../src/overlay-windows.ps1) (pure, built in
+  0.9.0 for the ask's banner and `open`) returns the chips for a row; this
+  mode adds the auto chip by the row's `auto.state`. A cut-off row with no
+  `cwd` still gets its auto chip. [New-ChatOverlayChipContent](../src/overlay-windows.ps1)
+  already draws from that list, each chip with its own tooltip and arming.
 
-**The settings box** gets a seventh row, at the end, as its comment asks:
+**The settings box** has a seventh row since 0.9.0, **Cut off**, with
+**Ask** and **Leave** ([Set-ChatOverlayAutoChoice](../src/overlay-windows.ps1)).
+This mode makes it three chips, **Continue**, **Ask** and **Leave**, once
+`"on"` exists; what follows is written for that row:
 
 ```
  ┌ settings ──────────────────────────────┐
@@ -387,24 +554,29 @@ Nothing is written outside `data/`.
  │ Usage    [Lines] [Bars]                │
  │ Style    [Full] [Compact]              │
  │ Recent   [Off] [5] [10]                │
- │ Cut off  [Continue] [Leave]            │
+ │ Cut off  [Continue] [Ask] [Leave]      │
  └────────────────────────────────────────┘
 ```
 
-- The label is `Cut off`, and the chips are `continue` and `leave`, drawn
-  as **Continue** and **Leave** by [New-ChatOverlayChips](../src/overlay-windows.ps1).
+- The label is `Cut off`, and the chips are `continue`, `ask` and `leave`,
+  drawn as **Continue**, **Ask** and **Leave** by [New-ChatOverlayChips](../src/overlay-windows.ps1).
+  Ask's tooltip stays as built: "Once the limit is over, say how many chats
+  it cut off, and continue them on a click."
 - The label's tooltip: "A chat the usage limit cuts off: Continue sends it
-  "Continue from where you left off." a minute after the reset. Leave only
-  marks it orange."
+  "Continue from where you left off." a minute after the reset. Ask says
+  so once the limit is over, and continues it if you say so. Leave only
+  marks it orange." (Built today without the Continue sentence.)
 - [New-ChatOverlayChips](../src/overlay-windows.ps1) gains `-Tips`, a
   tooltip per chip:
   - Continue: "Continue each chat the limit cuts off, by itself."
   - Leave: "Only mark them - Continue in the console, or chatq '<title>' -Continue, queues one."
 - A click runs [Set-ChatOverlayAutoChoice](../src/overlay-windows.ps1)
-  (new), which calls `Set-ChatqAutoContinue`. It is kept in `config.json`
+  (built for Ask and Leave; `continue` maps to `on`), which calls `Set-ChatqAutoContinue`. It is kept in `config.json`
   and drawn at once, like the other rows.
 
-**The tray menu** gets a checked item under **Phone alerts...**:
+**The tray menu** already has, since 0.9.0, **Continue N cut-off chats**
+and **Leave them** at its top while an ask is pending. This mode adds a
+checked item under **Phone alerts...**:
 
 ```
   Open console
@@ -487,9 +659,15 @@ chatq 12 -AutoContinue never                 # the chat of job 12; drops #12 if 
 - With no title, the switch is global. That follows `chatq` alone
   showing the cheat sheet and the queue.
 
-**The parameter:** `[ValidateSet('on', 'off', 'always', 'never', 'default')][string]$AutoContinue`.
-- `on` and `off` only work without a title. With one, it says
-  `-AutoContinue on|off is the switch for every chat - for this one, always|never|default`.
+**Built** (0.9.0), the ask's first and then widened as below
+([Invoke-ChatqAutoCommand](../src/auto-continue.ps1)): every line it prints
+for the switch reads `auto-continue: on|ask|off - ...`, and it tells a
+running overlay. The lines below are the spec's first wording; the colon
+is the built one.
+
+**The parameter:** `[ValidateSet('on', 'ask', 'off', 'always', 'never', 'default')][string]$AutoContinue`.
+- `on`, `ask` and `off` only work without a title. With one, it says
+  `-AutoContinue on|ask|off is the switch for every chat - for this one, always|never|default`.
 - `always`, `never` and `default` need a title or a job number.
 - With `-Prompt`, `-Continue`, `-Attach`, `-Paste`, `-At` or `-In`, it
   refuses: `-AutoContinue sets a switch and queues nothing - run it on its own`.
@@ -667,6 +845,10 @@ nor when it is removed.
 
 ## First run, for people who already use chatq
 
+Amended: with the default `"ask"`, this mode's first run is the first
+time someone chooses `"on"`, not an update. `since` and the balloon still
+apply then, worded for a switch made on purpose.
+
 - **On, but only for what is new.** The first scan after the update writes
   `since`. Cut-offs from before it are `far`: shown, never queued. Without
   this, an update would send a batch of continues into chats from hours
@@ -726,23 +908,38 @@ nor when it is removed.
 
 ## Functions (new, house naming)
 
+Built in 0.9.0 for the ask, and for this mode to build on:
+
 | function | file | what |
 |---|---|---|
-| `Get-ChatqAutoConfig` | [queue.ps1](../src/queue.ps1) | `config.json`'s `autoContinue` and `auto-continue.json`, as `@{ On; Since; Chats; Streak; Noticed }`. Read again only when either file's write time moved |
-| `Set-ChatqAutoContinue` | queue.ps1 | the global switch. Returns `@{ Messages; Kept }` |
-| `Set-ChatqAutoChat` | queue.ps1 | one chat: `always`, `never`, `default`. Removes its `auto` jobs on `never`. Returns `@{ Messages; Removed }` |
-| `Save-ChatqAutoState` | queue.ps1 | writes `auto-continue.json` |
-| `New-ChatqAutoMarker` | queue.ps1 | exclusive create of `data/auto/<sid>_<uuid>.json`; `$true` when this caller made it |
-| `Get-ChatqAutoState` | queue.ps1 | pure; the state and words for one cut-off |
-| `Invoke-ChatqAutoContinueScan` | queue.ps1 | the checks, the marker, `New-ChatqJob`, the log line. Returns `@{ Queued; Skipped }`. Never throws |
-| `Get-ChatqAutoHold` | [watcher.ps1](../src/watcher.ps1) | the VS Code hold for an `auto` job, or `$null` |
-| `Set-ChatOverlayAutoChoice` | [overlay-windows.ps1](../src/overlay-windows.ps1) | the settings row |
-| `Get-ChatOverlayChipActions` | overlay-windows.ps1 | pure; the chips for a row |
-| `Invoke-ChatOverlayAutoChip` | overlay-windows.ps1 | don't continue / continue from the chip |
-| `Set-ChatConsoleAutoChat` | [console.ps1](../src/console.ps1) | the console's per-chat chips |
+| `Get-ChatqAutoContinue` | [queue.ps1](../src/queue.ps1) | `config.json`'s `autoContinue` as `'ask'` or `'off'` (`'on'` once built); `-Cfg` a config already read |
+| `Set-ChatqAutoContinue` | queue.ps1 | `-Value ask\|off`: writes the top-level `autoContinue`, prints nothing, returns the value. This mode adds `on`, and its lines about jobs kept go to the caller |
+| `Get-ChatqCutKey` | queue.ps1 | pure; a cut-off's marker name |
+| `Save-ChatqAskAnswer`, `Read-ChatqAskState`, `Read-ChatqAskShown`, `Add-ChatqAskShown` | queue.ps1 | the markers in `data/auto/` |
+| `Get-ChatqResetAsk` | queue.ps1 | pure; which cut-offs are asked about now |
+| `Invoke-ChatqContinueChats` | [commands.ps1](../src/commands.ps1) | a continue job for each chat; the console's and the ask's loop |
+| `Complete-ChatqResetAsk` | [overlay-data.ps1](../src/overlay-data.ps1) | an answer, from any surface |
+
+Built for this mode, in 0.9.0 - in [auto-continue.ps1](../src/auto-continue.ps1)
+unless named otherwise, so the mode is one file:
+
+| function | file | what |
+|---|---|---|
+| `Get-ChatqAutoConfig` | auto-continue.ps1 | `config.json`'s `autoContinue` and `auto-continue.json`, as `@{ Mode; On; Since; Chats; Streak; Noticed; Told; Exists }`. Read again only when either file's write time moved |
+| `Set-ChatqAutoChat` | auto-continue.ps1 | one chat: `always`, `never`, `default`. Removes its `auto` jobs on `never`. Returns `@{ Messages; Removed }` |
+| `Save-ChatqAutoState`, `Update-ChatqAutoState`, `Reset-ChatqAutoSince` | auto-continue.ps1 | writes `auto-continue.json` |
+| `New-ChatqAutoMarker` | auto-continue.ps1 | exclusive create of `data/auto/<key>.json`; `$true` when this caller made it |
+| `Get-ChatqAutoState` | auto-continue.ps1 | pure; the state and words for one cut-off |
+| `Invoke-ChatqAutoContinueScan` | auto-continue.ps1 | the checks, the marker, `New-ChatqJob`, the log line. Returns `@{ Queued; Skipped; Error }`. Never throws |
+| `Get-ChatqAutoHold` | auto-continue.ps1 | the VS Code hold for an `auto` job, or `$null`; [Invoke-ChatqJob](../src/watcher.ps1) calls it |
+| `Set-ChatOverlayAutoChoice` | [overlay-windows.ps1](../src/overlay-windows.ps1) | the settings row: Continue, Ask, Leave |
+| `Get-ChatOverlayChipActions` | overlay-windows.ps1 | pure; the chips for a row: the ask's, the auto chip, `open` |
+| `Invoke-ChatOverlayAutoChip` | auto-continue.ps1 | don't continue / continue from the chip |
+| `Set-ChatConsoleAutoChat` | auto-continue.ps1 | the console's per-chat chips |
 
 Changed:
-- [Get-ChatqCutOffChats](../src/queue.ps1): rows gain `LimitUuid`.
+- [Get-ChatqCutOffChats](../src/queue.ps1): rows gain `LimitUuid` (done
+  in 0.9.0).
 - [Get-ChatOverlayRows](../src/overlay-data.ps1): an `auto` job stays on
   its cut-off row, and rows carry `auto = @{ state; words; seq }`.
 - [Format-ChatOverlayCutOff](../src/overlay-data.ps1): `-Auto`.
@@ -875,6 +1072,16 @@ within 24 h by waiting):
   [Read-ChatqSessionRegistry](../src/live-chats.ps1) today? Check 3 must
   see them.
 
+**What the build found** (2026-09-27, read-only; TESTING.md has each in
+full). A3: the uuid is stable, so the marker keys on it. A chat woken
+before its reset can hit the limit again under a new uuid with the same
+reset, so a removed continue holds for every cut-off of that chat with that
+reset. A4: every live entry was `interactive` and `claude-vscode`, and a
+`claude -p` registers as `interactive` with `sdk-cli`, so check 3 reads
+the entrypoint as well as the kind. A1 and A2 stay open. Four panel
+cut-offs on 2.1.282 and 2.1.283 got nothing after the reset until a typed
+`continue`, so the hold stays.
+
 ## Out of scope
 
 - **A 529.** It has no reset time. Someone at the panel usually retries it
@@ -915,7 +1122,8 @@ within 24 h by waiting):
   - correct the comparison row: Claude Code's own auto-continue covers "the
     open terminal session, reset within 24 h"; a VS Code panel is as A1
     finds.
-- **CHANGELOG:** on by default, and only for cut-offs after the update.
+- **CHANGELOG:** opt-in (`"on"`; the default stays `"ask"`), and only for
+  cut-offs after it is chosen.
   The live cut-off alert is now `limited` when a continue is queued, so a
   `-Events` list without `limited` drops it. `chatrm` drops `auto` jobs.
 - **TESTING:** the new section and checks, S35, and A1 to A4 in the
@@ -925,8 +1133,11 @@ within 24 h by waiting):
 
 ## Decisions (accepted 2026-09-27)
 
-1. **On by default, for cut-offs after the update only** (`since`), with
-   one balloon.
+1. **Ask by default** (amended 2026-09-27; was "on by default, for
+   cut-offs after the update only"). The owner asked that the default ask
+   first: [Ask at the reset](#ask-at-the-reset-the-default-built), built
+   in 0.9.0. This mode is the opt-in `"on"`, for cut-offs after it is
+   chosen only (`since`), with one balloon.
 2. **The CLI is `chatq -AutoContinue`**, not a new command.
 3. **Not in the phone setup window**, and not changeable from the phone.
    The phone gets **Don't continue** for one cut-off only.

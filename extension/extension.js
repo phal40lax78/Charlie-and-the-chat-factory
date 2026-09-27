@@ -5,6 +5,9 @@ const path = require('path');
 const os = require('os');
 const cp = require('child_process');
 const setup = require('./setup');
+// a new version installed, and every reload chatq asks for, held to the
+// chats this window runs (safe-restart.js)
+const safe = require('./safe-restart');
 
 const SEEN_KEY = 'chatManagerReload.lastSeenId';
 const OPEN_SEEN_KEY = 'chatManagerReload.lastOpenId';
@@ -24,10 +27,12 @@ const GUID = /^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$/;
 //                  rest are filled in as they come
 //   labelBudget    labelShared's read of the folders' chats, at most; one
 //                  not done by then answers shared. 0 is no limit
+//   anywayFresh    a Reload anyway clicked within this of its warning reloads
+//                  at once; later, the window's chats are looked at again
 const timing = {
     retry: 2500, tabSettle: 400, tabRecount: 1500, startupOpen: 2000,
     openMaxAge: 120000, judgedMaxAge: 20000, verdictTimeout: 20000,
-    commandTimeout: 15000, pickBudget: 250, labelBudget: 1500
+    commandTimeout: 15000, pickBudget: 250, labelBudget: 1500, anywayFresh: 60000
 };
 
 // chatManager.* first. For one release the old extension's chatManagerReload.*
@@ -204,6 +209,10 @@ const texts = {
     autoStartNoLoader: folder => 'The overlay\'s scripts are not in ' + folder + ', so its start could not be set. Chat Manager: Install terminal commands puts them there.',
     autoStartFailed: 'The overlay\'s start could not be set. Chat Manager: Show log has the details.'
 };
+// the offer after a run auto-continue made - "auto": true in the request -
+// Show it, or where the chat cannot be shown fresh, a reload
+texts.ranAuto = (req, reload) => 'chatq continued ' + name(req) + ' after the usage limit reset, and this window still has it open. ' +
+    (reload ? 'Reload to show it?' : 'Show it?');
 
 // What to say, by what happened. A request written before 'kind' existed is a
 // delete - that was the only thing that wrote one. 'busy' is the script's
@@ -220,6 +229,7 @@ function message(req, fresh) {
         if (fresh && req.oldProcess === 'held') {
             return 'A queued prompt ran in ' + what + ' while that chat was working in this window. Reload once it finishes to show the run.';
         }
+        if (req.auto === true) return texts.ranAuto(req, !fresh);
         if (fresh) return 'A queued prompt ran in ' + what + ', which this window still has open. Show it?';
         return 'A queued prompt ran in ' + what + ', which this window still has open. Reload to show it?';
     }
@@ -860,6 +870,19 @@ function reloadWindow() {
     return command('workbench.action.reloadWindow').catch(e => log('reloading the window failed: ' + (e && e.message)));
 }
 
+// Reload anyway, clicked on a warning that named what a reload would cut
+// off. The warning was the script's word of one folder at the time of the
+// request, and it is not modal: clicked within a minute, what it said still
+// holds and the window reloads; later - an hour on, say - the window's chats
+// are looked at again (guardReload), the chat the warning named left out,
+// whose work the click accepted, so any other chat working since is asked
+// about by name before it is cut off. shownAt: when the warning went up.
+function reloadAnyway(shownAt, named, except) {
+    if (safe._now() - shownAt < timing.anywayFresh) return reloadWindow();
+    log('Reload anyway clicked ' + Math.round((safe._now() - shownAt) / 1000) + ' s after its warning: the chats here looked at again');
+    return safe._guardReload(false, except || null, named || null);
+}
+
 // Every show goes through one chain per window, so two never interleave.
 let queue = Promise.resolve();
 function enqueue(fn) {
@@ -882,7 +905,9 @@ async function perform(how, req) {
             return r;
         }
         case 'none': vscode.window.showInformationMessage(texts.terminal(req)); return 'none';
-        case 'reload': return reloadWindow();
+        // only a reload the window takes by itself comes here: this
+        // window's chats are looked at again first (guardReload)
+        case 'reload': return safe._guardReload(true, req.sessionId);
     }
     return how;
 }
@@ -971,14 +996,18 @@ async function showIt(req, file) {
     if (how === 'reload' && (verdict.oldProcess === 'held' || verdict.busy === true)) {
         const go = 'Reload anyway';
         const said = verdict.oldProcess === 'held' ? message(Object.assign({}, req, { oldProcess: 'held' }), true) : texts.ranBusy(req);
+        const shownAt = safe._now();
         const pick = await vscode.window.showWarningMessage(said, go, 'Not now');
-        if (pick === go) return enqueue(() => reloadWindow());
+        // held: the warning named this chat; busy: another chat of its folder,
+        // which it did not name, so nothing is left out of a later look
+        if (pick === go) return enqueue(() => reloadAnyway(shownAt, verdict.oldProcess === 'held' ? req.sessionId : null, req.sessionId));
         return 'asked';
     }
     if (how === 'reload') {
         const go = 'Reload';
         const pick = await vscode.window.showWarningMessage(texts.couldNotEnd(req), go, 'Not now');
-        if (pick === go) return enqueue(() => reloadWindow());
+        // a plain Reload, maybe clicked minutes later: looked at again
+        if (pick === go) return enqueue(() => safe._guardReload(false, req.sessionId));
         return 'asked';
     }
     // the windows the check found holding the chat, beside the request's:
@@ -1015,8 +1044,9 @@ async function offer(context, req, file) {
         if (req.oldProcess === 'other') { vscode.window.showInformationMessage(message(req, true)); return; }
         if (req.oldProcess === 'held') {
             const go = 'Reload anyway';
+            const shownAt = safe._now();
             const pick = await vscode.window.showWarningMessage(message(req, true), go, 'Not now');
-            if (pick === go) return enqueue(() => reloadWindow());
+            if (pick === go) return enqueue(() => reloadAnyway(shownAt, req.sessionId, req.sessionId));
             return;
         }
         const go = 'Show it';
@@ -1025,18 +1055,27 @@ async function offer(context, req, file) {
         return;
     }
 
+    // The script's word was of one folder, as the request went out; the
+    // reload ends every chat of this window, whatever its folder, and the
+    // word says nothing of one that began since. So this window's own
+    // chats are looked at first (guardReload): one working, and it asks.
+    const except = req.kind === 'ran' ? req.sessionId : null;
     if (auto) {
-        reloadWindow();
-        return;
+        return safe._guardReload(true, except);
     }
     if (req.kind === 'new') { vscode.window.showInformationMessage(message(req, false)); return; }
     const busy = req.busy === true;
     const go = busy ? 'Reload anyway' : 'Reload';
+    const shownAt = safe._now();
     const pick = busy
         ? await vscode.window.showWarningMessage(message(req, false), go, 'Not now')
         : await vscode.window.showInformationMessage(message(req, false), go, 'Not now');
     if (pick === go) {
-        reloadWindow();
+        // Reload anyway was the answer to a warning about this request's
+        // chat: fresh, it reloads; later, looked at again past that chat. A
+        // plain Reload, maybe clicked minutes later, is looked at again
+        if (busy) return reloadAnyway(shownAt, req.sessionId, except);
+        return safe._guardReload(false, except);
     }
 }
 
@@ -1557,7 +1596,7 @@ async function askToRemoveOld() {
         return 'failed';
     }
     const r = 'Reload';
-    if (await vscode.window.showInformationMessage(texts.oldGone, r) === r) reloadWindow();
+    if (await vscode.window.showInformationMessage(texts.oldGone, r) === r) await safe._guardReload(false, null);
     return 'removed';
 }
 
@@ -1602,14 +1641,21 @@ function lockHeld(file) {
 // Everything startOverlay reads of the machine, replaced by the tests.
 // powershell: Windows PowerShell's own path on Windows, never setup's
 // hosts(), whose look on PATH for pwsh is a where.exe of up to 5 s, run
-// synchronously, on every activation; elsewhere pwsh, as hosts() finds it.
+// synchronously, on every activation; elsewhere pwsh, as hosts() finds it -
+// once for the host's life: a reload's wait asks every 25 s, and each look
+// would hold every extension of the window. One installed later is found
+// after the next reload.
+let pwshFound;
 const overlayIo = {
     platform: () => process.platform,
     readFile: (f) => fs.readFileSync(f, 'utf8'),
     exists: (f) => fs.existsSync(f),
     lockHeld,
     powershell: (platform) => {
-        if (platform !== 'win32') return setup._hosts()[0] || null;
+        if (platform !== 'win32') {
+            if (pwshFound === undefined) pwshFound = setup._hosts()[0] || null;
+            return pwshFound;
+        }
         const ps = windowsPowerShell();
         return module.exports._overlayIo.exists(ps) ? ps : null;
     }
@@ -1766,10 +1812,62 @@ async function phoneAlerts() {
     }
 }
 
+// Chat Manager: Auto-continue cut-off chats... - the switch chatq
+// -AutoContinue on|ask|off sets, in data/config.json: no VS Code setting,
+// which is per profile and would disagree with the overlay and the
+// terminal. Run through the tool folder's loader and setup's runPs, as
+// overlayAutoStart is, so the tests stand in for PowerShell; the script's
+// own line - "auto-continue: on", "ask" or "off" - says whether it took.
+// Every platform: the watcher scans too. Never throws.
+const autoTexts = {
+    ask: 'What should chatq do with chats the usage limit cuts off?',
+    on: 'Chats the usage limit cuts off are now continued by chatq, a minute after the reset.',
+    asks: 'Once the usage limit is over, the overlay asks before chatq continues the chats it cut off.',
+    off: 'chatq no longer continues chats the limit cuts off.',
+    noLoader: folder => 'The scripts are not in ' + folder + ', so auto-continue could not be set. Chat Manager: Install terminal commands puts them there.',
+    failed: 'Auto-continue could not be set. Chat Manager: Show log has the details.'
+};
+async function autoContinue() {
+    const io = module.exports._overlayIo;
+    const done = (outcome) => { log('auto-continue: ' + outcome); return outcome; };
+    try {
+        const folder = toolFolder();
+        const loader = path.join(folder, setup.LOADER);
+        if (!io.exists(loader)) {
+            vscode.window.showWarningMessage(autoTexts.noLoader(folder));
+            return done('no loader in ' + folder);
+        }
+        // the settings box's three, in its order and words
+        const pick = await vscode.window.showQuickPick([
+            { label: 'Continue', description: 'a minute after the limit resets, each chat it cut off gets "continue"', value: 'on' },
+            { label: 'Ask', description: 'the default: once the limit is over, the overlay asks, and continues them on a click', value: 'ask' },
+            { label: 'Leave', description: 'they are only marked orange', value: 'off' }
+        ], { placeHolder: autoTexts.ask });
+        if (!pick || !pick.value) return done('nothing picked');
+        const exe = io.powershell(io.platform());
+        if (!exe) { vscode.window.showWarningMessage(autoTexts.failed); return done(pick.value + ' - no PowerShell found'); }
+        // Write-Host is the information stream: *>&1 brings it to stdout
+        const r = await setup._runPs(exe, loader, 'chatq -AutoContinue ' + pick.value + ' *>&1 | Out-String -Width 200', 60000, log);
+        const set = lastSaid(r && r.stdout, /^auto-continue: (on|ask|off)\b/);
+        if (!(r && r.ok) || !set.startsWith('auto-continue: ' + pick.value)) {
+            vscode.window.showWarningMessage(autoTexts.failed);
+            return done(pick.value + ' - failed');
+        }
+        vscode.window.showInformationMessage(pick.value === 'on' ? autoTexts.on : pick.value === 'ask' ? autoTexts.asks : autoTexts.off);
+        return done(pick.value);
+    } catch (e) {
+        vscode.window.showWarningMessage(autoTexts.failed);
+        return done('failed - ' + ((e && e.message) || e));
+    }
+}
+
 function activate(context) {
     // which extension host this is: the parent of this window's claude
     // processes, as the script's hostPids name it (S30)
     log('activated in extension host ' + process.pid);
+    // a new version of this extension installed: said, with what a reload
+    // would stop here, and reloaded only when asked or once all is idle
+    try { safe.activate(context); } catch (e) { log('watching for a new version failed: ' + ((e && e.stack) || e)); }
     if (vscode.commands.registerCommand) {
         context.subscriptions.push(vscode.commands.registerCommand('chatManager.installTerminal', () => runSetup(context, true)));
         context.subscriptions.push(vscode.commands.registerCommand('chatManager.showLog', () => { log('log shown'); if (channel) channel.show(); }));
@@ -1777,6 +1875,7 @@ function activate(context) {
             () => openChat().catch(e => log('the chat picker failed: ' + ((e && e.stack) || e)))));
         context.subscriptions.push(vscode.commands.registerCommand('chatManager.overlayAutoStart', () => overlayAutoStart()));
         context.subscriptions.push(vscode.commands.registerCommand('chatManager.phoneAlerts', () => phoneAlerts()));
+        context.subscriptions.push(vscode.commands.registerCommand('chatManager.autoContinue', () => autoContinue()));
     }
     // The overlay from the setup's onReady alone: at once where the loader is
     // in place and nothing is to be copied - setUp calls it before its first
@@ -1834,7 +1933,11 @@ module.exports = {
     _showsItself: showsItself
 };
 module.exports._phoneAlerts = phoneAlerts;
+module.exports._autoContinue = autoContinue;
+module.exports._autoTexts = autoTexts;
 Object.assign(module.exports, {
     _entrypointIn: entrypointIn, _unlistedWhy: unlistedWhy, _headAndTail: headAndTail, _listedLine: listedLine,
     _ensureListed: ensureListed, _offerTerminal: offerTerminal, _claudeExe: claudeExe
 });
+// what safe-restart.js uses of this file
+Object.assign(module.exports, { _log: log, _command: command, _reloadWindow: reloadWindow, _reloadAnyway: reloadAnyway, _safe: safe, _forgetPwsh: () => { pwshFound = undefined; } });

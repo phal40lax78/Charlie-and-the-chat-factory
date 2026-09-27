@@ -355,12 +355,15 @@ function Get-ChatqReplyConfig {
     }
     $maxMode = if ((& $has 'maxMode') -and ([string]$rp.maxMode) -cin $script:ChatqModeLadder) { [string]$rp.maxMode } else { 'acceptEdits' }
     $on = [bool]($wanted -and $topic -and ($paired -or $pairUntil))
+    # the PC -> phone channel's settings (src/phone-down.ps1)
+    $ds = Get-ChatqDownSettings $rp $master
     [pscustomobject]@{
         On = $on; Wanted = [bool]$wanted; Ready = [bool]$topic; Paired = $paired; Links = [bool]($on -and $paired)
         Topic = $topic; Key = $key; Master = $master; Server = $server; Page = $page; Hours = $hours
         Phone = $(if (& $has 'phone') { [string]$rp.phone } else { $null })
         PairedAt = $(if (& $has 'pairedAt') { ConvertTo-ChatqDate $rp.pairedAt } else { $null })
         PairId = $pairId; PairUntil = $pairUntil; MaxMode = $maxMode
+        Full = $ds.Full; FullMax = $ds.FullMax; Compose = $ds.Compose; NewMode = $ds.NewMode; Listen = $ds.Listen; DownPerDay = $ds.DownPerDay; DownTopic = $ds.DownTopic
     }
 }
 
@@ -369,6 +372,10 @@ function Test-ChatqPhoneEvent {
     # 'test', 'reply' and 'pair' always go - they answer something just done.
     param($Cfg, [string]$Event)
     if ($Event -in 'test', 'reply', 'pair') { return $true }
+    # what quiet hours held: every line of it passed this filter already
+    if ($Event -eq 'summary') { return $true }
+    # a run waits on it, and there is no other way to answer (src/permit.ps1)
+    if ($Event -eq 'permission') { return $true }
     if (-not ($Cfg -and $Cfg.PSObject.Properties['phoneEvents'] -and $null -ne $Cfg.phoneEvents)) { return $true }
     return ($Event -in @($Cfg.phoneEvents))
 }
@@ -411,6 +418,16 @@ function Set-ChatqNotifyConfig {
                     own; '' or $null the default again
       LiveAlerts    $true/$false or 'on'/'off': alerts about the chats you run
                     yourself, sent while you are away (Update-ChatqLiveAlerts)
+      UsageAlerts, UsageAt, UsageReset   usage heads-ups; QuietHours ('00:00-07:00'
+                    or 'off') and Urgent; Say and SayLanguage, read aloud by
+                    Join - all src/phone-extras.ps1's (Read-ChatqNotifyExtras)
+      Permit        $true/$false or 'on'/'off': a queued run's permission
+                    prompt asks the phone (src/permit.ps1)
+      PermitWait    1-25 minutes to answer one; PermitTools the tools the
+                    phone may approve, or 'default'
+      FullText, FullMax, Compose, NewMode, Listen
+                    the PC -> phone channel: the whole answer, the board and
+                    new chats from the phone (Get-ChatqDownChanges)
     Returns @{ Error; Messages; Changed; Config; NeedsPairing }: Messages
     are @{ Text; Color } lines to show, in order. An error changes nothing.
     NeedsPairing: replies are on and no phone is paired - the caller says
@@ -490,6 +507,16 @@ function Set-ChatqNotifyConfig {
         $liveOn = if ($v -is [bool]) { $v } else { switch (([string]$v).Trim().ToLower()) { 'on' { $true } 'off' { $false } default { $null } } }
         if ($null -eq $liveOn) { & $say "-LiveAlerts takes on or off, not '$v'" 'Yellow'; return (& $out 'bad live alerts value') }
     }
+    # usage heads-ups, quiet hours and voice: checked here with the rest
+    $extras = Read-ChatqNotifyExtras $ch $msgs $cfg
+    if ($extras.Error) { return (& $out $extras.Error) }
+    # permissions from the phone (src/permit.ps1), checked with the rest
+    $permitCh = Read-ChatqPermitChanges $ch
+    if ($permitCh.Error) { & $say $permitCh.Error 'Yellow'; return (& $out $permitCh.Error) }
+    # the PC -> phone channel's keys - FullText, FullMax, Compose, NewMode,
+    # Listen - checked here with the rest (src/phone-board.ps1)
+    $downCh = Get-ChatqDownChanges $ch $say
+    if ($downCh.Error) { return (& $out $downCh.Error) }
 
     $save = {
         Save-ChatqJson $script:ChatqConfigPath $cfg
@@ -628,6 +655,7 @@ function Set-ChatqNotifyConfig {
             & $say 'a page on another site has no key for the phone - pair it again there (chatnotify -Pair)' 'Yellow'
         }
     }
+    if (Set-ChatqDownChanges $cfg $downCh $say) { $changed = $true }
     # Replies switched on or off: where polling got to is reset either way,
     # so nothing sent to the topic while they were off is ever run. Off also
     # shuts the window and forgets every alert out there (see
@@ -654,11 +682,19 @@ function Set-ChatqNotifyConfig {
         }
         elseif ($reply -eq 'off') { & $say 'replies from the phone off - the phone stays paired, the alerts out there stop working; -Reply on picks it up again' 'DarkGray' }
     }
+    if (Set-ChatqNotifyExtras $cfg $extras $msgs) { $changed = $true }
+    if ($permitCh.Any) {
+        foreach ($m in @(Set-ChatqPermitChanges $cfg $permitCh)) { & $say $m.Text $m.Color }
+        $changed = $true
+    }
     if ($changed) { & $save }
+    Complete-ChatqNotifyExtras $extras $msgs
     if ($reply -in 'on', 'off' -and ($flipped -or $reply -eq 'off')) {
         try { Reset-ChatqReplyCursor -Close:($reply -eq 'off') }
         catch { & $say "could not reset data/replies.json: $($_.Exception.Message)" 'Yellow' }
     }
+    # listening all the time begins, or ends, with the setting that says so
+    if ($changed) { Update-ChatqReplyStanding $downCh $cfg }
     if ($reply -eq 'renew') {
         $pr = Start-ChatqReplyPairing
         if ($pr.Error) { & $say "pairing: $($pr.Error)" 'Yellow' }
@@ -980,6 +1016,8 @@ function Confirm-ChatqPairCandidate {
         }
     }
     catch { Write-ChatqReplyLog "paired, but data/replies.json was not reset: $($_.Exception.Message)" }
+    # reply.listen always: the new phone's board is listened for from now
+    $null = Start-ChatqReplyStanding
     Write-ChatqReplyLog "paired with $label, code $($c.code)"
     $sent = Send-ChatqAlert 'reply' "paired - $label. Tap an alert to answer it." 1 -Loud
     return [pscustomobject]@{ Error = $null; Label = $label; Sent = [bool]$sent }
@@ -999,6 +1037,7 @@ function Get-ChatqReplyState {
     # state; one that is there but cannot be read throws, so that nothing
     # ever saves a fresh state over it and wipes the nonces already used.
     $s = @{ openUntil = $null; since = $null; lastId = $null; lastPolledAt = $null; lastReplyAt = $null; alerts = @{}; seen = @{}; refused = @{}; pairCandidates = @() }
+    Initialize-ChatqBoardState $s
     if (-not (Test-Path -LiteralPath $script:ChatqReplyPath)) { return $s }
     $j = $null
     $err = $null
@@ -1036,6 +1075,10 @@ function Get-ChatqReplyState {
             if ($a.PSObject.Properties['home']) { $e['home'] = $(if ($a.home) { [string]$a.home } else { $null }) }
             # about a chat you run yourself, not a chatq job (Update-ChatqLiveAlerts)
             if ($a.PSObject.Properties['live'] -and $a.live -eq $true) { $e['live'] = $true }
+            # a usage alert's kind: a soon one can be answered with Send now
+            if ($a.PSObject.Properties['usage'] -and $a.usage) { $e['usage'] = [string]$a.usage }
+            # a permission request's: what an answer must match (src/permit.ps1)
+            if ($a.PSObject.Properties['permit'] -and $a.permit) { $e['permit'] = ConvertFrom-ChatqPermitEntry $a.permit }
             $s.alerts[$p.Name] = $e
         }
     }
@@ -1051,6 +1094,8 @@ function Get-ChatqReplyState {
                 }
             })
     }
+    # the PC -> phone channel's own fields (src/phone-down.ps1)
+    Read-ChatqBoardState $s $j
     return $s
 }
 
@@ -1079,6 +1124,8 @@ function Save-ChatqReplyState {
         }
         if ($a.ContainsKey('home')) { $o['home'] = $a['home'] }
         if ($a.ContainsKey('live') -and $a['live']) { $o['live'] = $true }
+        if ($a.ContainsKey('usage') -and $a['usage']) { $o['usage'] = [string]$a['usage'] }
+        if ($a.ContainsKey('permit') -and $a['permit']) { $o['permit'] = ConvertTo-ChatqPermitEntry $a['permit'] }
         $alerts[$e.Key] = $o
     }
     $seen = [ordered]@{}
@@ -1104,10 +1151,13 @@ function Save-ChatqReplyState {
             if (-not ($x -and $x.ToUniversalTime() -gt $now)) { continue }
             [ordered]@{ id = $c.id; pid = $c.pid; d = $c.d; label = $c.label; code = $c.code; at = $c.at; expires = $c.expires }
         })
+    # the PC -> phone channel's own, pruned (src/phone-down.ps1)
+    $bs = Get-ChatqBoardState $State $now
     Save-ChatqJson $script:ChatqReplyPath ([ordered]@{
             openUntil = $State.openUntil; since = $State.since; lastId = $State.lastId
             lastPolledAt = $State.lastPolledAt; lastReplyAt = $State.lastReplyAt; alerts = $alerts; seen = $seen; refused = $refused
             pairCandidates = $cands
+            picks = $bs.Picks; standing = $bs.Standing; compose = $bs.Compose; down = $bs.Down; downSent = $bs.DownSent; composeRefusedAt = $bs.RefusedAt; hotUntil = $bs.HotUntil
         })
 }
 
@@ -1180,6 +1230,8 @@ function Reset-ChatqReplyCursor {
         $st.lastId = $null
         $st.since = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 60
         if ($Close) { $st.openUntil = $null; $st.alerts = @{} }
+        # off stops listening all the time as well
+        if ($Close) { $st.standing = $false }
     }
 }
 
@@ -1187,9 +1239,10 @@ function Close-ChatqReplyWindow {
     # chatqrun -Stop: the watcher is to stop listening too, and stay stopped
     # - a new shell, or one leaving watcher, starts one only while the window
     # is open. The next alert that can be answered opens it again. Never
-    # throws; no file, no window, nothing written.
+    # throws; no file, no window, nothing written. Listening all the time
+    # (reply.listen always) stops too, until the next shell or overlay start.
     if (-not (Test-Path -LiteralPath $script:ChatqReplyPath)) { return $true }
-    try { $null = Use-ChatqReplyState { param($st) $st.openUntil = $null }; return $true }
+    try { $null = Use-ChatqReplyState { param($st) $st.openUntil = $null; $st.standing = $false }; return $true }
     catch { return $false }
 }
 
@@ -1199,7 +1252,15 @@ function Get-ChatqReplyLink {
     # about no chat, where the page offers no prompt box; j=live one about a
     # chat you run yourself, where it offers Send and Status. -TitleChars 0
     # leaves the chat's title out, for a Join URL that will not fit otherwise.
-    param($Rc, [string]$Aid, [string]$Event, $Job, [int]$TitleChars = 20)
+    # w=1 marks a usage alert about a reset coming, where the page offers
+    # Send now - trusted by nobody: the watcher goes by the registry.
+    # -Card: a permission request's sealed card, as r= (src/permit.ps1) -
+    # sealed for the phone, so nothing on the way can read it.
+    # -Full: the whole answer went to the down topic (Send-ChatqReplyText):
+    # f=1, and o= the alert's time in unix seconds, which tells the page how
+    # far back to look for it.
+    param($Rc, [string]$Aid, [string]$Event, $Job, [int]$TitleChars = 20,
+        [string]$UsageKind, [string]$Card, [switch]$Full, [int64]$At = 0)
     $t = if ($Job -and $Job.title) { [string]$Job.title } else { '' }
     if ($t.Length -gt $TitleChars) {
         $n = [Math]::Max(0, $TitleChars)
@@ -1213,6 +1274,9 @@ function Get-ChatqReplyLink {
         j = $(if ($Job -and $Job.state) { [string]$Job.state } else { '' })
     }
     if (-not ($Job -and $Job.sessionId)) { $q['x'] = '1' }
+    if ($UsageKind -eq 'soon') { $q['w'] = '1' }
+    if ($Card) { $q['r'] = $Card }
+    if ($Full) { $q['f'] = '1'; if ($At -gt 0) { $q['o'] = [string]$At } }
     return $Rc.Page + '#' + (($q.GetEnumerator() | ForEach-Object { $_.Key + '=' + (ConvertTo-ChatqUriPart $_.Value) }) -join '&')
 }
 
@@ -1221,9 +1285,13 @@ function New-ChatqReplyAlert {
     One alert that can be answered: a fresh id in the registry, with what it
     is about, and the link to put in it. $null when replies are off or no
     phone is paired - and when the registry cannot be written, since a link
-    whose alert is not registered could only ever say "expired".
+    whose alert is not registered could only ever say "expired". -Permit
+    and -Card: a permission request's (src/permit.ps1) - the card's
+    plaintext, sealed here for the phone under this alert's own id.
+    -UsageKind: a usage alert's kind, kept in the entry (usage).
     #>
-    param([string]$Event, $Job, $Rc)
+    param([string]$Event, $Job, $Rc, [string]$UsageKind,
+        $Permit, [string]$Card)
     if (-not $Rc) { $Rc = Get-ChatqReplyConfig }
     if (-not $Rc.Links) { return $null }
     $aid = New-ChatqRandomName 10
@@ -1243,9 +1311,15 @@ function New-ChatqReplyAlert {
     if ($Job -and $Job.sessionId) { $e['home'] = $(if ($Job.home) { [string]$Job.home } else { $null }) }
     # a chat you run yourself: no job to retry, skip or stop (Invoke-ChatqReply)
     if (Get-ChatField $Job 'live') { $e['live'] = $true }
+    # which usage alert: Invoke-ChatqReplyWake goes by this, never by the link
+    if ($UsageKind) { $e['usage'] = $UsageKind }
+    if ($Permit) { $e['permit'] = $Permit }
+    $sealed = if ($Card) { Protect-ChatqPermitCard -Master $Rc.Master -Aid $aid -Card $Card } else { '' }
     try { $null = Use-ChatqReplyState { param($st) $st.alerts[$aid] = $e } $Rc.Hours }
     catch { return $null }
-    [pscustomobject]@{ Aid = $aid; Link = (Get-ChatqReplyLink $Rc $aid $Event $Job) }
+    # UsageKind and Card kept with it: a link made again after the whole
+    # answer went (Update-ChatqReplyFull) keeps its w= and r=
+    [pscustomobject]@{ Aid = $aid; Link = (Get-ChatqReplyLink $Rc $aid $Event $Job -UsageKind $UsageKind -Card $sealed); UsageKind = $UsageKind; Card = $sealed }
 }
 
 function Open-ChatqReplyWindow {
@@ -1286,6 +1360,9 @@ function Test-ChatqReplyOpen {
         }
         $st = Read-ChatqJson $script:ChatqReplyPath
         $u = if ($st) { ConvertTo-ChatqDate $st.openUntil } else { $null }
+        # or listening all the time: reply.listen always, a phone paired, and
+        # no stop since the shell or the overlay last started it
+        if ($rp.key -and [string](Get-ChatField $rp 'listen') -eq 'always' -and $st -and (Get-ChatField $st 'standing') -eq $true) { return $true }
         return [bool]($u -and $u -gt (Get-Date))
     }
     catch { return $false }
@@ -1318,6 +1395,8 @@ function Get-ChatqPhoneStatusText {
         $l = ConvertTo-ChatqDate $st.lastReplyAt
         if ($l) { $parts += "last reply $(& $fmt $l)" }
     }
+    # listening all the time, and whether whole answers go (src/phone-board.ps1)
+    $parts += @(Get-ChatqBoardStatusParts $rc $st)
     return ($parts -join ' - ')
 }
 
@@ -1379,6 +1458,8 @@ function Test-ChatqReplyMessage {
     #>
     param($Rc, [string]$Message, $PairKey)
     $r = [pscustomobject]@{ Junk = $false; Stage = $null; Error = $null; Reply = $null; Pair = $null }
+    # the phone about no alert - its board, a chat, a new one (src/phone-board.ps1)
+    if (([string]$Message).TrimStart().StartsWith('chatq3c.', [StringComparison]::Ordinal)) { return (Test-ChatqComposeMessage $Rc $Message) }
     if (([string]$Message).TrimStart().StartsWith('chatq2p.', [StringComparison]::Ordinal)) {
         if ($Rc.PairId -and -not $PairKey) { $r.Junk = $true; $r.Stage = 'pairing'; $r.Error = 'the pairing key cannot be read here'; return $r }
         $p = Unprotect-ChatqPairMessage $Message $PairKey $Rc.PairId
@@ -1526,6 +1607,7 @@ function Receive-ChatqReply {
     if ($script:ChatqReplyHandled.ContainsKey($tag)) { return $null }
     $c = if ($Checked) { $Checked } else { Test-ChatqReplyMessage $Rc $Message (Get-ChatqPairKey $Rc) }
     if ($c.Pair -or ($c.Junk -and $c.Stage -eq 'pairing')) { return (Receive-ChatqPairing $Rc $Id $Message -Quick:$Quick -Opened $(if ($c.Pair) { $c.Pair } else { [pscustomobject]@{ Ok = $false; Error = $c.Error } })) }
+    if (-not $c.Junk -and $c.PSObject.Properties['Compose'] -and $c.Compose) { return (Receive-ChatqCompose $Rc $Id $Message -Checked $c -Quick:$Quick) }
     if ($c.Junk) {
         # junk, or forged: nobody is answered, and polling moves past it
         Write-ChatqReplyJunk $c.Stage "reply $Id refused - $($c.Stage): $($c.Error)"
@@ -1599,7 +1681,7 @@ function Receive-ChatqReply {
     }
     $entry = $rec.Entry
     Write-ChatqReplyLog "reply $Id to $($entry.event)$(if ($entry.seq) { " #$($entry.seq)" }): $($pl.act)"
-    return (Invoke-ChatqReply $pl $entry $aid -Rc $Rc -Quick:$Quick)
+    return (Invoke-ChatqReply $pl $entry $aid -Rc $Rc -Quick:$Quick -Raw $Message)
 }
 
 function Get-ChatqModeRank {
@@ -1636,13 +1718,16 @@ function Invoke-ChatqReply {
     push that says so is about that chat still, so it can be answered. A
     prompt to one still waiting on a prompt at the PC is queued all the
     same, and the push says it goes only once that is answered there.
+    permit and refuse answer a permission request (Invoke-ChatqPermitReply);
+    -Raw is the message as the phone posted it, which the bridge opens again.
     #>
-    param($Payload, $Entry, [string]$Aid, $Rc, [switch]$Quick)
+    param($Payload, $Entry, [string]$Aid, $Rc, [switch]$Quick,
+        [string]$Raw)
     if (-not $Rc) { $Rc = Get-ChatqReplyConfig }
     $cap = if ($Rc.MaxMode) { $Rc.MaxMode } else { 'acceptEdits' }
     $act = [string]$Payload.act
     $text = [string]$Payload.text
-    $job = if ($Entry.jobId) { Find-ChatqJob ([string]$Entry.jobId) } else { $null }
+    $job = if ($Entry.jobId) { Find-ChatqJob ([string]$Entry.jobId) -Exact } else { $null }
     $about = $job
     $n = if ($job) { "#$($job.seq)" } elseif ($Entry.seq) { "#$($Entry.seq)" } else { 'that job' }
     $limitNote = { param($m) " - runs in $m, the phone's limit" }
@@ -1738,6 +1823,8 @@ function Invoke-ChatqReply {
             if ($job.state -notin 'queued', 'failed', 'needs-input') { $say = "#$($job.seq) is $($job.state) - nothing to skip"; break }
             Complete-ChatqJob $job 'skipped' ([pscustomobject]@{ kind = 'skipped'; reason = 'skipped from the phone' }) 'skipped from the phone'
             $say = "#$($job.seq) skipped"
+            # auto-continue's: its marker stays, so this cut-off is not queued again
+            if (Get-ChatField $job 'auto') { $say = Get-ChatqAutoSkipText $job }
         }
         'stop' {
             if (-not $job -or $job.state -ne 'running') { $say = "$n is $(if ($job) { $job.state } else { 'gone' }) - nothing to stop"; break }
@@ -1749,6 +1836,13 @@ function Invoke-ChatqReply {
             }
         }
         'status' { $say = Get-ChatqPhoneStatusReport }
+        # Send now, on a usage alert about a reset coming (src/phone-extras.ps1)
+        'wake' { $say = Invoke-ChatqReplyWake $Entry }
+        'permit' { $say = Invoke-ChatqPermitReply $act $Payload $Entry $Aid $Raw }
+        'refuse' { $say = Invoke-ChatqPermitReply $act $Payload $Entry $Aid $Raw }
+        # the whole answer again, on the down topic - no push: the page is
+        # open and waiting for it (src/phone-board.ps1)
+        'read' { return (Invoke-ChatqReadAct $Entry $Aid -Rc $Rc -Quick:$Quick) }
         'ping' {
             $ts = $Payload.ts -as [double]
             $secs = if ($null -ne $ts) { [int][Math]::Round(([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - $ts) / 1000) } else { '?' }
@@ -1783,6 +1877,7 @@ function Get-ChatqPhoneStatusReport {
             $t = $t.Substring(0, $n) + $script:ChatqEllipsis
         }
         $s = switch ($j.state) { 'queued' { $eta[$j.id] } 'needs-input' { 'needs you' } default { $j.state } }
+        if ($j.state -eq 'running') { $s += Get-ChatqPermitWaitText $j }
         $lines += "#$($j.seq) $t $d $s"
     }
     $use = @(Get-ChatqUsage | ForEach-Object { "$($_.Provider) $(@($_.Parts) -join " $d ")$(if ($_.AsOf) { " (as of $($_.AsOf))" })" })
@@ -1917,7 +2012,9 @@ function Get-ChatqLiveAlertText {
     # its folder. done: the chat and the end of the reply, "asks:" before it
     # when it ends on a question - as the watcher's own done alert has it; a
     # turn the limit or a 529 cut off says that instead.
-    param([string]$Event, [string]$Title, [string]$Cwd, [string]$Path, [object[]]$Entries)
+    # -Auto: auto-continue's state for the chat (Get-ChatqAutoState): a
+    # continue it queued is said, else why it will not continue it
+    param([string]$Event, [string]$Title, [string]$Cwd, [string]$Path, [object[]]$Entries, $Auto)
     $d = $script:ChatqDot
     if ($Event -eq 'needs input') {
         $what = Get-ChatqLiveWaitWhat $Entries $Path
@@ -1927,7 +2024,8 @@ function Get-ChatqLiveAlertText {
         return $t
     }
     $turn = if ($Path) { Get-ChatqLastTurn $Path } else { $null }
-    if ($turn -and $turn.Limit) { return "$Title $d stopped by the usage limit$(if ($turn.ResetsAt) { " until $($turn.ResetsAt.ToString('HH:mm'))" })" }
+    if ($turn -and $turn.Limit -and $Auto -and $Auto.State -in 'armed', 'due') { return "$Title $d stopped by the usage limit $d auto-continues $($Auto.At)" }
+    if ($turn -and $turn.Limit) { return "$Title $d stopped by the usage limit$(if ($turn.ResetsAt) { " until $($turn.ResetsAt.ToString('HH:mm'))" })$(if ($Auto -and $Auto.Tag) { " $d $($Auto.Tag)" })" }
     if ($turn -and $turn.Overloaded) { return "$Title $d stopped - Claude was overloaded" }
     $x = ''
     if ($turn -and $turn.Type -eq 'assistant' -and $turn.Text) {
@@ -1962,7 +2060,7 @@ function Get-ChatqWatchedSessions {
         $cur = [string](Get-ChatField (Get-ChatqState) 'current')
         if ($cur) {
             $cj = @($jobs | Where-Object { $_ -and $_.id -eq $cur })[0]
-            if (-not $cj) { $cj = Find-ChatqJob $cur }
+            if (-not $cj) { $cj = Find-ChatqJob $cur -Exact }
             if ($cj -and $cj.sessionId) { $out[[string]$cj.sessionId] = $true }
         }
     }
@@ -2057,6 +2155,11 @@ function Update-ChatqLiveAlerts {
                 $ev = 'done'
             }
             if (-not $ev) { continue }
+            # a turn the limit cut off that auto-continue queued "continue"
+            # for: limited, about that job - Don't continue on the page - in
+            # place of done (src/auto-continue.ps1)
+            $autoJob = if ($ev -eq 'done') { Get-ChatqLiveAutoJob $Ctx $sid } else { $null }
+            if ($autoJob) { $ev = 'limited' }
             if (-not (Test-ChatqPhoneEvent $cfg $ev)) { $m.Settled = $true; continue }
             if ($null -eq $away) { $away = [bool](Test-ChatqUserAway $cfg) }
             # at the PC: nothing goes and nothing is settled - you see it there
@@ -2092,16 +2195,54 @@ function Update-ChatqLiveAlerts {
             $jobHome = if ([string]::Equals($cfgDir.TrimEnd('\', '/'), $default.TrimEnd('\', '/'), [StringComparison]::OrdinalIgnoreCase)) { $null } else { $cfgDir }
             $m.Settled = $true
             $m.Last[$ev] = $Now
+            $autoSt = $(if (Get-ChatField $Ctx 'AutoStates') { $Ctx.AutoStates[$sid] } else { $null })
             $alert = [ordered]@{
-                event = $ev; text = (Get-ChatqLiveAlertText $ev $title $cwd $path $mine[$sid].ToArray()); priority = $(if ($ev -eq 'needs input') { 2 } else { 1 })
+                event = $ev; text = (Get-ChatqLiveAlertText $ev $title $cwd $path $mine[$sid].ToArray() -Auto $autoSt); priority = $(if ($ev -eq 'needs input') { 2 } elseif ($ev -eq 'limited') { 0 } else { 1 })
                 sessionId = $sid; title = $title; cwd = $cwd; path = $path; home = $jobHome
             }
+            if ($autoJob) { $alert['jobId'] = [string]$autoJob.id }
             $null = Send-ChatqLiveAlert $alert
             Write-ChatOverlayLog "phone: $ev alert for $sid ($title) handed to the outbox" -Always
         }
     }
     catch {
         try { Write-ChatOverlayLog "phone: $($_.Exception.Message)" } catch {}
+    }
+}
+
+function Send-ChatqResetAskAlert {
+    <#
+    The reset ask on the phone (Invoke-ChatOverlayCycle, for the cut-offs
+    it announced): one alert, event limited, about several chats and so
+    about no one session - the reply page offers Status alone, as for any
+    alert about no chat. Answering is at the PC. The gates are
+    Update-ChatqLiveAlerts' own: a phone channel set, liveAlerts on,
+    phoneEvents letting limited through, and you away. Returns 'wait' while
+    you are at the PC (the caller keeps the keys and asks again), 'off' when
+    it is not to go or could not, 'sent' once handed to the outbox. Never
+    throws.
+    #>
+    param($Ctx, $Ask, [string[]]$Keys, [datetime]$Now = (Get-Date))
+    try {
+        if (-not $Ask -or -not @($Keys).Count) { return 'off' }
+        $cfg = Get-ChatqLiveAlertConfig $Ctx $Now
+        $phones = ($cfg.PSObject.Properties['join'] -and $cfg.join) -or ($cfg.PSObject.Properties['ntfy'] -and $cfg.ntfy)
+        if (-not $phones -or -not (Test-ChatqLiveAlertsOn $cfg) -or -not (Test-ChatqPhoneEvent $cfg 'limited')) { return 'off' }
+        if (-not (Test-ChatqUserAway $cfg)) { return 'wait' }
+        $n = [int]$Ask.Count
+        $chats = "$n chat$(if ($n -ne 1) { 's' })"
+        $alert = [ordered]@{
+            event = 'limited'; priority = 0
+            text = "limit over at $(Format-ChatOverlayAskAt $Ask.ResetsAt $Now) $($script:ChatqDot) $chats it cut off can continue - answer on the PC"
+            sessionId = $null; title = $null; cwd = $null; path = $null; home = $null
+        }
+        $null = Send-ChatqLiveAlert $alert
+        Write-ChatOverlayLog "phone: reset alert for $chats handed to the outbox" -Always
+        return 'sent'
+    }
+    catch {
+        try { Write-ChatOverlayLog "phone: reset alert: $($_.Exception.Message)" } catch {}
+        return 'off'
     }
 }
 
@@ -2122,6 +2263,10 @@ function Send-ChatqLiveAlert {
         sessionId = [string](& $g 'sessionId'); title = [string](& $g 'title'); cwd = [string](& $g 'cwd'); path = [string](& $g 'path')
         home = $(if (& $g 'home') { [string](& $g 'home') } else { $null })
     }
+    # the job it is about, when there is one: auto-continue's limited alert
+    if (& $g 'jobId') { $o['jobId'] = [string](& $g 'jobId') }
+    # a usage heads-up's kind (Update-ChatqUsageAlerts): about no chat at all
+    if (& $g 'kind') { $o['kind'] = [string](& $g 'kind') }
     New-ChatqDir $script:ChatqOutboxDir
     $f = Join-Path $script:ChatqOutboxDir ((New-ChatqRandomName 16) + '.json')
     Save-ChatqJson $f $o
@@ -2206,7 +2351,14 @@ function Send-ChatqOutboxFile {
         $age = ((Get-Date) - $at).TotalMinutes
         if ($age -gt $MaxAgeMinutes) { Write-ChatqOutboxLog "${name}: $($a.event) dropped unsent - $([int]$age) min old" }
         else {
-            $ok = Send-ChatqAlert ([string]$a.event) ([string]$a.text) ([int]$a.priority) -Job (ConvertTo-ChatqLiveJob $a)
+            # an alert about no chat - a usage heads-up - goes with no job,
+            # so its link is jobless (x=1); one with a job goes about that
+            # job while it still waits - the link then takes a skip - else
+            # about the chat you run yourself
+            $about = if (Get-ChatField $a 'sessionId') { ConvertTo-ChatqLiveJob $a } else { $null }
+            $jid = [string](Get-ChatField $a 'jobId')
+            if ($jid) { $fj = Find-ChatqJob $jid -Exact; if ($fj -and $fj.state -eq 'queued') { $about = $fj } }
+            $ok = Send-ChatqAlert ([string]$a.event) ([string]$a.text) ([int]$a.priority) -Job $about -UsageKind ([string](Get-ChatField $a 'kind'))
             $sent = $true
             Write-ChatqOutboxLog "${name}: $($a.event) $(if ($ok) { 'sent' } else { 'not sent' }) - $(@($script:ChatqAlertReport) -join ', ')"
         }
@@ -2227,6 +2379,9 @@ function Send-ChatqOutbox {
     Returns how many were sent.
     #>
     param([int]$MaxAgeMinutes = 30)
+    # quiet hours over with alerts held: the summary first - the overlay
+    # starts this sender for that alone (Update-ChatqHeldKick)
+    try { if (Test-ChatqHeldWaiting) { $null = Send-ChatqHeldSummary } } catch {}
     $done = @{}
     $n = 0
     $list = {

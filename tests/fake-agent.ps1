@@ -20,6 +20,16 @@
 #                  what `claude agents --json` lists from then on
 #   FAKE_AGENTS_FILE  once it exists, what `claude agents --json` prints,
 #                  ahead of FAKE_AGENTS
+#   FAKE_PERMIT    a JSON list of tool calls {tool_name, input, id} that each
+#                  meet a permission prompt. With --permission-prompt-tool and
+#                  --mcp-config in argv the fake starts the server that config
+#                  names, as claude -p does, and asks it about each call - a
+#                  tool_use line first, then tools/call - recording every
+#                  answer in FAKE_RECORD/permit.jsonl; a deny becomes a
+#                  permission_denials entry. A server that does not come up
+#                  ends the run at the first call, as S35 saw claude do.
+#   FAKE_PERMIT_SELF  the model calls mcp__chatqpermit__decide itself: a
+#                  call with no tool_use line of its own before it
 # Output goes out as raw UTF-8 bytes: Write-Output would encode it in the
 # console code page, which is exactly the bug class these tests exist for.
 
@@ -77,6 +87,7 @@ if ($env:FAKE_RECORD) {
     $seen = @('ANTHROPIC_API_KEY', 'CLAUDECODE', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_CONFIG_DIR') | ForEach-Object {
         "$_=$([Environment]::GetEnvironmentVariable($_))"
     }
+    $seen = @($seen) + "MCP_TOOL_TIMEOUT=$env:MCP_TOOL_TIMEOUT"
     [IO.File]::WriteAllText((Join-Path $env:FAKE_RECORD 'env.txt'), ($seen -join "`n"), $utf8)
 }
 
@@ -145,6 +156,110 @@ if ($env:FAKE_LAND -and (Test-Path -LiteralPath $env:FAKE_LAND)) {
         sessionId = $session
     } | ConvertTo-Json -Compress -Depth 5
     [IO.File]::AppendAllText($env:FAKE_LAND, $rec + "`n", $utf8)
+}
+
+if (($env:FAKE_PERMIT -or $env:FAKE_PERMIT_SELF) -and $argv -contains '--permission-prompt-tool' -and $argv -contains '--mcp-config') {
+    # claude -p with a permission prompt tool: start its MCP server, then ask
+    # it about each call the way S35 saw claude do - the assistant's tool_use
+    # line on stdout first, then tools/call, the run blocked on the answer
+    $out = [Console]::OpenStandardOutput()
+    $emit = { param($o) $b = $utf8.GetBytes((ConvertTo-Json $o -Compress -Depth 10) + "`n"); $out.Write($b, 0, $b.Length); $out.Flush() }
+    $rec = { param($name, $text) if ($env:FAKE_RECORD) { [IO.File]::AppendAllText((Join-Path $env:FAKE_RECORD $name), $text + "`n", $utf8) } }
+    $cfgPath = $argv[[Array]::IndexOf($argv, '--mcp-config') + 1]
+    $srv = ([IO.File]::ReadAllText($cfgPath, $utf8) | ConvertFrom-Json).mcpServers.chatqpermit
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = [string]$srv.command
+    $psi.Arguments = (@($srv.args) | ForEach-Object { if ([string]$_ -match '\s') { '"' + $_ + '"' } else { [string]$_ } }) -join ' '
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.RedirectStandardInput = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.StandardOutputEncoding = $utf8
+    if ($srv.env) { foreach ($p in $srv.env.PSObject.Properties) { $psi.EnvironmentVariables[$p.Name] = [string]$p.Value } }
+    $proc = $null
+    $up = $false
+    $t0 = Get-Date
+    try { $proc = [System.Diagnostics.Process]::Start($psi) } catch { $proc = $null }
+    $send = { param($s) $b = $utf8.GetBytes($s + "`n"); $proc.StandardInput.BaseStream.Write($b, 0, $b.Length); $proc.StandardInput.BaseStream.Flush() }
+    # every answer read in order; one that is for another id waits its turn
+    $early = @{}
+    # a read left pending past a timeout is picked up by the next one
+    $pend = @{ T = $null }
+    $answer = {
+        param($id, [int]$Sec)
+        $until = (Get-Date).AddSeconds($Sec)
+        while ((Get-Date) -lt $until) {
+            if ($early.ContainsKey($id)) { $l = $early[$id]; $early.Remove($id); return $l }
+            if (-not $pend.T) { $pend.T = $proc.StandardOutput.ReadLineAsync() }
+            while (-not $pend.T.Wait(200)) { if ((Get-Date) -gt $until) { return $null } }
+            $l = $pend.T.Result
+            $pend.T = $null
+            if ($null -eq $l) { return $null }
+            $got = ([regex]::Match($l, '"id":("[^"]*"|\d+)')).Groups[1].Value
+            if ($got -eq $id) { return $l }
+            $early[$got] = $l
+        }
+        return $null
+    }
+    if ($proc) {
+        if ($env:FAKE_RECORD) { [IO.File]::WriteAllText((Join-Path $env:FAKE_RECORD 'bridge.pid'), "$($proc.Id)", $utf8) }
+        try {
+            & $send '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"fake-claude","version":"1"}}}'
+            $init = & $answer '0' 30
+            if ($init -and $init.StartsWith('{')) {
+                & $send '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+                & $send '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+                $tl = & $answer '1' 10
+                $up = [bool]($tl -and $tl -match '"name":"decide"')
+            }
+        }
+        catch { $up = $false }
+    }
+    & $rec 'permit.jsonl' ('{"up":' + $(if ($up) { 'true' } else { 'false' }) + ',"ms":' + [int]((Get-Date) - $t0).TotalMilliseconds + '}')
+    & $emit ([ordered]@{ type = 'system'; subtype = 'init'; session_id = $session; model = 'claude-fake-1'; permissionMode = 'default'; claude_code_version = '2.1.278'
+            mcp_servers = @([ordered]@{ name = 'chatqpermit'; status = $(if ($up) { 'connected' } else { 'failed' }) }) })
+    $calls = @()
+    if ($env:FAKE_PERMIT) { $calls += @($env:FAKE_PERMIT | ConvertFrom-Json) }
+    if ($env:FAKE_PERMIT_SELF) { $calls += [pscustomobject]@{ tool_name = 'Bash'; input = [pscustomobject]@{ command = 'echo made up' }; id = 'toolu_self'; self = $true } }
+    $denials = @()
+    $n = 10
+    foreach ($c in $calls) {
+        $self = [bool]($c.PSObject.Properties['self'] -and $c.self)
+        if (-not $self) {
+            & $emit ([ordered]@{ type = 'assistant'; message = [ordered]@{ model = 'claude-fake-1'; role = 'assistant'; content = @([ordered]@{ type = 'tool_use'; id = [string]$c.id; name = [string]$c.tool_name; input = $c.input }) }; session_id = $session })
+        }
+        if (-not $up) {
+            # as claude.exe 2.1.283 ends a run whose prompt tool never came up
+            $e = [Console]::OpenStandardError()
+            $b = $utf8.GetBytes("Error: MCP tool mcp__chatqpermit__decide (passed via --permission-prompt-tool) not found. Available MCP tools: none`n")
+            $e.Write($b, 0, $b.Length); $e.Flush()
+            exit 1
+        }
+        $n++
+        $args0 = [ordered]@{ tool_name = [string]$c.tool_name; input = $c.input; tool_use_id = [string]$c.id }
+        & $send ('{"jsonrpc":"2.0","id":' + $n + ',"method":"tools/call","params":{"name":"decide","arguments":' + (ConvertTo-Json $args0 -Compress -Depth 10) + '}}')
+        $wait = if ($env:FAKE_PERMIT_WAIT) { [int]$env:FAKE_PERMIT_WAIT } else { 240 }
+        $a = & $answer "$n" $wait
+        & $rec 'permit.jsonl' $(if ($a) { $a } else { '{"none":true}' })
+        $v = $null
+        if ($a) { try { $v = (($a | ConvertFrom-Json).result.content[0].text) | ConvertFrom-Json } catch { $v = $null } }
+        if ($v -and $v.behavior -eq 'allow') {
+            & $emit ([ordered]@{ type = 'user'; message = [ordered]@{ role = 'user'; content = @([ordered]@{ type = 'tool_result'; tool_use_id = [string]$c.id; content = 'ran' }) }; session_id = $session })
+        }
+        else {
+            $msg = if ($v) { [string]$v.message } else { 'no answer' }
+            & $emit ([ordered]@{ type = 'user'; message = [ordered]@{ role = 'user'; content = @([ordered]@{ type = 'tool_result'; tool_use_id = [string]$c.id; content = $msg; is_error = $true }) }; session_id = $session })
+            if (-not $self) { $denials += [ordered]@{ tool_name = [string]$c.tool_name; tool_use_id = [string]$c.id; tool_input = $c.input } }
+        }
+    }
+    try { $proc.StandardInput.Close() } catch {}
+    $gone = $false
+    try { $gone = $proc.WaitForExit(5000) } catch {}
+    & $rec 'permit.jsonl' ('{"exited":' + $(if ($gone) { 'true' } else { 'false' }) + '}')
+    & $emit ([ordered]@{ type = 'assistant'; message = [ordered]@{ model = 'claude-fake-1'; role = 'assistant'; content = @([ordered]@{ type = 'text'; text = 'ok' }) }; session_id = $session })
+    & $emit ([ordered]@{ is_error = $false; num_turns = 2; subtype = 'success'; result = 'ok'; session_id = $session; permission_denials = @($denials); type = 'result' })
+    exit 0
 }
 
 $lines = if ($env:FAKE_SCENARIO) { [IO.File]::ReadAllLines($env:FAKE_SCENARIO, $utf8) } else {

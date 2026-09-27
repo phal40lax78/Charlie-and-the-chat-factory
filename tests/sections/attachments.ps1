@@ -15,7 +15,7 @@ Lock-Queue { chatq 'Deadline notes' -Prompt 'look' -Attach (Join-Path $af 'nope.
 Check 'a missing file queues nothing' (@(Get-ChatqJobs).Count -eq $n0)
 Lock-Queue { chatq 'Deadline notes' -Continue -Attach $txt *> $null }
 Check '-Continue with files is refused - it sends "continue" alone' (@(Get-ChatqJobs).Count -eq $n0)
-$said = Lock-Queue { chatq 'Deadline notes' -Prompt 'look' -Attach $png, $txt -WhatIf 6>&1 | Out-String }
+$said = Lock-Queue { chatq 'Deadline notes' -Prompt 'look' -Attach $png, $txt -WhatIf 6>&1 | Out-String -Width 400 }
 Check '-WhatIf names the files and copies none' ($said -like '*2 files*' -and @(Get-ChatqJobs).Count -eq $n0 -and
     @(Get-ChildItem -LiteralPath $script:ChatqQueueDir -Directory -EA SilentlyContinue).Count -eq $d0) $said
 
@@ -25,7 +25,7 @@ $fa = @(Get-ChatqAttachments $ja)
 Check 'the files are copied into the job, in order, the space out of the name' ($fa.Count -eq 2 -and $fa[0].Name -eq 'mock-up.png' -and $fa[1].Name -eq 'notes.txt' -and (Test-Path -LiteralPath $png)) (($fa | ForEach-Object Name) -join ',')
 [System.IO.File]::WriteAllText($txt, 'changed later', $utf8)
 Check 'a copy, not a link: the original changing later changes nothing' ([System.IO.File]::ReadAllText($fa[1].FullName, $utf8) -eq 'the notes')
-$shown = (Write-ChatqList 6>&1 | Out-String)
+$shown = (Write-ChatqList 6>&1 | Out-String -Width 400)
 Check 'chatqlist counts a job''s files' ($shown -like '*+2 files*') ''
 Invoke-ChatqJob (New-ChatqWatchState) (Find-ChatqJob $ja.id)
 $argv = [System.IO.File]::ReadAllText((Join-Path $rec 'argv.txt'))
@@ -57,18 +57,18 @@ Check 'a wildcard brings every match' ((@(Get-ChatqAttachments $jw) | ForEach-Ob
 $n2 = @(Get-ChatqJobs).Count
 $d2 = @(Get-ChildItem -LiteralPath $script:ChatqQueueDir -Directory -EA SilentlyContinue).Count
 $held = [System.IO.File]::Open($png2, 'Open', 'ReadWrite', 'None')
-try { $said = Lock-Queue { chatq 'Deadline notes' -Prompt 'locked' -Attach $png, $png2 6>&1 | Out-String } } finally { $held.Dispose() }
+try { $said = Lock-Queue { chatq 'Deadline notes' -Prompt 'locked' -Attach $png, $png2 6>&1 | Out-String -Width 400 } } finally { $held.Dispose() }
 Check 'a file that cannot be copied queues nothing, and leaves no folder' (@(Get-ChatqJobs).Count -eq $n2 -and
     @(Get-ChildItem -LiteralPath $script:ChatqQueueDir -Directory -EA SilentlyContinue).Count -eq $d2 -and $said -like '*could not be copied*') $said
 
 # chatq <n> -Attach adds to a job still waiting, and only to one
-$said = (chatq $jd.seq -Attach $txt 6>&1 | Out-String)
+$said = (chatq $jd.seq -Attach $txt 6>&1 | Out-String -Width 400)
 Check 'chatq <n> -Attach adds a file to a queued job' (@(Get-ChatqAttachments $jd).Count -eq 2 -and $said -like '*now has 2 files*') $said
 $script:ChatqClipboardSeam = { [pscustomobject]@{ Image = $null; Files = @(); Text = 'words' } }
-$said = (chatq $jd.seq -Paste 6>&1 | Out-String)
+$said = (chatq $jd.seq -Paste 6>&1 | Out-String -Width 400)
 Check 'chatq <n> -Paste with only text says where text goes, and adds nothing' (@(Get-ChatqAttachments $jd).Count -eq 2 -and $said -like '*opens the prompt*') $said
 $script:ChatqClipboardSeam = $null
-$said = (chatq $ja.seq -Attach $txt 6>&1 | Out-String)
+$said = (chatq $ja.seq -Attach $txt 6>&1 | Out-String -Width 400)
 Check 'and nothing is added to one already sent' ($said -like '*would go nowhere*' -and @(Get-ChatqAttachments $ja).Count -eq 2) $said
 
 # the clipboard, through a seam - never this machine's own. Closures: a seam

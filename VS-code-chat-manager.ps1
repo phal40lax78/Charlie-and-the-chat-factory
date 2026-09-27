@@ -241,7 +241,7 @@ FILES   everything in data/ beside this script, nothing anywhere else
 # handing back what you already had. extension/package.json carries the same
 # version: the extension installs this copy by it, and extension/build.js
 # refuses to pack the two apart.
-$script:ChatVersion = '0.8.1'
+$script:ChatVersion = '0.9.0'
 
 # The tool's folder and this file, read here once and never inside a function:
 # data/ sits in that folder, and the profile line, the watcher and the overlay
@@ -260,7 +260,7 @@ if (-not $PSScriptRoot) {
     Write-Host '  be loaded from its file:  . "C:\path\to\VS-code-chat-manager.ps1"' -ForegroundColor DarkGray
     return
 }
-$chatParts = 'core', 'providers', 'chatrm', 'discoverability', 'queue', 'live-chats', 'alerts', 'phone', 'watcher', 'commands', 'phone-setup', 'overlay-data', 'overlay-windows', 'console', 'overlay-mac', 'overlay'
+$chatParts = 'core', 'providers', 'chatrm', 'discoverability', 'queue', 'live-chats', 'alerts', 'phone', 'phone-extras', 'permit', 'phone-down', 'phone-board', 'watcher', 'commands', 'phone-setup', 'overlay-data', 'overlay-windows', 'console', 'overlay-mac', 'overlay', 'auto-continue', 'host-work'
 $chatMissing = @($chatParts | Where-Object { -not (Test-Path -LiteralPath (Join-Path (Join-Path $PSScriptRoot 'src') "$_.ps1")) })
 if ($chatMissing) {
     # before any part loads: half the commands would fail in ways that
@@ -315,6 +315,8 @@ elseif (-not $env:CHATQ_WATCHER -and -not $env:CHATQ_OVERLAY -and -not $env:CLAU
                 $n = @(Get-ChatqJobs | Where-Object { $_.state -eq 'queued' }).Count
                 if ($n -and (Start-ChatqWatcher)) { Write-Host "  chatq: $n queued - watcher started" -ForegroundColor DarkGray }
             }
+            # reply.listen always: listening all the time starts again with a shell
+            $null = Start-ChatqReplyStanding
             # and one listening for a reply to a phone alert still out there
             if (-not (Test-ChatqWatcherAlive) -and (Test-ChatqReplyOpen) -and (Start-ChatqWatcher)) {
                 Write-Host '  chatq: listening for phone replies - watcher started' -ForegroundColor DarkGray

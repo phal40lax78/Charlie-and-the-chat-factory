@@ -417,7 +417,7 @@ function New-ChatOverlayControls {
     $H.Spinning = $false
     $conB = New-ChatOverlayIcon 'The console, in the panel''s place - write to a chat, queue, continue; Esc brings the panel back' $bubble -Stroke
     $conB.add_MouseLeftButtonUp({ param($s, $e) $e.Handled = $true; Invoke-ChatOverlayVerb 'console' })
-    $gear = New-ChatOverlayIcon 'Settings - size, rows, opacity, theme, usage, compact rows, recent chats' $sliders -Stroke -Fill
+    $gear = New-ChatOverlayIcon 'Settings - size, rows, opacity, theme, usage, compact rows, recent chats, cut-off chats' $sliders -Stroke -Fill
     $gear.add_MouseLeftButtonUp({ param($s, $e) $e.Handled = $true; Set-ChatOverlaySettingsOpen $script:ChatOverlayHost (-not $script:ChatOverlayHost.SettingsOpen) })
     $trayB = New-ChatOverlayIcon 'Hide to the tray - click the tray dot to show it' $tray -Stroke
     $trayB.add_MouseLeftButtonUp({ param($s, $e) $e.Handled = $true; Hide-ChatOverlayByButton })
@@ -448,7 +448,8 @@ function New-ChatOverlaySettings {
     <#
     The box beside the row of buttons: opacity, and width and rows side by
     side, on sliders; the theme, usage as lines or bars, rows full or
-    compact, and how many recent chats, as choices. Each slider applies as
+    compact, how many recent chats, and whether to ask about the chats the
+    limit cut off once it is over, as choices. Each slider applies as
     it moves, and config.json
     gets it once it rests; a slider's handler does nothing while
     Sync-ChatOverlaySettings sets it. Kept short - a row of its own for each
@@ -541,9 +542,11 @@ function New-ChatOverlaySettings {
     & $put $H.RowsText 1 5
 
     $choice = {
-        param($row, [string]$Name, [string[]]$Names, [string]$Current, [scriptblock]$OnClick)
-        & $put (& $label $Name) $row 0
-        $c = New-ChatOverlayChips $Names $Current $OnClick
+        param($row, [string]$Name, [string[]]$Names, [string]$Current, [scriptblock]$OnClick, [hashtable]$Tips, [string]$Tip)
+        $l = & $label $Name
+        if ($Tip) { $l.ToolTip = $Tip }
+        & $put $l $row 0
+        $c = New-ChatOverlayChips $Names $Current $OnClick -Tips $Tips
         $c.Margin = [System.Windows.Thickness]::new(0, 2, 0, 2)
         & $put $c $row 1 5
     }
@@ -555,6 +558,17 @@ function New-ChatOverlaySettings {
     # any count up to 20; one set that way fills no chip
     $rc = [int]$H.Ctx.Config.recent
     & $choice 5 'Recent' @('off', '5', '10') $(if ($rc -le 0) { 'off' } else { "$rc" }) { param($s, $e) $e.Handled = $true; Set-ChatOverlayRecentChoice $script:ChatOverlayHost ([string]$s.Tag) }
+    # what the limit cut off: continue it by itself, ask once it is over, or
+    # only mark it. The setting is config.json's autoContinue, whose "on"
+    # reads as Continue here and "off" as Leave
+    $cutTips = @{
+        continue = 'Continue each chat the limit cuts off, by itself.'
+        ask      = 'Once the limit is over, say how many chats it cut off, and continue them on a click.'
+        leave    = 'Only mark them - Continue in the console, or chatq ''<title>'' -Continue, queues one.'
+    }
+    $cutTip = 'A chat the usage limit cuts off: Continue sends it "Continue from where you left off." a minute after the reset. Ask says so once the limit is over, and continues it if you say so. Leave only marks it orange.'
+    $cutNow = switch ([string]$H.Ctx.Config.autoContinue) { 'on' { 'continue' } 'ask' { 'ask' } default { 'leave' } }
+    & $choice 6 'Cut off' @('continue', 'ask', 'leave') $cutNow { param($s, $e) $e.Handled = $true; Set-ChatOverlayAutoChoice $script:ChatOverlayHost ([string]$s.Tag) } $cutTips $cutTip
     $box.Child = $g
     return $box
 }
@@ -586,8 +600,8 @@ function Sync-ChatOverlaySettings {
 
 function New-ChatOverlayChips {
     # a row of choices, the one in force filled in; a click hands its name
-    # to -OnClick
-    param([string[]]$Names, [string]$Current, [scriptblock]$OnClick)
+    # to -OnClick. -Tips: a tooltip for a chip, by its name
+    param([string[]]$Names, [string]$Current, [scriptblock]$OnClick, [hashtable]$Tips)
     $chips = [System.Windows.Controls.StackPanel]::new()
     $chips.Orientation = [System.Windows.Controls.Orientation]::Horizontal
     $chips.Margin = [System.Windows.Thickness]::new(0, 4, 0, 4)
@@ -603,6 +617,7 @@ function New-ChatOverlayChips {
         $c.Cursor = [System.Windows.Input.Cursors]::Hand
         $c.Tag = $t
         $c.Child = New-ChatOverlayText ($t.Substring(0, 1).ToUpperInvariant() + $t.Substring(1)) $(if ($on) { 'onAccent' } else { 'text' }) 11
+        if ($Tips -and $Tips[$t]) { $c.ToolTip = $Tips[$t] }
         $c.add_MouseLeftButtonUp($OnClick)
         [void]$chips.Children.Add($c)
     }
@@ -852,10 +867,11 @@ function Get-ChatOverlayRowHeight {
 
 function Test-ChatOverlayOpenRowElement {
     # an element of the panel that draws one of the rows maxRows counts: a
-    # row's wrapper, tagged with its row - not a Recent line, which is
-    # tagged the same way for the chip but is no row of those
+    # row's wrapper, tagged with its row - not a Recent line, nor the
+    # banner about the chats the limit cut off, which are tagged the same
+    # way for the chip but are no rows of those
     param($El)
-    return [bool]($El.Tag -and $El.Tag -isnot [string] -and [string](Get-ChatField $El.Tag 'kind') -ne 'recent')
+    return [bool]($El.Tag -and $El.Tag -isnot [string] -and [string](Get-ChatField $El.Tag 'kind') -notin 'recent', 'ask')
 }
 
 function Get-ChatOverlayDrawnRows {
@@ -1153,6 +1169,31 @@ function Set-ChatOverlayRecentChoice {
     New-ChatOverlayControls $H
 }
 
+function Set-ChatOverlayAutoChoice {
+    # Continue, Ask or Leave for the chats the limit cut off, from the
+    # settings box - and the tray's item, through Invoke-ChatOverlayVerb. It
+    # is config.json's top-level autoContinue, not one of the overlay's own
+    # settings, so Set-ChatqAutoContinue writes it; Continue is its on and
+    # Leave its off. The config is read back with a slider not yet at rest,
+    # and the next pass takes a fresh look at what was cut off. Continue
+    # chosen for the first time says once, in the tray, what it does.
+    param($H, [string]$Choice)
+    if (-not $H) { return }
+    $v = switch ($Choice) { 'leave' { 'off' } 'continue' { 'on' } default { 'ask' } }
+    if ([string]$H.Ctx.Config.autoContinue -eq $v) { return }
+    try {
+        [void](Set-ChatqAutoContinue -Value $v)
+        Save-ChatOverlaySetting $H @{}
+        $H.Ctx.CutAt = [datetime]::MinValue
+        Write-ChatOverlayLog "auto-continue $v from the panel" -Always
+        if ($H.CtlStack) { New-ChatOverlayControls $H }
+        $H.ViewKey = $null
+        if ($H.Menu) { Update-ChatOverlayMenu $H }
+        if ($v -eq 'on') { Show-ChatOverlayAutoNotice $H }
+    }
+    catch { Write-ChatOverlayLog "settings: $($_.Exception.Message)" }
+}
+
 function Invoke-ChatOverlayRefresh {
     # the refresh button: a pass now, which sends the ask; the next pass,
     # two seconds on, draws the answer
@@ -1193,8 +1234,32 @@ function Hide-ChatOverlayByButton {
     if ($H.Tray -and -not $H.HideTold) {
         $H.HideTold = $true
         $key = if ($H.Hotkey) { " or press $($H.HotkeyText)" } else { '' }
-        $H.Tray.ShowBalloonTip(6000, 'chatoverlay', "Hidden. Click the tray dot$key to show it again.", [System.Windows.Forms.ToolTipIcon]::None)
+        Show-ChatOverlayBalloon $H "Hidden. Click the tray dot$key to show it again."
     }
+}
+
+function Show-ChatOverlayBalloon {
+    <#
+    The tray's balloon - the one place that shows one. -Kind says what a
+    click on it means (ask: the chats the limit cut off, -Keys those asked
+    about); the tray's handlers read it back, and clear it as it closes.
+    Windows cuts the text itself past 255 characters, so it is cut here
+    first, with an ellipsis. The tests' seam takes it in the tray's place.
+    #>
+    param($H, [string]$Text, [string]$Title = 'chatoverlay', [int]$Ms = 6000, [string]$Icon = 'None', [string]$Kind = '', [string[]]$Keys = @())
+    if (-not $H -or -not $Text) { return }
+    if ($Text.Length -gt 250) { $Text = $Text.Substring(0, 249) + $script:ChatqEllipsis }
+    $ks = @($Keys | Where-Object { $_ })
+    if ($script:ChatOverlayBalloonSeam) {
+        $H.BalloonKind = $Kind
+        $H.BalloonKeys = $ks
+        [void](& $script:ChatOverlayBalloonSeam @{ Title = $Title; Text = $Text; Kind = $Kind; Keys = $ks })
+        return
+    }
+    if (-not $H.Tray) { return }
+    $H.BalloonKind = $Kind
+    $H.BalloonKeys = $ks
+    $H.Tray.ShowBalloonTip($Ms, $Title, $Text, [System.Windows.Forms.ToolTipIcon]$Icon)
 }
 
 function Get-ChatOverlayControlsShown {
@@ -1278,6 +1343,73 @@ function Test-ChatOverlayRowOpenable {
         [bool][string](Get-ChatField $Row 'cwd'))
 }
 
+function Get-ChatOverlayChipActions {
+    <#
+    What the chip offers for a row, left to right, each an Id, a Label and
+    a Tip: the banner about the chats the limit cut off its two answers;
+    a cut-off row auto-continue's chip by its state (the row's auto,
+    src/auto-continue.ps1) - don't continue on a continue that waits,
+    continue on a cut-off nothing will continue, none on one running, held
+    by a terminal or cut off by a 529 - then open, where the row can be
+    opened. A cut-off row with no folder still gets its auto chip. Anything
+    else nothing, and gets no chip. The auto chips' tooltips carry what the
+    row says in full, since the chips may cover it. Pure.
+    #>
+    param($Row)
+    if (-not $Row) { return @() }
+    if ([string](Get-ChatField $Row 'kind') -eq 'ask') {
+        $n = [int](Get-ChatField $Row 'count')
+        $titles = @(Get-ChatField $Row 'titles') | Where-Object { $_ }
+        return @(
+            [pscustomobject]@{ Id = 'ask-go'; Label = "continue $n"; Tip = "Queue ""Continue from where you left off."" for each of the $n chats the limit cut off: $(@($titles) -join ', ')" }
+            [pscustomobject]@{ Id = 'ask-leave'; Label = 'leave them'; Tip = 'Leave them as they are - their rows stay orange; Continue all in the console still continues them' }
+        )
+    }
+    $out = @()
+    $a = Get-ChatField $Row 'auto'
+    $st = if ($a) { [string](Get-ChatField $a 'state') } else { '' }
+    $long = if ($a) { [string](Get-ChatField $a 'long') } else { '' }
+    $title = Format-ChatqAutoTitle ([string](Get-ChatField $Row 'title')) 40
+    if ($st -in 'armed', 'due') {
+        $out += [pscustomobject]@{ Id = 'dont'; Label = "don't continue"
+            Tip = "$(if ($long) { "$long. " })Don't send ""continue"" to this chat after this reset. The next time the limit cuts it off, it is continued again - chatq '$title' -AutoContinue never stops that."
+        }
+    }
+    elseif ($st -in 'off', 'never', 'declined', 'failed', 'stopped', 'far', 'late', 'ready') {
+        $out += [pscustomobject]@{ Id = 'continue'; Label = 'continue'
+            Tip = "$(if ($long) { "$long. " })Queue ""Continue from where you left off."" for this chat - it goes when the limit is over."
+        }
+    }
+    if (Test-ChatOverlayRowOpenable $Row) {
+        $out += [pscustomobject]@{ Id = 'open'; Label = 'open'; Tip = 'Open this chat as a tab in its VS Code window - or bring forward the tab already showing it.' }
+    }
+    return $out
+}
+
+function Get-ChatOverlayChipSig {
+    # the chip's actions as one string, to tell whether its face changed -
+    # the tooltips too: another row's don't continue says another state
+    param([object[]]$Actions)
+    return (@($Actions | Where-Object { $_ } | ForEach-Object { "$($_.Id)=$($_.Label)=$($_.Tip)" }) -join '|')
+}
+
+function Invoke-ChatOverlayChipRelease {
+    # A release on chip -On after a press on -Pressed: acts only when they
+    # are the same chip, so a press dragged from one onto another does
+    # nothing. open goes as before; the banner's two answers through
+    # Invoke-ChatOverlayAskAnswer, about the keys its row carries;
+    # auto-continue's two through Invoke-ChatOverlayAutoChip, which never
+    # takes the unread dot away (only an open does).
+    param($H, [string]$Pressed, [string]$On)
+    if (-not $Pressed -or $Pressed -ne $On) { return }
+    switch ($On) {
+        'open' { Invoke-ChatOverlayOpen $H $H.ChipRow }
+        'ask-go' { Invoke-ChatOverlayAskAnswer $H 'continue' @(Get-ChatField $H.ChipRow 'keys') }
+        'ask-leave' { Invoke-ChatOverlayAskAnswer $H 'leave' @(Get-ChatField $H.ChipRow 'keys') }
+        { $_ -in 'dont', 'continue' } { Invoke-ChatOverlayAutoChip $H $H.ChipRow $On }
+    }
+}
+
 function Get-ChatOverlayChipTarget {
     <#
     Which row the open chip shows for, from the pointer: '' for none. Not on
@@ -1348,7 +1480,9 @@ function Get-ChatOverlayRowRects {
                 $b = $el.PointToScreen([System.Windows.Point]::new($el.ActualWidth, $el.ActualHeight))
                 @([int][Math]::Round($a.X), [int][Math]::Round($a.Y), [int][Math]::Round($b.X - $a.X), [int][Math]::Round($b.Y - $a.Y))
             }
-            $out.Add([pscustomobject]@{ Key = [string]$row.key; Row = $row; Rect = (& $rect $w); Line = (& $rect $line) })
+            # the state at the line's right end, which an auto chip keeps clear of
+            $sEl = if ($line -ne $w) { @($line.Children | Where-Object { $_.Tag -eq 'state' }) | Select-Object -First 1 } else { $null }
+            $out.Add([pscustomobject]@{ Key = [string]$row.key; Row = $row; Rect = (& $rect $w); Line = (& $rect $line); State = $(if ($sEl) { & $rect $sEl } else { $null }) })
         }
         catch {}
     }
@@ -1365,9 +1499,11 @@ function Find-ChatOverlayRowAt {
 function Get-ChatOverlayChipPlacement {
     # The chip flush with its row's right end, centred on the row's first
     # line, kept on the screen; all in screen pixels (-Line a rect, -Size
-    # width and height). Pure, for the tests.
-    param([int[]]$Line, [int[]]$Size, $Screen)
-    $x = $Line[0] + $Line[2] - $Size[0]
+    # width and height). -Reserve: pixels kept clear at the row's right end
+    # - the state an auto-continue chip is about, which it must not cover -
+    # though never so many that the chip leaves its row. Pure, for the tests.
+    param([int[]]$Line, [int[]]$Size, $Screen, [int]$Reserve = 0)
+    $x = [Math]::Max($Line[0], $Line[0] + $Line[2] - $Reserve - $Size[0])
     $y = $Line[1] + [int][Math]::Round(($Line[3] - $Size[1]) / 2.0)
     $x = [Math]::Max($Screen.X, [Math]::Min($x, $Screen.X + $Screen.Width - $Size[0]))
     $y = [Math]::Max($Screen.Y, [Math]::Min($y, $Screen.Y + $Screen.Height - $Size[1]))
@@ -1406,30 +1542,55 @@ function New-ChatOverlayChipWindow {
 }
 
 function New-ChatOverlayChipContent {
-    # the chip's face, made anew when the look changes
+    # The chip's face: one bordered chip for each of its row's actions
+    # ($H.ChipActions, Get-ChatOverlayChipActions), side by side. Made anew
+    # when the look changes, and when the row's actions do - the banner's
+    # count can change under a pointer at rest.
     param($H)
-    $b = [System.Windows.Controls.Border]::new()
-    $b.CornerRadius = [System.Windows.CornerRadius]::new(4)
-    $b.Background = Get-ChatOverlayBrush 'panel'
-    $b.BorderBrush = Get-ChatOverlayBrush 'edge'
-    $b.BorderThickness = [System.Windows.Thickness]::new(1)
-    $b.Padding = [System.Windows.Thickness]::new(7, 1, 7, 2)
-    $b.ToolTip = 'Open this chat as a tab in its VS Code window - or bring forward the tab already showing it.'
-    $busy = [bool]$H.OpenProc
-    $t = New-ChatOverlayText $(if ($busy) { 'opening' } else { 'open' }) $(if ($busy) { 'dim' } else { 'text' }) 11
-    $b.Child = $t
-    $b.add_MouseEnter({ param($s, $e) $s.Background = Get-ChatOverlayBrush 'hover' })
-    $b.add_MouseLeave({ param($s, $e) $s.Background = Get-ChatOverlayBrush 'panel' })
-    # a press counts only once the chip is armed (Step-ChatOverlayChipState)
-    $b.add_MouseLeftButtonDown({ param($s, $e) $e.Handled = $true; $script:ChatOverlayHost.ChipPressed = [bool]$script:ChatOverlayHost.ChipArmed })
-    $b.add_MouseLeftButtonUp({
-            param($s, $e)
-            $e.Handled = $true
-            $X = $script:ChatOverlayHost
-            if ($X.ChipPressed) { $X.ChipPressed = $false; Invoke-ChatOverlayOpen $X $X.ChipRow }
-        })
-    $H.ChipText = $t
-    $H.ChipWin.Content = $b
+    $row = [System.Windows.Controls.StackPanel]::new()
+    $row.Orientation = [System.Windows.Controls.Orientation]::Horizontal
+    $H.ChipText = $null
+    $first = $true
+    foreach ($a in @($H.ChipActions | Where-Object { $_ })) {
+        $b = [System.Windows.Controls.Border]::new()
+        $b.CornerRadius = [System.Windows.CornerRadius]::new(4)
+        $b.Background = Get-ChatOverlayBrush 'panel'
+        $b.BorderBrush = Get-ChatOverlayBrush 'edge'
+        $b.BorderThickness = [System.Windows.Thickness]::new(1)
+        $b.Padding = [System.Windows.Thickness]::new(7, 1, 7, 2)
+        if (-not $first) { $b.Margin = [System.Windows.Thickness]::new(4, 0, 0, 0) }
+        $first = $false
+        $b.ToolTip = [string]$a.Tip
+        $b.Tag = [string]$a.Id
+        # an open still running says so on its chip
+        $busy = $a.Id -eq 'open' -and [bool]$H.OpenProc
+        $t = New-ChatOverlayText $(if ($busy) { 'opening' } else { [string]$a.Label }) $(if ($busy) { 'dim' } else { 'text' }) 11
+        $b.Child = $t
+        if ($a.Id -eq 'open') { $H.ChipText = $t }
+        $b.add_MouseEnter({ param($s, $e) $s.Background = Get-ChatOverlayBrush 'hover' })
+        $b.add_MouseLeave({ param($s, $e) $s.Background = Get-ChatOverlayBrush 'panel' })
+        # A press counts only once the chip is armed (Step-ChatOverlayChipState),
+        # and only on the chip it was let go on: pressed on one and let go on
+        # another, nothing happens.
+        $b.add_MouseLeftButtonDown({
+                param($s, $e)
+                $e.Handled = $true
+                $X = $script:ChatOverlayHost
+                $X.ChipPressed = [bool]$X.ChipArmed
+                $X.ChipPressedId = if ($X.ChipPressed) { [string]$s.Tag } else { $null }
+            })
+        $b.add_MouseLeftButtonUp({
+                param($s, $e)
+                $e.Handled = $true
+                $X = $script:ChatOverlayHost
+                $was = if ($X.ChipPressed) { [string]$X.ChipPressedId } else { '' }
+                $X.ChipPressed = $false
+                $X.ChipPressedId = $null
+                Invoke-ChatOverlayChipRelease $X $was ([string]$s.Tag)
+            })
+        [void]$row.Children.Add($b)
+    }
+    $H.ChipWin.Content = $row
 }
 
 function Set-ChatOverlayChipPlacement {
@@ -1448,23 +1609,34 @@ function Set-ChatOverlayChipPlacement {
     $l = [int[]]$H.ChipLine
     $a = if ($script:ChatOverlayWorkAreaSeam) { & $script:ChatOverlayWorkAreaSeam $l }
     else { [System.Windows.Forms.Screen]::FromRectangle([System.Drawing.Rectangle]::new($l[0], $l[1], [Math]::Max(1, $l[2]), [Math]::Max(1, $l[3]))).WorkingArea }
-    $at = Get-ChatOverlayChipPlacement $l $size ([pscustomobject]@{ X = $a.X; Y = $a.Y; Width = $a.Width; Height = $a.Height })
+    # an auto-continue chip keeps clear of the row's state and a gap
+    $auto = @($H.ChipActions | Where-Object { $_ -and [string]$_.Id -in 'dont', 'continue' }).Count
+    $keep = if ($H.ChipState -and $auto) { [int]$H.ChipState[2] + [int][Math]::Round(6 * $px) } else { 0 }
+    $at = Get-ChatOverlayChipPlacement $l $size ([pscustomobject]@{ X = $a.X; Y = $a.Y; Width = $a.Width; Height = $a.Height }) $keep
     [ChatOverlayNative]::MoveTo($H.ChipHwnd, $at.X, $at.Y)
 }
 
 function Show-ChatOverlayChip {
-    # for one row (an entry of Get-ChatOverlayRowRects); placed before it
-    # shows, so it never flashes where it last was, and armed only when the
-    # pointer is not already on it
+    # for one row (an entry of Get-ChatOverlayRowRects), with that row's
+    # actions - its face made anew only when they differ from the last
+    # row's; placed before it shows, so it never flashes where it last was,
+    # and armed only when the pointer is not already on it
     param($H, $Entry, $At = $null)
     if (-not $H.ChipWin -or -not $Entry) { return }
     $H.ChipKey = [string]$Entry.Key
     $H.ChipRow = $Entry.Row
     $H.ChipLine = $Entry.Line
+    $H.ChipState = Get-ChatField $Entry 'State'
     $H.ChipAt = Get-Date
     $H.ChipOverAt = $H.ChipAt
     $H.ChipSpent = $H.ChipKey
     $H.ChipPressed = $false
+    $H.ChipPressedId = $null
+    $acts = @(Get-ChatOverlayChipActions $Entry.Row)
+    if ((Get-ChatOverlayChipSig $acts) -ne (Get-ChatOverlayChipSig @($H.ChipActions)) -or -not $H.ChipWin.Content) {
+        $H.ChipActions = $acts
+        New-ChatOverlayChipContent $H
+    }
     Set-ChatOverlayChipPlacement $H
     $H.ChipWin.Show()
     # WPF sets WS_EX_APPWINDOW again as it shows a window
@@ -1482,20 +1654,25 @@ function Hide-ChatOverlayChip {
     $H.ChipRow = $null
     $H.ChipArmed = $false
     $H.ChipPressed = $false
+    $H.ChipPressedId = $null
 }
 
 function Update-ChatOverlayChip {
-    # Every pointer check, after the controls': the chip over a Claude row
-    # the pointer rests on (Get-ChatOverlayChipTarget), following its row,
-    # gone when the pointer is. The pointer is only read.
+    # Every pointer check, after the controls': the chip over a row the
+    # pointer rests on that has something to offer (Get-ChatOverlayChipActions)
+    # - a Claude row to open, the banner's answers - following its row, gone
+    # when the pointer is (Get-ChatOverlayChipTarget). The pointer is only
+    # read.
     param($H, $At, [bool]$Down, [datetime]$Now, [bool]$OnPanel)
     if (-not $H.ChipWin) { return }
     $blocked = [bool]($H.Collapsed -or $H.Dragging -or $H.GripDrag)
     $onChip = [bool]$H.ChipKey -and (Test-ChatOverlayPointerIn $At ([ChatOverlayNative]::GetRect($H.ChipHwnd)))
     $entry = $null
+    $acts = @()
     if (($OnPanel -or $onChip) -and -not $blocked) {
         $entry = Find-ChatOverlayRowAt $At @(Get-ChatOverlayRowRects $H)
-        if ($entry -and -not (Test-ChatOverlayRowOpenable $entry.Row)) { $entry = $null }
+        if ($entry) { $acts = @(Get-ChatOverlayChipActions $entry.Row) }
+        if (-not $acts.Count) { $entry = $null }
     }
     $under = if ($entry) { [string]$entry.Key } else { '' }
     Step-ChatOverlayChipState $H $under "$($At.X),$($At.Y)" $onChip $Now
@@ -1505,8 +1682,17 @@ function Update-ChatOverlayChip {
     $target = Get-ChatOverlayChipTarget ([string]$H.ChipKey) $under $rested $onChip $since $Down $blocked ([string]$H.ChipSpent) $delay
     if (-not $target) { if ($H.ChipKey) { Hide-ChatOverlayChip $H }; return }
     if ($target -ne $H.ChipKey) { Show-ChatOverlayChip $H $entry $At; return }
-    # the same row: follow it, should it have moved
-    if ($entry -and $entry.Key -eq $H.ChipKey) { $H.ChipLine = $entry.Line }
+    # the same row: follow it, should it have moved, and show what it
+    # offers now - the banner's count can change under a resting pointer
+    if ($entry -and $entry.Key -eq $H.ChipKey) {
+        $H.ChipLine = $entry.Line
+        $H.ChipState = Get-ChatField $entry 'State'
+        if ((Get-ChatOverlayChipSig $acts) -ne (Get-ChatOverlayChipSig @($H.ChipActions))) {
+            $H.ChipRow = $entry.Row
+            $H.ChipActions = $acts
+            New-ChatOverlayChipContent $H
+        }
+    }
     Set-ChatOverlayChipPlacement $H
 }
 
@@ -1593,7 +1779,7 @@ function Update-ChatOverlayOpen {
         Write-ChatOverlayLog "open: $($H.OpenSid) ended $code" -Always
         if ($code -in 0, 25, 40, 41 -and $H.OpenSessionId -and $H.Ctx -and $H.Ctx.Unread) { $H.Ctx.Unread.Remove([string]$H.OpenSessionId) }
         $say = Get-ChatOverlayOpenBalloon $code
-        if ($say -and $H.Tray) { $H.Tray.ShowBalloonTip(6000, 'chatoverlay', $say, [System.Windows.Forms.ToolTipIcon]::None) }
+        if ($say) { Show-ChatOverlayBalloon $H $say }
     }
     else { Write-ChatOverlayLog "open: $($H.OpenSid) no answer after 60 s - stopped waiting" -Always }
     $H.OpenProc = $null
@@ -1670,7 +1856,11 @@ function Add-ChatOverlayUsageLine {
     # Usage as one line a provider, as the collapsed panel has it: the name,
     # each window and its percent - in the server's colour for it, now there
     # is no bar to carry that - and at the end when the figure is from.
-    param($Panel, $Usage)
+    # After one window's percent, when it resets (Get-ChatOverlayResetWindow:
+    # the latest reset of a window at its limit, else the 5h one's), as a
+    # clock that goes once the time has passed. It wraps rather than trims,
+    # so a narrow panel shows a second line rather than hiding a window.
+    param($H, $Panel, $Usage)
     $line = [System.Windows.Controls.DockPanel]::new()
     $line.LastChildFill = $true
     $line.Margin = [System.Windows.Thickness]::new(0, 1, 0, 1)
@@ -1683,7 +1873,8 @@ function Add-ChatOverlayUsageLine {
     $end.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
     [System.Windows.Controls.DockPanel]::SetDock($end, [System.Windows.Controls.Dock]::Right)
     $mid = [System.Windows.Controls.TextBlock]::new()
-    $mid.TextTrimming = [System.Windows.TextTrimming]::CharacterEllipsis
+    $mid.TextWrapping = [System.Windows.TextWrapping]::Wrap
+    $resets = Get-ChatOverlayResetWindow @($Usage.windows)
     $first = $true
     foreach ($w in @($Usage.windows)) {
         if (-not $first) { $sep = [System.Windows.Documents.Run]::new(" $($script:ChatqDot) "); $sep.Foreground = Get-ChatOverlayBrush 'faint'; $mid.Inlines.Add($sep) }
@@ -1696,6 +1887,13 @@ function Add-ChatOverlayUsageLine {
         # normal reads as plain text; only warning and worse take a colour
         $p.Foreground = Get-ChatOverlayBrush $(if ($Usage.stale) { 'faint' } elseif ($w.limited) { 'critical' } elseif ($w.severity -in 'warning', 'critical') { [string]$w.severity } else { 'text' })
         $mid.Inlines.Add($p)
+        if ($resets -and $w.label -eq $resets -and $w.resetsAt) {
+            $t = Format-ChatOverlayResetAt $w.resetsAt
+            $r = [System.Windows.Documents.Run]::new($(if ($t) { " resets $t" } else { '' }))
+            $r.Foreground = Get-ChatOverlayBrush $(if ($w.limited) { 'critical' } else { 'dim' })
+            $mid.Inlines.Add($r)
+            if ($H -and $null -ne $H.Clocks) { $H.Clocks.Add(@{ Block = $r; At = $w.resetsAt; Kind = 'at' }) }
+        }
     }
     [void]$line.Children.Add($name)
     [void]$line.Children.Add($end)
@@ -1763,6 +1961,11 @@ function Add-ChatOverlayRow {
     $right.Margin = [System.Windows.Thickness]::new(8, 0, 0, 0)
     $right.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
     [System.Windows.Controls.DockPanel]::SetDock($right, [System.Windows.Controls.Dock]::Right)
+    # which it is, for the chip to keep clear of; and a cut-off's words in
+    # full, where a tooltip can show (the console draws rows with this too)
+    $right.Tag = 'state'
+    $au = Get-ChatField $Row 'auto'
+    if ($au -and (Get-ChatField $au 'long')) { $right.ToolTip = "$($au.long)$(if (Get-ChatField $au 'why') { " - $($au.why)" })" }
     $main = [System.Windows.Controls.TextBlock]::new()
     $main.TextTrimming = [System.Windows.TextTrimming]::CharacterEllipsis
     if ($Row.project) {
@@ -1780,6 +1983,16 @@ function Add-ChatOverlayRow {
     if ($mark) {
         [System.Windows.Controls.DockPanel]::SetDock($mark, [System.Windows.Controls.Dock]::Left)
         [void]$line.Children.Add($mark)
+    }
+    elseif (-not $recent) {
+        # the mark's room, empty: every title starts at one column, where a
+        # chat runs known or not (a cut-off or a job has none)
+        $slot = [System.Windows.Controls.Border]::new()
+        $slot.Width = 10
+        $slot.Margin = [System.Windows.Thickness]::new(0, 1, 6, 0)
+        $slot.Tag = 'slot'
+        [System.Windows.Controls.DockPanel]::SetDock($slot, [System.Windows.Controls.Dock]::Left)
+        [void]$line.Children.Add($slot)
     }
     [void]$line.Children.Add($right)
     # docked right after the state, so it sits just before it
@@ -1802,6 +2015,50 @@ function Add-ChatOverlayRow {
         $p.Margin = [System.Windows.Thickness]::new(15, 1, 0, 0)
         [void]$wrap.Children.Add($p)
     }
+    [void]$Panel.Children.Add($wrap)
+}
+
+function Add-ChatOverlayAsk {
+    <#
+    The banner saying the limit is over and how many chats it cut off can
+    continue (the snapshot's header.ask), last in the header - in place of
+    the ask's note, which the Windows panel skips. Drawn as a row's first
+    line: a dot in the cut-off colour, the words, and "continue?" at the
+    right. Tagged like a row, kind ask, so the chip rests on it with the
+    two answers (Get-ChatOverlayChipActions); the tag carries the keys the
+    answer acts on - what the user saw. No row count takes it for a row.
+    #>
+    param($H, $Panel, $Ask)
+    $n = [int](Get-ChatField $Ask 'count')
+    $keys = @(@(Get-ChatField $Ask 'keys') | Where-Object { $_ })
+    $titles = @(@(Get-ChatField $Ask 'titles') | Where-Object { $_ })
+    $left = @(@(Get-ChatField $Ask 'left') | Where-Object { $_ })
+    $at = Format-ChatOverlayAskAt (Get-ChatField $Ask 'resetsAt')
+    $wrap = [System.Windows.Controls.StackPanel]::new()
+    $wrap.Margin = [System.Windows.Thickness]::new(0, 3, 0, 1)
+    $wrap.Tag = [pscustomobject]@{ key = 'ask'; kind = 'ask'; provider = ''; sessionId = ''; cwd = ''; count = $n; keys = $keys; titles = $titles }
+    $line = [System.Windows.Controls.DockPanel]::new()
+    $line.Tag = 'line'
+    $line.LastChildFill = $true
+    $dot = [System.Windows.Shapes.Ellipse]::new()
+    $dot.Width = 8
+    $dot.Height = 8
+    $dot.Margin = [System.Windows.Thickness]::new(0, 1, 7, 0)
+    $dot.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
+    $dot.Fill = Get-ChatOverlayBrush 'cutoff'
+    [System.Windows.Controls.DockPanel]::SetDock($dot, [System.Windows.Controls.Dock]::Left)
+    $right = New-ChatOverlayText 'continue?' 'faint' 11
+    $right.Margin = [System.Windows.Thickness]::new(8, 0, 0, 0)
+    $right.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
+    [System.Windows.Controls.DockPanel]::SetDock($right, [System.Windows.Controls.Dock]::Right)
+    $head = if ($at) { "limit over at $at" } else { 'limit over' }
+    $main = New-ChatOverlayText "$head $($script:ChatqDot) $n chat$(if ($n -ne 1) { 's' }) it cut off can continue" 'warn' -Trim
+    [void]$line.Children.Add($dot)
+    [void]$line.Children.Add($right)
+    [void]$line.Children.Add($main)
+    [void]$wrap.Children.Add($line)
+    $tip = @($titles) + @($left)
+    if ($tip.Count) { $wrap.ToolTip = $tip -join "`n" }
     [void]$Panel.Children.Add($wrap)
 }
 
@@ -1834,16 +2091,19 @@ function Update-ChatOverlayView {
     if ($H.Collapsed) { Hide-ChatOverlayChip $H; Add-ChatOverlayCompact $P $Snap; Add-ChatOverlayUnlockedHint $H $P; return }
     foreach ($u in @($Snap.header.usage)) {
         if (-not $u) { continue }
-        if ($cfg.usageView -eq 'bars') { Add-ChatOverlayUsage $H $P $u } else { Add-ChatOverlayUsageLine $P $u }
+        if ($cfg.usageView -eq 'bars') { Add-ChatOverlayUsage $H $P $u } else { Add-ChatOverlayUsageLine $H $P $u }
     }
     foreach ($n in @($Snap.header.notes)) {
-        if (-not $n) { continue }
+        # the ask's note is the banner here, drawn below
+        if (-not $n -or [string](Get-ChatField $n 'kind') -eq 'ask') { continue }
         $t = New-ChatOverlayText ([string]$n.text) $(if ($n.tone -eq 'dim') { 'faint' } else { [string]$n.tone }) 11 -Trim
         $t.Margin = [System.Windows.Thickness]::new(0, 2, 0, 0)
         [void]$P.Children.Add($t)
     }
+    $ask = Get-ChatField $Snap.header 'ask'
+    if ($ask) { Add-ChatOverlayAsk $H $P $ask }
     $rows = @($Snap.rows)
-    if (@($Snap.header.usage).Count -or @($Snap.header.notes).Count) {
+    if (@($Snap.header.usage).Count -or @($Snap.header.notes).Count -or $ask) {
         $sep = [System.Windows.Controls.Border]::new()
         $sep.Height = 1
         $sep.Background = Get-ChatOverlayBrush 'edge'
@@ -1944,23 +2204,31 @@ function Add-ChatOverlayUnlockedHint {
 
 function Add-ChatOverlayCompact {
     # Collapsed: one line - a dot in the most urgent chat's colour, how many
-    # chats are in each state, and Claude's usage at the right.
+    # chats are in each state, and Claude's usage at the right, with when
+    # its reset window resets as the lines view has it. The chats the limit
+    # cut off that can continue now are counted apart, as the tray's
+    # tooltip counts them.
     param($Panel, $Snap)
     $c = $Snap.counts
     $need = [int]$c.waiting + [int]$c.needsInput
     $bits = @()
     $cut = if ($c -and $c.PSObject.Properties['cutOff']) { [int]$c.cutOff } else { 0 }
+    $can = [int](Get-ChatField (Get-ChatField $Snap.header 'ask') 'count')
     if ($need) { $bits += "$need waiting" }
     # finished a turn while you were elsewhere, since you last opened it
     # from the overlay: the dot a row would carry
     $new = if ($c -and $c.PSObject.Properties['unread']) { [int]$c.unread } else { 0 }
     if ($new) { $bits += "$new new" }
-    if ($cut) { $bits += "$cut cut off" }
+    if ($can) { $bits += "$can can continue" }
+    $cut = [Math]::Max(0, $cut - $can)
+    # of those, how many auto-continue will continue by itself
+    $auto = if ($c -and $c.PSObject.Properties['auto']) { [int]$c.auto } else { 0 }
+    if ($cut) { $bits += "$cut cut off$(if ($auto) { " ($auto auto)" })" }
     if ([int]$c.busy) { $bits += "$([int]$c.busy) working" }
     if ([int]$c.running) { $bits += "$([int]$c.running) running" }
     if ([int]$c.idle) { $bits += "$([int]$c.idle) idle" }
     if ([int]$c.queued) { $bits += "$([int]$c.queued) queued" }
-    $state = if ($need) { 'waiting' } elseif ($cut) { 'cutoff' } elseif ([int]$c.busy) { 'busy' } elseif ([int]$c.running) { 'running' } else { 'idle' }
+    $state = if ($need) { 'waiting' } elseif ($cut -or $can) { 'cutoff' } elseif ([int]$c.busy) { 'busy' } elseif ([int]$c.running) { 'running' } else { 'idle' }
     $line = [System.Windows.Controls.DockPanel]::new()
     $line.LastChildFill = $true
     $dot = [System.Windows.Shapes.Ellipse]::new()
@@ -1971,7 +2239,14 @@ function Add-ChatOverlayCompact {
     $dot.Fill = Get-ChatOverlayBrush $state
     [System.Windows.Controls.DockPanel]::SetDock($dot, [System.Windows.Controls.Dock]::Left)
     $u = @($Snap.header.usage | Where-Object { $_ -and $_.provider -eq 'Claude' })[0]
-    $use = if ($u) { (@($u.windows | Select-Object -First 2 | ForEach-Object { "$($_.label) $($_.percent)%" }) -join " $($script:ChatqDot) ") } else { '' }
+    $use = ''
+    if ($u) {
+        $resets = Get-ChatOverlayResetWindow @($u.windows)
+        $use = (@($u.windows | Select-Object -First 2 | ForEach-Object {
+                    $t = if ($resets -and $_.label -eq $resets) { Format-ChatOverlayResetAt $_.resetsAt } else { '' }
+                    "$($_.label) $($_.percent)%$(if ($t) { " resets $t" })"
+                }) -join " $($script:ChatqDot) ")
+    }
     $right = New-ChatOverlayText $use $(if ($u -and $u.stale) { 'faint' } else { 'dim' }) 11
     $right.Margin = [System.Windows.Thickness]::new(8, 0, 0, 0)
     $right.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
@@ -1984,9 +2259,17 @@ function Add-ChatOverlayCompact {
 }
 
 function Update-ChatOverlayClock {
+    # The bars' countdowns, and the lines view's reset time (Kind at), which
+    # goes once that time has passed.
     param($H)
     $now = Get-Date
-    foreach ($c in @($H.Clocks)) { $c.Block.Text = Format-ChatOverlayReset $c.At $now }
+    foreach ($c in @($H.Clocks)) {
+        if ($c.Kind -eq 'at') {
+            $t = Format-ChatOverlayResetAt $c.At -Now $now
+            $c.Block.Text = if ($t) { " resets $t" } else { '' }
+        }
+        else { $c.Block.Text = Format-ChatOverlayReset $c.At $now }
+    }
 }
 
 function Get-ChatOverlayPlacement {
@@ -2280,6 +2563,109 @@ function Update-ChatOverlayMenu {
     $H.Menu.Hide.Text = if ($H.Hidden) { 'Show' } else { 'Hide' }
     $H.Menu.Fold.Text = if ($H.Collapsed) { 'Expand' } else { 'Collapse to one line' }
     $H.Menu.Hotkey.Text = if ($H.Hotkey) { "hotkey  $($H.HotkeyText)" } elseif ($H.HotkeyText -and $H.HotkeyText -ne 'none') { "hotkey  $($H.HotkeyText) (taken)" } else { 'no hotkey' }
+    # auto-continue's item, checked while the switch is on, as the panel
+    # has config.json (the settings box and a reload keep that current)
+    if ($H.Menu.Auto) { $H.Menu.Auto.Checked = [string]$H.Ctx.Config.autoContinue -eq 'on' }
+}
+
+function Update-ChatOverlayAsk {
+    <#
+    After each pass, what the collector found about the chats the limit cut
+    off ($H.Ctx.Ask): the tray's two answers put in step, a new ask said in
+    a balloon once, an answer's outcome (AskSaid) said the same way, and a
+    watcher an answer asked for followed until it is up.
+    #>
+    param($H)
+    if (-not $H -or -not $H.Ctx) { return }
+    $ask = $H.Ctx.Ask
+    # Not while the menu is open: its items and their keys stay what it
+    # showed, so a click never answers for a chat that joined meanwhile.
+    $menuOpen = $H.Tray -and $H.Tray.ContextMenuStrip -and $H.Tray.ContextMenuStrip.Visible
+    if ($H.Menu.AskGo -and -not $menuOpen) {
+        $on = [bool]$ask
+        # Available, not Visible: an item's Visible reads false whenever its
+        # menu is closed - which is always, here - so once shown, a check of
+        # Visible never hid them again. Available is what Visible sets.
+        foreach ($i in $H.Menu.AskGo, $H.Menu.AskLeave, $H.Menu.AskSep) { if ($i.Available -ne $on) { $i.Available = $on } }
+        if ($on) {
+            $n = [int]$ask.Count
+            $H.Menu.AskGo.Text = "Continue $n cut-off chat$(if ($n -ne 1) { 's' })"
+            $H.Menu.AskGo.ToolTipText = (@(@($ask.Items) | Select-Object -First 10 | ForEach-Object { Format-ChatTitle ([string]$_.Title) 60 }) -join "`n")
+        }
+        # @() around the if: an empty array out of a branch would be $null
+        $H.AskMenuKeys = @(if ($on) { $ask.Keys })
+    }
+    $news = $H.Ctx.AskNews
+    if ($news) {
+        $H.Ctx.AskNews = $null
+        $a = $news.Ask
+        $n = [int]$a.Count
+        $at = Format-ChatOverlayAskAt $a.ResetsAt
+        $names = @(@($a.Items) | Select-Object -First 3 | ForEach-Object { Format-ChatTitle ([string]$_.Title) 40 })
+        $list = $names -join ', '
+        if ($n -gt 3) { $list += " and $($n - 3) more" }
+        $title = if ($at) { "chatq - limit over at $at" } else { 'chatq - limit over' }
+        Show-ChatOverlayBalloon $H "$n chat$(if ($n -ne 1) { 's' }) it cut off can continue: $list. Click to see them." -Title $title -Ms 10000 -Kind ask -Keys @($a.Keys)
+    }
+    if ($H.Ctx.AskSaid) {
+        $said = [string]$H.Ctx.AskSaid
+        $H.Ctx.AskSaid = $null
+        Show-ChatOverlayBalloon $H $said
+    }
+    if ($H.AskRequest) {
+        # Ctx.Jobs holds each job with its first line: the state is the job's
+        $queued = [bool](@($H.Ctx.Jobs | Where-Object { $_ -and $_.Job -and $_.Job.state -eq 'queued' }).Count)
+        switch (Test-ChatqWatcherRequest $H.AskRequest $queued) {
+            'up' { $H.AskRequest = $null }
+            'none' { $H.AskRequest = $null }
+            'failed' { $H.AskRequest = $null; Show-ChatOverlayBalloon $H 'the watcher did not start - chatqrun -Foreground shows why' }
+        }
+    }
+}
+
+function Invoke-ChatOverlayAskAnswer {
+    <#
+    An answer to the ask about the chats the limit cut off - from the chip,
+    the tray or the console: continue or leave the chats of -Keys, those it
+    showed (Complete-ChatqResetAsk). Held while a loop of its own runs (the
+    folder picker, a drag), and run once it ends (Invoke-ChatOverlayHeldVerbs).
+    An ask that changed meanwhile acts on nothing: the panel shows it as it
+    is now instead. Otherwise a pass now, so the banner and the tray's items
+    go, and what was queued shows at once.
+    #>
+    param($H, [string]$Answer, [string[]]$Keys)
+    if (-not $H -or $H.ShuttingDown) { return }
+    if (($H.Con -and $H.Con.Modal) -or $H.Dragging -or $H.GripDrag -or $H.SizeDrag) {
+        $H.AskHeld = @{ Answer = $Answer; Keys = @($Keys) }
+        return
+    }
+    try {
+        Hide-ChatOverlayChip $H
+        $r = Complete-ChatqResetAsk -Ctx $H.Ctx -Answer $Answer -Keys @($Keys) -Source overlay
+        if ($r -and $r.Stale) {
+            # the console shows the list as it is on its next redraw; the
+            # panel is brought up, unfolded, to show the ask as it is now
+            if ($H.Mode -ne 'console') {
+                Invoke-ChatOverlayVerb 'show'
+                if ($H.Collapsed) { Invoke-ChatOverlayVerb 'expand' }
+            }
+            return
+        }
+        if ($r -and $r.Request) {
+            $H.AskRequest = $r.Request
+            if ($H.Con) { $H.Con.Request = $r.Request }
+        }
+        $H.ViewKey = $null
+        Update-ChatOverlayView $H (Invoke-ChatOverlayCycle $H.Ctx -Peek)
+        Update-ChatOverlayTray $H $H.Snap
+        Update-ChatOverlayAsk $H
+        if ($H.Mode -eq 'console' -and $H.Con) {
+            $H.Con.JobsSig = $null
+            $H.Con.Sigs = @{}
+            Update-ChatConsole $H
+        }
+    }
+    catch { Write-ChatOverlayLog "ask: $($_.Exception.Message)" }
 }
 
 function New-ChatOverlayTrayIcon {
@@ -2289,6 +2675,17 @@ function New-ChatOverlayTrayIcon {
     param($H)
     $ni = [System.Windows.Forms.NotifyIcon]::new()
     $menu = [System.Windows.Forms.ContextMenuStrip]::new()
+    # The answers to the ask about the chats the limit cut off, at the very
+    # top, shown only while there is one (Update-ChatOverlayAsk). A click
+    # acts on the keys the menu was last put in step with - what it showed.
+    $H.Menu.AskGo = $menu.Items.Add('Continue cut-off chats')
+    $H.Menu.AskGo.add_Click({ $X = $script:ChatOverlayHost; Invoke-ChatOverlayAskAnswer $X 'continue' @($X.AskMenuKeys) })
+    $H.Menu.AskLeave = $menu.Items.Add('Leave them')
+    $H.Menu.AskLeave.ToolTipText = 'Leave them as they are - their rows stay orange; Continue all in the console still continues them'
+    $H.Menu.AskLeave.add_Click({ $X = $script:ChatOverlayHost; Invoke-ChatOverlayAskAnswer $X 'leave' @($X.AskMenuKeys) })
+    $H.Menu.AskSep = [System.Windows.Forms.ToolStripSeparator]::new()
+    [void]$menu.Items.Add($H.Menu.AskSep)
+    foreach ($i in $H.Menu.AskGo, $H.Menu.AskLeave, $H.Menu.AskSep) { $i.Available = $false }
     $open = $menu.Items.Add('Open console')
     $open.Font = [System.Drawing.Font]::new($open.Font, [System.Drawing.FontStyle]::Bold)
     $open.add_Click({ Invoke-ChatOverlayVerb 'console' })
@@ -2300,6 +2697,13 @@ function New-ChatOverlayTrayIcon {
     $phone = $menu.Items.Add('Phone alerts...')
     $phone.ToolTipText = 'Join alerts, and answering them from the phone - a window of its own'
     $phone.add_Click({ Invoke-ChatOverlayVerb 'phone' })
+    # auto-continue's automatic mode, checked when on; unchecked goes back to
+    # the default, ask. Through the verbs, so a console busy with a loop of
+    # its own holds it (src/auto-continue.ps1)
+    $H.Menu.Auto = $menu.Items.Add('Auto-continue cut-off chats')
+    $H.Menu.Auto.ToolTipText = 'A minute after the limit resets, send "continue" to each chat it cut off - unchecked, the panel asks first'
+    $H.Menu.Auto.add_Click({ Invoke-ChatOverlayVerb $(if ($script:ChatOverlayHost.Menu.Auto.Checked) { 'auto-ask' } else { 'auto-on' }) })
+    $menu.add_Opening({ Update-ChatOverlayMenu $script:ChatOverlayHost })
     [void]$menu.Items.Add([System.Windows.Forms.ToolStripSeparator]::new())
     $head = $menu.Items.Add("VS-code-chat-manager $script:ChatVersion")
     $head.Enabled = $false
@@ -2326,6 +2730,21 @@ function New-ChatOverlayTrayIcon {
                 Invoke-ChatOverlayVerb $(if ($script:ChatOverlayHost.Hidden) { 'show' } else { 'hide' })
             }
         })
+    # A click on the balloon about the chats the limit cut off opens the
+    # console, which lists them and answers - never the answer itself:
+    # people click a balloon to get rid of it.
+    $ni.add_BalloonTipClicked({
+            $X = $script:ChatOverlayHost
+            if (-not $X) { return }
+            $kind = $X.BalloonKind
+            $X.BalloonKind = $null
+            $X.BalloonKeys = @()
+            if ($kind -eq 'ask') { Invoke-ChatOverlayVerb 'console' }
+        })
+    $ni.add_BalloonTipClosed({
+            $X = $script:ChatOverlayHost
+            if ($X) { $X.BalloonKind = $null; $X.BalloonKeys = @() }
+        })
     $ni.Text = 'chatq'
     $H.Tray = $ni
     Set-ChatOverlayTrayColor $H $script:ChatOverlayColors.idle
@@ -2349,7 +2768,7 @@ function Register-ChatOverlayHotkey {
         else {
             $hk.Dispose()
             Write-ChatOverlayLog "hotkey $text is taken by another program"
-            if ($H.Tray) { $H.Tray.ShowBalloonTip(8000, 'chatoverlay', "$text is taken by another program - chatoverlay -Hotkey picks another", [System.Windows.Forms.ToolTipIcon]::Info) }
+            Show-ChatOverlayBalloon $H "$text is taken by another program - chatoverlay -Hotkey picks another" -Ms 8000 -Icon Info
         }
     }
     Update-ChatOverlayMenu $H
@@ -2444,17 +2863,32 @@ function Invoke-ChatOverlayVerb {
             if ($busy -and $H.Mode -eq 'console') { $H.Held += @($Verb); return }
             try { [void](Start-ChatqPhoneSetup -NoWait) } catch { Write-ChatOverlayLog "phone setup: $($_.Exception.Message)" }
         }
+        # The tray's Auto-continue cut-off chats: the settings box's Cut off
+        # row by another way in. Held like the phone's while the console
+        # runs a loop of its own.
+        { $_ -in 'auto-on', 'auto-ask', 'auto-off' } {
+            if ($busy -and $H.Mode -eq 'console') { $H.Held += @($Verb); return }
+            Set-ChatOverlayAutoChoice $H $(switch ($Verb) { 'auto-on' { 'continue' } 'auto-off' { 'leave' } default { 'ask' } })
+        }
     }
 }
 
 function Invoke-ChatOverlayHeldVerbs {
     # what Invoke-ChatOverlayVerb held while a loop of its own ran, done now
-    # it has ended, in the order asked
+    # it has ended, in the order asked - then an answer to the ask held the
+    # same way (Invoke-ChatOverlayAskAnswer)
     param($H)
-    if (-not $H -or -not @($H.Held).Count) { return }
-    $held = @($H.Held)
-    $H.Held = @()
-    foreach ($v in $held) { Invoke-ChatOverlayVerb $v }
+    if (-not $H) { return }
+    if (@($H.Held).Count) {
+        $held = @($H.Held)
+        $H.Held = @()
+        foreach ($v in $held) { Invoke-ChatOverlayVerb $v }
+    }
+    if ($H.AskHeld -and -not $H.ShuttingDown) {
+        $a = $H.AskHeld
+        $H.AskHeld = $null
+        Invoke-ChatOverlayAskAnswer $H $a.Answer @($a.Keys)
+    }
 }
 
 function Stop-ChatOverlayDispatcher {
@@ -2486,6 +2920,9 @@ function Invoke-ChatOverlayTick {
             if ($H.ShuttingDown) { return }
             Update-ChatOverlayView $H $snap
             Update-ChatOverlayTray $H $snap
+            Update-ChatOverlayAsk $H
+            # the first continue auto-continue queued, said in the tray
+            Show-ChatOverlayAutoQueued $H
             if ($C -and $H.Mode -eq 'console') { Update-ChatConsole $H }
         }
         else {
@@ -2513,6 +2950,9 @@ function Invoke-ChatOverlayTick {
         }
         # an open the chip started may have finished
         if ($H.OpenProc) { Update-ChatOverlayOpen $H }
+        # An answer held through a drag: only the console's loops end in
+        # Invoke-ChatOverlayHeldVerbs, the panel's drags do not.
+        if ($H.AskHeld -and -not (($C -and $C.Modal) -or $H.Dragging -or $H.GripDrag -or $H.SizeDrag)) { Invoke-ChatOverlayHeldVerbs $H }
     }
     catch { Write-ChatOverlayLog "tick: $($_.Exception.Message) @ $(($_.ScriptStackTrace -split "`n")[0])" }
 }
@@ -2574,6 +3014,17 @@ function New-ChatOverlayHostState {
         ChipWin = $null; ChipHwnd = [IntPtr]::Zero; ChipText = $null; ChipKey = $null; ChipRow = $null; ChipLine = $null; ChipAt = $null
         ChipUnder = $null; ChipUnderAt = $null; ChipOverAt = $null; ChipLastPos = $null; ChipSpent = $null
         ChipArmed = $false; ChipPressed = $false; OpenProc = $null; OpenAt = $null; OpenSid = $null; OpenSessionId = $null
+        # what the chip offers for its row (Get-ChatOverlayChipActions), and
+        # which of its chips a press began on
+        ChipActions = @(); ChipPressedId = $null
+        # its row's state text, which an auto-continue chip keeps clear of
+        # (Set-ChatOverlayChipPlacement)
+        ChipState = $null
+        # what a click on the balloon showing means (Show-ChatOverlayBalloon);
+        # the ask about the chats the limit cut off: the watcher an answer
+        # asked for, an answer held through a loop of its own, and the keys
+        # the tray's items were last put in step with (Update-ChatOverlayAsk)
+        BalloonKind = $null; BalloonKeys = @(); AskRequest = $null; AskHeld = $null; AskMenuKeys = @()
     }
 }
 
@@ -2601,6 +3052,14 @@ function Start-ChatOverlayHost {
         Initialize-ChatOverlayNative
         $H.Ctx = New-ChatOverlayContext
         $H.Ctx.WantPhone = $true
+        # this host answers the ask about the chats the limit cut off: the
+        # collector announces a new one to it (AskNews)
+        $H.Ctx.WantAsk = $true
+        # and its passes queue continues while the switch is on (src/auto-continue.ps1)
+        $H.Ctx.WantAuto = $true
+        # reply.listen always: the phone's board reaches a listening watcher
+        # after a sign-in with no shell opened (Start-ChatqReplyStanding)
+        try { if (Start-ChatqReplyStanding) { $null = Request-ChatqWatcher } } catch {}
         Restore-ChatOverlayUsage $H.Ctx
         $H.State = Read-ChatOverlayState
         $H.Locked = [bool]$H.State.locked
@@ -2617,6 +3076,10 @@ function Start-ChatOverlayHost {
         if (-not $H.Locked) { Set-ChatOverlayLocked $H $false }
         New-ChatOverlayTrayIcon $H
         Update-ChatOverlayTray $H $H.Snap
+        # an ask the first pass found, now there is a tray to say it
+        Update-ChatOverlayAsk $H
+        # once, with the switch on: what auto-continue does, and where it is changed
+        Show-ChatOverlayAutoNotice $H
         Register-ChatOverlayHotkey $H
         Register-ChatConsoleHotkey $H
         $d = [System.Windows.Threading.Dispatcher]::CurrentDispatcher

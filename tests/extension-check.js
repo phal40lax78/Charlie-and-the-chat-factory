@@ -46,6 +46,13 @@ Module._load = function (req) {
     return load.apply(this, arguments);
 };
 const ext = require(path.join(__dirname, '..', 'extension', 'extension.js'));
+// Before any reload, and for a new install, the extension asks the script
+// which chats of its window work (safe-restart.js). A test never runs that
+// PowerShell - it would load the real tool folder's scripts - so the answer
+// is nothing working here, unless a check says otherwise.
+const safe = require(path.join(__dirname, '..', 'extension', 'safe-restart.js'));
+const noWork = async () => ({ hostPid: process.pid, known: true, chats: [] });
+safe._hostWork = noWork;
 let failed = 0, total = 0;
 const check = (name, ok, detail) => {
     total++;
@@ -951,8 +958,11 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     mkChat(path.join(dirA, 'sub'), G(12), user('deep'), 0);
     const reg = path.join(home, 'sessions');
     fs.mkdirSync(reg, { recursive: true });
+    // a live entry started just now: one from before the machine started is
+    // dropped as a crash's leftover, and a CI runner booted only minutes
+    // before the tests - so no fixed age, not even an hour, is safe
     const regPut = (pid, x) => fs.writeFileSync(path.join(reg, pid + '.json'),
-        JSON.stringify(Object.assign({ pid, cwd: projA, startedAt: pnow - HOUR, procStart: '1', status: 'idle', entrypoint: 'claude-vscode' }, x)));
+        JSON.stringify(Object.assign({ pid, cwd: projA, startedAt: pnow, procStart: '1', status: 'idle', entrypoint: 'claude-vscode' }, x)));
     regPut(999101, { sessionId: S.custom });
     regPut(999102, { sessionId: S.ai, entrypoint: 'cli' });
     regPut(999112, { sessionId: S.ai });
@@ -1247,7 +1257,8 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         fs.mkdirSync(reg3, { recursive: true });
         for (const [pid, x] of entries) {
             aliveSet.add(pid);
-            fs.writeFileSync(path.join(reg3, pid + '.json'), JSON.stringify(Object.assign({ pid, cwd: projA, startedAt: pnow - HOUR, status: 'idle', entrypoint: 'claude-vscode' }, x)));
+            // started just now, as regPut's - a runner may have booted minutes ago
+            fs.writeFileSync(path.join(reg3, pid + '.json'), JSON.stringify(Object.assign({ pid, cwd: projA, startedAt: pnow, status: 'idle', entrypoint: 'claude-vscode' }, x)));
         }
     };
     const chats3 = await ext._listChats(home3, folders);
@@ -1354,8 +1365,9 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     for (const l of cutLines) { try { JSON.parse(l); } catch (e) { cutParse = false; } }
     check('hidden, its last line lacking its end: the added one is a line of its own - every line still parses',
         el2 === 'relisted' && cutParse && cutLines.length === hidTail.split('\n').filter(Boolean).length + 1, el2 + ' ' + cutParse + ' ' + cutLines.length);
+    // started just now, as regPut's - a runner may have booted minutes ago
     const reg4Put = (pid, x) => {
-        fs.writeFileSync(path.join(reg4, pid + '.json'), JSON.stringify(Object.assign({ pid, cwd: projA, startedAt: pnow - HOUR, status: 'idle', entrypoint: 'claude-vscode' }, x)));
+        fs.writeFileSync(path.join(reg4, pid + '.json'), JSON.stringify(Object.assign({ pid, cwd: projA, startedAt: pnow, status: 'idle', entrypoint: 'claude-vscode' }, x)));
         aliveSet.add(pid);
     };
     reg4Put(999301, { sessionId: H.held, status: 'busy' });
@@ -1703,7 +1715,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         bj._svgImages('![a](x/demo.svg) ![b](y.png) [c](z.svg) <img alt="w" src="w.SVG">').join() === 'x/demo.svg,w.SVG');
     const realLoader = fs.readFileSync(path.join(__dirname, '..', su.LOADER), 'latin1');
     const realParts = bj._partsOf(realLoader);
-    check('build: the real loader lists 16 parts, each one in src/', realParts.length === 16 &&
+    check('build: the real loader lists 22 parts, each one in src/', realParts.length === 22 &&
         realParts.every(p => fs.existsSync(path.join(__dirname, '..', 'src', p + '.ps1'))), realParts.join());
     const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'extension', 'package.json'), 'utf8'));
     check('build: the extension\'s version is the script\'s', pkg.version === su._readVersion(realLoader), pkg.version + ' / ' + su._readVersion(realLoader));
@@ -1763,11 +1775,16 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     ext._overlayIo.exists = () => false;
     const psNone = realIo.powershell('win32');
     const winAsked = hostsAsked.length;
+    ext._forgetPwsh();
     const psMac = realIo.powershell('darwin');
+    const psMac2 = realIo.powershell('darwin');
+    const macAsked = hostsAsked.length - winAsked;
+    ext._forgetPwsh();
     ext._overlayIo.exists = realIo.exists;
-    check('overlay: on Windows, Windows PowerShell by its own path - never setup\'s hosts(), whose where.exe can take 5 s; elsewhere pwsh as hosts() finds it',
-        psWin === ext._windowsPowerShell() && /WindowsPowerShell[\\/]v1\.0[\\/]powershell\.exe$/.test(psWin) && psNone === null && winAsked === 0 && psMac === 'pwsh',
-        psWin + ' ' + psNone + ' ' + winAsked + ' ' + psMac);
+    check('overlay: on Windows, Windows PowerShell by its own path - never setup\'s hosts(), whose where.exe can take 5 s; elsewhere pwsh as hosts() finds it, once for the host\'s life',
+        psWin === ext._windowsPowerShell() && /WindowsPowerShell[\\/]v1\.0[\\/]powershell\.exe$/.test(psWin) && psNone === null && winAsked === 0 && psMac === 'pwsh' &&
+        psMac2 === 'pwsh' && macAsked === 1,
+        psWin + ' ' + psNone + ' ' + winAsked + ' ' + psMac + ' ' + macAsked);
     const ovRan = [];
     let ovSays = 'started';
     su._runPs = async (exe, loader, cmd) => { ovRan.push(exe + ':' + cmd + ':' + loader); if (ovSays === 'throw') throw new Error('boom'); return { ok: true, stdout: 'WARNING: x\r\n' + ovSays + '\r\n' }; };
@@ -1956,9 +1973,62 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         /^warn:.*not in .*Install terminal commands/.test(asSaid.join()),
         ph6 + ' / ' + ph7 + ' / ' + ph8 + ' | ' + ph6Said + ' | ' + asSaid.join());
     const phCmds = pkg.contributes.commands || [];
-    const phPkg = phCmds[phCmds.length - 1] || {};
-    check('phone alerts: in the palette as Chat Manager: Phone alerts..., the last command',
+    // found by its id: commands added after it (0.9.0's auto-continue) come later
+    const phPkg = phCmds.filter(c => c.command === 'chatManager.phoneAlerts')[0] || {};
+    check('phone alerts: in the palette as Chat Manager: Phone alerts...',
         phPkg.command === 'chatManager.phoneAlerts' && phPkg.title === 'Phone alerts...' && phPkg.category === 'Chat Manager', JSON.stringify(phPkg));
+
+    // Chat Manager: Auto-continue cut-off chats... (0.9.0) - chatq
+    // -AutoContinue on|ask|off through the loader; the script's own "auto-
+    // continue: on|ask|off" line says whether it took. PowerShell stood in for.
+    const acRan = [];
+    let acWorks = true;
+    su._runPs = async (exe, loader, cmd) => {
+        acRan.push(exe + ':' + cmd + ':' + loader);
+        const w = /-AutoContinue (on|ask|off)/.exec(cmd);
+        if (acWorks === 'throw') throw new Error('boom');
+        return { ok: true, stdout: acWorks && w ? '  auto-continue: ' + w[1] + ' - a chat the limit cuts off gets "continue"\r\n' : 'chatq : The term is not recognized\r\n' };
+    };
+    const acRun = async (x) => {
+        acRan.length = 0; asSaid.length = 0; asPicks.length = 0;
+        asPick = x.pick === undefined ? 'on' : x.pick; acWorks = x.works === undefined ? true : x.works;
+        ext._overlayIo.platform = () => x.platform || 'win32';
+        return ext._autoContinue();
+    };
+    logged.length = 0;
+    const ac1 = await acRun({ pick: 'on' });
+    const ac1Ran = acRan.slice(), ac1Said = asSaid.join(), ac1Pick = asPicks[0];
+    const ac2 = await acRun({ pick: 'off', platform: 'linux' });
+    const ac2Ran = acRan.slice(), ac2Said = asSaid.join();
+    const ac2a = await acRun({ pick: 'ask' });
+    const ac2aRan = acRan.slice(), ac2aSaid = asSaid.join();
+    check('auto-continue: Continue, Ask and Leave run chatq -AutoContinue on|ask|off through the tool folder\'s loader, on every platform; the script\'s line checked; said and logged',
+        ac1 === 'on' && ac1Ran.length === 1 && ac1Ran[0] === 'PS:chatq -AutoContinue on *>&1 | Out-String -Width 200:' + ldr && ac1Pick === ext._autoTexts.ask &&
+        ac1Said === 'Chats the usage limit cuts off are now continued by chatq, a minute after the reset.' && logged.includes('auto-continue: on') &&
+        ac2 === 'off' && ac2Ran[0] === 'PS:chatq -AutoContinue off *>&1 | Out-String -Width 200:' + ldr && ac2Said === 'chatq no longer continues chats the limit cuts off.' &&
+        ac2a === 'ask' && ac2aRan[0] === 'PS:chatq -AutoContinue ask *>&1 | Out-String -Width 200:' + ldr && ac2aSaid === ext._autoTexts.asks,
+        [ac1, ac2, ac2a].join(' / ') + ' | ' + ac1Ran.join(' / ') + ' | ' + ac1Said + ' | ' + ac2Said + ' | ' + ac2aSaid);
+    const ac3 = await acRun({ pick: 'off', works: false });
+    const ac3Said = asSaid.join();
+    let ac4, acThrew = false;
+    try { ac4 = await acRun({ pick: 'on', works: 'throw' }); } catch (e) { acThrew = true; }
+    const ac4Said = asSaid.join();
+    const ac5 = await acRun({ pick: null });
+    const ac5Ran = acRan.length;
+    check('auto-continue: the script not saying it took, or PowerShell failing - failed and said, never thrown; nothing picked does nothing',
+        ac3 === 'off - failed' && ac3Said === 'warn:Auto-continue could not be set. Chat Manager: Show log has the details.' &&
+        /^failed - boom$/.test(ac4) && !acThrew && ac4Said === ac3Said && ac5 === 'nothing picked' && ac5Ran === 0,
+        [ac3, ac4, ac5].join(' / ') + ' | ' + ac3Said + ' | ' + ac4Said);
+    const acPkg = phCmds.find(c => c.command === 'chatManager.autoContinue') || {};
+    check('auto-continue: in the palette as Chat Manager: Auto-continue cut-off chats...', acPkg.title === 'Auto-continue cut-off chats...' && acPkg.category === 'Chat Manager',
+        JSON.stringify(acPkg));
+    // the offer after a run auto-continue made: its own words, Show it or a reload
+    const acReq = { kind: 'ran', title: 'Parser rewrite', sessionId: '11111111-1111-4111-8111-111111111111', oldProcess: 'live', auto: true };
+    const acFresh = ext._message(acReq, true), acReload = ext._message(acReq, false), acPlain = ext._message(Object.assign({}, acReq, { auto: false }), true);
+    check('message(): a run auto-continue made is worded as one - Show it, or Reload where it cannot be shown; others as before',
+        acFresh === 'chatq continued "Parser rewrite" after the usage limit reset, and this window still has it open. Show it?' &&
+        acReload === 'chatq continued "Parser rewrite" after the usage limit reset, and this window still has it open. Reload to show it?' &&
+        acPlain === 'A queued prompt ran in "Parser rewrite", which this window still has open. Show it?', acFresh + ' | ' + acReload + ' | ' + acPlain);
     su._runPs = ovRunPs;
     ext._overlayIo.platform = () => 'win32';
     delete cfgVals['chatManager.folder'];
@@ -2022,6 +2092,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     check('and the palette has every command - the autostart switch among them',
         ['chatManager.installTerminal', 'chatManager.showLog', 'chatManager.openChat', 'chatManager.overlayAutoStart', 'chatManager.phoneAlerts'].every(c => registered.includes(c)),
         registered.join());
+    check('and auto-continue\'s, 0.9.0', registered.includes('chatManager.autoContinue'), registered.join());
     await settle();
     check('activation, the loader in place: the overlay started once, from the tool folder\'s loader - however often it runs',
         ovFirst.join() === 'PS:Start-ChatOverlayAuto:' + path.join(tool, su.LOADER) && ovRan.length === 1, ovFirst.join() + ' / ' + ovRan.join());
@@ -2134,6 +2205,384 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     fs.watchFile = realWatch;
     delete cfgVals['chatManagerReload.signalFile'];
     fs.rmSync(sbx, { recursive: true, force: true });
+
+    // --- a new version installed, and reloads held to this window's chats -----
+    // safe-restart.js: the notice a new install brings, the wait for this
+    // window's chats to go idle, and the reloads chatq asks for - with stand-
+    // ins for the script's verdict, the clock, the status bar, VS Code's list
+    // of installed extensions and the restart command. Nothing restarts.
+    {
+        const sr = safe;
+        const srDir = path.join(dir, 'ext-safe');
+        const exts = path.join(srDir, 'exts');
+        const mineDir = path.join(exts, 'redaechan.vs-code-chat-manager-0.8.1');
+        fs.mkdirSync(mineDir, { recursive: true });
+        const list = (version, stamp) => fs.writeFileSync(path.join(exts, 'extensions.json'), JSON.stringify([
+            { identifier: { id: 'anthropic.claude-code' }, version: '2.1.283', relativeLocation: 'anthropic.claude-code-2.1.283-win32-x64', metadata: { installedTimestamp: 5 } },
+            { identifier: { id: 'redaechan.vs-code-chat-manager' }, version, relativeLocation: 'redaechan.vs-code-chat-manager-' + version, metadata: { installedTimestamp: stamp, pinned: true, source: 'vsix' } }]));
+        list('0.8.1', 1000);
+        const srCalls = [], srAsked = [], items = [], srWatched = [], srHeard = [];
+        const srAnswer = { info: undefined, warn: undefined };
+        const realWatch2 = fs.watchFile;
+        fs.watchFile = (f, o, cb) => { srWatched.push([f, cb]); };
+        stub.commands.executeCommand = async (c) => { srCalls.push(c); };
+        stub.commands.registerCommand = (id) => ({ dispose() { } });
+        stub.window.showInformationMessage = async (m, ...b) => { srAsked.push({ m, b, kind: 'info' }); return b.includes(srAnswer.info) ? srAnswer.info : undefined; };
+        stub.window.showWarningMessage = async (m, ...b) => { srAsked.push({ m, b, kind: 'warn' }); return b.includes(srAnswer.warn) ? srAnswer.warn : undefined; };
+        stub.window.createStatusBarItem = () => { const it = { text: '', shown: false, disposed: false, show() { this.shown = true; }, dispose() { this.disposed = true; } }; items.push(it); return it; };
+        stub.StatusBarAlignment = { Left: 1, Right: 2 };
+        stub.extensions.onDidChange = (fn) => { srHeard.push(fn); return { dispose() { } }; };
+        const srReset = () => { srCalls.length = 0; srAsked.length = 0; srAnswer.info = undefined; srAnswer.warn = undefined; };
+        // a chat's transcript, titled as Claude titles it
+        const SA = 'abcdef12-3456-4789-8abc-def123456789', SB = 'fedcba98-7654-4321-8fed-cba987654321', SC = '0a0a0a0a-0b0b-4c0c-8d0d-0e0e0e0e0e0e';
+        const tA = path.join(srDir, SA + '.jsonl');
+        fs.writeFileSync(tA, '{"type":"user","message":{"role":"user","content":"hello"}}\n{"type":"ai-title","aiTitle":"Refactor the parser"}\n');
+        const chat = (sid, why, written, file) => ({ sessionId: sid, pids: [7], file: file || null, why, written: !!written });
+        let verdict = noWork;
+        sr._hostWork = async (pid) => verdict(pid);
+        const as = (chats) => async () => ({ hostPid: process.pid, known: true, chats });
+
+        // the pure parts
+        check('safe restart: another version installed, newer or older, is said by its version; the same one again only by another install time',
+            sr._installKey({ version: '0.8.1', stamp: 1 }, { version: '0.9.0', stamp: 2 }) === '0.9.0' &&
+            sr._installKey({ version: '0.8.1', stamp: 1 }, { version: '0.8.0', stamp: 2 }) === '0.8.0' &&
+            sr._installKey({ version: '0.8.1', stamp: 1 }, { version: '0.8.1', stamp: 2 }) === '0.8.1@2' &&
+            sr._installKey({ version: '0.8.1', stamp: 1 }, { version: '0.8.1', stamp: 1 }) === '' &&
+            sr._installKey({ version: '0.8.1', stamp: null }, { version: '0.8.1', stamp: 2 }) === '' &&
+            sr._installKey({ version: '0.8.1', stamp: 1 }, null) === '');
+        check('safe restart: this extension\'s entry in VS Code\'s list, by its id in any case, the newest where two',
+            sr._entryOf([{ identifier: { id: 'x.y' }, version: '1' }, { identifier: { id: 'Redaechan.VS-Code-Chat-Manager' }, version: '2', metadata: { installedTimestamp: 1 } },
+                { identifier: { id: 'redaechan.vs-code-chat-manager' }, version: '3', metadata: { installedTimestamp: 9 } }], 'redaechan.vs-code-chat-manager').version === '3' &&
+            sr._entryOf(null, 'a.b') === null);
+        const hwGood = '{"hostPid":12,"known":true,"chats":[{"sessionId":"' + SA + '","pids":[7],"file":null,"why":"background","written":false}]}';
+        check('safe restart: the script\'s verdict - the last JSON line, noise before it ignored; a field of the wrong kind is none',
+            (sr._parseHostWork('WARNING: x\r\n' + hwGood + '\r\n') || {}).hostPid === 12 &&
+            sr._parseHostWork('{"hostPid":12,"known":true,"chats":[]}').chats.length === 0 &&
+            sr._parseHostWork(hwGood.replace('background', 'napping')) === null && sr._parseHostWork(hwGood.replace('"written":false', '"written":"no"')) === null &&
+            sr._parseHostWork('{"hostPid":"12","known":true,"chats":[]}') === null && sr._parseHostWork('') === null);
+        const hwCmd = sr._hostWorkCommand(4321, "D:\\h's");
+        check('safe restart: the look asks Get-ChatHostWork of this host\'s pid, the Claude home quoted',
+            /Get-ChatHostWork -HostPid 4321 -ConfigDir 'D:\\h''s'/.test(hwCmd) && /ConvertTo-ChatHostWorkJson/.test(hwCmd), hwCmd);
+        const wk = sr._workingOf({ chats: [chat(SA, 'background'), chat(SB, '', true), chat(SC, '', false)] }, SB);
+        check('safe restart: working - a background-only chat counts; one only written this minute counts, unless it is the run\'s own chat; an idle one never',
+            wk.map(c => c.sessionId).join() === SA && sr._workingOf({ chats: [chat(SB, '', true)] }).length === 1 &&
+            sr._workingOf({ chats: [chat(SC, '')] }).length === 0);
+
+        // activation: what runs, and both ways a new install is heard of
+        const ctxS = { subscriptions: [], extensionPath: mineDir, extension: { id: 'redaechan.vs-code-chat-manager', packageJSON: { version: '0.8.1' } } };
+        sr.activate(ctxS);
+        const run0 = sr._running();
+        check('safe restart: at activation, the version it runs and its folder\'s install time; VS Code\'s event and its list on disk both listened to',
+            run0.version === '0.8.1' && run0.stamp === 1000 && srHeard.length === 1 && srWatched.length === 1 &&
+            srWatched[0][0] === path.join(exts, 'extensions.json'), JSON.stringify(run0) + ' ' + srWatched.map(w => w[0]).join());
+        srReset();
+        check('safe restart: nothing new installed - nothing said', (await sr._checkInstall()) === 'none' && srAsked.length === 0);
+
+        // a newer version, nothing working here: the short notice; Later
+        list('0.9.0', 2000);
+        verdict = noWork;
+        const n1 = await sr._checkInstall();
+        const n1Said = srAsked.slice();
+        srReset();
+        const n1b = await sr._checkInstall();
+        check('safe restart: a newer version, nothing working here - the short notice; Later reloads nothing, and that version is not said again',
+            n1 === 'later' && n1Said.length === 1 && n1Said[0].m === sr.texts.short('0.9.0') && n1Said[0].m === 'VS Code Chat Manager 0.9.0 is installed - reload the window to load it.' &&
+            n1Said[0].b.join() === 'Reload the window,Later' && n1b === 'none' && srAsked.length === 0 && !srCalls.includes(sr.RESTART),
+            n1 + ' ' + JSON.stringify(n1Said) + ' ' + n1b);
+
+        // the same version installed again with other files, two chats working:
+        // the long notice with their titles; Restart now
+        list('0.8.1', 3000);
+        verdict = as([chat(SA, 'turn', true, tA), chat(SB, 'background'), chat(SC, '')]);
+        srAnswer.warn = sr.NOW;
+        const n2 = await sr._checkInstall();
+        check('safe restart: installed again, two chats working - the long notice naming them, a background-only one too; Reload now reloads the window - never Restart Extension Host, which loads nothing new',
+            n2 === 'restarted' && srAsked.length === 1 && srAsked[0].kind === 'warn' &&
+            srAsked[0].m === 'VS Code Chat Manager 0.8.1 is installed. Loading it reloads this window, which stops the 2 chats working here: "Refactor the parser" and a chat (fedcba98) (background work running).' &&
+            srAsked[0].b.join() === 'Reload when they\'re idle,Reload now,Later' && srCalls.join() === 'workbench.action.reloadWindow',
+            n2 + ' ' + JSON.stringify(srAsked) + ' ' + srCalls.join());
+        srReset();
+        // a look that fails: said without names, never taken for nothing working
+        list('0.9.2', 3500);
+        verdict = async () => null;
+        const n3 = await sr._checkInstall();
+        check('safe restart: the chats here could not be checked - the long notice, never the short one; Later restarts nothing',
+            n3 === 'later' && srAsked.length === 1 && srAsked[0].m === sr.texts.unknown('0.9.2') && srAsked[0].b.length === 3 && !srCalls.length,
+            n3 + ' ' + JSON.stringify(srAsked));
+        srReset();
+        // the short notice clicked hours later, a chat working by then: asked
+        // again, the long way
+        list('0.9.3', 3600);
+        let looks = 0;
+        verdict = async () => (++looks === 1 ? { hostPid: 1, known: true, chats: [] } : { hostPid: 1, known: true, chats: [chat(SA, 'prompt', false, tA)] });
+        srAnswer.info = sr.GO;
+        const n4 = await sr._checkInstall();
+        check('safe restart: Restart extensions clicked once a chat began to work - no restart; the long notice instead, naming it',
+            n4 === 'later' && srAsked.length === 2 && srAsked[0].kind === 'info' && srAsked[1].kind === 'warn' &&
+            /stops the chat working here: "Refactor the parser" \(waiting on you\)\.$/.test(srAsked[1].m) && !srCalls.length,
+            n4 + ' ' + JSON.stringify(srAsked));
+        srReset();
+        list('0.9.4', 3700);
+        verdict = noWork;
+        srAnswer.info = sr.GO;
+        const n5 = await sr._checkInstall();
+        check('safe restart: Restart extensions, still nothing working - the extensions restart', n5 === 'restarted' && srCalls.join() === sr.RESTART, n5 + ' ' + srCalls.join());
+        srReset();
+
+        // Reload when they're idle: the status bar, and a look every poll; the
+        // registry's last word before the reload stood in for (movedSince)
+        let clock = 1e9;
+        sr._now = () => clock;
+        let moved = '';
+        const movedWas = sr._movedSince;
+        sr._movedSince = () => moved;
+        sr.timing.poll = 1e9;   // the looks below are made by hand
+        list('0.9.5', 3800);
+        verdict = as([chat(SB, 'background')]);
+        srAnswer.warn = sr.WAIT;
+        const w0 = await sr._checkInstall();
+        await tick();
+        const item = items[items.length - 1];
+        const wText0 = item && item.text;
+        clock += 100000;
+        const w1 = await sr._poll();
+        verdict = as([chat(SB, ''), chat(SC, '')]);
+        const w2 = await sr._poll();
+        clock += 30000;
+        const w3 = await sr._poll();
+        // a queued run going into a chat of the window; then a turn, only written
+        verdict = as([chat(SB, 'run')]);
+        clock += 10000;
+        const w4 = await sr._poll();
+        verdict = as([chat(SC, '', true)]);
+        clock += 10000;
+        const w5 = await sr._poll();
+        verdict = async () => null;
+        clock += 10000;
+        const w6 = await sr._poll();
+        const beforeIdle = srCalls.slice();
+        verdict = as([chat(SB, ''), chat(SC, '')]);
+        clock += 10000;
+        const w7 = await sr._poll();
+        clock += 50000;
+        const w8 = await sr._poll();
+        const at59 = srCalls.slice();
+        clock += 10000;
+        // idle 60 s by the looks, but a turn began since the last one began
+        moved = 'fedcba98 busy';
+        const w9a = await sr._poll();
+        const afterMoved = srCalls.slice();
+        moved = '';
+        clock += 30000;
+        const w9b = await sr._poll();
+        clock += 60000;
+        const w9 = await sr._poll();
+        check('safe restart: Reload when they\'re idle - a status-bar item that cancels, saying how many chats work',
+            w0 === 'waiting' && !!item && item.shown && item.command === sr.CANCEL && wText0 === '$(debug-restart) Chat Manager: reloads when 1 chat is idle' &&
+            /Click to cancel/.test(item.tooltip), w0 + ' ' + wText0);
+        check('safe restart: it waits while any chat works - background only, a queued run going in, a turn only written, a look that failed',
+            w1 === 'working' && w4 === 'working' && w5 === 'working' && w6 === 'unknown' && !beforeIdle.length && w2 === 'idle' && w3 === 'idle',
+            [w1, w2, w3, w4, w5, w6].join());
+        check('safe restart: and reloads only once every chat here was idle 60 s straight and the registry, read once more, says so too - the window; the item gone',
+            w7 === 'idle' && w8 === 'idle' && !at59.length && w9a === 'working' && !afterMoved.length && w9b === 'idle' && w9 === 'restarted' &&
+            srCalls.join() === 'workbench.action.reloadWindow' && item.disposed && sr._wait() === null, [w7, w8, w9a, w9b, w9].join() + ' ' + srCalls.join());
+        sr._movedSince = movedWas;
+        srReset();
+        // the registry's last word itself, read with ext's own reader stood in for
+        {
+            const regWas = ext._readRegistry;
+            const since = Date.now() - 1000;
+            const tMoved = path.join(srDir, SB + '.jsonl');
+            fs.writeFileSync(tMoved, '{}\n');
+            const look = { chats: [chat(SA, ''), chat(SB, '', false, tMoved)] };
+            ext._readRegistry = () => new Map([[SA, [{ pid: 7, sessionId: SA, status: 'busy', kind: 'interactive', entrypoint: 'claude-vscode', startedAt: since - 60000 }]]]);
+            const m1 = sr._movedSince(look, Date.now() + 60000);
+            ext._readRegistry = () => new Map([[SC, [{ pid: 8, sessionId: SC, status: 'idle', kind: 'interactive', entrypoint: 'claude-vscode', startedAt: Date.now() }]]]);
+            const m2 = sr._movedSince(look, since);
+            ext._readRegistry = () => new Map([[SC, [{ pid: 8, sessionId: SC, status: 'idle', kind: 'interactive', entrypoint: 'cli', startedAt: Date.now() }]]]);
+            const m3 = sr._movedSince(look, Date.now() + 60000);
+            const m4 = sr._movedSince(look, since);
+            ext._readRegistry = () => new Map();
+            const m5 = sr._movedSince(look, Date.now() + 60000);
+            ext._readRegistry = regWas;
+            check('safe restart: the registry\'s last word - a chat of the look busy now, a VS Code chat started since the look began, a transcript written since: each holds the reload; a terminal\'s claude does not',
+                m1 === SA.slice(0, 8) + ' busy' && m2 === SC.slice(0, 8) + ' started' && m3 === '' && m4 === SB.slice(0, 8) + ' written' && m5 === '',
+                [m1, m2, m3, m4, m5].join(' | '));
+        }
+        // a look the scripts are too old for, and one that failed, told apart
+        const lf1 = sr._lookFailure(null, 'WARNING: x\r\n' + sr.TOO_OLD + '\r\n', '');
+        const lf2 = sr._lookFailure(new Error('Command failed'), '', '\r\nGet-ChatHostWork : The term is not recognized\r\nmore');
+        const lf3 = sr._lookFailure(null, '', '');
+        check('safe restart: scripts too old for the look are said as that - the command tests for Get-ChatHostWork first; else the error and stderr\'s first line',
+            lf1.old && /older than 0\.9\.0/.test(lf1.text) && !lf2.old && lf2.text === 'Command failed - Get-ChatHostWork : The term is not recognized' &&
+            lf3.text === 'no answer' && /^if \(-not \(Get-Command Get-ChatHostWork -EA SilentlyContinue\)\) \{ \[Console\]::Out\.WriteLine\('chatq: no Get-ChatHostWork'\) \} else \{/.test(hwCmd),
+            JSON.stringify([lf1, lf2, lf3]) + ' ' + hwCmd);
+        // a reload that fails: said, with a try again - not only logged
+        const execWas = stub.commands.executeCommand;
+        let refusals = 1;
+        stub.commands.executeCommand = async (c) => { srCalls.push(c); if (refusals-- > 0) throw new Error('refused'); };
+        list('0.9.55', 3850);
+        verdict = noWork;
+        srAnswer.info = sr.GO;
+        srAnswer.warn = sr.AGAIN;
+        const rf = await sr._checkInstall();
+        await settle();
+        check('safe restart: a reload that fails is said, with Try again - which reloads',
+            rf === 'failed' && srAsked.some(a => a.kind === 'warn' && a.m === sr.texts.failed('0.9.55') && a.b.join() === 'Try again,Later') &&
+            srCalls.filter(c => c === 'workbench.action.reloadWindow').length === 2, rf + ' ' + JSON.stringify(srAsked) + ' ' + srCalls.join());
+        stub.commands.executeCommand = execWas;
+        srReset();
+        // cancelled from the status bar: nothing restarts, whatever comes after
+        list('0.9.6', 3900);
+        verdict = as([chat(SA, 'turn')]);
+        srAnswer.warn = sr.WAIT;
+        await sr._checkInstall();
+        await tick();
+        const item2 = items[items.length - 1];
+        const c1 = sr._cancel();
+        verdict = noWork;
+        const c2 = await sr._poll();
+        clock += 1e6;
+        const c3 = await sr._poll();
+        check('safe restart: the status-bar item clicked - the wait is off, said, and nothing restarts',
+            c1 === 'cancelled' && item2.disposed && c2 === 'skipped' && c3 === 'skipped' && !srCalls.length &&
+            srAsked.some(a => a.m === sr.texts.cancelled('0.9.6')), [c1, c2, c3].join() + ' ' + srCalls.join());
+        srReset();
+        // a newer install while waiting: taken by the wait, not said again
+        verdict = as([chat(SA, 'turn')]);
+        srAnswer.warn = sr.WAIT;
+        list('0.9.7', 4000);
+        await sr._checkInstall();
+        await tick();
+        const asked1 = srAsked.length;
+        list('0.9.8', 4100);
+        const nw = await sr._checkInstall();
+        check('safe restart: a newer install while it waits - no second notice; the wait loads that one',
+            asked1 === 1 && nw === 'waiting' && srAsked.length === 1 && sr._wait().version === '0.9.8', asked1 + ' ' + nw);
+        sr._stopWait();
+        srReset();
+
+        // chatq's own reloads, held to the chats of this window
+        let reloads = () => srCalls.filter(c => c === 'workbench.action.reloadWindow').length;
+        verdict = as([chat(SB, 'background')]);
+        srAnswer.warn = 'Not now';
+        const g1 = await sr._guardReload(true, null);
+        await settle();
+        const g1Said = srAsked.slice(), g1n = reloads();
+        srReset();
+        verdict = async () => null;
+        const g2 = await sr._guardReload(true, null);
+        await settle();
+        const g2Said = srAsked.slice(), g2n = reloads();
+        srReset();
+        const g3 = await sr._guardReload(false, null);
+        const g3n = reloads();
+        srReset();
+        verdict = as([chat(SA, '', true), chat(SC, '')]);
+        const g4 = await sr._guardReload(true, SA);
+        const g4n = reloads();
+        srReset();
+        verdict = as([chat(SB, 'background')]);
+        srAnswer.warn = 'Reload anyway';
+        const g5 = await sr._guardReload(true, null);
+        await settle();
+        const g5n = reloads();
+        srReset();
+        check('reload guard: by itself, a chat of this window working - background only - says which and does not reload',
+            g1 === 'asked' && g1n === 0 && g1Said.length === 1 && g1Said[0].m === 'Reloading this window now would stop the chat working here: a chat (fedcba98) (background work running). Reload once it finishes.' &&
+            g1Said[0].b.join() === 'Reload anyway,Not now', g1 + ' ' + JSON.stringify(g1Said));
+        check('reload guard: by itself on a look that failed - not reloaded, and said; on a click, the reload as before',
+            g2 === 'asked' && g2n === 0 && g2Said[0].m === sr.texts.reloadUnchecked && g3 === 'reloaded' && g3n === 1, [g2, g2n, g3, g3n].join());
+        check('reload guard: the chat a queued run just wrote reads live only by its write - left out; Reload anyway reloads',
+            g4 === 'reloaded' && g4n === 1 && g5 === 'asked' && g5n === 1, [g4, g4n, g5, g5n].join());
+        // Reload anyway clicked on chatq's own warning: within a minute it
+        // reloads; an hour on the window is looked at again, the chat the
+        // warning named left out - another working since is asked about
+        {
+            let clk = 5e9;
+            const nowWas = sr._now;
+            sr._now = () => clk;
+            verdict = as([chat(SA, 'turn'), chat(SB, 'background')]);
+            srAnswer.warn = 'Not now';
+            const a1 = await ext._reloadAnyway(clk - 30000, SA, null);
+            const a1n = reloads();
+            srReset();
+            const a2 = await ext._reloadAnyway(clk - 3600000, SA, null);
+            await settle();
+            const a2n = reloads(), a2Said = srAsked.slice();
+            srReset();
+            verdict = as([chat(SA, 'turn')]);
+            const a3 = await ext._reloadAnyway(clk - 3600000, SA, null);
+            const a3n = reloads();
+            srReset();
+            sr._now = nowWas;
+            check('reload guard: Reload anyway within a minute of its warning reloads; an hour on, a chat it never named working since is asked about - the one it named is not',
+                a1n === 1 && a2 === 'asked' && a2n === 0 && a2Said.length === 1 && /stop the chat working here: a chat \(fedcba98\) \(background work running\)/.test(a2Said[0].m) &&
+                a3 === 'reloaded' && a3n === 1, [a1, a1n, a2, a2n, a3, a3n].join() + ' ' + JSON.stringify(a2Said));
+        }
+        // end to end through the request file: autoReload after a delete, and a
+        // queued run's reload by itself, with a background-only chat working here
+        cfgVals['chatManager.autoReload'] = true;
+        verdict = as([chat(SB, 'background')]);
+        srAnswer.warn = 'Not now';
+        fs.writeFileSync(file, JSON.stringify({ id: 'sr-d1', kind: 'deleted', title: 'T', busy: false, cwd: path.resolve('/work/projA'), at: new Date().toISOString() }));
+        await ext._check(context, file, false);
+        await settle();
+        const e1 = reloads(), e1Said = srAsked.slice();
+        srReset();
+        delete cfgVals['chatManager.autoReload'];
+        srAnswer.warn = 'Not now';
+        const wasClaude = claudeHere;
+        claudeHere = false;
+        put('sr-r1');
+        await ext._check(context, file, false);
+        await settle();
+        const e2 = reloads(), e2Said = srAsked.slice();
+        srReset();
+        // a plain Reload clicked on a delete the script found quiet
+        srAnswer.info = 'Reload';
+        srAnswer.warn = 'Not now';
+        fs.writeFileSync(file, JSON.stringify({ id: 'sr-d2', kind: 'deleted', title: 'T', busy: false, cwd: path.resolve('/work/projA'), at: new Date().toISOString() }));
+        await ext._check(context, file, false);
+        await settle();
+        const e3 = reloads(), e3Said = srAsked.slice();
+        srReset();
+        verdict = noWork;
+        put('sr-r2');
+        await ext._check(context, file, false);
+        await settle();
+        const e4 = reloads();
+        claudeHere = wasClaude;
+        srReset();
+        check('reload guard: autoReload after a delete, a chat of this window running a workflow - not reloaded, and asked',
+            e1 === 0 && e1Said.length === 1 && /would stop the chat working here/.test(e1Said[0].m), e1 + ' ' + JSON.stringify(e1Said));
+        check('reload guard: a queued run\'s reload by itself, the same - not reloaded; nothing working, it reloads as before',
+            e2 === 0 && e2Said.length === 1 && /would stop the chat working here/.test(e2Said[0].m) && e4 === 1, e2 + ' ' + e4 + ' ' + JSON.stringify(e2Said));
+        check('reload guard: a plain Reload clicked while a chat here works - asked again, not reloaded',
+            e3 === 0 && e3Said.length === 2 && e3Said[0].b.join() === 'Reload,Not now' && /would stop the chat working here/.test(e3Said[1].m),
+            e3 + ' ' + JSON.stringify(e3Said));
+
+        // the question left unanswered for good holds no show behind it
+        const warnWas = stub.window.showWarningMessage;
+        stub.window.showWarningMessage = () => new Promise(() => { });
+        verdict = as([chat(SB, 'background')]);
+        const qFirst = ext._enqueue(() => sr._guardReload(false, null));
+        let qNext = false;
+        const qAfter = ext._enqueue(async () => { qNext = true; });
+        await Promise.race([qAfter, new Promise(r => setTimeout(r, 500))]);
+        stub.window.showWarningMessage = warnWas;
+        check('reload guard: its question, never answered, holds up no show queued after it', qNext && reloads() === 0, qNext + ' ' + srCalls.join());
+        await qFirst;
+        srReset();
+
+        sr._stopWait();
+        sr._now = () => Date.now();
+        sr.timing.poll = 25000;
+        sr._hostWork = noWork;
+        fs.watchFile = realWatch2;
+        delete stub.extensions.onDidChange;
+        fs.rmSync(srDir, { recursive: true, force: true });
+    }
 
     try { fs.unlinkSync(file); } catch (e) { }
     try { fs.unlinkSync(ofile); } catch (e) { }
