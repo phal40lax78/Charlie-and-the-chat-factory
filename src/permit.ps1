@@ -26,9 +26,6 @@ $script:ChatqPermitDir = Join-Path $script:ChatqData 'permit'
 # a run whose bridge never came up says so here, for chatnotify, until one does
 $script:ChatqPermitFailPath = Join-Path $script:ChatqPermitDir 'bridge-failed.json'
 $script:ChatqPermitTool = 'mcp__chatqpermit__decide'
-# claude's MCP_TIMEOUT for a run with the bridge: how long it waits for
-# initialize before it goes on without the phone (its own default is 30 s)
-$script:ChatqPermitStartMs = 120000
 $script:ChatqPermitDefaultTools = @('Bash', 'PowerShell', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'WebFetch')
 # the modes that prompt at all: dontAsk and bypassPermissions never do, and
 # plan keeps its own "plan ready - approve it in VS Code"
@@ -362,7 +359,11 @@ function Read-ChatqMcpLine {
     $line = $State.Task.Result
     $State.Task = $null
     if ($null -eq $line) { return [DBNull]::Value }
-    return $line
+    # A byte-order mark in front of the first line: a parent on .NET
+    # Framework whose console input is UTF-8 writes one into a child's
+    # redirected stdin before anything else. claude never does, but
+    # initialize would go unanswered behind it - it did on CI.
+    return $line.TrimStart([char]0xFEFF)
 }
 
 function Invoke-ChatqMcpRequest {

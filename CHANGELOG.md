@@ -110,11 +110,11 @@ version of the extension waits for the window's chats before it reloads.
 - **A permission push whose request could not be registered** - replies.json
   locked, say - no longer goes: it opened nothing on the phone for a request
   already declined.
-- **Two minutes for the bridge to start.** claude waits 30 s by default for
-  an MCP server to answer; the bridge loads the whole script first, and on
-  a GitHub runner under Windows PowerShell 5.1 that took longer. A run with
-  the bridge gets `MCP_TIMEOUT=120000`, so a slow start is not a run
-  without the phone.
+- **The bridge reads past a byte-order mark.** A parent on .NET Framework
+  whose console input is UTF-8 - a GitHub runner's Windows PowerShell -
+  writes one into a child's stdin before anything else, and the bridge
+  left `initialize` behind it unanswered. claude sends none; the bridge
+  now skips one wherever it comes from.
 
 ### Usage heads-ups, quiet hours, read aloud, and Tasker
 

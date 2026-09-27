@@ -318,7 +318,7 @@ function Start-PmBridge {
     foreach ($k in $l.Env.Keys) { $psi.EnvironmentVariables[$k] = [string]$l.Env[$k] }
     $p = [System.Diagnostics.Process]::Start($psi)
     # drained, as claude drains an MCP server's stderr: a pipe nobody reads
-    # blocks the bridge once it fills, which is how it hung for 30 s on CI
+    # would block the bridge once it filled
     $err = $p.StandardError.ReadToEndAsync()
     @{ P = $p; In = $p.StandardInput.BaseStream; Task = $null; Got = @{}; Err = $err }
 }
@@ -373,8 +373,12 @@ function Test-PmBridgeLoop {
     $b = Start-PmBridge $run
     $seen = @{}
     $t0 = Get-Date
+    # behind a byte-order mark, as a .NET Framework parent whose console input
+    # is UTF-8 sends it - a GitHub runner's is; the bridge must still answer
+    $bom = [byte[]](0xEF, 0xBB, 0xBF)
+    $b.In.Write($bom, 0, 3)
     Send-PmLine $b '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}'
-    $seen.Init = Read-PmLine $b '0' $script:ChatqPermitStartMs
+    $seen.Init = Read-PmLine $b '0' 30000
     $seen.InitMs = [int]((Get-Date) - $t0).TotalMilliseconds
     Send-PmLine $b '{"jsonrpc":"2.0","method":"notifications/initialized"}'
     Send-PmLine $b '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
@@ -451,8 +455,8 @@ function Test-PmBridgeLoop {
 }
 $bl = Test-PmBridgeLoop -Exe ''
 Write-Host "    (the bridge answered initialize after $($bl.InitMs) ms, an allow in $($bl.AllowMs) ms)" -ForegroundColor DarkGray
-Check 'the bridge under Windows PowerShell: the first byte on stdout is {, initialize and tools/list answer within the MCP_TIMEOUT chatq gives a run (2 min)' (
-    $bl.Init -and $bl.Init[0] -eq '{' -and $bl.Init -like '*"protocolVersion":"2025-06-18"*' -and $bl.List -like '*"name":"decide"*' -and $bl.InitMs -lt $script:ChatqPermitStartMs) "$($bl.InitMs) ms: $($bl.Init)"
+Check 'the bridge under Windows PowerShell: the first byte on stdout is {, initialize behind a byte-order mark and tools/list answer within MCP_TIMEOUT''s 30 s' (
+    $bl.Init -and $bl.Init[0] -eq '{' -and $bl.Init -like '*"protocolVersion":"2025-06-18"*' -and $bl.List -like '*"name":"decide"*' -and $bl.InitMs -lt 30000) "$($bl.InitMs) ms: $($bl.Init)"
 Check 'a call writes <rid>.req.json with the input as claude sent it, Hangul and quotes intact' ($bl.Req1 -and $bl.Req1.tool -eq 'Bash' -and
     ($bl.Req1.inputRaw | ConvertFrom-Json).command -ceq $bl.Cmd1 -and $bl.Req1.digest -ceq (Get-ChatqPermitDigest $bl.Req1.rid 'Bash' $bl.Req1.inputRaw) -and $bl.Req1.run -and $bl.Req1.until) ($bl.Req1 | ConvertTo-Json -Compress)
 Check 'a sealed permit naming the request: {"behavior":"allow"} - no updatedInput - within 2 s' ((& $pmVerdict $bl.Allow) -ceq '{"behavior":"allow"}' -and $bl.AllowMs -lt 2000) "$($bl.AllowMs) ms: $($bl.Allow)"
@@ -528,10 +532,10 @@ $n0 = $script:PmJoins.Count
 $jA = Invoke-PmRun $callPush
 $av = & $pmArgv
 $envTxt = [System.IO.File]::ReadAllText((Join-Path $pmRec 'env.txt'), $utf8)
-Check 'a run that can ask: --permission-prompts host, --mcp-config, --permission-prompt-tool mcp__chatqpermit__decide, --settings; no "none"; MCP_TOOL_TIMEOUT 13 min; MCP_TIMEOUT 2 min' (
+Check 'a run that can ask: --permission-prompts host, --mcp-config, --permission-prompt-tool mcp__chatqpermit__decide, --settings; no "none"; MCP_TOOL_TIMEOUT 13 min' (
     $av[[Array]::IndexOf($av, '--permission-prompts') + 1] -eq 'host' -and $av -notcontains 'none' -and $av -contains '--mcp-config' -and
     $av[[Array]::IndexOf($av, '--permission-prompt-tool') + 1] -eq 'mcp__chatqpermit__decide' -and $av -contains '--settings' -and
-    $envTxt -like '*MCP_TOOL_TIMEOUT=780000*' -and $envTxt -like '*MCP_TIMEOUT=120000*') (($av -join ' ') + ' | ' + ($envTxt -replace "`n", ' '))
+    $envTxt -like '*MCP_TOOL_TIMEOUT=780000*') (($av -join ' ') + ' | ' + ($envTxt -replace "`n", ' '))
 $pp = @(& $pmPushes 'permission') | Select-Object -Last 1
 Check 'the permission push: e=permission, the sealed card in r=, a notification id of its own, no command in its text' ($pp -and $pp.F['e'] -eq 'permission' -and
     $pp.F['r'] -like 'chatq1c.*' -and $pp.Q['notificationId'] -like 'chatq-p-*' -and $pp.Q['priority'] -eq '2' -and $pp.Q['text'] -like '*asks to run a command - tap to see it*' -and
