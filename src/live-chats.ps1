@@ -620,6 +620,27 @@ function Repair-ChatListed {
     return 'relisted'
 }
 
+function Repair-ChatListedAll {
+    <#
+    Repair-ChatListed over the index's rows: what chatclean does for a chat
+    hidden by an earlier copy's run, or by a watcher that died mid-run, that
+    neither a run nor an open has mended since. Claude's rows only, and not a
+    side transcript, which Claude Code never lists. -Live: the Claude home's
+    live sessions, so a chat in use is held rather than written to.
+    @{ Relisted; Held }, the rows of each.
+    #>
+    param([object[]]$Rows, [object[]]$Live)
+    $out = [pscustomobject]@{ Relisted = [System.Collections.Generic.List[object]]::new(); Held = [System.Collections.Generic.List[object]]::new() }
+    foreach ($r in @($Rows)) {
+        if (-not $r -or $r.Provider -ne 'claude' -or $r.Hidden -or -not $r.Path) { continue }
+        switch (Repair-ChatListed -Path $r.Path -SessionId $r.Id -Live $Live) {
+            'relisted' { $out.Relisted.Add($r) }
+            'held' { $out.Held.Add($r) }
+        }
+    }
+    return $out
+}
+
 #endregion
 
 function Find-ChatTranscriptPath {

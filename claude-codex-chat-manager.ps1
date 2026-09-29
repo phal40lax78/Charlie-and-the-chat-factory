@@ -65,7 +65,8 @@ COMMANDS
     chatrm ... -DropJobs           also drop prompts queued for that chat
     chatrm ... -Archive            put it away instead of deleting it
     chatrestore [<title|id>]       list the archive / bring one back
-    chatclean                      ghost chats (no messages, < 64 KB)
+    chatclean                      ghost chats (no messages, < 64 KB); hidden
+                                   chats listed again in Claude Code
     chatproviders / chatindex      what was found / rebuild the index
     chatq <title|id> [-Prompt s]   queue a prompt for that chat; no -Prompt
                                    opens an editor tab to write it in

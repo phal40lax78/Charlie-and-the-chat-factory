@@ -83,6 +83,10 @@ $armedNext = & $S (& $stCut) @(& $stJob) -e @{ j12 = 'next' }
 $due = & $S (& $stCut -Reset $tn.AddMinutes(-11)) @(& $stJob) -e @{ j12 = '13:05 (open in VS Code)' }
 $dueAfter = & $S (& $stCut -Reset $tn.AddMinutes(-11)) @(& $stJob) -e @{ j12 = 'after #3' }
 $running = & $S (& $stCut) @(& $stJob 'running')
+# behind a continue that waits for the same reset: after it, one at a time;
+# behind a run in progress, the reset still ahead: at the reset
+$armedTied = & $S (& $stCut) @((& $stJob), [pscustomobject]@{ id = 'j11'; seq = 11; sessionId = 's0'; state = 'queued' }) -e @{ j11 = '13:01'; j12 = 'after #11' }
+$armedBusy = & $S (& $stCut) @((& $stJob), [pscustomobject]@{ id = 'j3'; seq = 3; sessionId = 's0'; state = 'running' }) -e @{ j3 = 'running'; j12 = 'after #3' }
 $off = & $S (& $stCut) -cfg (& $stCfg $false)
 $askSt = & $S (& $stCut) -cfg (& $stCfg $false -Mode 'ask')
 $always = & $S (& $stCut) -cfg (& $stCfg $false @{ s1 = [pscustomobject]@{ auto = 'always' } })
@@ -107,8 +111,10 @@ Check 'the states: ready, armed, due, running - words exact, short on the row an
     (& $ws $ready) -eq "ready|resets 13:00|cut off - resets 13:00 $d auto-continue queues it" -and
     (& $ws $armed) -eq 'armed|#12 auto 13:01|#12 auto-continues 13:01' -and (& $ws $armedNext) -eq 'armed|#12 auto 13:01|#12 auto-continues 13:01' -and
     (& $ws $due) -eq 'due|#12 auto 13:05|#12 auto-continues 13:05 (open in VS Code)' -and (& $ws $dueAfter) -eq 'due|#12 auto after #3|#12 auto-continues after #3' -and
-    (& $ws $running) -eq 'running|#12 running|#12 running' -and $armed.Seq -eq 12 -and $armed.JobId -eq 'j12' -and $armed.At -eq '13:01') (
-    @($ready, $armed, $armedNext, $due, $dueAfter, $running) | ForEach-Object { & $ws $_ }) -join ' / '
+    (& $ws $running) -eq 'running|#12 running|#12 running' -and $armed.Seq -eq 12 -and $armed.JobId -eq 'j12' -and $armed.At -eq '13:01' -and
+    (& $ws $armedTied) -eq 'armed|#12 auto after #11|#12 auto-continues after #11' -and $armedTied.Why -like '*sends "continue" after #11' -and
+    (& $ws $armedBusy) -eq 'armed|#12 auto 13:01|#12 auto-continues 13:01') (
+    @($ready, $armed, $armedNext, $due, $dueAfter, $running, $armedTied, $armedBusy) | ForEach-Object { & $ws $_ }) -join ' / '
 Check 'the states: off - and ask, which says it asks - always with them, never, terminal (a terminal''s claude, any entry not a panel''s), a panel''s is no bar' (
     (& $ws $off) -eq 'off|resets 13:00|cut off - resets 13:00' -and $off.Why -like 'auto-continue is off*' -and $askSt.State -eq 'off' -and $askSt.Why -like 'auto-continue asks once the limit is over*' -and
     $always.State -eq 'ready' -and
@@ -576,7 +582,9 @@ $jo2 = @(Get-AcJobs $idO2)[0]
 Check 'a -Peek pass, and a context no host made (chatoverlay -Print), queue nothing' ($peekJobs -eq 0 -and $printJobs -eq 0) "$peekJobs $printJobs"
 Check 'the host''s pass queues; a closed chat keeps one orange cut-off row carrying its job, and the job no row of its own' ($jo1 -and $ro1.Count -eq 1 -and
     $ro1[0].kind -eq 'cutoff' -and $ro1[0].status -eq 'cutoff' -and $ro1[0].rank -eq 0.5 -and $ro1[0].auto.state -eq 'armed' -and $ro1[0].job.seq -eq $jo1.seq -and
-    $ro1[0].stateText -match "^#$($jo1.seq) auto ([A-Z][a-z]{2} )?\d\d:\d\d$") ($ro1 | ConvertTo-Json -Compress -Depth 4)
+    # its time, or after a job queued earlier in this sandbox for the same
+    # reset minute: those go one at a time (Get-ChatqEta)
+    $ro1[0].stateText -match "^#$($jo1.seq) auto (([A-Z][a-z]{2} )?\d\d:\d\d|after #\d+)$") ($ro1 | ConvertTo-Json -Compress -Depth 4)
 Check 'an open chat: its own row stays orange with the job on it, held for VS Code; the counts say cut off, and auto; the switch in the header, and no reset ask while it is on' ($jo2 -and $jo2.deferWhy -eq 'vscode' -and $ro2.Count -eq 1 -and
     $ro2[0].kind -eq 'session' -and $ro2[0].status -eq 'cutoff' -and $ro2[0].auto.state -eq 'armed' -and $ro2[0].job.seq -eq $jo2.seq -and
     [int]$snapA.counts.cutOff -ge 2 -and [int]$snapA.counts.auto -ge 2 -and $snapA.header.autoOn -eq $true -and $snapA.header.autoContinue -eq 'on' -and

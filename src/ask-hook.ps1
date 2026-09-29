@@ -8,6 +8,14 @@
 # any failure must leave the dialog exactly as it was.
 $ProgressPreference = 'SilentlyContinue'
 $env:CHATQ_OVERLAY = '1'
+# Windows PowerShell under a claude started from pwsh 7 inherits pwsh 7's
+# module path, and fails to autoload its own Security module - the secrets'
+# DPAPI, so no request is ever written. Its own path again, as phone.ps1 and
+# permit.ps1 give the children they start.
+if ($PSVersionTable.PSEdition -eq 'Desktop') {
+    $env:PSModulePath = [Environment]::GetFolderPath('MyDocuments') + '\WindowsPowerShell\Modules;' + $env:ProgramFiles + '\WindowsPowerShell\Modules;' +
+    $PSHOME + '\Modules;' + [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine')
+}
 try {
     . (Join-Path (Split-Path -Parent $PSScriptRoot) 'claude-codex-chat-manager.ps1') *> $null
     Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference', 'env:CHATQ_OVERLAY' -EA SilentlyContinue

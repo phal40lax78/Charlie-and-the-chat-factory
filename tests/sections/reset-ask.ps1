@@ -186,7 +186,7 @@ $caCodex = @(Get-ChatOverlayChipActions ([pscustomobject]@{ key = "s:$cxId"; kin
 $caNone = @(Get-ChatOverlayChipActions $null)
 Check 'the chip''s actions: the banner its two answers, with their tips; a Claude row open - open, cut off or recent; a job, Codex or nothing none' (
     (@($caAsk | ForEach-Object { $_.Id }) -join ',') -eq 'ask-go,ask-leave' -and $caAsk[0].Label -eq 'continue 3' -and $caAsk[1].Label -eq 'leave them' -and
-    $caAsk[0].Tip -eq 'Queue "Continue from where you left off." for each of the 3 chats the limit cut off: One, Two, Three' -and
+    $caAsk[0].Tip -eq 'Queue "Continue from where you left off." for each of the 3 chats the limit cut off, to go one at a time: One, Two, Three' -and
     $caAsk[1].Tip -eq 'Leave them as they are - their rows stay orange; Continue all in the console still continues them' -and
     (@($caOpen | ForEach-Object { $_.Id }) -join ',') -eq 'open,delete' -and $caOpen[0].Label -eq 'open' -and (@($caCut | ForEach-Object { $_.Id }) -join ',') -eq 'open,delete' -and
     (@($caRecent | ForEach-Object { $_.Id }) -join ',') -eq 'open,delete' -and $caJob.Count -eq 0 -and $caCodex.Count -eq 0 -and $caNone.Count -eq 0) "$(@($caAsk | ForEach-Object { "$($_.Id)=$($_.Label)" }) -join ',') $($caOpen.Count) $($caJob.Count) $($caCodex.Count)"
@@ -246,14 +246,14 @@ Check 'continue: a continue for each, the watcher asked once; marked continued w
     $crM1.answer -eq 'continue' -and $crM1.source -eq 'overlay' -and (@($crM1.seq) -join ',') -eq "$crSeq1" -and $ctxC.CutAt -eq [datetime]::MinValue -and $null -eq $ctxC.JobsSig) "$(@($cr.Queued).Count) $($crJobs.Count) $($script:RaSpawns) $(& $msKeys $crState)"
 $crLog = @(& $raLog | Where-Object { $_ -like '*ask: continued*' })
 Check 'and says so in the console''s words, the failure too - in AskSaid for the host, and in overlay.log' (
-    $cr.Text -eq 'queued 2 continues - each goes when its limit is over; Ghost chat: not found' -and $ctxC.AskSaid -eq $cr.Text -and
+    $cr.Text -eq 'queued 2 continues - one at a time, each when its limit is over; Ghost chat: not found' -and $ctxC.AskSaid -eq $cr.Text -and
     $crLog.Count -ge 1 -and $crLog[-1].EndsWith("ask: continued 2 - #$crSeq1 #$crSeq2; failed: Ghost chat: not found")) "$($cr.Text) / $($crLog -join ' | ')"
 $cr2 = Complete-ChatqResetAsk $ctxC 'continue' $askK
 Check 'a second answer finds nothing to answer' ($cr2.Stale -and @(Get-ChatqJobs | Where-Object { $_.sessionId -in $raC1, $raC2 }).Count -eq 2 -and $script:RaSpawns -eq 1)
 $ctxC.Ask = Get-ChatqResetAsk -CutOff @($rc1) -Held @{} -Asked @{} -Jobs @()
 $crHad = Complete-ChatqResetAsk $ctxC 'continue' @($ctxC.Ask.Keys)
 Check 'one that has a continue already is counted as had, and queued no second' (
-    $crHad.Text -eq 'queued 0 continues - each goes when its limit is over; 1 had one already' -and -not @($crHad.Queued).Count -and -not $crHad.Request -and
+    $crHad.Text -eq 'queued 0 continues; 1 had one already' -and -not @($crHad.Queued).Count -and -not $crHad.Request -and
     @(Get-ChatqJobs | Where-Object { $_.sessionId -eq $raC1 }).Count -eq 1) "$($crHad.Text)"
 $ctxC.Ask = Get-ChatqResetAsk -CutOff @($rc3) -Held @{} -Asked @{} -Jobs @()
 $k3 = @($ctxC.Ask.Keys)[0]
@@ -461,7 +461,7 @@ $script:ChatOverlayMacNotifySeam = { param($n) $script:RaNotes.Add($n) }
 $macAt = (Get-Date).AddMinutes(-20)
 $macItems = @('Say "hi" \ there', 'Beta chat', 'Gamma chat', 'Delta chat') | ForEach-Object { [pscustomobject]@{ Id = 'x'; Title = $_ } }
 $macCtx = [pscustomobject]@{ AskNews = [pscustomobject]@{ Ask = [pscustomobject]@{ Count = 4; ResetsAt = $macAt; Items = @($macItems); Keys = @() }; Keys = @() }
-    AskSaid = 'queued 4 continues - each goes when its limit is over' }
+    AskSaid = 'queued 4 continues - one at a time, each when its limit is over' }
 Update-ChatOverlayMacAsk $macCtx
 Update-ChatOverlayMacAsk $macCtx
 $script:ChatOverlayMacNotifySeam = $null
@@ -469,7 +469,7 @@ $macText = "limit over at $(& $raAt $macAt) - 4 chats it cut off can continue: S
 Check 'macOS: a new ask said once as a notification - three titles and the rest counted, pointing at the CQ menu, escaped for AppleScript - then what an answer did' (
     $script:RaNotes.Count -eq 2 -and $script:RaNotes[0].Text -eq $macText -and $script:RaNotes[0].Title -eq 'chatq' -and
     $script:RaNotes[0].Script -eq ('display notification "' + ($macText -replace '\\', '\\' -replace '"', '\"') + '" with title "chatq"') -and
-    $script:RaNotes[1].Text -eq 'queued 4 continues - each goes when its limit is over' -and $null -eq $macCtx.AskNews -and $null -eq $macCtx.AskSaid) "$(@($script:RaNotes | ForEach-Object { $_.Script }) -join ' // ')"
+    $script:RaNotes[1].Text -eq 'queued 4 continues - one at a time, each when its limit is over' -and $null -eq $macCtx.AskNews -and $null -eq $macCtx.AskSaid) "$(@($script:RaNotes | ForEach-Object { $_.Script }) -join ' // ')"
 
 # the console's list with overlay.cutOff off: no cut-off rows in the
 # snapshot, but the ask's balloon sends you there - its chats listed from the
@@ -573,7 +573,7 @@ Show-ChatOverlayChip `$H `$e
 `$cc = `$H.ChipWin.Content
 `$chipAsk = `$cc -is [System.Windows.Controls.StackPanel] -and (@(`$cc.Children | ForEach-Object { `$_.Tag }) -join ',') -eq 'ask-go,ask-leave' -and
     (@(`$cc.Children | ForEach-Object { `$_.Child.Text }) -join ',') -eq 'continue 3,leave them' -and `$null -eq `$H.ChipText -and
-    "`$(`$cc.Children[0].ToolTip)" -like 'Queue "Continue from where you left off." for each of the 3 chats the limit cut off: T one, T two, T three' -and @(`$H.ChipActions).Count -eq 2
+    "`$(`$cc.Children[0].ToolTip)" -like 'Queue "Continue from where you left off." for each of the 3 chats the limit cut off, to go one at a time: T one, T two, T three' -and @(`$H.ChipActions).Count -eq 2
 Hide-ChatOverlayChip `$H
 `$H.ChipActions = @(Get-ChatOverlayChipActions ([pscustomobject]@{ key = 's:x'; kind = 'session'; provider = 'claude'; sessionId = '$idCard'; cwd = '$projA' }))
 New-ChatOverlayChipContent `$H
@@ -620,10 +620,10 @@ Update-ChatOverlayAsk `$H
 `$newsOk = `$script:RaBalloons.Count -eq 1 -and `$bn.Title -eq ('chatq - limit over at ' + (& `$hm `$askAt)) -and
     `$bn.Text -eq '4 chats it cut off can continue: Alpha chat, Beta chat, Gamma chat and 1 more. Click to see them.' -and `$bn.Kind -eq 'ask' -and
     (@(`$bn.Keys) -join ',') -eq 'k_1,k_2,k_3,k_4' -and `$null -eq `$H.Ctx.AskNews
-`$H.Ctx.AskSaid = 'queued 1 continue - each goes when its limit is over'
+`$H.Ctx.AskSaid = 'queued 1 continue - it goes when its limit is over'
 Update-ChatOverlayAsk `$H
 Update-ChatOverlayAsk `$H
-`$newsOk = `$newsOk -and `$script:RaBalloons.Count -eq 2 -and `$script:RaBalloons[1].Text -eq 'queued 1 continue - each goes when its limit is over' -and `$script:RaBalloons[1].Kind -eq '' -and `$null -eq `$H.Ctx.AskSaid
+`$newsOk = `$newsOk -and `$script:RaBalloons.Count -eq 2 -and `$script:RaBalloons[1].Text -eq 'queued 1 continue - it goes when its limit is over' -and `$script:RaBalloons[1].Kind -eq '' -and `$null -eq `$H.Ctx.AskSaid
 `$newsSay = "`$(@(`$script:RaBalloons | ForEach-Object { "`$(`$_.Title): `$(`$_.Text) [`$(`$_.Kind)]" }) -join ' // ')"
 # the tray's two answers: shown while an ask is out, hidden once it is gone -
 # by Available, since a closed menu's items read Visible false
@@ -684,7 +684,7 @@ Invoke-ChatOverlayHeldVerbs `$H
 `$wcJobs = @(Get-ChatqJobs | Where-Object { `$_.sessionId -eq '$raWc' -and `$_.kind -eq 'continue' -and `$_.state -eq 'queued' })
 `$mark = Read-ChatqJson (Join-Path `$script:ChatqAutoDir ('$kWc' + '.json'))
 `$answerOk = `$heldOk -and `$null -eq `$H.AskHeld -and (`$wcKeys -join ',') -eq '$kWc' -and `$wcJobs.Count -eq 1 -and `$mark.answer -eq 'continue' -and `$mark.source -eq 'overlay' -and
-    (@(`$mark.seq) -join ',') -eq "`$(`$wcJobs[0].seq)" -and `$H.AskRequest -and @(`$script:RaBalloons | Where-Object { `$_.Text -eq 'queued 1 continue - each goes when its limit is over' }).Count -eq 1
+    (@(`$mark.seq) -join ',') -eq "`$(`$wcJobs[0].seq)" -and `$H.AskRequest -and @(`$script:RaBalloons | Where-Object { `$_.Text -eq 'queued 1 continue - it goes when its limit is over' }).Count -eq 1
 `$nb = `$script:RaBalloons.Count
 Invoke-ChatOverlayAskAnswer `$H 'leave' @('a5a5ffff-0000-4000-8000-00000000ffff_zz')
 `$answerOk = `$answerOk -and `$script:RaBalloons.Count -eq `$nb -and -not (Test-Path -LiteralPath (Join-Path `$script:ChatqAutoDir 'a5a5ffff-0000-4000-8000-00000000ffff_zz.json'))

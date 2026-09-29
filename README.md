@@ -1,7 +1,11 @@
 # claude-codex-chat-manager
 
-Find, delete, archive and queue prompts for your local AI chats — Claude Code,
-Codex and GitHub Copilot Chat — from PowerShell.
+Mission control for your AI chats. Every Claude Code chat sits on one
+always-on-top board — and on your phone — with its project, title and newest
+prompt, and your usage live at the top. Prompts you queue while the usage
+limit is hit run at the reset, even with VS Code closed, and your phone says
+how they went. Find or delete any Claude Code, Codex or Copilot chat from
+PowerShell.
 
 [![marketplace](https://vsmarketplacebadges.dev/version-short/redaechan.claude-codex-chat-manager.svg)](https://marketplace.visualstudio.com/items?itemName=redaechan.claude-codex-chat-manager)
 [![release](https://img.shields.io/github/v/release/phal40lax78/claude-codex-chat-manager)](https://github.com/phal40lax78/claude-codex-chat-manager/releases)
@@ -107,7 +111,7 @@ scripts there are another version than itself.
 | `chatfind "text"` | find chats by title or message; emits objects |
 | `chatrm <id>` / `chatrm "title"` | delete a chat, permanently |
 | `chatrm ... -Archive` / `chatrestore [<title>]` | put a chat away / list the archive, bring one back |
-| `chatclean` | delete ghost chats left behind by the VS Code list |
+| `chatclean` | delete ghost chats left behind by the VS Code list; list again chats Claude Code hid |
 | `chatq <title\|id> [-Prompt s]` | queue a prompt for that chat; without `-Prompt` an editor tab opens |
 | `chatq <title> -Continue` | queue *"Continue from where you left off."* for a chat the limit cut off |
 | `chatq -AutoContinue ask\|on\|off` | once the limit is over, ask to continue what it cut off (the default); [continue each by itself](#auto-continue); or only mark them |
@@ -346,6 +350,9 @@ A Copilot chat is found but refused: no CLI can resume one.
   plant it, and an error after it, in your chat.
 - **One job at a time, in queue order** — oldest first, `-First` jumps the line.
   A Claude job never waits behind a Codex limit, nor one account behind another.
+  Jobs are never run side by side: the chats one limit cut off, continued at its
+  reset, go one after another, each once the one before it has ended - the first
+  says `sends 13:01`, each of the rest `after #n`.
 - **In the permission mode the chat last used**, `-Mode` overriding it for one
   job, and on the chat's own model, `-Model` overriding that. Anything that would
   ask a question is denied, since nobody is there to answer.
@@ -443,7 +450,8 @@ and one prompt offers all of them:
   menu.
 
 **Continue** queues *"Continue from where you left off."* for each chat,
-the job `chatq <title> -Continue` makes, and starts the watcher. **Leave
+the job `chatq <title> -Continue` makes, and starts the watcher, which
+continues them one at a time, in queue order. **Leave
 them** leaves them as they are: their rows stay orange, and **Continue
 all** in the console, or `chatq <title> -Continue`, still continues one.
 Either way that cut-off is not asked about again; the same chat cut off by
@@ -584,11 +592,11 @@ one again.
 
 ### The watcher
 
-One per machine, a hidden PowerShell that exits when the queue is empty and is
-started again by the next shell after a reboot. While a job is due within 6
-hours it keeps the machine from sleeping (the display still turns off, and a
-closed lid still sleeps a laptop). `chatqrun -Foreground` runs it in the console
-to watch.
+One per machine, a hidden PowerShell that runs one job at a time, exits when
+the queue is empty, and is started again by the next shell after a reboot.
+While a job is due within 6 hours it keeps the machine from sleeping (the
+display still turns off, and a closed lid still sleeps a laptop).
+`chatqrun -Foreground` runs it in the console to watch.
 
 ## Alerts
 
@@ -1217,7 +1225,7 @@ Three alerts under one event, `chatq · usage`:
 | kind | when | says |
 |---|---|---|
 | threshold | a 5-hour or weekly window, Claude's or Codex's, reaches `-UsageAt` (90%) | `Claude 5h at 91% · resets 13:00 · 3 queued` |
-| soon | a limit resets in 10 minutes with prompts queued in it | `Claude resets 13:00 · 3 queued · they go then` - with **Send now** |
+| soon | a limit resets in 10 minutes with prompts queued in it | `Claude resets 13:00 · 3 queued · they go then, one at a time` - with **Send now** |
 | reset | a limit reset with two or more prompts queued | `Claude limit reset · 3 queued · sending #12 now` |
 
 - **Threshold** comes from [the overlay](#the-overlay), which already asks
@@ -1715,8 +1723,12 @@ overlay's own window, so `chatconsole` starts the overlay if that is not
 running. While it is the console it is an ordinary window: it takes the
 keyboard, has a taskbar button and a place in Alt+Tab, and is not kept on top,
 so other windows can cover it and files can be dragged in from Explorer. Its
-header moves it, and the grip at its bottom-right corner resizes it. The
-overlay's buttons and the open chip stay away meanwhile.
+header moves it - press anywhere on it but its controls and drag - and the
+grip at its bottom-right corner resizes it. The header has the panel's
+**Opacity** and **Theme** too: they are the same settings as the panel's box,
+so the console opens at the panel's opacity and look, and a change made in
+either is the other's. The overlay's buttons and the open chip stay away
+meanwhile.
 
 **Back to the panel:** **Esc**, **← Panel** at the header's right, the console
 hotkey again while the console is in front, or Alt+F4. The panel comes back
@@ -1735,7 +1747,8 @@ as the panel draws its rows - the state's dot, where it runs, project and
 title, what it is doing, the unread dot - on one line, the one picked with an
 accent bar at its left:
 - **Cut off** - the chats the limit or a 529 stopped, each with **Continue**,
-  and **Continue all** for every one of them. While the overlay asks about
+  and **Continue all** for every one of them - queued in turn, whatever
+  **When** says, and continued one at a time. While the overlay asks about
   them, the header says so - `Cut off (4) · limit over at 13:00 - 3 can
   continue` - and **Leave them** sits beside **Continue all**. Continue
   there answers the ask for the chats that got a job, so the banner and
@@ -1761,15 +1774,18 @@ it queued. Type, or paste
 anything; **drop files** on the box, or **paste a screenshot** or files copied
 in Explorer with **Ctrl+V** - each becomes a chip you can × out, copied into
 `data/console/draft/` straight away, so the original can move. Then:
-- **When** - **Now** puts it at the front and sends it within seconds; **In
-  turn** behind what is queued; **At** 13:00 or **In** 2h.
+- **When** - **Now** puts it at the front, so it goes next: within seconds,
+  or once a job already running ends - the watcher runs one job at a time,
+  so nothing goes beside another. **In turn** behind what is queued; **At**
+  13:00 or **In** 2h. When is for Send alone: **Continue** and **Continue
+  all** queue in turn.
 - **Mode** and **Model** - as the chat last ran, or one of chatq's modes and
   opus, sonnet, haiku for this one prompt. The line under them says what the
   mode means with nobody there to answer.
-- A line saying what **Send** will do - within seconds; after the limit resets
-  at 13:00; once that chat is idle, if it is working in VS Code (looked at
-  every 30 s); that the VS Code window shows the reply once it is shown
-  fresh.
+- A line saying what **Send** will do - within seconds; once the job running
+  now ends; after the limit resets at 13:00; once that chat is idle, if it is
+  working in VS Code (looked at every 30 s); that the VS Code window shows the
+  reply once it is shown fresh.
 - **Send now** or **Queue**, or **Ctrl+Enter**.
 
 Send makes the same job `chatq` makes, and the watcher runs it the same way:
@@ -1788,11 +1804,11 @@ Until its first run has made it, the console says so rather than sending
 to it.
 
 **Below, the queue** - the jobs still to go and those that ended in the last
-day, each saying where it stands (`sends 13:01`, `running since 12:04`,
-`running since 12:04, with Ultracode, at effort max`, `waits for a
+day, each saying where it stands (`sends 13:01`, `after #9`, `running since
+12:04`, `running since 12:04, with Ultracode, at effort max`, `waits for a
 background command (since 14:02)`, `needs you - Edit denied`, `done
-12:10`). Pick one for its
-outcome, the reply, its last states, and what can be done to it now:
+12:10`). Pick one for its outcome, the reply, its last states, and what can
+be done to it now:
 - waiting - **Try now** (stop waiting for a reset), **First**, **Remove**
   (twice, to be sure), and its prompt, editable until it sends;
 - running - **Cancel**, and for a Claude chat **Watch in VS Code**, which
@@ -1971,10 +1987,13 @@ type Claude Code's loaders pass over, as Claude Code's own rename adds a
 line there. The file keeps its write time. Not while a process is busy or
 waiting in the chat, as its entry in `~/.claude/sessions/` says; nor where
 the line cannot be written. Either way the window says so rather than open
-a blank tab. A chat whose first records say an SDK started it - every one
-**+ New chat** made, or your own `claude -p` - can never be listed;
-instead of a blank tab, the window offers it in a terminal,
-`claude --resume <id>`, once it checks nothing else runs the chat by then.
+a blank tab. A chat hidden before 0.8.1, or by a watcher that died
+mid-run, and neither run into nor opened since: `chatclean` lists it
+again, and every other such Claude chat with it. A chat whose first
+records say an SDK started it - every one **+ New chat** made, or your
+own `claude -p` - can never be listed; instead of a blank tab, the window
+offers it in a terminal, `claude --resume <id>`, once it checks nothing
+else runs the chat by then.
 
 **Chat Manager: Open chat...** in the command palette does what the chip
 does, without the overlay. It lists this window's Claude chats - the

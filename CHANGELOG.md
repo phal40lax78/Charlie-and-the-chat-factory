@@ -216,6 +216,57 @@
   a hook on this tool, which its documentation does not describe, hence
   the landed check and the default of off. docs/phone-ask-spec.md has the
   design and what the spike saw.
+- **The watcher starts under any execution policy.** The setup window and
+  the outbox's sender, Windows PowerShell 5.1, start a watcher to listen
+  for the phone's replies. For someone who only ever set a policy in
+  PowerShell 7, 5.1's is still `Restricted`: that watcher could not load
+  the script, said nothing, and no reply was read until a shell started
+  one. It now starts with `-ExecutionPolicy Bypass` for the load alone,
+  as the sender does, and drops it again before the loop, so the jobs it
+  runs and your own alert command run under your policy. A watcher that
+  fails to load says so in `data/logs/watcher.log`.
+- **chatclean lists hidden chats again.** Since 0.8.1 a chat Claude Code
+  left out of its lists is mended as a run into it ends, or as the window
+  opens it. One hidden before that, or by a watcher that died mid-run, and
+  neither run into nor opened since, stayed out of every window's history.
+  `chatclean` now lists every such Claude chat again first, with the same
+  one line at its end, and names each. A chat in use is left, and named;
+  `chatclean` again once it is idle. Side transcripts are left alone.
+- **The console moves from anywhere on its header.** A press on the
+  header's padding, its grip or its counts drags the window; only its
+  controls keep the press. Before, only the counts' own text took it.
+- **One look for the panel and the console.** The console opens at the
+  panel's opacity instead of fully opaque, and its header has the panel's
+  **Opacity** slider and **Theme** chips: a change made there is the
+  panel's when it comes back, kept in config.json, and the settings box
+  shows it.
+- **Continued one at a time, and said so.** The watcher runs one job at a
+  time, so the chats one limit cut off are continued one after another,
+  never side by side - with **Now** or **In turn** alike, since **When**
+  is for Send alone and Continue always queues in turn. The queue said
+  `sends 16:51` on every one of them all the same. Now only the first
+  does; each of the rest says `after #9`, the job before it - in the
+  console, the panel, the phone's board and `chatqlist`, and on an
+  auto-continue's row. The console's queue gives the jobs behind a
+  chat's first their time too, where they said only `queued`. Continue
+  says `queued 4 continues - one at a time, each when its limit is
+  over`; **Continue all**'s tooltip says it, and that When is for Send;
+  Send's line says when **Now** waits for a job running, and the soon
+  alert `3 queued · they go then, one at a time`.
+- **A job's number is its own.** A new job took one past the highest
+  number a saved job held, and `chatq` without `-Prompt` saves its job
+  only once its editor tab is closed: a job queued meanwhile - from the
+  console, the phone, auto-continue or another `chatq` - took the same
+  number, and for the same chat the same prompt file, over the text in the
+  open tab; removing either job then took the other's prompt, and
+  `chatqrm <n>` reached only one of them. A prompt file in `data/queue`
+  now holds its number from the moment the job takes it, and a number is
+  taken holding `data/job-numbers.lock`, so a shell, the overlay and the
+  watcher never take one between them.
+- **Nor two jobs one id.** Two processes queueing for one chat in the same
+  second could give both jobs the same id, and the second job's file
+  replaced the first's. The id is taken under the same lock, and held by
+  the job's folder until its file is saved.
 
 ## 0.9.0 — the overlay and permissions on the phone, cut-off chats continued, updates that wait
 

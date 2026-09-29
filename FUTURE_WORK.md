@@ -289,29 +289,6 @@ serve a copy from their own
    release says so, and [Get-ChatqPhoneStatusText](src/phone.ps1) says so
    while the phone was paired on the old site.
 
-## The watcher starts with no execution policy
-
-**Why deferred:** found in review, outside the phone work's scope.
-[Start-ChatqWatcherProcess](src/watcher.ps1) starts the watcher as
-`-NoProfile -NonInteractive -EncodedCommand` in the PowerShell it is called
-from, with no `-ExecutionPolicy`. Until 0.8.0 that was a shell of the
-user's, where scripts already ran. Now the setup window and the outbox's
-sender - Windows PowerShell 5.1, started with `-ExecutionPolicy Bypass` -
-start a watcher to listen for replies, and drop the Bypass from their
-environment first, so it does not reach the jobs that watcher runs
-([Get-ChatqOutboxLaunch](src/phone.ps1)). For someone who only ever set a
-policy in PowerShell 7, 5.1 is still `Restricted`: that watcher fails to
-load the script, says nothing, and no reply is read until a shell starts
-one.
-
-**To close:**
-1. In [Start-ChatqWatcherProcess](src/watcher.ps1), pass
-   `-ExecutionPolicy Bypass`, and have the encoded command remove
-   `env:PSExecutionPolicyPreference` right after the script has loaded, as
-   the sender's does - so jobs and your own command still run under your
-   policy.
-2. A check on the launch line, as `phone.ps1` has for the sender's.
-
 ## A pairing confirmed while the setup window saves
 
 **Why deferred:** needs two things in the same instant, and every writer of
@@ -1254,19 +1231,6 @@ too much.
 other than the file's first bytes, or listed behind a switch - the VS Code
 webview hard-codes `includeProgrammaticSessions` off. Short of that, the
 first option with its switches, re-checked at every Claude Code update.
-
-## Chats hidden before 0.8.1 are mended only as they are used
-
-**Why deferred:** since 0.8.1 the watcher mends a chat as each run into it
-ends ([Repair-ChatListed](src/live-chats.ps1)), and the extension as it
-opens one ([ensureListed](extension/extension.js)). A chat hidden by an
-earlier copy's run, and neither run into nor opened since, stays out of
-Claude Code's side bar history in every window; so does one whose watcher
-died mid-run. Mending every such chat up front writes into transcripts
-nobody asked to touch.
-
-**To close:** mend them in `chatclean`, which already exists to put
-Claude Code's lists right, with [Repair-ChatListed](src/live-chats.ps1).
 
 ## The open chip clears the unread dot of a chat it cannot open
 

@@ -4,11 +4,17 @@
 #region commands --------------------------------------------------------------
 
 function New-ChatqSeq {
-    # -Jobs: a list already read, as the console has one every pass
-    param([object[]]$Jobs)
-    if (-not $Jobs) { $Jobs = @(Get-ChatqJobs) }
+    # One past the highest number taken. A number is taken by a job's .json,
+    # and by a prompt file in data/queue named for it: a job has that file
+    # before its .json - for as long as a chatq editor tab stays open, or its
+    # files take to copy - and a number counted from the .json alone went to
+    # two jobs, which then shared the one prompt file. Read afresh each time,
+    # never from a list read earlier: another process may have queued since.
     $max = 0
-    foreach ($j in $Jobs) { if ([int]$j.seq -gt $max) { $max = [int]$j.seq } }
+    foreach ($j in @(Get-ChatqJobs)) { if ([int]$j.seq -gt $max) { $max = [int]$j.seq } }
+    foreach ($f in @(Get-ChildItem -LiteralPath $script:ChatqQueueDir -Filter '#*' -File -EA SilentlyContinue)) {
+        if ($f.Name -match '^#(\d{1,9}) ' -and [int]$Matches[1] -gt $max) { $max = [int]$Matches[1] }
+    }
     return $max + 1
 }
 
@@ -107,24 +113,41 @@ function Write-ChatqJobInfo {
 # writes to the host or starts the watcher.
 
 function New-ChatqJobSlot {
-    # A new job's number, id and file names. An id is the time to the second
-    # and the chat's first four hex digits; one already taken - two jobs for
-    # one chat inside a second, which the console can make - gets -2, -3.
-    param($Row, [string]$Title, [object[]]$Jobs)
+    # A new job's number, id and file names, and its prompt file, written
+    # now with the header alone: that file holds the number (New-ChatqSeq)
+    # until the job's .json does. Its folder is made now too, and holds the
+    # id the same way; Register-ChatqJob removes it again if no file went
+    # in. Both are taken holding data/job-numbers.lock, so a shell, the
+    # overlay and the watcher never take one number, or one id, between
+    # them; a lock not had within 3 s takes them without it, rather than
+    # make no job. A caller that gives the job up removes the prompt file
+    # and the folder, and the number is free again.
+    # An id is the time to the second and the chat's first four hex digits;
+    # one already taken - two jobs for one chat inside a second, which the
+    # console can make - gets -2, -3.
+    param($Row, [string]$Title)
     New-ChatqDir $script:ChatqQueueDir
-    $seq = New-ChatqSeq -Jobs $Jobs
-    $name = if ($Title) { $Title } else { [string]$Row.Title }
-    $hex = if ($Row.Id) { ([string]$Row.Id).Substring(0, [Math]::Min(4, ([string]$Row.Id).Length)) } else { [guid]::NewGuid().ToString('N').Substring(0, 4) }
-    $base = '{0}-{1}' -f (Get-Date).ToString('yyyyMMdd-HHmmss'), $hex
-    $id = $base
-    for ($n = 2; (Test-Path -LiteralPath (Join-Path $script:ChatqQueueDir "$id.json")) -or (Test-Path -LiteralPath (Join-Path $script:ChatqQueueDir $id)); $n++) { $id = "$base-$n" }
-    # no run of dashes survives into the comment, so no title can close it early
-    $safe = $name -replace '-{2,}', '-'
-    $file = "#$seq $(Get-ChatqSafeName $name).md"
-    [pscustomobject]@{
-        Seq = $seq; Id = $id; File = $file; Path = (Join-Path $script:ChatqQueueDir $file); Dir = (Join-Path $script:ChatqQueueDir $id)
-        Header = "<!-- chatq: prompt for '$safe' ($($Row.Provider)). Everything after this comment is sent as it is when the limit resets. Save and close the tab to queue it; leave it empty to cancel. -->`n`n"
+    $take = {
+        $seq = New-ChatqSeq
+        $name = if ($Title) { $Title } else { [string]$Row.Title }
+        $hex = if ($Row.Id) { ([string]$Row.Id).Substring(0, [Math]::Min(4, ([string]$Row.Id).Length)) } else { [guid]::NewGuid().ToString('N').Substring(0, 4) }
+        $base = '{0}-{1}' -f (Get-Date).ToString('yyyyMMdd-HHmmss'), $hex
+        $id = $base
+        for ($n = 2; (Test-Path -LiteralPath (Join-Path $script:ChatqQueueDir "$id.json")) -or (Test-Path -LiteralPath (Join-Path $script:ChatqQueueDir $id)); $n++) { $id = "$base-$n" }
+        # no run of dashes survives into the comment, so no title can close it early
+        $safe = $name -replace '-{2,}', '-'
+        $file = "#$seq $(Get-ChatqSafeName $name).md"
+        $slot = [pscustomobject]@{
+            Seq = $seq; Id = $id; File = $file; Path = (Join-Path $script:ChatqQueueDir $file); Dir = (Join-Path $script:ChatqQueueDir $id)
+            Header = "<!-- chatq: prompt for '$safe' ($($Row.Provider)). Everything after this comment is sent as it is when the limit resets. Save and close the tab to queue it; leave it empty to cancel. -->`n`n"
+        }
+        New-ChatqDir $slot.Dir
+        Save-ChatqText $slot.Path $slot.Header
+        $slot
     }
+    try { return (Invoke-ChatqLocked $script:ChatqSeqLockPath $take) }
+    catch { if ($_.Exception.Message -notlike '* is held by another process') { throw } }
+    return (& $take)
 }
 
 function New-ChatqJobRecord {
@@ -213,6 +236,9 @@ function Register-ChatqJob {
     Save-ChatqJob $Job
     $missed = if ($NoLinks) { @() } else { @(Sync-ChatqAttachments $Job) }
     $files = @(Get-ChatqAttachments $Job)
+    # the folder New-ChatqJobSlot made to hold the id, which the .json holds
+    # now; only while empty - Delete refuses a folder with anything in it
+    if (-not $files) { try { [System.IO.Directory]::Delete((Get-ChatqAttachDir $Job), $false) } catch {} }
     Write-ChatqJobLog "#$($Job.seq) queued ($($Job.kind)$(if ($LogNote) { ", $LogNote" })$(if ($files) { ", $($files.Count) file$(if ($files.Count -ne 1) { 's' })" })) $($script:ChatqDot) $($Job.title)"
     return [pscustomobject]@{ Files = $files; Missed = $missed }
 }
@@ -242,7 +268,7 @@ function New-ChatqJob {
     #>
     param($Row, [string]$Prompt, [ValidateSet('prompt', 'continue', 'new')][string]$Kind = 'prompt', $Info,
         [string]$Mode, [string]$Model, $NotBefore, [switch]$First, [switch]$SendNow, $Sources, [switch]$MoveSources,
-        [string]$Typed, $Resolve, [string]$Rule, [string]$Title, [object[]]$Jobs, [string]$Cwd, $JobHome, [switch]$NoLinks,
+        [string]$Typed, $Resolve, [string]$Rule, [string]$Title, [string]$Cwd, $JobHome, [switch]$NoLinks,
         [hashtable]$Set, [string]$LogNote)
     $fail = { param($c, $t) [pscustomobject]@{ Error = $t; Code = $c; Job = $null; Files = @(); Missed = @() } }
     if ($Kind -eq 'new') {
@@ -269,12 +295,15 @@ function New-ChatqJob {
     if ($Kind -ne 'continue' -and -not ([string]$Prompt).Trim()) { return & $fail 'empty' 'empty prompt - nothing queued' }
     if (-not $Info) { $Info = Get-ChatqJobInfo $Row }
     if ($Info.Error) { return & $fail 'info' $Info.Error }
-    $slot = New-ChatqJobSlot $Row $Title $Jobs
+    $slot = New-ChatqJobSlot $Row $Title
     # the files before the prompt: one that cannot be copied stops the job
-    # before anything of it is written
+    # before anything of it is written, and gives its number back
     if ($hasFiles) {
         try { $null = Save-ChatqAttachSources $slot.Dir $Sources -Move:$MoveSources }
-        catch { return & $fail 'copy' "a file could not be copied - nothing queued: $($_.Exception.Message)" }
+        catch {
+            Remove-Item -LiteralPath $slot.Path -Force -EA SilentlyContinue
+            return & $fail 'copy' "a file could not be copied - nothing queued: $($_.Exception.Message)"
+        }
     }
     if ($NoLinks -and $Kind -ne 'continue') { $Prompt = ([string]$Prompt).Replace('](', ']\(') }
     Save-ChatqText $slot.Path ($slot.Header + $(if ($Kind -eq 'continue') { $script:ChatqContinueText } else { $Prompt }))
@@ -345,6 +374,16 @@ function Invoke-ChatqContinueChats {
         else { $queued.Add($made.Job); $taken[$id] = $true }
     }
     return [pscustomobject]@{ Queued = $queued.ToArray(); Had = $had.ToArray(); Fails = $fails.ToArray() }
+}
+
+function Format-ChatqContinueSay {
+    # What a Continue said it did, in the console and for the reset ask: how
+    # many it queued, and that they go one at a time - the watcher runs one
+    # job, then the next, so chats one limit cut off are continued one after
+    # another, never side by side. Pure.
+    param([int]$Queued, [int]$Had)
+    $how = if ($Queued -gt 1) { ' - one at a time, each when its limit is over' } elseif ($Queued -eq 1) { ' - it goes when its limit is over' } else { '' }
+    return "queued $Queued continue$(if ($Queued -ne 1) { 's' })$how$(if ($Had) { "; $Had had one already" })"
 }
 
 function Remove-ChatqJob {
@@ -690,15 +729,20 @@ function chatq {
         $missed = $made.Missed
     }
     else {
-        # The editor. The files go in before the tab opens: a copy that fails -
-        # one moved or locked since it was checked - then stops the job before
-        # a word of it has been typed, rather than after.
+        # The editor. The slot writes the prompt file, header and all, and
+        # that file holds the job's number for as long as the tab stays open.
+        # The files go in before the tab opens: a copy that fails - one moved
+        # or locked since it was checked - then stops the job before a word of
+        # it has been typed, rather than after.
         $slot = New-ChatqJobSlot $res.Row
         if ($got) {
             try { $null = Save-ChatqAttachSources $slot.Dir $got }
-            catch { Write-Host "  a file could not be copied - nothing queued: $($_.Exception.Message)" -ForegroundColor Yellow; return }
+            catch {
+                Remove-Item -LiteralPath $slot.Path -Force -EA SilentlyContinue
+                Write-Host "  a file could not be copied - nothing queued: $($_.Exception.Message)" -ForegroundColor Yellow
+                return
+            }
         }
-        Save-ChatqText $slot.Path $slot.Header
         Write-Host '     write the prompt in the editor tab, then save and close it (empty = cancel)' -ForegroundColor DarkGray
         Write-Host '     Ctrl+V there pastes a screenshot into it, and it goes with the prompt' -ForegroundColor DarkGray
         Invoke-ChatqEditor $slot.Path
