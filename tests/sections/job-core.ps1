@@ -47,6 +47,42 @@ Check 'files go only to a job still waiting' ($noAdd.Error -eq '#9 is done - fil
 $null = Remove-ChatqJob $n1.Job 'test'
 $null = Remove-ChatqJob $n2.Job 'test'
 Check 'Remove-ChatqJob takes its prompt and files too' (-not (Test-Path -LiteralPath (Get-ChatqAttachDir $n1.Job)) -and -not (Test-Path -LiteralPath (Get-ChatqPromptPath $n1.Job)))
+# The console's Remove, timed by the clicks' own times (the mouse's
+# Timestamp) on a console with no window: only the decision and the job are
+# looked at. A click asks; the second half of a double-click is no answer;
+# an ask 5 s old goes back to Remove, as a user off to VS Code between
+# clicks finds it - it had stood as "sure?" for good, and a click on it only
+# asked again; a click 0.4 s on from the latest ask removes.
+$Hc = @{ Con = @{ Confirm = @{}; Sigs = @{}; Jobs = @(); Sel = $null; ShowLog = $false; JobsSig = $null } }
+$rm = (New-ChatqJob -Row $rowCard -Prompt 'remove me').Job
+$t = [int64]1000000
+Invoke-ChatConsoleJobAction $Hc $rm.id 'remove' -At $t
+$rmAsked = $Hc.Con.Confirm.ContainsKey([string]$rm.id) -and [bool](Find-ChatqJob $rm.id -Exact)
+Invoke-ChatConsoleJobAction $Hc $rm.id 'remove' -At ($t + 150)
+$rmDouble = [bool](Find-ChatqJob $rm.id -Exact)
+Update-ChatConsoleAsks $Hc ($t + 5100)
+$rmBack = -not $Hc.Con.Confirm.Count
+Invoke-ChatConsoleJobAction $Hc $rm.id 'remove' -At ($t + 7000)
+$rmAgain = [bool](Find-ChatqJob $rm.id -Exact) -and $Hc.Con.Confirm[[string]$rm.id] -eq $t + 7000
+Invoke-ChatConsoleJobAction $Hc $rm.id 'remove' -At ($t + 8500)
+$rmGone = -not (Find-ChatqJob $rm.id -Exact) -and -not $Hc.Con.Confirm.Count
+Check 'the console''s Remove: a click asks, a double-click''s second half does not answer, an ask 5 s old goes back to Remove, a click 1.5 s after the latest ask removes' (
+    $rmAsked -and $rmDouble -and $rmBack -and $rmAgain -and $rmGone) "$rmAsked $rmDouble $rmBack $rmAgain $rmGone"
+Check 'Remove''s window, pure: none asks, under 0.4 s is a double-click, up to 7 s removes, past it asks again; the tick count''s wrap' (
+    (@(-1, 150, 399, 400, 5000, 7000, 7001 | ForEach-Object { Get-ChatConsoleRemoveStep $_ }) -join ',') -eq 'ask,double,double,remove,remove,remove,stale' -and
+    (Get-ChatConsoleSince 2147483000 -2147483000) -eq 1296) (@(-1, 150, 399, 400, 5000, 7000, 7001 | ForEach-Object { Get-ChatConsoleRemoveStep $_ }) -join ',')
+# Remove-ChatqJob goes by the job's file: one the watcher started since the
+# caller read it is kept, and no removal is logged
+$rr = (New-ChatqJob -Row $rowCard -Prompt 'started meanwhile').Job
+$rrDisk = Find-ChatqJob $rr.id -Exact
+Set-ChatqJobState $rrDisk 'running' 'attempt 1'
+$jl = Join-Path $script:ChatqLogDir 'jobs.log'
+$jl0 = [System.IO.File]::ReadAllText($jl, $utf8).Length
+$rrKept = -not (Remove-ChatqJob $rr 'the console') -and [bool](Find-ChatqJob $rr.id -Exact)
+$jlNew = [System.IO.File]::ReadAllText($jl, $utf8).Substring($jl0)
+Check 'Remove-ChatqJob refuses a job running on disk though the caller''s copy says queued, and logs no removal' ($rrKept -and $jlNew -notmatch 'removed by') "$rrKept [$jlNew]"
+Set-ChatqJobState $rrDisk 'failed' 'test'
+$null = Remove-ChatqJob $rrDisk 'test'
 # what a run did, from its log - the plain run above
 $ran = @(Get-ChatqJobs | Where-Object { $_.state -eq 'done' -and (Test-Path -LiteralPath (Join-Path $script:ChatqLogDir "$($_.id).jsonl")) })[0]
 $ents = @(Get-ChatqLogEntries $ran)

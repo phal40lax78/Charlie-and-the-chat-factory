@@ -1297,7 +1297,12 @@ right end - a window of its own like the buttons, taking no focus, in
 neither Alt+Tab nor the taskbar. A pointer sweeping across brings up
 nothing, it shows once per visit to a row, and a pointer it came up under
 has to move off it before a click counts, so a pointer parked there never
-opens anything by accident. Clicked, it:
+opens anything by accident - such a click says **click again** on the
+chip, and the next one counts. From the click on, a line at the top of the
+panel says it: `opening '<title>' - 3s`, counting, then `opened '<title>'`
+for 5 s, or why not in amber for 20 s - held, a terminal's, no `code`, a
+crash of the open's own PowerShell (its exit code), no answer in 60 s. The
+tray says the same for all but a plain open. Clicked, it:
 - asks the window that has the chat to open it in an editor tab of its
   own, or to bring forward the tab that already shows it
   ([the extension](#chats-open-in-vs-code-and-the-extension) does it). It
@@ -1551,7 +1556,11 @@ day, each saying where it stands (`sends 13:01`, `running since 12:04`,
 `needs you - Edit denied`, `done 12:10`). Pick one for its outcome, the reply,
 its last states, and what can be done to it now:
 - waiting - **Try now** (stop waiting for a reset), **First**, **Remove**
-  (twice, to be sure), and its prompt, editable until it sends;
+  (twice, to be sure: the first click turns it into a red **Remove -
+  sure?** for 5 s, and the status line says so; a click in that time
+  removes the job - its prompt and files, never the chat - and after it,
+  it is back to **Remove**. The second half of a double-click is no
+  answer, and says so), and its prompt, editable until it sends;
 - running - **Cancel**;
 - ended - **Requeue** (as "continue" if its prompt already reached the chat),
   **Remove**, **Log** for everything the run did;

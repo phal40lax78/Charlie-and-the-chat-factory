@@ -75,6 +75,37 @@ Check 'and a reload offer for the window that holds it' ($rq.kind -eq 'ran' -and
 Check 'saying nobody is at the PC, and whether the folder was busy' ($rq.away -eq $true -and $null -ne $rq.busy) "away=$($rq.away) busy=$($rq.busy)"
 Remove-Item env:FAKE_AGENTS
 
+# A Remove - the console's, chatqrm - while the watcher checks a job, here
+# inside its look at the live sessions (claude agents, up to 30 s): what the
+# watcher writes after is no longer written back. It had come back queued,
+# or failed, and a continue was sent after it was removed.
+$fnLive = ${function:Get-ChatqLiveSessions}
+${function:Get-ChatqLiveSessions} = {
+    param([string]$ConfigDir, [switch]$RegistryOnly)
+    if ($script:RmMid) { $null = Remove-ChatqJob (Find-ChatqJob $script:RmMid -Exact) 'the console'; $script:RmMid = $null }
+    @($script:RmLive)
+}
+try {
+    $rmSaid = foreach ($c in @(@('busy', 'prompt'), @('idle', 'prompt'), @('none', 'prompt'), @('busy', 'continue'))) {
+        $sid = if ($c[1] -eq 'continue') { $idTong } else { $idOld }
+        $jr = if ($c[1] -eq 'continue') { (New-ChatqJob -Row (Get-ChatqRowById $idTong) -Kind continue -Rule continue -SendNow).Job } else { (New-ChatqJob -Row (Get-ChatqRowById $idOld) -Prompt 'drop me').Job }
+        $script:RmLive = if ($c[0] -eq 'none') { @() } else { @([pscustomobject]@{ SessionId = $sid; Pid = 1; Status = $c[0]; Kind = 'interactive'; WaitingFor = $null; ProcStart = $null; StartedAt = $null; Entrypoint = 'claude-vscode' }) }
+        $script:RmMid = $jr.id
+        Invoke-ChatqJob (New-ChatqWatchState) (Find-ChatqJob $jr.id -Exact)
+        $back = (Test-Path -LiteralPath (Join-Path $script:ChatqQueueDir "$($jr.id).json")) -or (Test-Path -LiteralPath (Join-Path $script:ChatqQueueDir "$($jr.id).json.tmp"))
+        "$($c -join '/'):$(if ($back) { 'BACK' } else { 'gone' })"
+    }
+}
+finally { ${function:Get-ChatqLiveSessions} = $fnLive; $script:RmMid = $null; $script:RmLive = $null }
+Check 'a Remove during the watcher''s checks stays a removal: busy (deferred), idle and not open (about to run), a continue sent now - nothing written back' (
+    ($rmSaid -join ' ') -eq 'busy/prompt:gone idle/prompt:gone none/prompt:gone busy/continue:gone') "$rmSaid"
+$ghost = (New-ChatqJob -Row (Get-ChatqRowById $idOld) -Prompt 'ghost').Job
+$null = Remove-ChatqJob $ghost 'test'
+$ghostSaved = Save-ChatqJob $ghost -Existing
+Check 'Save-ChatqJob -Existing makes no file for a job removed, and leaves no copy aside' (
+    $ghostSaved -eq $false -and -not (Test-Path -LiteralPath (Join-Path $script:ChatqQueueDir "$($ghost.id).json")) -and
+    -not (Test-Path -LiteralPath (Join-Path $script:ChatqQueueDir "$($ghost.id).json.tmp"))) "$ghostSaved"
+
 # a 529 mid-run, after the prompt reached the chat: queued again as an
 # automatic "continue", its lane waiting on status.claude.com
 $j = New-TestJob 'Overloaded mid task' 'finish the parser refactor'

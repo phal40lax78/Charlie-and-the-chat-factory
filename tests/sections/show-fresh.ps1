@@ -291,7 +291,9 @@ $c2 = @(Show-ChatFresh -Via chip -SessionId $idS -Cwd $projS -ConfigDir $sfHome)
 $script:ChatParentSeam = $script:SeamsAtStart.Parent
 Check 'the chip on a terminal''s chat: 20, nothing written, code not asked' ($c2.ExitCode -eq 20 -and -not (Test-Path -LiteralPath $script:ChatOpenPath) -and -not $script:SfCode.Count) $c2.ExitCode
 # mid-turn in a terminal: whose it is comes before held, or a tab would open
-# beside a terminal that is writing to the chat
+# beside a terminal that is writing to the chat. The chip reads the registry
+# alone, as the panel does: busy is said there
+Set-SfSession 1402 'busy'
 Set-SfAgents @(New-SfLive 1402 'busy')
 $script:ChatParentSeam = $terminalParent
 $c2b = @(Show-ChatFresh -Via chip -SessionId $idS -Cwd $projS -ConfigDir $sfHome)[-1]
@@ -504,8 +506,19 @@ Check 'the chip flush with its row''s right end, centred on it, and kept on the 
 Check 'only a Claude chat with an id and a folder gets one' ((Test-ChatOverlayRowOpenable (& $rowS 'C:\p')) -and
     -not (Test-ChatOverlayRowOpenable ([pscustomobject]@{ provider = 'codex'; sessionId = $idS; cwd = 'C:\p' })) -and
     -not (Test-ChatOverlayRowOpenable (& $rowS 'C:\p' 'j:1')) -and -not (Test-ChatOverlayRowOpenable (& $rowS '')) -and -not (Test-ChatOverlayRowOpenable $null))
-Check 'the tray''s words for how an open went' ((Get-ChatOverlayOpenBalloon 20) -like '*open in a terminal*' -and (Get-ChatOverlayOpenBalloon 25) -like '*bring it forward yourself*' -and
-    $null -eq (Get-ChatOverlayOpenBalloon 0) -and $null -eq (Get-ChatOverlayOpenBalloon 50))
+Check 'the tray''s words for how an open went: every end but 0 says something - held, a bad id or folder, and a code it does not know (a crash) too' (
+    (Get-ChatOverlayOpenBalloon 20) -like '*open in a terminal*' -and (Get-ChatOverlayOpenBalloon 25) -like '*bring it forward yourself*' -and
+    $null -eq (Get-ChatOverlayOpenBalloon 0) -and (Get-ChatOverlayOpenBalloon 10) -like '*at work*' -and (Get-ChatOverlayOpenBalloon 50) -like 'Not opened*' -and
+    (Get-ChatOverlayOpenBalloon 1) -like '*code 1*' -and (Get-ChatOverlayOpenBalloon -1) -like '*code -1*')
+$osB = Get-ChatOverlayOpenSay 'A chat' 'busy' -Seconds 7
+$osOk = Get-ChatOverlayOpenSay 'A chat' 'done' 0
+$osF = Get-ChatOverlayOpenSay 'A chat' 'done' 20
+$osL = Get-ChatOverlayOpenSay 'A chat' 'late'
+$osN = Get-ChatOverlayOpenSay 'A chat' 'nostart'
+Check 'the panel''s line for an open: busy with its seconds, kept while it runs; opened, briefly; a failure, a timeout or a child that did not start said in warn''s tone, and kept longer' (
+    $osB.Text -eq "opening 'A chat' - 7s" -and $osB.Tone -eq 'dim' -and $osB.Keep -eq 0 -and $osOk.Text -eq "opened 'A chat'" -and $osOk.Keep -eq 5 -and
+    $osF.Text -like "'A chat' - *terminal*" -and $osF.Tone -eq 'warn' -and $osL.Text -like '*no answer in 60 s*' -and $osL.Tone -eq 'warn' -and
+    $osN.Text -like '*did not start*' -and $osN.Tone -eq 'warn' -and $osF.Keep -gt $osOk.Keep) "$($osB.Text) / $($osOk.Text) / $($osF.Text) / $($osL.Text) / $($osN.Text)"
 Check 'a window exactly on the folder, from its title' ((Test-ChatWindowExact 'D:\w\projS' @('a.ps1 - projS - Visual Studio Code')) -and
     (Test-ChatWindowExact 'D:\w\projS' @('projS - Visual Studio Code [Administrator]')) -and -not (Test-ChatWindowExact 'D:\w\projS' @('a.ps1 - projS-Mobile - Visual Studio Code')) -and
     -not (Test-ChatWindowExact 'D:\w\projS' @('x - ws (Workspace) - Visual Studio Code')))

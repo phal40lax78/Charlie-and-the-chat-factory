@@ -1099,6 +1099,7 @@ Check 'unread: working or waiting to idle marks a chat, and its row carries it; 
 # extension may refuse it), turned away, failed before it, or unanswered
 $script:ChatShowSpawnSeam = { param($c) 'spawned' }
 $Hu = @{ Ctx = $cu8; OpenProc = $null; ChipText = $null }
+$script:uSays = @()
 $uRowA = @($uR | Where-Object { $_.sessionId -eq $uA })[0]
 $uEnds = @(foreach ($code in '0', '10', '25', '15', '20', '30', '40', '41', '50', 'late') {
         $cu8.Unread[$uA] = $true
@@ -1106,12 +1107,27 @@ $uEnds = @(foreach ($code in '0', '10', '25', '15', '20', '30', '40', '41', '50'
         $during = $cu8.Unread.ContainsKey($uA)
         $Hu.OpenProc = if ($code -eq 'late') { [pscustomobject]@{ HasExited = $false } } else { [pscustomobject]@{ HasExited = $true; ExitCode = [int]$code } }
         if ($code -eq 'late') { $Hu.OpenAt = (Get-Date).AddSeconds(-61) }
+        $busySaid = $Hu.OpenSay -and $Hu.OpenSay.Kind -eq 'busy'
         Update-ChatOverlayOpen $Hu
+        $script:uSays += "$code=$busySaid/$($Hu.OpenSay.Kind)/$($Hu.OpenSay.Tone)"
         "$code=$during/$($cu8.Unread.ContainsKey($uA))/$([bool]$Hu.OpenProc)"
     }) -join ' '
 $script:ChatShowSpawnSeam = { param($c) $null }
 Check 'unread: the open chip takes the dot only once its child says the open request was written - not held, turned away or failed before it' (
     $uEnds -eq '0=True/False/False 10=True/True/False 25=True/False/False 15=True/True/False 20=True/True/False 30=True/True/False 40=True/False/False 41=True/False/False 50=True/True/False late=True/True/False') $uEnds
+# and each one said on the panel: under way from the click, then how it went
+# - only 0 in the quiet tone; a child that never started said at once
+$uSaid = $script:uSays -join ' '
+$Hu.OpenProc = $null; $Hu.OpenSay = $null
+$script:ChatShowSpawnSeam = { param($c) $null }
+Invoke-ChatOverlayOpen $Hu $uRowA
+$uNoStart = $Hu.OpenSay.Kind -eq 'nostart' -and $Hu.OpenSay.Tone -eq 'warn' -and -not $Hu.OpenProc
+$Hu.OpenSay.Until = (Get-Date).AddSeconds(-1)
+Update-ChatOverlayOpen $Hu
+$uGoneSaid = $null -eq $Hu.OpenSay
+Check 'an open from the chip is said from the click to its end: busy, then opened or why not - a timeout and a child that did not start too - and the line goes once its time is up' (
+    $uSaid -eq '0=True/done/dim 10=True/done/warn 25=True/done/warn 15=True/done/warn 20=True/done/warn 30=True/done/warn 40=True/done/warn 41=True/done/warn 50=True/done/warn late=True/late/warn' -and
+    $uNoStart -and $uGoneSaid) "$uSaid $uNoStart $uGoneSaid"
 $cu8.Unread.Remove($uA)
 Update-ChatOverlayUnread $cu8 @((& $uE $uA 'idle'), (& $uE $uB 'busy'), (& $uE $uD 'idle'))
 $uBusy = -not $cu8.Unread.ContainsKey($uA) -and -not $cu8.Unread.ContainsKey($uB) -and $cu8.Unread.ContainsKey($uD)
@@ -1826,13 +1842,27 @@ if (`$C.EditBox) { `$C.EditBox.Text = 'edited in place' }
 `$C.Sigs.Queue = `$null
 Update-ChatConsoleQueue `$H
 `$editKept = [bool](`$C.EditBox -and `$C.EditBox.Text -eq 'edited in place')
-# Remove asks first, and the second half of a double-click is no answer
-Invoke-ChatConsoleJobAction `$H `$j.id 'remove'
-Invoke-ChatConsoleJobAction `$H `$j.id 'remove'
-`$askHeld = [bool](Find-ChatqJob `$j.id) -and [bool]`$C.Confirm[`$j.id]
-`$C.Confirm[`$j.id] = (Get-Date).AddSeconds(-1)
-Invoke-ChatConsoleJobAction `$H `$j.id 'remove'
-`$removed = -not (Find-ChatqJob `$j.id)
+# Remove, clicked as the mouse clicks it: its Border found again after each
+# redraw, each click at a time of its own on the tick count's clock. The
+# first asks - "sure?" in error's colour, and the status says so; the second
+# half of a double-click is no answer, and says that; an ask 5 s old goes
+# back to Remove; a click, then another 1.5 s on, removes. Only the clicks'
+# own times make that last one an answer: taken when handled, the two would
+# be milliseconds apart, a double-click.
+`$rmB = { @(`$C.Details.Children | Where-Object { `$_ -is [System.Windows.Controls.WrapPanel] } | ForEach-Object { `$_.Children } | Where-Object { `$_.Child.Text -like 'Remove*' })[0] }
+`$tk = { param([int64]`$v) [int](((`$v + 2147483648) % 4294967296) - 2147483648) }
+`$rmUp = { param([int64]`$t) `$a = [System.Windows.Input.MouseButtonEventArgs]::new([System.Windows.Input.Mouse]::PrimaryDevice, (& `$tk `$t), [System.Windows.Input.MouseButton]::Left); `$a.RoutedEvent = [System.Windows.UIElement]::MouseLeftButtonUpEvent; (& `$rmB).RaiseEvent(`$a) }
+`$t0 = [int64][Environment]::TickCount
+& `$rmUp `$t0
+`$b1 = & `$rmB
+`$askHeld = `$b1.Child.Text -eq 'Remove - sure?' -and `$b1.Child.Foreground.Color -eq (Get-ChatOverlayBrush 'error').Color -and `$C.Status.Text -like 'remove #*'
+& `$rmUp (`$t0 + 150)
+`$askHeld = `$askHeld -and [bool](Find-ChatqJob `$j.id) -and `$C.Confirm.ContainsKey([string]`$j.id) -and `$C.Status.Text -like 'a double-click*'
+Update-ChatConsoleAsks `$H (& `$tk (`$t0 + 5100))
+`$askHeld = `$askHeld -and (& `$rmB).Child.Text -eq 'Remove' -and -not `$C.Confirm.Count -and `$C.Status.Text -like '*kept*' -and [bool](Find-ChatqJob `$j.id)
+& `$rmUp (`$t0 + 7000)
+& `$rmUp (`$t0 + 8500)
+`$removed = -not (Find-ChatqJob `$j.id) -and `$C.Status.Text -like 'removed #*'
 # Continue twice before the list redraws: one job
 `$ci = [pscustomobject]@{ Id = '$idCard'; Title = 'Card'; Path = `$null; Cwd = '$projA' }
 Invoke-ChatConsoleContinue `$H @(`$ci)
@@ -1987,7 +2017,7 @@ Check 'a chat picked is the one written to; a file dropped and a screenshot past
 Check 'Send makes the job chatq would - first, sent now, files moved in - and clears the box for the next' ($cp[5] -eq 'True') "$conOut"
 Check 'a theme switch keeps what is typed, in the console''s mode still; going back keeps the draft for next time' ($cp[6] -eq 'True' -and $cp[7] -eq 'True') "$conOut"
 Check 'a queued prompt being edited outlives a redraw of the queue' ($cp[10] -eq 'True') "$conOut"
-Check 'Remove asks, a double-click does not answer, a second click does' ($cp[11] -eq 'True' -and $cp[12] -eq 'True') "$conOut"
+Check 'Remove clicked: asks with sure? in red and says so, a double-click does not answer and says so, an ask 5 s old goes back to Remove, a second click 1.5 s on removes - timed by the clicks themselves' ($cp[11] -eq 'True' -and $cp[12] -eq 'True') "$conOut"
 Check 'Continue clicked twice queues one continue' ($cp[13] -eq 'True') "$($cp[16])"
 Check 'the index is read in a runspace of its own, never on the window''s thread, and its rows taken when ready' ($cp[17] -eq 'True') "$($cp[18])"
 Check 'a Codex chat is offered no mode or model, and is sent none' ($cp[14] -eq 'True' -and $cp[15] -eq 'True') "$conOut"

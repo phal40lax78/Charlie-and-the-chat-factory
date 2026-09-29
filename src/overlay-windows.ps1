@@ -1571,22 +1571,30 @@ function New-ChatOverlayChipContent {
         $b.add_MouseLeave({ param($s, $e) $s.Background = Get-ChatOverlayBrush 'panel' })
         # A press counts only once the chip is armed (Step-ChatOverlayChipState),
         # and only on the chip it was let go on: pressed on one and let go on
-        # another, nothing happens.
+        # another, nothing happens. One the chip was not armed for is no
+        # click, but not a silent one: the chip says click again, and is
+        # armed for it.
         $b.add_MouseLeftButtonDown({
                 param($s, $e)
                 $e.Handled = $true
                 $X = $script:ChatOverlayHost
                 $X.ChipPressed = [bool]$X.ChipArmed
-                $X.ChipPressedId = if ($X.ChipPressed) { [string]$s.Tag } else { $null }
+                $X.ChipPressedId = [string]$s.Tag
             })
         $b.add_MouseLeftButtonUp({
                 param($s, $e)
                 $e.Handled = $true
                 $X = $script:ChatOverlayHost
-                $was = if ($X.ChipPressed) { [string]$X.ChipPressedId } else { '' }
+                $was = [string]$X.ChipPressedId
+                $armed = [bool]$X.ChipPressed
                 $X.ChipPressed = $false
                 $X.ChipPressedId = $null
-                Invoke-ChatOverlayChipRelease $X $was ([string]$s.Tag)
+                if ($was -eq [string]$s.Tag -and -not $armed) {
+                    $X.ChipArmed = $true
+                    if (-not ($X.OpenProc -and $was -eq 'open')) { $s.Child.Text = 'click again' }
+                    return
+                }
+                Invoke-ChatOverlayChipRelease $X $(if ($armed) { $was } else { '' }) ([string]$s.Tag)
             })
         [void]$row.Children.Add($b)
     }
@@ -1725,15 +1733,50 @@ function Start-ChatShowFreshProcess {
     catch { Write-ChatOverlayLog "open: $($_.Exception.Message)"; return $null }
 }
 
+function Get-ChatOverlayOpenSay {
+    <#
+    The panel's line about an open from the chip: Kind, Text, Tone, and
+    Keep - how many seconds it stays once said, 0 while the open runs.
+    -State busy (-Seconds so far), done (-Code, its child's exit), late (no
+    answer in 60 s) or nostart (its child did not start). Pure.
+    #>
+    param([string]$Title, [string]$State, [int]$Code = 0, [int]$Seconds = 0)
+    $t = "'$(Format-ChatTitle $Title 40)'"
+    switch ($State) {
+        'busy' { return @{ Kind = 'busy'; Text = "opening $t - $($Seconds)s"; Tone = 'dim'; Keep = 0 } }
+        'late' { return @{ Kind = 'late'; Text = "opening $t - no answer in 60 s; see data/logs/watcher.log"; Tone = 'warn'; Keep = 20 } }
+        'nostart' { return @{ Kind = 'nostart'; Text = "could not open $t - its helper did not start; see data/logs/overlay.log"; Tone = 'warn'; Keep = 20 } }
+    }
+    if ($Code -eq 0) { return @{ Kind = 'done'; Text = "opened $t"; Tone = 'dim'; Keep = 5 } }
+    return @{ Kind = 'done'; Text = "$t - $(Get-ChatOverlayOpenBalloon $Code)"; Tone = 'warn'; Keep = 20 }
+}
+
+function Set-ChatOverlayOpenSay {
+    # the panel's open line said, or taken away ($null), and drawn at once
+    param($H, $Say)
+    if ($Say) { $Say.Until = if ($Say.Keep) { (Get-Date).AddSeconds($Say.Keep) } else { $null } }
+    $H.OpenSay = $Say
+    if ($H.Stack -and $H.Snap) { Update-ChatOverlayView $H $H.Snap }
+}
+
 function Invoke-ChatOverlayOpen {
     # The chip clicked: one open at a time, in a child of its own. No window
     # is activated from here - code -n, in the child, has VS Code raise its own.
+    # From the click on, a line on the panel says it is under way, and then
+    # how it went (Update-ChatOverlayOpen); one already running says so there.
     param($H, $Row)
     if (-not $H -or -not $Row -or $H.OpenProc) { return }
+    $title = [string](Get-ChatField $Row 'title')
     $p = Start-ChatShowFreshProcess $H $Row
-    if (-not $p) { return }
+    if (-not $p) {
+        Write-ChatOverlayLog "open: its child did not start" -Always
+        Set-ChatOverlayOpenSay $H (Get-ChatOverlayOpenSay $title 'nostart')
+        return
+    }
     $H.OpenProc = $p
     $H.OpenAt = Get-Date
+    $H.OpenTitle = $title
+    Set-ChatOverlayOpenSay $H (Get-ChatOverlayOpenSay $title 'busy')
     # kept for the line its end writes, and for the dot an open that worked
     # takes away (Update-ChatOverlayOpen)
     $sid = [string]$Row.sessionId
@@ -1754,7 +1797,11 @@ function Get-ChatOverlayOpenBalloon {
         30 { return 'That chat has not started yet.' }
         40 { return 'Asked its window to show it, but VS Code''s code command was not found, so the window was not brought forward.' }
         41 { return 'code failed - see data/logs/watcher.log.' }
+        10 { return 'Asked its window to open it - the chat is at work, so VS Code may hold it until the turn ends.' }
+        50 { return 'Not opened - its id or its folder is not right any more.' }
     }
+    # 0 went; anything else - a crash of its child among them - is said too
+    if ($Code) { return "Not opened - the open ended with code $Code; see data/logs/watcher.log." }
     return $null
 }
 
@@ -1769,24 +1816,42 @@ function Update-ChatOverlayOpen {
     # forward. Not on held (10): a chat at work, which the extension may yet
     # refuse to open. Turned away, failed before the request, or no answer,
     # its turn is still unseen, and the dot stays.
+    # While it runs, the panel's line and the chip count its seconds; once
+    # over, the line says how it went, a while, then goes.
     param($H)
     $p = $H.OpenProc
-    if (-not $p) { return }
+    if (-not $p) {
+        if ($H.OpenSay -and $H.OpenSay.Until -and (Get-Date) -ge $H.OpenSay.Until) { Set-ChatOverlayOpenSay $H $null }
+        return
+    }
     $ended = try { $p.HasExited } catch { $true }
-    if (-not $ended -and ((Get-Date) - $H.OpenAt).TotalSeconds -lt 60) { return }
+    $secs = [int]((Get-Date) - $H.OpenAt).TotalSeconds
+    if (-not $ended -and $secs -lt 60) {
+        $busy = Get-ChatOverlayOpenSay $H.OpenTitle 'busy' -Seconds $secs
+        if ($H.OpenSay -and $H.OpenSay.Kind -eq 'busy') { $H.OpenSay.Text = $busy.Text }
+        if ($H.OpenLine) { $H.OpenLine.Text = $busy.Text }
+        if ($H.ChipText) { $H.ChipText.Text = "opening $($secs)s" }
+        return
+    }
     if ($ended) {
         $code = try { [int]$p.ExitCode } catch { -1 }
         Write-ChatOverlayLog "open: $($H.OpenSid) ended $code" -Always
         if ($code -in 0, 25, 40, 41 -and $H.OpenSessionId -and $H.Ctx -and $H.Ctx.Unread) { $H.Ctx.Unread.Remove([string]$H.OpenSessionId) }
         $say = Get-ChatOverlayOpenBalloon $code
         if ($say) { Show-ChatOverlayBalloon $H $say }
+        $line = Get-ChatOverlayOpenSay $H.OpenTitle 'done' $code
     }
-    else { Write-ChatOverlayLog "open: $($H.OpenSid) no answer after 60 s - stopped waiting" -Always }
+    else {
+        Write-ChatOverlayLog "open: $($H.OpenSid) no answer after 60 s - stopped waiting" -Always
+        Show-ChatOverlayBalloon $H 'The open got no answer in 60 s - see data/logs/watcher.log.'
+        $line = Get-ChatOverlayOpenSay $H.OpenTitle 'late'
+    }
     $H.OpenProc = $null
     $H.OpenSid = $null
     $H.OpenSessionId = $null
     if ($H.ChipText) { $H.ChipText.Text = 'open'; $H.ChipText.Foreground = Get-ChatOverlayBrush 'text' }
     Hide-ChatOverlayChip $H
+    Set-ChatOverlayOpenSay $H $line
 }
 
 function Add-ChatOverlayUsage {
@@ -2081,7 +2146,7 @@ function Update-ChatOverlayView {
     # ViewSig is the snapshot's JSON, every row's field in it - a chat's
     # where and unread among them - and the recent list whole; prompts is
     # compact rows or full
-    $key = "$($H.Ctx.ViewSig)|$($H.Locked)|$($H.Ctx.Config.width)|$($H.Ctx.Config.prompts)|$($H.Collapsed)|$($H.Ctx.Config.maxRows)|$($H.Win.MaxHeight)"
+    $key = "$($H.Ctx.ViewSig)|$($H.Locked)|$($H.Ctx.Config.width)|$($H.Ctx.Config.prompts)|$($H.Collapsed)|$($H.Ctx.Config.maxRows)|$($H.Win.MaxHeight)|$(if ($H.OpenSay) { "$($H.OpenSay.Kind)/$($H.OpenSay.Until)" })"
     if ($key -eq $H.ViewKey) { Update-ChatOverlayClock $H; return }
     $H.ViewKey = $key
     $cfg = $H.Ctx.Config
@@ -2100,10 +2165,18 @@ function Update-ChatOverlayView {
         $t.Margin = [System.Windows.Thickness]::new(0, 2, 0, 0)
         [void]$P.Children.Add($t)
     }
+    # an open from the chip: under way, or how it went (Update-ChatOverlayOpen,
+    # which moves its seconds in place)
+    $H.OpenLine = $null
+    if ($H.OpenSay) {
+        $H.OpenLine = New-ChatOverlayText ([string]$H.OpenSay.Text) ([string]$H.OpenSay.Tone) 11 -Trim
+        $H.OpenLine.Margin = [System.Windows.Thickness]::new(0, 2, 0, 0)
+        [void]$P.Children.Add($H.OpenLine)
+    }
     $ask = Get-ChatField $Snap.header 'ask'
     if ($ask) { Add-ChatOverlayAsk $H $P $ask }
     $rows = @($Snap.rows)
-    if (@($Snap.header.usage).Count -or @($Snap.header.notes).Count -or $ask) {
+    if (@($Snap.header.usage).Count -or @($Snap.header.notes).Count -or $ask -or $H.OpenSay) {
         $sep = [System.Windows.Controls.Border]::new()
         $sep.Height = 1
         $sep.Background = Get-ChatOverlayBrush 'edge'
@@ -2456,6 +2529,8 @@ function Enter-ChatOverlayConsoleMode {
     # a fresh look at what the limit cut off, and at the chats
     $H.Ctx.CutAt = [datetime]::MinValue
     $C.Sigs = @{}
+    # a Remove asked before the console was last left is no ask now
+    $C.Confirm = @{}
     Update-ChatConsole $H
     if ($Activate) { & $front }
 }
@@ -2930,6 +3005,8 @@ function Invoke-ChatOverlayTick {
             # a dropped file's copy may have finished
             if ($C -and $H.Mode -eq 'console') { Update-ChatConsoleStaging $H }
         }
+        # every tick, a pass put off or not: a Remove's "sure?" lasts 5 s
+        if ($C -and $H.Mode -eq 'console' -and -not $C.Modal) { Update-ChatConsoleAsks $H }
         # system: follows Windows' own light or dark setting
         if ($H.Tick % 5 -eq 0 -and -not $H.Hidden -and $H.Ctx.Config.theme -eq 'system') { Update-ChatOverlayTheme $H }
         # The console's mode is kept on top of nothing, and is where the user
@@ -2949,7 +3026,7 @@ function Invoke-ChatOverlayTick {
             Set-ChatOverlayLocked $H $true
         }
         # an open the chip started may have finished
-        if ($H.OpenProc) { Update-ChatOverlayOpen $H }
+        if ($H.OpenProc -or $H.OpenSay) { Update-ChatOverlayOpen $H }
         # An answer held through a drag: only the console's loops end in
         # Invoke-ChatOverlayHeldVerbs, the panel's drags do not.
         if ($H.AskHeld -and -not (($C -and $C.Modal) -or $H.Dragging -or $H.GripDrag -or $H.SizeDrag)) { Invoke-ChatOverlayHeldVerbs $H }
@@ -3013,7 +3090,7 @@ function New-ChatOverlayHostState {
         # open runs in (Invoke-ChatOverlayOpen)
         ChipWin = $null; ChipHwnd = [IntPtr]::Zero; ChipText = $null; ChipKey = $null; ChipRow = $null; ChipLine = $null; ChipAt = $null
         ChipUnder = $null; ChipUnderAt = $null; ChipOverAt = $null; ChipLastPos = $null; ChipSpent = $null
-        ChipArmed = $false; ChipPressed = $false; OpenProc = $null; OpenAt = $null; OpenSid = $null; OpenSessionId = $null
+        ChipArmed = $false; ChipPressed = $false; OpenProc = $null; OpenAt = $null; OpenSid = $null; OpenSessionId = $null; OpenTitle = $null; OpenSay = $null; OpenLine = $null
         # what the chip offers for its row (Get-ChatOverlayChipActions), and
         # which of its chips a press began on
         ChipActions = @(); ChipPressedId = $null

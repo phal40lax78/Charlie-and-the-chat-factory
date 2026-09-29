@@ -543,7 +543,9 @@ function Show-ChatFresh {
     $logIt = $true
     if (-not $Transcript) { $Transcript = Find-ChatTranscriptPath $SessionId $Cwd $ConfigDir }
     if (-not $Transcript -and $Via -ne 'run') { return (& $done 'missing') }
-    $live = @(Get-ChatqLiveSessions $ConfigDir -RegistryOnly:($Via -eq 'button'))
+    # a click - the chip's or Show it's - waits on this: the registry, as the
+    # panel reads it every 2 s, not claude agents, a CLI to start first
+    $live = @(Get-ChatqLiveSessions $ConfigDir -RegistryOnly:($Via -in 'button', 'chip'))
     # A queued prompt going into it now - another after the one whose Show it
     # this is, say - or any print-mode claude: ending the window's process
     # and showing the chat would load it part way through, a second writer
