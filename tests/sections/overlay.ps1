@@ -2059,7 +2059,11 @@ Invoke-ChatConsoleJobAction `$H `$j.id 'watch'
 Invoke-ChatConsoleJobAction `$H `$j.id 'watch'
 `$againSaid = [string]`$C.Status.Text
 `$script:ChatShowSpawnSeam = `$null
+# the stand-in open never ends, so its "opening" line goes with it: a busy
+# line has no Until, and left up it makes the panel the Esc checks compare
+# a line and a separator taller
 `$H.OpenProc = `$null
+`$H.OpenSay = `$null
 `$watchOk = `$runBtns -eq 'Cancel,Watch in VS Code,Write to this chat' -and @(`$script:WatchCmds).Count -eq 1 -and
     `$script:WatchCmds[0] -like "*Show-ChatFresh -Via chip -SessionId '$idCard' *" -and `$watchSaid -eq "#`$(`$j.seq): its live view opens in VS Code" -and
     `$againSaid -like 'an open is still going*'
@@ -2067,6 +2071,10 @@ Invoke-ChatConsoleJobAction `$H `$j.id 'watch'
 Set-ChatqProp `$j 'state' 'queued'
 Save-ChatqJob `$j
 `$C.Jobs = @(Get-ChatqJobs)
+# queued again, drawn again: the pane still holds the running job's
+# buttons, which have no Remove to click
+`$C.Sigs.Queue = `$null
+Update-ChatConsoleQueue `$H
 # Remove, clicked as the mouse clicks it: its Border found again after each
 # redraw, each click at a time of its own on the tick count's clock. The
 # first asks - "sure?" in error's colour, and the status says so; the second
@@ -2076,11 +2084,13 @@ Save-ChatqJob `$j
 # be milliseconds apart, a double-click.
 `$rmB = { @(`$C.Details.Children | Where-Object { `$_ -is [System.Windows.Controls.WrapPanel] } | ForEach-Object { `$_.Children } | Where-Object { `$_.Child.Text -like 'Remove*' })[0] }
 `$tk = { param([int64]`$v) [int](((`$v + 2147483648) % 4294967296) - 2147483648) }
-`$rmUp = { param([int64]`$t) `$a = [System.Windows.Input.MouseButtonEventArgs]::new([System.Windows.Input.Mouse]::PrimaryDevice, (& `$tk `$t), [System.Windows.Input.MouseButton]::Left); `$a.RoutedEvent = [System.Windows.UIElement]::MouseLeftButtonUpEvent; (& `$rmB).RaiseEvent(`$a) }
+# No Remove drawn fails the check below rather than calling on null: that
+# error, on the child's stderr, ended the whole 5.1 run in Invoke-Sta.
+`$rmUp = { param([int64]`$t) `$rb = & `$rmB; if (-not `$rb) { return }; `$a = [System.Windows.Input.MouseButtonEventArgs]::new([System.Windows.Input.Mouse]::PrimaryDevice, (& `$tk `$t), [System.Windows.Input.MouseButton]::Left); `$a.RoutedEvent = [System.Windows.UIElement]::MouseLeftButtonUpEvent; `$rb.RaiseEvent(`$a) }
 `$t0 = [int64][Environment]::TickCount
 & `$rmUp `$t0
 `$b1 = & `$rmB
-`$askHeld = `$b1.Child.Text -eq 'Remove - sure?' -and `$b1.Child.Foreground.Color -eq (Get-ChatOverlayBrush 'error').Color -and `$C.Status.Text -like 'remove #*'
+`$askHeld = [bool]`$b1 -and `$b1.Child.Text -eq 'Remove - sure?' -and `$b1.Child.Foreground.Color -eq (Get-ChatOverlayBrush 'error').Color -and `$C.Status.Text -like 'remove #*'
 & `$rmUp (`$t0 + 150)
 `$askHeld = `$askHeld -and [bool](Find-ChatqJob `$j.id) -and `$C.Confirm.ContainsKey([string]`$j.id) -and `$C.Status.Text -like 'a double-click*'
 Update-ChatConsoleAsks `$H (& `$tk (`$t0 + 5100))
