@@ -2403,6 +2403,12 @@ function Enter-ChatOverlayConsoleMode {
     if ($H.Dragging -or $H.GripDrag -or $H.SizeDrag) { return }
     if (-not $H.Con) { New-ChatConsole $H }
     $C = $H.Con
+    # its opacity slider to what the panel's box may have set meanwhile
+    if ($C.LookSlider) {
+        $H.SettingsSync = $true
+        try { $C.LookSlider.Value = $w.Opacity; $C.LookText.Text = "$([int][Math]::Round($w.Opacity * 100))%" }
+        finally { $H.SettingsSync = $false }
+    }
     # one that started hidden still sits where it was made, off every screen
     if (-not $H.Placed) { Set-ChatOverlayPlacement $H }
     # A slider not yet at rest is kept now, while the window is still the
@@ -2414,7 +2420,7 @@ function Enter-ChatOverlayConsoleMode {
     if (-not $r) { return }
     $H.PanelWas = @{
         Rect = $r; Width = $w.Width; WidthWas = $w.Width; MaxHeight = $w.MaxHeight; MinWidth = $w.MinWidth; MinHeight = $w.MinHeight
-        Opacity = $w.Opacity; Title = $w.Title; Rows = $H.Ctx.Config.maxRows; Collapsed = $H.Collapsed; Hidden = $H.Hidden
+        Title = $w.Title; Rows = $H.Ctx.Config.maxRows; Collapsed = $H.Collapsed; Hidden = $H.Hidden
     }
     $H.Mode = 'console'
     Hide-ChatOverlayChip $H
@@ -2440,7 +2446,7 @@ function Enter-ChatOverlayConsoleMode {
     $w.Width = $at.W / $px
     $w.Height = $at.H / $px
     $w.ResizeMode = [System.Windows.ResizeMode]::CanResizeWithGrip
-    $w.Opacity = 1
+    # the panel's opacity kept: one look for both, set from either
     $w.Title = 'chatq console'
     $w.Topmost = $false
     # shown activated only for real: the seam's tests never take the keyboard
@@ -2474,6 +2480,9 @@ function Exit-ChatOverlayConsoleMode {
     $w = $H.Win
     $P = $H.PanelWas
     Save-ChatConsoleDraft $H
+    # the console's opacity slider not yet kept, kept while the rect is
+    # still the console's, so no place is taken from it
+    Save-ChatConsoleLook $H
     $H.Mode = 'panel'
     if ($w.WindowState -ne [System.Windows.WindowState]::Normal) { $w.WindowState = [System.Windows.WindowState]::Normal }
     $w.Hide()
@@ -2485,7 +2494,6 @@ function Exit-ChatOverlayConsoleMode {
     $w.MinHeight = $P.MinHeight
     $w.Width = $P.Width
     $w.MaxHeight = $P.MaxHeight
-    $w.Opacity = $P.Opacity
     $w.Title = $P.Title
     $w.Topmost = $true
     $w.ShowActivated = $false
@@ -2521,6 +2529,8 @@ function Exit-ChatOverlayConsoleMode {
     if ($H.State -and ($H.State.x -ne $x -or $H.State.y -ne $P.Rect[1])) { Save-ChatOverlayPlace $H }
     # an unlocked panel locks itself 2 minutes from now, not from before
     if (-not $H.Locked) { $H.LeftAt = Get-Date }
+    # the settings box's slider to an opacity the console set
+    Sync-ChatOverlaySettings $H
     Update-ChatOverlayMenu $H
 }
 
@@ -2815,7 +2825,6 @@ function Invoke-ChatOverlayVerb {
                 # comes back (Exit-ChatOverlayConsoleMode)
                 $H.PanelWas.Width = [double]$H.Ctx.Config.width
                 $H.PanelWas.Rows = $H.Ctx.Config.maxRows
-                $H.PanelWas.Opacity = $H.Ctx.Config.opacity
             }
             else {
                 # the width as the settings box sets it: the right edge held
@@ -2823,8 +2832,9 @@ function Invoke-ChatOverlayVerb {
                 # rows as the redraw below draws them
                 Set-ChatOverlayWidth $H $H.Ctx.Config.width
                 Save-ChatOverlayPlace $H
-                $H.Win.Opacity = $H.Ctx.Config.opacity
             }
+            # one opacity for the panel and the console
+            $H.Win.Opacity = $H.Ctx.Config.opacity
             Register-ChatOverlayHotkey $H
             Register-ChatConsoleHotkey $H
             $H.ViewKey = $null

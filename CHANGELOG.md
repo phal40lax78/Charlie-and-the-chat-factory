@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- **The console moves from anywhere on its header.** A press on the
+  header's padding, its grip or its counts drags the window; only its
+  controls keep the press. Before, only the counts' own text took it.
+- **One look for the panel and the console.** The console opens at the
+  panel's opacity instead of fully opaque, and its header has the panel's
+  **Opacity** slider and **Theme** chips: a change made there is the
+  panel's when it comes back, kept in config.json, and the settings box
+  shows it.
+
 ## 0.9.0 — the overlay and permissions on the phone, cut-off chats continued, updates that wait
 
 Five pieces of work land together: the phone gets the overlay, Claude's

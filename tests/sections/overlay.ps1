@@ -1865,6 +1865,16 @@ if (`$cxItem) {
 `$H.Ctx.Config.theme = 'light'
 Update-ChatOverlayTheme `$H
 `$kept = `$C.Prompt.Text -eq 'kept across a theme' -and `$C.Root.Background.Color.ToString() -eq '#FFF6F8FA' -and `$H.Mode -eq 'console' -and `$H.Win.Content -eq `$C.Root
+# the header moves the window from anywhere on it but its controls; the
+# look in it is the panel's: the console opens at the panel's opacity, and
+# one set in the console is the window's, kept, and the panel's box's
+`$keep = @(`$C.BackBtn, `$C.Look)
+`$dragOk = (Test-ChatConsoleDragFrom `$C.Header `$C.Bar `$keep) -and (Test-ChatConsoleDragFrom `$C.Bar `$C.Bar `$keep) -and
+    -not (Test-ChatConsoleDragFrom `$C.BackBtn.Child `$C.Bar `$keep) -and -not (Test-ChatConsoleDragFrom `$C.LookSlider `$C.Bar `$keep) -and -not (Test-ChatConsoleDragFrom `$C.Prompt `$C.Bar `$keep)
+`$opWas = `$H.Win.Opacity
+`$lookOk = `$opWas -eq (Get-ChatOverlayConfig).opacity -and `$C.LookSlider.Value -eq `$opWas
+`$C.LookSlider.Value = 0.6
+`$lookOk = `$lookOk -and `$H.Win.Opacity -eq 0.6 -and `$C.LookText.Text -eq '60%'
 # Esc, as the prompt box would have it: back to the panel exactly as it was
 `$src = [System.Windows.PresentationSource]::FromVisual(`$H.Win)
 `$kd = [System.Windows.Input.KeyEventArgs]::new([System.Windows.Input.Keyboard]::PrimaryDevice, `$src, 0, [System.Windows.Input.Key]::Escape)
@@ -1872,6 +1882,11 @@ Update-ChatOverlayTheme `$H
 `$C.Prompt.RaiseEvent(`$kd)
 `$afterEsc = & `$panelSays
 `$escOk = `$afterEsc -eq `$was
+`$lookOk = `$lookOk -and `$H.Win.Opacity -eq 0.6 -and (Get-ChatOverlayConfig).opacity -eq 0.6 -and `$H.OpacitySlider.Value -eq 0.6
+`$lookSay = "was `$opWas now `$(`$H.Win.Opacity) config `$((Get-ChatOverlayConfig).opacity) box `$(`$H.OpacitySlider.Value) drag `$dragOk"
+Set-ChatOverlayConfig @{ opacity = `$opWas }
+`$H.Ctx.Config = Get-ChatOverlayConfig
+`$H.Win.Opacity = `$opWas
 `$st = Read-ChatConsoleState
 `$saved = `$st.draft.text -eq 'kept across a theme' -and `$st.draft.target.Id -eq '$idCard' -and `$H.Mode -eq 'panel'
 # the size kept, not the place: back at that size next time
@@ -1964,9 +1979,9 @@ Invoke-ChatOverlayVerb 'stop'
 `$verbSay = "`$(`$verbSay -join ' ') `$shownHidden `$(`$H.Mode)"
 if (`$j -and (Find-ChatqJob `$j.id)) { `$null = Remove-ChatqJob `$j 'test' }
 `$modeSay = "was [`$was] esc [`$afterEsc] back [`$afterBack] close [`$afterClose] console ex `$ex rect `$(`$cr -join ',') again `$(`$again -join ',') panel `$(`$p0 -join ',') m11 `$m11 saved `$(`$st.w)x`$(`$st.h) view `$viewOk"
-'{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}|{9}|{10}|{11}|{12}|{13}|{14}|{15}|{16}|{17}|{18}|{19}|{20}|{21}|{22}|{23}|{24}|{25}|{26}|{27}|{28}|{29}|{30}|{31}|{32}|{33}' -f `$modeOk, `$kinds, `$searched, `$to, `$staged, `$sent, `$kept, `$saved, `$folderSaid, `$files, `$editKept, `$askHeld, `$removed, `$contOnce, `$codexOpts, `$codexSent, `$contSay, `$idxRead, `$idxSay,
+'{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}|{9}|{10}|{11}|{12}|{13}|{14}|{15}|{16}|{17}|{18}|{19}|{20}|{21}|{22}|{23}|{24}|{25}|{26}|{27}|{28}|{29}|{30}|{31}|{32}|{33}|{34}|{35}' -f `$modeOk, `$kinds, `$searched, `$to, `$staged, `$sent, `$kept, `$saved, `$folderSaid, `$files, `$editKept, `$askHeld, `$removed, `$contOnce, `$codexOpts, `$codexSent, `$contSay, `$idxRead, `$idxSay,
     `$viewOk, `$escOk, `$backOk, `$closeOk, `$verbsOk, `$sizeOk, `$verbSay, `$modeSay, `$rowsOk, `$pickOk, (`$rowSay -replace '\|', '/'), `$roundOk, `$placeOk, `$minOk,
-    ("round [`$(`$script:roundBad -join ' / ')] place [`$placeSay] min [`$minSay]" -replace '\|', '/')
+    ("round [`$(`$script:roundBad -join ' / ')] place [`$placeSay] min [`$minSay]" -replace '\|', '/'), (`$dragOk -and `$lookOk), (`$lookSay -replace '\|', '/')
 "@
 $conOut = Invoke-Sta 'console-test' $con
 $cp = "$conOut" -split '\|'
@@ -1985,6 +2000,7 @@ Check 'a click on a chat in the console''s list picks it: the accent''s bar on t
 Check 'it lists the chats the limit cut off and those open in VS Code; the search narrows them' ($cp[1] -like '*cutoff*' -and $cp[1] -like '*open*' -and $cp[2] -eq '1') "$conOut"
 Check 'a chat picked is the one written to; a file dropped and a screenshot pasted go with it, a folder does not' ($cp[3] -like 'To*Card*' -and $cp[4] -eq 'clip.png,console-drop.txt' -and $cp[8] -eq 'True') "$conOut"
 Check 'Send makes the job chatq would - first, sent now, files moved in - and clears the box for the next' ($cp[5] -eq 'True') "$conOut"
+Check 'the console''s header moves the window from anywhere but its controls; its opacity is the panel''s, set from either and kept' ($cp.Count -gt 35 -and $cp[34] -eq 'True') "$($cp[35])"
 Check 'a theme switch keeps what is typed, in the console''s mode still; going back keeps the draft for next time' ($cp[6] -eq 'True' -and $cp[7] -eq 'True') "$conOut"
 Check 'a queued prompt being edited outlives a redraw of the queue' ($cp[10] -eq 'True') "$conOut"
 Check 'Remove asks, a double-click does not answer, a second click does' ($cp[11] -eq 'True' -and $cp[12] -eq 'True') "$conOut"

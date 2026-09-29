@@ -1476,8 +1476,12 @@ overlay's own window, so `chatconsole` starts the overlay if that is not
 running. While it is the console it is an ordinary window: it takes the
 keyboard, has a taskbar button and a place in Alt+Tab, and is not kept on top,
 so other windows can cover it and files can be dragged in from Explorer. Its
-header moves it, and the grip at its bottom-right corner resizes it. The
-overlay's buttons and the open chip stay away meanwhile.
+header moves it - press anywhere on it but its controls and drag - and the
+grip at its bottom-right corner resizes it. The header has the panel's
+**Opacity** and **Theme** too: they are the same settings as the panel's box,
+so the console opens at the panel's opacity and look, and a change made in
+either is the other's. The overlay's buttons and the open chip stay away
+meanwhile.
 
 **Back to the panel:** **Esc**, **← Panel** at the header's right, the console
 hotkey again while the console is in front, or Alt+F4. The panel comes back
