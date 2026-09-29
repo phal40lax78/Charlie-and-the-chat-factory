@@ -317,6 +317,9 @@ $null = Set-ChatqNotifyConfig @{ ReplyMaxMode = 'auto' }
 $jb2 = Find-ChatqJob $jb.id
 Set-ChatqProp $jb2 'mode' 'bypassPermissions'
 Complete-ChatqJob $jb2 'needs-input' ([pscustomobject]@{ kind = 'needs-input'; reason = 'again' }) 'asked'
+# each stop its own alert: one about the job before would answer nothing
+$null = Send-ChatqAlert 'needs input' 'x' 2 -Job $jb2
+$a4 = (& $phLastJoin).F['a']
 $txt = & $phSay 'phallowcap' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $a4 -Act allow)
 $jb3 = Find-ChatqJob $jb.id
 Check 'allow on a bypassPermissions job, the cap set to auto: requeued in auto' ($jb3.state -eq 'queued' -and $jb3.mode -eq 'auto' -and $txt -like '*in auto*') "$($jb3.state) $($jb3.mode) / $txt"
@@ -326,9 +329,13 @@ Check 'a mode cap that is no mode is refused' ($bad.Error -and (Get-ChatqReplyCo
 Set-ChatqProp $jb3 'mode' $null
 Set-ChatqProp $jb3 'modeAtQueue' 'plan'
 Complete-ChatqJob $jb3 'needs-input' ([pscustomobject]@{ kind = 'needs-input'; reason = 'wanted to edit' }) 'asked'
+$null = Send-ChatqAlert 'needs input' 'x' 2 -Job $jb3
+$a4 = (& $phLastJoin).F['a']
 $txt = & $phSay 'phallow1' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $a4 -Act allow)
 $jb4 = Find-ChatqJob $jb.id
 Check 'allow: a plan-mode job goes back in the queue in acceptEdits' ($jb4.state -eq 'queued' -and $jb4.mode -eq 'acceptEdits' -and $txt -like "#$($jb.seq) queued again in acceptEdits*") "$($jb4.state) $($jb4.mode) / $txt"
+# the push that said so is about the job queued: allow from it meets the job's state
+$a4 = (& $phLastJoin).F['a']
 $txt = & $phSay 'phallow3' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $a4 -Act allow)
 Check 'allow on a job that does not need input says so' ($txt -like '*allow is for a job that needs input*') $txt
 $cxRow = Get-ChatqRowById -Id $cxId -Provider codex
@@ -345,7 +352,9 @@ $txt = & $phSay 'phretrycodex' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $ac 
 $jc3 = Find-ChatqJob $jc.id
 Check 'retry of a Codex job with full access requeues it in workspace-write' ($jc3.state -eq 'queued' -and $jc3.sandbox -eq 'workspace-write' -and
     $txt -like "#$($jc.seq) queued again (*) - runs in workspace-write, the phone's limit") $txt
-# a prompt into a Codex chat that last ran with full access
+# a prompt into a Codex chat that last ran with full access - from the push
+# about its requeue, the job as it is now
+$ac = (& $phLastJoin).F['a']
 $phInfoFn = ${function:Get-ChatqJobInfo}
 ${function:Get-ChatqJobInfo} = { param($Row) $i = & $phInfoFn $Row; if ($Row.Provider -eq 'codex') { $i.Sandbox = 'danger-full-access'; $i.Mode = 'danger-full-access' }; $i }
 try { $txt = & $phSay 'phcodexprompt' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $ac -Act prompt -Text 'codex from the phone') }
@@ -395,12 +404,14 @@ Remove-Item -LiteralPath $phPasted -Force -EA SilentlyContinue
 
 $txt = & $phSay 'phskip' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $a4 -Act skip)
 Check 'skip: a queued job is skipped from the phone' ((Find-ChatqJob $jb.id).state -eq 'skipped' -and (Find-ChatqJob $jb.id).result.reason -eq 'skipped from the phone' -and $txt -eq "#$($jb.seq) skipped") $txt
+$a4 = (& $phLastJoin).F['a']
 $txt = & $phSay 'phretry' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $a4 -Act retry)
 Check 'retry on a skipped job says why not' ($txt -like '*is skipped - nothing to retry*' -and (Find-ChatqJob $jb.id).state -eq 'skipped') $txt
 $txt = & $phSay 'phstop' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $a4 -Act stop)
 Check 'stop on a job that is not running says so' ($txt -like '*nothing to stop*') $txt
 # running with no watcher alive to read a cancel file: marked failed at once
 Set-ChatqJobState (Find-ChatqJob $jc.id) 'running' 'test'
+$ac = (New-ChatqReplyAlert -Event 'started' -Job (Find-ChatqJob $jc.id) -Rc $rc).Aid
 $txt = & $phSay 'phstoprun' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $ac -Act stop)
 Check 'stop on a running job whose watcher is gone: marked failed' ($txt -like "#$($jc.seq) marked failed*" -and (Find-ChatqJob $jc.id).state -eq 'failed') "$txt / $((Find-ChatqJob $jc.id).state)"
 $stx = & $phSay 'phstatus' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $a4 -Act status)
@@ -495,6 +506,239 @@ $null = Use-ChatqReplyState { param($s) $s.alerts[$a4].uses = 20 }
 $n0 = @(Get-ChatqJobs).Count
 $txt = & $phSay 'phused' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $a4 -Act prompt -Text 'one more')
 Check 'an alert answered 20 times takes no more' ($txt -like '*20 times*' -and @(Get-ChatqJobs).Count -eq $n0) $txt
+
+# --- a chat or a job that went on at the PC since the alert ----------------------------
+# a prompt typed at the PC, as Claude Code writes one; now, after the alert
+$phTyped = {
+    param([string]$Path, [string]$Id, [string]$Text, [string]$Mode = 'default', [datetime]$At = (Get-Date))
+    Start-Sleep -Milliseconds 30
+    $u = [ordered]@{ parentUuid = $null; isSidechain = $false; type = 'user'; message = [ordered]@{ role = 'user'; content = $Text }
+        uuid = [guid]::NewGuid().ToString(); timestamp = $At.ToUniversalTime().ToString('o'); permissionMode = $Mode; cwd = $projA; sessionId = $Id }
+    [System.IO.File]::AppendAllText($Path, ($u | ConvertTo-Json -Compress -Depth 6) + "`n", $utf8)
+    Start-Sleep -Milliseconds 30
+}
+$idMv = '4a4a4a4a-4a4a-44a4-84a4-4a4a4a4a4a4a'
+$pMv = New-FakeChat $projA $idMv 'Moved chat' 2 @('start it') -Mode 'default'
+$rowMv = Get-ChatqRowById -Id $idMv -Provider claude -Path $pMv
+$jMv = (New-ChatqJob -Row $rowMv -Prompt 'first run' -Kind prompt).Job
+Set-ChatqProp $jMv 'mode' 'acceptEdits'
+Complete-ChatqJob $jMv 'done' ([pscustomobject]@{ kind = 'done' }) 'finished'
+$null = Send-ChatqAlert 'done' 'x' 1 -Job $jMv
+$aMv = (& $phLastJoin).F['a']
+$eMv = (Get-ChatqReplyState).alerts[$aMv]
+Check 'an alert keeps its job as it showed it: how many runs, the state, when it ended' ($eMv.mark -eq "0|done|$(ConvertTo-ChatOverlayMs (ConvertTo-ChatqDate $jMv.endedAt))" -and
+    -not $eMv.ContainsKey('seen')) "$($eMv.mark)"
+$c0 = @(Get-ChatqJobs).Count
+$txt = & $phSay 'phmv1' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $aMv -Act prompt -Text 'and then this')
+Check 'nothing typed into its chat since: a prompt from the alert is queued' ($txt -like 'queued #*' -and @(Get-ChatqJobs).Count -eq $c0 + 1) $txt
+& $phTyped $pMv $idMv 'carry on here' 'plan'
+$c0 = @(Get-ChatqJobs).Count
+$txt = & $phSay 'phmv2' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $aMv -Act prompt -Text 'written before that')
+$jr = & $phLastJoin
+Check 'a prompt typed at the PC since the alert: nothing queued, and the push says so - with a link about the chat as it is now' (
+    $txt -eq "$($jMv.title) moved on at the PC since that alert - nothing queued; answer this push if it still stands" -and @(Get-ChatqJobs).Count -eq $c0 -and
+    $jr.Q.ContainsKey('url') -and $jr.F['a'] -ne $aMv -and $jr.F['n'] -eq "$($jMv.seq)") $txt
+$txt = & $phSay 'phmv3' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $jr.F['a'] -Act prompt -Text 'still meant')
+$nMv = @(Get-ChatqJobs | Where-Object { (Read-ChatqPrompt $_) -eq 'still meant' })[0]
+Check 'answered from that push, it goes - in plan, the mode the PC left the chat in, not the old job''s acceptEdits' ($nMv -and $nMv.mode -eq 'plan' -and
+    $txt -eq "queued #$($nMv.seq) for $($nMv.title) - runs in plan, the chat's own at the PC") "$($nMv.mode) / $txt"
+# the job queued again at the PC, then stopped again on something else
+$jNi = (New-ChatqJob -Row $rowMv -Prompt 'needs a yes' -Kind prompt).Job
+Complete-ChatqJob $jNi 'needs-input' ([pscustomobject]@{ kind = 'needs-input'; reason = 'asked to edit' }) 'asked'
+$null = Send-ChatqAlert 'needs input' 'x' 2 -Job $jNi
+$aNi = (& $phLastJoin).F['a']
+$null = Reset-ChatqJob (Find-ChatqJob $jNi.id -Exact)
+$txt = & $phSay 'phmv4' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $aNi -Act allow)
+$jNi2 = Find-ChatqJob $jNi.id -Exact
+Check 'allow on an alert whose job was queued again at the PC since: nothing allowed, its mode as it was' ($txt -eq "#$($jNi.seq) is queued now, not as that alert saw it - nothing to allow" -and
+    $jNi2.state -eq 'queued' -and -not $jNi2.mode) $txt
+$txt = & $phSay 'phmv4s' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $aNi -Act skip)
+Check 'nor is that requeue skipped from the old alert' ($txt -eq "#$($jNi.seq) is queued now, not as that alert saw it - nothing to skip" -and (Find-ChatqJob $jNi.id -Exact).state -eq 'queued') $txt
+Set-ChatqProp $jNi2 'attempts' 1
+Complete-ChatqJob $jNi2 'needs-input' ([pscustomobject]@{ kind = 'needs-input'; reason = 'asked again, for another thing' }) 'asked'
+$c0 = @(Get-ChatqJobs).Count
+$txt = & $phSay 'phmv5' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $aNi -Act allow)
+$txtP = & $phSay 'phmv5p' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $aNi -Act prompt -Text 'yes, that')
+Check 'run again and stopped on another thing: allow, or a prompt, from the alert about the first stop answers nothing' (
+    $txt -eq "#$($jNi.seq) is needs-input now, not as that alert saw it - nothing to allow" -and
+    $txtP -like "#$($jNi.seq) is needs-input now, not as that alert saw it - nothing queued*" -and
+    (Find-ChatqJob $jNi.id -Exact).state -eq 'needs-input' -and -not (Find-ChatqJob $jNi.id -Exact).mode -and @(Get-ChatqJobs).Count -eq $c0) "$txt / $txtP"
+# answered in its chat at the PC: closed, as the overlay would close it
+$null = Send-ChatqAlert 'needs input' 'x' 2 -Job (Find-ChatqJob $jNi.id -Exact)
+$aNi2 = (& $phLastJoin).F['a']
+& $phTyped $pMv $idMv 'the answer, typed at the PC'
+$txt = & $phSay 'phmv6' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $aNi2 -Act retry)
+$jNi3 = Find-ChatqJob $jNi.id -Exact
+Check 'retry on a job answered in its chat at the PC since: nothing sent, and the job is closed as answered there' (
+    $txt -eq "#$($jNi.seq) was answered in the chat at the PC and is closed - nothing to retry" -and $jNi3.state -eq 'skipped' -and
+    $jNi3.result.reason -eq 'answered in the chat') "$txt / $($jNi3.state) $($jNi3.result.reason)"
+# a started alert: its own run writes the chat, and a stop is for that run only
+$jSt = (New-ChatqJob -Row $rowMv -Prompt 'a long run' -Kind prompt).Job
+Set-ChatqProp $jSt 'attempts' 1
+Set-ChatqJobState $jSt 'running' 'attempt 1'
+$raSt = New-ChatqReplyAlert -Event 'started' -Job (Find-ChatqJob $jSt.id -Exact) -Rc $rc
+& $phTyped $pMv $idMv 'a long run'
+$txt = & $phSay 'phmv7' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $raSt.Aid -Act prompt -Text 'after that, this')
+Check 'a prompt from a started alert while its run goes on, the run''s own prompt landed since: queued' ($txt -like 'queued #*') $txt
+Complete-ChatqJob (Find-ChatqJob $jSt.id -Exact) 'done' ([pscustomobject]@{ kind = 'done' }) 'finished'
+$txt = & $phSay 'phmv8' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $raSt.Aid -Act prompt -Text 'and after it ended')
+Check 'that run ended since, nothing typed after it: still queued' ($txt -like 'queued #*') $txt
+$jSt2 = Find-ChatqJob $jSt.id -Exact
+Set-ChatqProp $jSt2 'attempts' 2
+Set-ChatqJobState $jSt2 'running' 'attempt 2'
+$txt = & $phSay 'phmv9' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $raSt.Aid -Act stop)
+$txtP = & $phSay 'phmv9p' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $raSt.Aid -Act prompt -Text 'one more')
+Check 'run again since: a stop from the alert about the first run stops nothing, and a prompt from it queues nothing' (
+    $txt -eq "#$($jSt.seq) is running now, not as that alert saw it - nothing to stop" -and $txtP -like "#$($jSt.seq) is running now, not as that alert saw it - nothing queued*" -and
+    (Find-ChatqJob $jSt.id -Exact).state -eq 'running' -and -not (Test-Path -LiteralPath (Join-Path $script:ChatqQueueDir "$($jSt.id).cancel"))) "$txt / $txtP"
+Complete-ChatqJob (Find-ChatqJob $jSt.id -Exact) 'failed' ([pscustomobject]@{ kind = 'failed'; reason = 'test' }) 'test'
+# the watcher's own requeue is no one going on; a stop on a question is
+$jAu = (New-ChatqJob -Row $rowMv -Prompt 'cut by the limit' -Kind prompt).Job
+Set-ChatqProp $jAu 'attempts' 1
+Set-ChatqJobState $jAu 'running' 'attempt 1'
+$raAu = New-ChatqReplyAlert -Event 'started' -Job (Find-ChatqJob $jAu.id -Exact) -Rc $rc
+& $phTyped $pMv $idMv 'cut by the limit'
+Set-ChatqJobState (Find-ChatqJob $jAu.id -Exact) 'queued' 'limited mid-run, continues at 14:00'
+$txt = & $phSay 'phmvau' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $raAu.Aid -Act prompt -Text 'after the reset, this')
+Check 'put back in the queue by a limit, its end unchanged: a prompt from its started alert still goes' ($txt -like 'queued #*') $txt
+$jQn = (New-ChatqJob -Row $rowMv -Prompt 'will ask' -Kind prompt).Job
+Set-ChatqProp $jQn 'attempts' 1
+Set-ChatqJobState $jQn 'running' 'attempt 1'
+$raQn = New-ChatqReplyAlert -Event 'started' -Job (Find-ChatqJob $jQn.id -Exact) -Rc $rc
+& $phTyped $pMv $idMv 'will ask'
+Complete-ChatqJob (Find-ChatqJob $jQn.id -Exact) 'needs-input' ([pscustomobject]@{ kind = 'needs-input'; reason = 'asked' }) 'asked'
+$c0 = @(Get-ChatqJobs).Count
+$txt = & $phSay 'phmvqn' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $raQn.Aid -Act prompt -Text 'yes')
+Check 'that run stopped on a question since: a prompt from its started alert answers nothing, the job left waiting' ($txt -like "#$($jQn.seq) is needs-input now, not as that alert saw it*" -and
+    (Find-ChatqJob $jQn.id -Exact).state -eq 'needs-input' -and @(Get-ChatqJobs).Count -eq $c0) $txt
+Complete-ChatqJob (Find-ChatqJob $jQn.id -Exact) 'skipped' ([pscustomobject]@{ kind = 'skipped'; reason = 'test' }) 'test'
+# typed at the PC before the job's own run began: seen, the run's prompt not
+$jPr = (New-ChatqJob -Row $rowMv -Prompt 'queued behind the PC' -Kind prompt).Job
+$raPr = New-ChatqReplyAlert -Event 'reply' -Job $jPr -Rc $rc
+& $phTyped $pMv $idMv 'typed before the job ran'
+Set-ChatqProp $jPr 'attempts' 1
+Set-ChatqJobState $jPr 'running' 'attempt 1'
+& $phTyped $pMv $idMv 'queued behind the PC'
+$txt = & $phSay 'phmvpr' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $raPr.Aid -Act prompt -Text 'from before all that')
+Check 'a prompt typed at the PC before the job ran: seen while the job runs, not hidden by the run''s own' ($txt -like '* moved on at the PC since that alert - nothing queued*') $txt
+Complete-ChatqJob (Find-ChatqJob $jPr.id -Exact) 'done' ([pscustomobject]@{ kind = 'done' }) 'test'
+# a long turn after the prompt: hundreds of KB of tool results, past 64 of them
+$null = Send-ChatqAlert 'done' 'x' 1 -Job (Find-ChatqJob $jPr.id -Exact)
+$aLong = (& $phLastJoin).F['a']
+& $phTyped $pMv $idMv 'a long job at the PC'
+$lb = [System.Text.StringBuilder]::new()
+foreach ($i in 1..80) {
+    $tr = [ordered]@{ parentUuid = $null; isSidechain = $false; type = 'user'; message = [ordered]@{ role = 'user'; content = @([ordered]@{ type = 'tool_result'; tool_use_id = "t$i"; content = ('z' * 5000) }) }
+        uuid = [guid]::NewGuid().ToString(); timestamp = (Get-Date).ToUniversalTime().ToString('o'); cwd = $projA; sessionId = $idMv }
+    [void]$lb.AppendLine(($tr | ConvertTo-Json -Compress -Depth 8))
+}
+[System.IO.File]::AppendAllText($pMv, $lb.ToString(), $utf8)
+$c0 = @(Get-ChatqJobs).Count
+$txt = & $phSay 'phmvlong' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $aLong -Act prompt -Text 'about the old answer')
+Check 'a prompt at the PC followed by 400 KB and 80 tool results: still seen, nothing queued' ($txt -like '* moved on at the PC since that alert - nothing queued*' -and @(Get-ChatqJobs).Count -eq $c0) $txt
+# a job closed as answered in its chat: a prompt after it in the chat's own mode
+$jAc = (New-ChatqJob -Row $rowMv -Prompt 'edit it' -Kind prompt).Job
+Set-ChatqProp $jAc 'mode' 'acceptEdits'
+Complete-ChatqJob $jAc 'needs-input' ([pscustomobject]@{ kind = 'needs-input'; reason = 'asked' }) 'asked'
+$null = Send-ChatqAlert 'needs input' 'x' 2 -Job $jAc
+$aAc = (& $phLastJoin).F['a']
+& $phTyped $pMv $idMv 'answered here, in plan' 'plan'
+$txt = & $phSay 'phmvac' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $aAc -Act prompt -Text 'go on')
+$aAc2 = (& $phLastJoin).F['a']
+$txt2 = & $phSay 'phmvac2' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $aAc2 -Act prompt -Text 'go on, then')
+$nAc = @(Get-ChatqJobs | Where-Object { (Read-ChatqPrompt $_) -eq 'go on, then' })[0]
+Check 'answered in the chat and closed: the prompt from the push after goes in plan, the chat''s own, not the job''s acceptEdits' (
+    $txt -like "#$($jAc.seq) was answered in the chat at the PC and is closed*" -and $nAc -and $nAc.mode -eq 'plan') "$txt / $txt2 / $($nAc.mode)"
+Check 'a job''s end keeps its chat''s transcript length (endLen)' ((Find-ChatqJob $jAc.id -Exact).endLen -gt 0 -and
+    (Find-ChatqJob $jAc.id -Exact).endLen -le (Get-Item -LiteralPath $pMv).Length) "$((Find-ChatqJob $jAc.id -Exact).endLen)"
+# what else counts, or not, as the chat going on - each after a fresh alert on a chat of its own
+$phLine = { param([string]$Path, $Rec) Start-Sleep -Milliseconds 30; [System.IO.File]::AppendAllText($Path, ($Rec | ConvertTo-Json -Compress -Depth 8) + "`n", $utf8); Start-Sleep -Milliseconds 30 }
+$phFresh = {
+    param([string]$Id, [string]$Title)
+    $p = New-FakeChat $projA $Id $Title 2 @('begin') -Mode 'default'
+    $j = (New-ChatqJob -Row (Get-ChatqRowById -Id $Id -Provider claude -Path $p) -Prompt 'the job' -Kind prompt).Job
+    Complete-ChatqJob $j 'done' ([pscustomobject]@{ kind = 'done' }) 'finished'
+    $null = Send-ChatqAlert 'done' 'x' 1 -Job $j
+    [pscustomobject]@{ Path = $p; Job = $j; Aid = (& $phLastJoin).F['a'] }
+}
+$phNow = { (Get-Date).ToUniversalTime().ToString('o') }
+$fq = & $phFresh '4c4c4c4c-4c4c-44c4-84c4-4c4c4c4c4c4c' 'Queued chat'
+Check 'an alert keeps its chat''s transcript length (len)' ((Get-ChatqReplyState).alerts[$fq.Aid].len -eq (Get-Item -LiteralPath $fq.Path).Length) "$((Get-ChatqReplyState).alerts[$fq.Aid].len)"
+& $phLine $fq.Path ([ordered]@{ parentUuid = $null; isSidechain = $false; attachment = [ordered]@{ type = 'queued_command'; prompt = 'typed while it worked'; commandMode = 'prompt'; origin = @{ kind = 'human' } }
+    type = 'attachment'; uuid = [guid]::NewGuid().ToString(); timestamp = (& $phNow); sessionId = '4c4c4c4c-4c4c-44c4-84c4-4c4c4c4c4c4c' })
+$txt = & $phSay 'phqc' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $fq.Aid -Act prompt -Text 'from the old view')
+Check 'a prompt a person queued at the PC while Claude worked (a queued_command) is the chat going on' ($txt -like 'Queued chat moved on at the PC since that alert*') $txt
+$ft = & $phFresh '4d4d4d4d-4d4d-44d4-84d4-4d4d4d4d4d4d' 'Notified chat'
+& $phLine $ft.Path ([ordered]@{ parentUuid = $null; isSidechain = $false; promptId = 'x'; type = 'user'; message = [ordered]@{ role = 'user'; content = 'a background task finished' }
+    uuid = [guid]::NewGuid().ToString(); timestamp = (& $phNow); origin = @{ kind = 'task-notification' }; promptSource = 'system'; sessionId = '4d4d4d4d-4d4d-44d4-84d4-4d4d4d4d4d4d' })
+$txt = & $phSay 'phtn' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $ft.Aid -Act prompt -Text 'go on')
+Check 'a background task''s notice is no one typing: the prompt goes' ($txt -like 'queued #*') $txt
+$fImg = & $phFresh '4e4e4e4e-4e4e-44e4-84e4-4e4e4e4e4e4e' 'Image chat'
+& $phLine $fImg.Path ([ordered]@{ parentUuid = $null; isSidechain = $false; type = 'user'
+    message = [ordered]@{ role = 'user'; content = @([ordered]@{ type = 'image'; source = [ordered]@{ type = 'base64'; media_type = 'image/png'; data = ('A' * 400000) } }, [ordered]@{ type = 'text'; text = 'look at this' }) }
+    uuid = [guid]::NewGuid().ToString(); timestamp = (& $phNow); sessionId = '4e4e4e4e-4e4e-44e4-84e4-4e4e4e4e4e4e' })
+$txt = & $phSay 'phimg' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $fImg.Aid -Act prompt -Text 'about the old answer')
+Check 'a prompt with a pasted image - one line of 400 KB - is seen' ($txt -like 'Image chat moved on at the PC since that alert*') $txt
+$fc = & $phFresh '4f4f4f4f-4f4f-44f4-84f4-4f4f4f4f4f4f' 'Compacted chat'
+& $phTyped $fc.Path '4f4f4f4f-4f4f-44f4-84f4-4f4f4f4f4f4f' 'typed, then compacted'
+$phOld = (Get-Date).AddHours(-3).ToUniversalTime().ToString('o')
+& $phLine $fc.Path ([ordered]@{ type = 'system'; subtype = 'compact_boundary'; uuid = [guid]::NewGuid().ToString(); timestamp = $phOld; sessionId = '4f4f4f4f-4f4f-44f4-84f4-4f4f4f4f4f4f' })
+foreach ($k in 1..3) { & $phLine $fc.Path ([ordered]@{ parentUuid = $null; isSidechain = $false; type = 'user'; message = [ordered]@{ role = 'user'; content = "an old prompt, written again $k" }; uuid = [guid]::NewGuid().ToString(); timestamp = $phOld; sessionId = '4f4f4f4f-4f4f-44f4-84f4-4f4f4f4f4f4f' }) }
+& $phLine $fc.Path ([ordered]@{ parentUuid = $null; isSidechain = $false; type = 'user'; message = [ordered]@{ role = 'user'; content = 'the summary' }; isCompactSummary = $true; uuid = [guid]::NewGuid().ToString(); timestamp = (& $phNow); sessionId = '4f4f4f4f-4f4f-44f4-84f4-4f4f4f4f4f4f' })
+$txt = & $phSay 'phcompact' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $fc.Aid -Act prompt -Text 'about the old answer')
+Check 'a compaction after the prompt, old records written again with their old times: the prompt is still seen' ($txt -like 'Compacted chat moved on at the PC since that alert*') $txt
+# the phone's own job, once it ran, is not the chat going on
+$fp = & $phFresh '5a5a5a5a-5a5a-45a5-85a5-5a5a5a5a5a5a' 'Phone chat'
+$txt = & $phSay 'phown1' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $fp.Aid -Act prompt -Text 'first from the phone')
+$own = @(Get-ChatqJobs | Where-Object { (Read-ChatqPrompt $_) -eq 'first from the phone' })[0]
+Set-ChatqProp $own 'attempts' 1
+Set-ChatqJobState $own 'running' 'attempt 1'
+& $phTyped $fp.Path '5a5a5a5a-5a5a-45a5-85a5-5a5a5a5a5a5a' 'first from the phone'
+Complete-ChatqJob (Find-ChatqJob $own.id -Exact) 'done' ([pscustomobject]@{ kind = 'done' }) 'finished'
+$txt = & $phSay 'phown2' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $fp.Aid -Act prompt -Text 'and a second one')
+Check 'the phone''s own first prompt ran since: a second from the same alert still goes' ($txt -like 'queued #*') $txt
+# a person typing into the chat while the job's own run goes on
+$fh = & $phFresh '5b5b5b5b-5b5b-45b5-85b5-5b5b5b5b5b5b' 'Busy chat'
+$jh2 = (New-ChatqJob -Row (Get-ChatqRowById -Id '5b5b5b5b-5b5b-45b5-85b5-5b5b5b5b5b5b' -Provider claude -Path $fh.Path) -Prompt 'a run' -Kind prompt).Job
+Set-ChatqProp $jh2 'attempts' 1
+Set-ChatqJobState $jh2 'running' 'attempt 1'
+$raH = New-ChatqReplyAlert -Event 'started' -Job (Find-ChatqJob $jh2.id -Exact) -Rc $rc
+& $phLine $fh.Path ([ordered]@{ parentUuid = $null; isSidechain = $false; type = 'user'; message = [ordered]@{ role = 'user'; content = 'stop, do this instead' }
+    uuid = [guid]::NewGuid().ToString(); timestamp = (& $phNow); origin = @{ kind = 'human' }; sessionId = '5b5b5b5b-5b5b-45b5-85b5-5b5b5b5b5b5b' })
+$txt = & $phSay 'phhuman' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $raH.Aid -Act prompt -Text 'queue this after')
+Check 'a person typing at the PC during the job''s own run is the chat going on, however the times fall' ($txt -like '* moved on at the PC since that alert*') $txt
+Complete-ChatqJob (Find-ChatqJob $jh2.id -Exact) 'failed' ([pscustomobject]@{ kind = 'failed'; reason = 'test' }) 'test'
+# the words older than the push - an alert the outbox held: judged from then
+$idSn = '4b4b4b4b-4b4b-44b4-84b4-4b4b4b4b4b4b'
+$pSn = New-FakeChat $projA $idSn 'Held chat' 2 @('begin') -Mode 'default'
+$liveSn = ConvertTo-ChatqLiveJob @{ sessionId = $idSn; title = 'Held chat'; path = $pSn; cwd = $projA; home = $null }
+& $phTyped $pSn $idSn 'typed while the alert waited' 'default' (Get-Date).AddMinutes(-5)
+$null = Send-ChatqAlert 'done' 'x' 1 -Job $liveSn -SeenAt (Get-Date).AddMinutes(-10)
+$aSn = (& $phLastJoin).F['a']
+$c0 = @(Get-ChatqJobs).Count
+$txt = & $phSay 'phseen' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $aSn -Act prompt -Text 'about what it said')
+Check 'an alert whose words are older than its push (-SeenAt): a prompt typed between the two is the chat moving on' ((Get-ChatqReplyState).alerts[$aSn].seen -and
+    $txt -like 'Held chat moved on at the PC since that alert - nothing queued*' -and @(Get-ChatqJobs).Count -eq $c0) $txt
+# sealed long before it came: half an hour for anything that changes, ten minutes for a look
+$null = Send-ChatqAlert 'done' 'x' 1 -Job $liveSn
+$aLt = (& $phLastJoin).F['a']
+$c0 = @(Get-ChatqJobs).Count
+$txt = & $phSay 'phlate1' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $aLt -Act prompt -Text 'sent from the train' -Ts ([DateTimeOffset]::UtcNow.AddMinutes(-31).ToUnixTimeMilliseconds()))
+Check 'a prompt sealed 31 minutes before it came: too old, nothing queued' ($txt -like '*too old*' -and @(Get-ChatqJobs).Count -eq $c0 -and
+    (& $phLog) -like '*phlate1 refused - too old: sent 18* s ago*') $txt
+$null = Send-ChatqAlert 'done' 'x' 1 -Job $liveSn
+$aLt2 = (& $phLastJoin).F['a']
+$txt = & $phSay 'phlate2' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $aLt2 -Act status -Ts ([DateTimeOffset]::UtcNow.AddMinutes(-11).ToUnixTimeMilliseconds()))
+$txt2 = & $phSay 'phlate3' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $aLt2 -Act prompt -Text 'on the way' -Ts ([DateTimeOffset]::UtcNow.AddMinutes(-29).ToUnixTimeMilliseconds()))
+Check 'a status 11 minutes old is too old; a prompt 29 minutes old still goes' ($txt -like '*too old*' -and $txt2 -like 'queued #*') "$txt / $txt2"
+# these chats, written to just now, out of the way of the sections after:
+# the phone's list shows the 30 newest
+$mvChats = @{ $idMv = $pMv; $idSn = $pSn }
+foreach ($f in @($fq, $ft, $fImg, $fc, $fp, $fh)) { $mvChats[[string]$f.Job.sessionId] = $f.Path }
+foreach ($sidX in @($mvChats.Keys)) {
+    foreach ($j in @(Get-ChatqJobs | Where-Object { $_.sessionId -eq $sidX })) { $null = Remove-ChatqJob $j 'test' }
+    Remove-Item -LiteralPath $mvChats[$sidX] -Force -EA SilentlyContinue
+}
 
 # --- the lock, and nothing done that was not saved first ---------------------------
 $null = Send-ChatqAlert 'done' 'x' 1 -Job $new

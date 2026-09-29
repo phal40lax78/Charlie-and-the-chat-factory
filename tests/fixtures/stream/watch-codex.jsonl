@@ -1,0 +1,8 @@
+{"type":"thread.started","thread_id":"{{SESSION}}"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"item_0","type":"command_execution","command":"git status\ngit diff","status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_0","type":"command_execution","command":"git status\ngit diff","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"npm test","exit_code":1,"status":"failed"}}
+{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"The build fails."}}
+{"type":"turn.failed","error":{"message":"stream disconnected"}}
+{"type":"error","message":"Reconnecting... 1/5"}

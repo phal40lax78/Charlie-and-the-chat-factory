@@ -1,18 +1,18 @@
 {
-    "name": "vs-code-chat-manager",
-    "displayName": "VS Code Chat Manager",
-    "description": "Find, delete and archive Claude Code, Codex and Copilot chats; queue prompts for when the usage limit resets; see every running chat in an always-on-top overlay. Installs its PowerShell commands and keeps them up to date.",
-    "version": "0.9.0",
+    "name": "claude-codex-chat-manager",
+    "displayName": "Chat Manager for Claude Code & Codex",
+    "description": "Mission control for your AI chats: every Claude Code chat on one always-on-top board and your phone, prompts queued for the usage reset. Codex and Copilot too.",
+    "version": "0.10.0",
     "publisher": "redaechan",
     "license": "MIT",
     "icon": "icon.png",
     "repository": {
         "type": "git",
-        "url": "https://github.com/phal40lax78/VS-code-chat-manager"
+        "url": "https://github.com/phal40lax78/claude-codex-chat-manager"
     },
-    "homepage": "https://github.com/phal40lax78/VS-code-chat-manager#readme",
+    "homepage": "https://github.com/phal40lax78/claude-codex-chat-manager#readme",
     "bugs": {
-        "url": "https://github.com/phal40lax78/VS-code-chat-manager/issues"
+        "url": "https://github.com/phal40lax78/claude-codex-chat-manager/issues"
     },
     "engines": {
         "vscode": "^1.75.0"
@@ -41,7 +41,8 @@
         "virtualWorkspaces": true
     },
     "activationEvents": [
-        "onStartupFinished"
+        "onStartupFinished",
+        "onWebviewPanel:chatManager.watch"
     ],
     "main": "./extension.js",
     "scripts": {
@@ -78,15 +79,20 @@
                 "command": "chatManager.autoContinue",
                 "title": "Auto-continue cut-off chats...",
                 "category": "Chat Manager"
+            },
+            {
+                "command": "chatManager.watchRun",
+                "title": "Watch the running queued prompt",
+                "category": "Chat Manager"
             }
         ],
         "configuration": {
-            "title": "VS Code Chat Manager",
+            "title": "Chat Manager for Claude Code & Codex",
             "properties": {
                 "chatManager.folder": {
                     "type": "string",
                     "default": "",
-                    "markdownDescription": "The tool folder: `VS-code-chat-manager.ps1`, its `src/`, and `data/` beside them. Empty means `~/Tools/VS-code-chat-manager`. The extension installs and updates the scripts there - never in a git checkout, never in a folder holding other files - and reads its requests from `data/`. A full path; `~` stands for your home folder. A change takes effect after a window reload. `chatinstall` prints the line to set when the script lives elsewhere."
+                    "markdownDescription": "The tool folder: `claude-codex-chat-manager.ps1`, its `src/`, and `data/` beside them. Empty means `~/Tools/claude-codex-chat-manager`. The extension installs and updates the scripts there - never in a git checkout, never in a folder holding other files - and reads its requests from `data/`. A full path; `~` stands for your home folder. A change takes effect after a window reload. `chatinstall` prints the line to set when the script lives elsewhere."
                 },
                 "chatManager.autoReload": {
                     "type": "boolean",
@@ -96,12 +102,17 @@
                 "chatManager.autoReloadAfterRun": {
                     "type": "boolean",
                     "default": true,
-                    "markdownDescription": "Show the chat fresh without asking after a queued prompt ran into a chat this window has open, while the run's judgement is at most 20 seconds old. A chat open here on an idle process gets Show it - that process ended, its tab closed and opened again - at the PC too and while other chats work, since that touches it alone. Otherwise only in a window whose one folder is that chat's, when nobody had used the PC for `quietMinutes` (5 by default, see `chatnotify -QuietMinutes`; 0 means never away): a tab whatever else works, or - with `showFresh` off, or where only a reload shows it - a window reload while no other chat in the folder was working or written in that time. Otherwise the window asks, as with this off. A window opened after the run already shows it, and neither asks nor acts."
+                    "markdownDescription": "Show the chat fresh without asking after a queued prompt ran into a chat this window has open, while the run's judgement is at most 20 seconds old. A chat open here on an idle process gets Show it - its tab closed, that process ended if it outlives the close, and the tab opened again - at the PC too and while other chats work, since that touches it alone. Otherwise only in a window whose one folder is that chat's, when nobody had used the PC for `quietMinutes` (5 by default, see `chatnotify -QuietMinutes`; 0 means never away): a tab whatever else works, or - with `showFresh` off, or where only a reload shows it - a window reload while no other chat in the folder was working or written in that time. Otherwise the window asks, as with this off. A window opened after the run already shows it, and neither asks nor acts."
                 },
                 "chatManager.showFresh": {
                     "type": "boolean",
                     "default": true,
-                    "markdownDescription": "After a queued run, show the chat fresh instead of reloading the window: the chat's old idle process is ended and the chat opens in an editor tab of its own, loaded from disk, which touches no other chat. A tab already showing it is closed and opened again. Terminals, editors, other chats and other extensions keep running. Off brings back the window reload of 0.5.0. Needs the Claude Code extension. The overlay's open chip always opens its chat in a tab, whatever this is set to."
+                    "markdownDescription": "After a queued run, show the chat fresh instead of reloading the window: a tab already showing it is closed, the chat's old idle process ended if it outlives the close, and the chat opens in an editor tab of its own, loaded from disk, which touches no other chat. Terminals, editors, other chats and other extensions keep running. Off brings back the window reload of 0.5.0. Needs the Claude Code extension. The overlay's open chip always opens its chat in a tab, whatever this is set to."
+                },
+                "chatManager.watchRuns": {
+                    "type": "boolean",
+                    "default": true,
+                    "markdownDescription": "A queued prompt going into a chat open in a tab here takes the tab's place with its live view, and turns back into the chat when it ends. Not while the tab is in front of you: the prompt waits until you leave it, or until `Hand over now`. Off, the run goes in beside the tab, whose view is stale until the run ends."
                 }
             }
         }

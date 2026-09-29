@@ -1,4 +1,4 @@
-# VS-code-chat-manager, src/phone-down.ps1: dot-sourced by VS-code-chat-manager.ps1
+# claude-codex-chat-manager, src/phone-down.ps1: dot-sourced by claude-codex-chat-manager.ps1
 # in its turn, never on its own - see the list there.
 
 #region phone: the PC -> phone channel -------------------------------------------
@@ -533,33 +533,41 @@ function Send-ChatqReplyText {
     of a chat you run yourself. -Again: the phone asked (act read); within 3
     hours of the first send it is sent again only when that one went as an
     attachment, which ntfy.sh keeps 3 hours where it keeps an inline one 12.
-    $true when the message went. Never throws.
+    A chat you run yourself that waits on a question (needs input): the
+    question goes along as ask (Get-ChatqAskView) - with whole answers off
+    too, alone then (parts empty, counted with the boards, not the whole
+    answers). $true when the message went. Never throws.
     #>
     param($Rc, [string]$Aid, [string]$Event, $Job, [switch]$Quick, [switch]$Again)
     $script:ChatqReplyTextWhy = $null
     try {
         if (-not ($Rc -and $Rc.Links)) { $script:ChatqReplyTextWhy = 'replies are off on the PC'; return $false }
-        if (-not $Rc.Full) { $script:ChatqReplyTextWhy = 'whole answers are off on the PC - chatnotify -FullText on'; return $false }
         if ($Event -notin 'done', 'needs input', 'failed') { $script:ChatqReplyTextWhy = "a $Event alert has no answer to send"; return $false }
         if (-not ($Job -and $Job.sessionId)) { $script:ChatqReplyTextWhy = 'that alert is not about a chat'; return $false }
-        $turn = if ($Job.id) { Get-ChatqJobTurnText $Job $Rc.FullMax } elseif ($Job.path) { Get-ChatqTurnText ([string]$Job.path) $Rc.FullMax } else { $null }
-        if (-not $turn -or -not @($turn.Parts).Count) { $script:ChatqReplyTextWhy = 'the chat has no answer to send'; return $false }
+        # a queued run cannot ask, so only a live alert's transcript is looked at
+        $ask = if ($Event -eq 'needs input' -and -not $Job.id -and $Job.path) { Get-ChatqAskView ([string]$Job.sessionId) ([string]$Job.path) $Rc } else { $null }
+        if (-not $Rc.Full -and -not $ask) { $script:ChatqReplyTextWhy = 'whole answers are off on the PC - chatnotify -FullText on'; return $false }
+        $turn = if (-not $Rc.Full) { $null } elseif ($Job.id) { Get-ChatqJobTurnText $Job $Rc.FullMax } elseif ($Job.path) { Get-ChatqTurnText ([string]$Job.path) $Rc.FullMax } else { $null }
+        $parts = if ($turn) { @($turn.Parts) } else { @() }
+        if (-not $parts.Count -and -not $ask) { $script:ChatqReplyTextWhy = 'the chat has no answer to send'; return $false }
+        $countAs = if ($parts.Count) { 'full' } else { 'other' }
         $before = Get-ChatqDownSent $Aid
         if ($Again -and $before -and $before.At -and ((Get-Date) - $before.At).TotalHours -lt 3 -and -not $before.Attached) {
             Write-ChatqReplyLog "read $Aid - the answer went inline at $($before.At.ToString('HH:mm')) and is still there - not sent again"
             $script:ChatqReplyTextWhy = "it went at $($before.At.ToString('HH:mm')) and ntfy.sh still has it - reload the page"
             return $false
         }
-        if (-not $before -and -not (Add-ChatqDownCount $Rc 'full')) {
+        if (-not $before -and -not (Add-ChatqDownCount $Rc $countAs)) {
             Write-ChatqReplyLog "whole answer for $Aid not sent - the day's $($Rc.DownPerDay) are used (reply.downPerDay)"
             $script:ChatqReplyTextWhy = "today's $($Rc.DownPerDay) whole answers are used (ntfy.sh's free limit)"
             return $false
         }
-        $at = if ($turn.At) { $turn.At.ToUniversalTime().ToString('o') } else { $null }
+        $at = if ($turn -and $turn.At) { $turn.At.ToUniversalTime().ToString('o') } else { $null }
         $body = [ordered]@{
             v = 3; kind = 'reply'; ref = $Aid; ts = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds(); event = $Event
-            title = [string]$Job.title; at = $at; cut = [int]$turn.Cut; parts = @($turn.Parts)
+            title = [string]$Job.title; at = $at; cut = $(if ($turn) { [int]$turn.Cut } else { 0 }); parts = @($parts)
         }
+        if ($ask) { $body['ask'] = $ask }
         $r = Send-ChatqDown $Rc $Aid $body -Quick:$Quick
         if (-not $r.Ok) { $script:ChatqReplyTextWhy = 'ntfy.sh did not take it'; return $false }
         $attached = [bool]$r.Attached
@@ -692,7 +700,7 @@ function Get-ChatqBoardState {
         } | Sort-Object { [string]$_.Value.at } | Select-Object -Last 300)
     foreach ($e in $live) {
         $o = [ordered]@{}
-        foreach ($k in 'kind', 'sessionId', 'provider', 'path', 'cwd', 'home', 'title', 'jobId', 'seq', 'at', 'expires') {
+        foreach ($k in 'kind', 'sessionId', 'provider', 'path', 'cwd', 'home', 'title', 'jobId', 'seq', 'mark', 'len', 'at', 'expires') {
             if ($e.Value.ContainsKey($k)) { $o[$k] = $e.Value[$k] }
         }
         $picks[$e.Key] = $o
@@ -741,8 +749,11 @@ function Read-ChatqBoardState {
             $v = $p.Value
             if (-not $v -or $p.Name -cnotmatch '^[a-z2-7]{6}$') { continue }
             $e = @{ kind = [string]$v.kind; at = & $iso $v.at; expires = & $iso $v.expires }
-            foreach ($k in 'sessionId', 'provider', 'path', 'cwd', 'title', 'jobId') { if ($v.PSObject.Properties[$k] -and $v.$k) { $e[$k] = [string]$v.$k } }
+            # mark: a job as the board showed it (Get-ChatqJobMark)
+            foreach ($k in 'sessionId', 'provider', 'path', 'cwd', 'title', 'jobId', 'mark') { if ($v.PSObject.Properties[$k] -and $v.$k) { $e[$k] = [string]$v.$k } }
             if ($v.PSObject.Properties['seq'] -and $v.seq) { $e['seq'] = [int]$v.seq }
+            # the transcript's length when the phone was shown it (Get-ChatqMovedOn)
+            if ($v.PSObject.Properties['len'] -and $null -ne ($v.len -as [int64])) { $e['len'] = [int64]$v.len }
             # home only when it says: $null there is the default config dir
             if ($v.PSObject.Properties['home']) { $e['home'] = $(if ($v.home) { [string]$v.home } else { $null }) }
             $S.picks[$p.Name] = $e

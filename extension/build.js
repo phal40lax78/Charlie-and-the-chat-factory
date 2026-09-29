@@ -59,6 +59,13 @@ function build() {
         if (!fs.existsSync(from)) fail('the loader lists src/' + p + '.ps1, which is not there');
         copy(from, path.join(payload, 'src', p + '.ps1'));
     }
+    // files beside the parts that the loader does not load: the question
+    // hook's launcher, which Claude Code starts on its own (src/ask.ps1)
+    for (const extra of ['ask-hook']) {
+        const from = path.join(root, 'src', extra + '.ps1');
+        if (!fs.existsSync(from)) fail('src/' + extra + '.ps1 is not there');
+        copy(from, path.join(payload, 'src', extra + '.ps1'));
+    }
     copy(path.join(root, 'CHANGELOG.md'), path.join(here, 'CHANGELOG.md'));
     copy(path.join(root, 'LICENSE'), path.join(here, 'LICENSE'));
     for (const md of ['README.md', 'CHANGELOG.md']) {

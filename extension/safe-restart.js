@@ -36,7 +36,7 @@ function vs() { return require('vscode'); }
 function ext() { return require('./extension'); }
 function log(s) { ext()._log(s); }
 
-const ID = 'redaechan.vs-code-chat-manager';
+const ID = 'redaechan.claude-codex-chat-manager';
 const RESTART = 'workbench.action.reloadWindow';
 const CANCEL = 'chatManager.cancelRestart';
 
@@ -58,18 +58,18 @@ const AGAIN = 'Try again';
 const WHY = { turn: '', prompt: ' (waiting on you)', background: ' (background work running)', run: ' (a queued prompt running)', '': '' };
 
 const texts = {
-    short: v => 'VS Code Chat Manager ' + v + ' is installed - reload the window to load it.',
-    long: (v, n, names) => 'VS Code Chat Manager ' + v + ' is installed. Loading it reloads this window, which stops ' +
+    short: v => 'Chat Manager for Claude Code & Codex ' + v + ' is installed - reload the window to load it.',
+    long: (v, n, names) => 'Chat Manager for Claude Code & Codex ' + v + ' is installed. Loading it reloads this window, which stops ' +
         (n === 1 ? 'the chat' : 'the ' + n + ' chats') + ' working here: ' + names + '.',
-    unknown: v => 'VS Code Chat Manager ' + v + ' is installed. Loading it reloads this window, which stops any chat working here - and which chats work could not be checked.',
+    unknown: v => 'Chat Manager for Claude Code & Codex ' + v + ' is installed. Loading it reloads this window, which stops any chat working here - and which chats work could not be checked.',
     waiting: n => '$(debug-restart) Chat Manager: reloads when ' + (n === 1 ? '1 chat is' : n + ' chats are') + ' idle',
     checking: '$(sync~spin) Chat Manager: checking the chats here before the reload',
     settling: '$(debug-restart) Chat Manager: reloads once the chats here stay idle a minute',
     unchecked: '$(debug-restart) Chat Manager: reload waits - the chats here could not be checked',
     tooOld: '$(debug-restart) Chat Manager: reload waits - the scripts in the tool folder are too old to check the chats here',
-    waitTip: v => 'VS Code Chat Manager ' + v + ' loads when this window reloads. That waits until no chat here works. Click to cancel.',
-    cancelled: v => 'The reload is off. VS Code Chat Manager ' + v + ' loads the next time this window reloads.',
-    failed: v => 'VS Code Chat Manager ' + (v || '') + ' is installed, but this window could not be reloaded to load it. Try again, or reload it yourself (Developer: Reload Window).',
+    waitTip: v => 'Chat Manager for Claude Code & Codex ' + v + ' loads when this window reloads. That waits until no chat here works. Click to cancel.',
+    cancelled: v => 'The reload is off. Chat Manager for Claude Code & Codex ' + v + ' loads the next time this window reloads.',
+    failed: v => 'Chat Manager for Claude Code & Codex ' + (v || '') + ' is installed, but this window could not be reloaded to load it. Try again, or reload it yourself (Developer: Reload Window).',
     reloadBusy: (n, names) => 'Reloading this window now would stop ' + (n === 1 ? 'the chat' : 'the ' + n + ' chats') + ' working here: ' +
         names + '. Reload once ' + (n === 1 ? 'it finishes' : 'they finish') + '.',
     reloadUnchecked: 'This window was not reloaded by itself: whether a chat here is working could not be checked, and a reload would stop it.'
@@ -452,7 +452,7 @@ function activate(context) {
 }
 
 module.exports = {
-    activate, texts, timing, WAIT, NOW, GO, LATER, AGAIN, CANCEL, RESTART, TOO_OLD,
+    activate, texts, timing, ID, WAIT, NOW, GO, LATER, AGAIN, CANCEL, RESTART, TOO_OLD,
     _readInstalled: readInstalled, _entryOf: entryOf, _installKey: installKey, _noteRunning: noteRunning,
     _parseHostWork: parseHostWork, _hostWorkCommand: hostWorkCommand, _lookFailure: lookFailure, _workingOf: workingOf, _namesOf: namesOf,
     _checkInstall: checkInstall, _notice: notice, _startWait: startWait, _stopWait: stopWait, _poll: poll, _cancel: cancel,

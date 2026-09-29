@@ -11,3 +11,5 @@ extension/payload/
 extension/CHANGELOG.md
 extension/LICENSE
 *.vsix
+# personal Claude Code settings for this checkout (e.g. the auto-compact window)
+.claude/settings.local.json

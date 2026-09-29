@@ -1,4 +1,4 @@
-# VS-code-chat-manager, src/phone.ps1: dot-sourced by VS-code-chat-manager.ps1
+# claude-codex-chat-manager, src/phone.ps1: dot-sourced by claude-codex-chat-manager.ps1
 # in its turn, never on its own - see the list there.
 
 #region phone: replies from the phone ------------------------------------------
@@ -36,9 +36,9 @@ $script:ChatqReplyLockPath = Join-Path $script:ChatqData 'replies.lock'
 # for the hidden process that sends them, which holds the lock while it runs
 $script:ChatqOutboxDir = Join-Path $script:ChatqData 'outbox'
 $script:ChatqOutboxLockPath = Join-Path $script:ChatqData 'outbox.lock'
-$script:ChatqReplyPage ='https://phal40lax78.github.io/VS-code-chat-manager/reply.html'
+$script:ChatqReplyPage ='https://phal40lax78.github.io/claude-codex-chat-manager/reply.html'
 $script:ChatqReplyServer = 'https://ntfy.sh'
-$script:ChatqJoinIcon = 'https://raw.githubusercontent.com/phal40lax78/VS-code-chat-manager/main/extension/icon.png'
+$script:ChatqJoinIcon = 'https://raw.githubusercontent.com/phal40lax78/claude-codex-chat-manager/main/extension/icon.png'
 # the events chatnotify -Events and the setup dialog can hold back from the
 # phone; 'test', 'reply' and 'pair' always go
 $script:ChatqPhoneEvents = @('started', 'needs input', 'done', 'failed', 'limited', 'overloaded', 'waiting')
@@ -47,6 +47,13 @@ $script:ChatqPhoneEvents = @('started', 'needs input', 'done', 'failed', 'limite
 $script:ChatqModeLadder = @('plan', 'default', 'manual', 'acceptEdits', 'auto', 'dontAsk', 'bypassPermissions')
 # the Codex sandboxes a phone job may keep; anything else runs workspace-write
 $script:ChatqSafeSandboxes = @('read-only', 'workspace-write')
+# How long after the phone sealed it a reply to an alert is still taken: ten
+# minutes for a look, half an hour for anything else - the board's own ages
+# (ChatqComposeActs). The alert itself lives reply.hours; a reply that waited
+# on the way - the watcher down, the phone offline and sent on later - would
+# otherwise run hours late into a chat that went on meanwhile.
+$script:ChatqReplyActAge = @{ status = 600; ping = 600; read = 600 }
+$script:ChatqReplyActAgeDefault = 1800
 # this process's own throttles: when it last polled, when it last logged a poll
 # that failed or a message with a strange id, when it last saved lastPolledAt
 $script:ChatqReplyPolledAt = $null
@@ -425,6 +432,11 @@ function Set-ChatqNotifyConfig {
                     prompt asks the phone (src/permit.ps1)
       PermitWait    1-25 minutes to answer one; PermitTools the tools the
                     phone may approve, or 'default'
+      Ask           $true/$false or 'on'/'off': a question in a chat you run
+                    yourself can be answered from the phone - installs or
+                    removes chatq's hook, after the rest is saved (src/ask.ps1)
+      AskWait       5-720 minutes the hook holds a question; AskManual: print
+                    the hook for your settings rather than install the plugin
       FullText, FullMax, Compose, NewMode, Listen
                     the PC -> phone channel: the whole answer, the board and
                     new chats from the phone (Get-ChatqDownChanges)
@@ -513,6 +525,10 @@ function Set-ChatqNotifyConfig {
     # permissions from the phone (src/permit.ps1), checked with the rest
     $permitCh = Read-ChatqPermitChanges $ch
     if ($permitCh.Error) { & $say $permitCh.Error 'Yellow'; return (& $out $permitCh.Error) }
+    # answering Claude's questions from the phone (src/ask.ps1): checked
+    # here, installed only once everything else is saved
+    $askCh = Read-ChatqAskChanges $ch
+    if ($askCh.Error) { & $say $askCh.Error 'Yellow'; return (& $out $askCh.Error) }
     # the PC -> phone channel's keys - FullText, FullMax, Compose, NewMode,
     # Listen - checked here with the rest (src/phone-board.ps1)
     $downCh = Get-ChatqDownChanges $ch $say
@@ -689,6 +705,11 @@ function Set-ChatqNotifyConfig {
     }
     if ($changed) { & $save }
     Complete-ChatqNotifyExtras $extras $msgs
+    if ($askCh.Any) {
+        foreach ($m in @(Set-ChatqAskChanges $askCh)) { & $say $m.Text $m.Color }
+        $cfg = Get-ChatqConfig
+        $changed = $true
+    }
     if ($reply -in 'on', 'off' -and ($flipped -or $reply -eq 'off')) {
         try { Reset-ChatqReplyCursor -Close:($reply -eq 'off') }
         catch { & $say "could not reset data/replies.json: $($_.Exception.Message)" 'Yellow' }
@@ -1079,6 +1100,10 @@ function Get-ChatqReplyState {
             if ($a.PSObject.Properties['usage'] -and $a.usage) { $e['usage'] = [string]$a.usage }
             # a permission request's: what an answer must match (src/permit.ps1)
             if ($a.PSObject.Properties['permit'] -and $a.permit) { $e['permit'] = ConvertFrom-ChatqPermitEntry $a.permit }
+            # the job and the moment the alert showed (Get-ChatqMovedOn)
+            if ($a.PSObject.Properties['mark'] -and $a.mark) { $e['mark'] = [string]$a.mark }
+            if ($a.PSObject.Properties['seen'] -and $a.seen) { $e['seen'] = & $iso $a.seen }
+            if ($a.PSObject.Properties['len'] -and $null -ne ($a.len -as [int64])) { $e['len'] = [int64]$a.len }
             $s.alerts[$p.Name] = $e
         }
     }
@@ -1126,6 +1151,9 @@ function Save-ChatqReplyState {
         if ($a.ContainsKey('live') -and $a['live']) { $o['live'] = $true }
         if ($a.ContainsKey('usage') -and $a['usage']) { $o['usage'] = [string]$a['usage'] }
         if ($a.ContainsKey('permit') -and $a['permit']) { $o['permit'] = ConvertTo-ChatqPermitEntry $a['permit'] }
+        if ($a.ContainsKey('mark') -and $a['mark']) { $o['mark'] = [string]$a['mark'] }
+        if ($a.ContainsKey('seen') -and $a['seen']) { $o['seen'] = $a['seen'] }
+        if ($a.ContainsKey('len') -and $null -ne $a['len']) { $o['len'] = [int64]$a['len'] }
         $alerts[$e.Key] = $o
     }
     $seen = [ordered]@{}
@@ -1289,9 +1317,12 @@ function New-ChatqReplyAlert {
     and -Card: a permission request's (src/permit.ps1) - the card's
     plaintext, sealed here for the phone under this alert's own id.
     -UsageKind: a usage alert's kind, kept in the entry (usage).
+    What the phone is shown is kept too, for Get-ChatqMovedOn: the job as it
+    is now (mark, Get-ChatqJobMark), and -SeenAt, when the alert's words are
+    older than the alert - one the outbox held (seen).
     #>
     param([string]$Event, $Job, $Rc, [string]$UsageKind,
-        $Permit, [string]$Card)
+        $Permit, [string]$Card, $SeenAt)
     if (-not $Rc) { $Rc = Get-ChatqReplyConfig }
     if (-not $Rc.Links) { return $null }
     $aid = New-ChatqRandomName 10
@@ -1311,6 +1342,13 @@ function New-ChatqReplyAlert {
     if ($Job -and $Job.sessionId) { $e['home'] = $(if ($Job.home) { [string]$Job.home } else { $null }) }
     # a chat you run yourself: no job to retry, skip or stop (Invoke-ChatqReply)
     if (Get-ChatField $Job 'live') { $e['live'] = $true }
+    $mark = Get-ChatqJobMark $Job
+    if ($mark) { $e['mark'] = $mark }
+    $seen = ConvertTo-ChatqDate $SeenAt
+    if ($seen -and $seen.ToUniversalTime() -lt $now) { $e['seen'] = $seen.ToUniversalTime().ToString('o') }
+    # the transcript's length now: what is written after it is the chat going
+    # on. Not for words older than the push - the file grew since them.
+    elseif ($e.path) { try { $fi = [System.IO.FileInfo]::new([string]$e.path); if ($fi.Exists) { $e['len'] = [int64]$fi.Length } } catch {} }
     # which usage alert: Invoke-ChatqReplyWake goes by this, never by the link
     if ($UsageKind) { $e['usage'] = $UsageKind }
     if ($Permit) { $e['permit'] = $Permit }
@@ -1594,8 +1632,9 @@ function Receive-ChatqReply {
     alert, how far polling got - is saved, and only once that save worked
     is anything done: a failed save returns 'unsaved' and leaves the
     message to come back on the next poll and be judged again, never done
-    twice. Last the checks that refuse: the phone's clock within the
-    window, the alert known and unexpired, fewer than 20 uses. A refusal is
+    twice. Last the checks that refuse: sealed within its act's age
+    (ChatqReplyActAge, and reply.hours at most) by the phone's clock, the
+    alert known and unexpired, fewer than 20 uses. A refusal is
     said to the phone only when the MAC checked out, at most once per alert
     every 10 minutes, and with no new link: a replayed old message cannot
     make pushes, alerts or a longer window out of nothing. -Checked is
@@ -1629,6 +1668,8 @@ function Receive-ChatqReply {
         return $null
     }
     $hours = $Rc.Hours
+    $actAge = if ($v.Ok -and $script:ChatqReplyActAge.ContainsKey([string]$pl.act)) { $script:ChatqReplyActAge[[string]$pl.act] } else { $script:ChatqReplyActAgeDefault }
+    $maxAge = [Math]::Min($hours * 3600 + 600, $actAge)
     try {
         $rec = Use-ChatqReplyState {
             param($st)
@@ -1650,7 +1691,7 @@ function Receive-ChatqReply {
                 $ts = $pl.ts -as [double]
                 $age = if ($null -ne $ts) { ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - $ts) / 1000 } else { $null }
                 $exp = if ($e) { ConvertTo-ChatqDate $e.expires } else { $null }
-                if ($null -eq $age -or [Math]::Abs($age) -gt ($hours * 3600 + 600)) {
+                if ($null -eq $age -or [Math]::Abs($age) -gt $maxAge) {
                     $fail = if ($null -eq $age) { 'no time in it' } elseif ($age -ge 0) { "too old: sent $([int]$age) s ago" } else { "too old: $([int](-$age)) s ahead" }
                     $say = "that reply is too old, or the phone's clock is off - nothing done"
                 }
@@ -1682,6 +1723,263 @@ function Receive-ChatqReply {
     $entry = $rec.Entry
     Write-ChatqReplyLog "reply $Id to $($entry.event)$(if ($entry.seq) { " #$($entry.seq)" }): $($pl.act)"
     return (Invoke-ChatqReply $pl $entry $aid -Rc $Rc -Quick:$Quick -Raw $Message)
+}
+
+function Get-ChatqJobMark {
+    # A job as an alert or a board handle showed it, in one string: how many
+    # times it ran, its state, when it last ended - as epoch ms, which the
+    # JSON of replies.json keeps as it is, where pwsh 7 would read an ISO
+    # string back as a date. $null for no job, or a chat's stand-in for one.
+    param($Job)
+    if (-not $Job -or -not (Get-ChatField $Job 'id')) { return $null }
+    $end = ConvertTo-ChatOverlayMs (ConvertTo-ChatqDate (Get-ChatField $Job 'endedAt'))
+    return "$([int](Get-ChatField $Job 'attempts'))|$([string](Get-ChatField $Job 'state'))|$end"
+}
+
+function Get-ChatqJobRuns {
+    # When a job's runs went on, from its history: @(from, to) in epoch ms,
+    # a run still going to -Now. What a run writes into its chat - its
+    # prompt, "continue" - is that job's own, not the chat going on.
+    param($Job, [int64]$Now = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())
+    $h = @(Get-ChatField $Job 'history' | Where-Object { $_ })
+    $runs = [System.Collections.Generic.List[object]]::new()
+    for ($i = 0; $i -lt $h.Count; $i++) {
+        if ([string](Get-ChatField $h[$i] 'state') -ne 'running') { continue }
+        $from = ConvertTo-ChatOverlayMs (ConvertTo-ChatqDate (Get-ChatField $h[$i] 'at'))
+        if (-not $from) { continue }
+        $to = if ($i + 1 -lt $h.Count) { ConvertTo-ChatOverlayMs (ConvertTo-ChatqDate (Get-ChatField $h[$i + 1] 'at')) } else { $null }
+        $runs.Add(@([int64]$from, [int64]$(if ($to) { $to } else { $Now })))
+    }
+    return , $runs.ToArray()
+}
+
+function Get-ChatqLineRecord {
+    <#
+    What one transcript line says for Get-ChatqTypedAfter: @{ At; Dated;
+    Typed; Human }. At: the record's own time, epoch ms - the one right
+    after its uuid, never one inside it. Dated: a user or assistant record,
+    whose time says how far back a reader has come. Typed: something went
+    into the chat - a prompt or a slash command, a person's or a job's
+    (claude -p), or a prompt a person queued while Claude worked (a
+    queued_command attachment); never a tool result, a side chat's record,
+    Claude Code's own meta or compaction summary, or a background task's
+    notice. Human: Claude Code's origin says a person typed it. -Long: only
+    the line's first and last few KB are here - a prompt with a pasted
+    image is one line of megabytes - so its fields are read, not its text:
+    Claude Code writes type, isSidechain and a tool result's own type before
+    the message, isMeta, promptSource, origin and the time after it.
+    #>
+    param([string]$Line, [switch]$Long)
+    $r = [pscustomobject]@{ At = $null; Dated = $false; Typed = $false; Human = $false }
+    $user = $Line.Contains('"type":"user"')
+    $queued = -not $user -and $Line.Contains('"type":"attachment"') -and $Line.Contains('"queued_command"')
+    if (-not $user -and -not $queued -and -not $Line.Contains('"type":"assistant"')) { return $r }
+    $m = [regex]::Match($Line, '"uuid":"[^"]*","timestamp":"([^"]+)"')
+    if (-not $m.Success) { $m = [regex]::Match($Line, '"timestamp":"([^"]+)"') }
+    if ($m.Success) { $r.At = ConvertTo-ChatOverlayMs (ConvertTo-ChatqDate $m.Groups[1].Value) }
+    if ($null -eq $r.At) { return $r }
+    $r.Dated = -not $queued
+    $r.Human = $Line.Contains('"origin":{"kind":"human"')
+    if ($queued) { $r.Typed = $r.Human -and $Line.Contains('"commandMode":"prompt"'); return $r }
+    if (-not $user) { return $r }
+    foreach ($no in '"isSidechain":true', '"isCompactSummary":true', '"isMeta":true', '"promptSource":"system"', '"tool_result"') { if ($Line.Contains($no)) { return $r } }
+    $r.Typed = if ($Long) { $true } else { [bool]((Read-ClaudePrompt $Line) -or (Read-ClaudeSlashCommand $Line)) }
+    return $r
+}
+
+function Get-ChatqTypedAfter {
+    <#
+    The newest prompt typed into a Claude transcript after -After (epoch
+    ms), as Get-ChatqLineRecord has it. -From, the file's length when the
+    phone was shown the chat: only what was written since is read - a
+    transcript is only ever appended to - so a long turn after the prompt,
+    or a compaction that writes old records again (their own old times,
+    which -After leaves out), hides nothing. Without -From (an alert or a
+    job from before lengths were kept, one the outbox held) it reads back
+    from the end until the first user or assistant record from -After or
+    before; there, records written again out of order can end it early.
+    -Skip: time windows, @(from, to) in epoch ms, whose prompts are a job's
+    own (Get-ChatqJobRuns) - unless a person typed it, then it counts.
+    @{ At; Reached; Done }: At $null for none; Done $false when -Budget ran
+    out first - more was written than it reads - and Reached then the
+    oldest time read, going back.
+    #>
+    param([string]$Path, [int64]$After, [object[]]$Skip = @(), $From = $null, [int64]$Budget = $script:ChatOverlayScanBudget)
+    $out = [pscustomobject]@{ At = $null; Reached = $null; Done = $false }
+    if (-not $Budget) { $Budget = 16MB }
+    try { $fs = Open-ChatRead $Path } catch { $out.Done = $true; return $out }
+    $keep = 262144
+    $utf8 = [System.Text.Encoding]::UTF8
+    $count = {
+        param($rec)
+        if (-not $rec.Typed -or $rec.At -le $After) { return $false }
+        if (-not $rec.Human) { foreach ($w in @($Skip)) { if ($w -and $rec.At -ge [int64]$w[0] -and $rec.At -le [int64]$w[1]) { return $false } } }
+        return $true
+    }
+    try {
+        $len = $fs.Length
+        if ($null -ne $From -and "$From" -ne '' -and [int64]$From -ge 0 -and [int64]$From -le $len) {
+            $from = [int64]$From
+            if ($len - $from -gt $Budget) { return $out }
+            # a byte before, to know whether -From is the start of a line
+            $at = [Math]::Max([int64]0, $from - 1)
+            $n = [int]($len - $at)
+            $buf = [byte[]]::new($n)
+            [void]$fs.Seek($at, [System.IO.SeekOrigin]::Begin)
+            $got = 0
+            while ($got -lt $n) { $r = $fs.Read($buf, $got, $n - $got); if ($r -le 0) { break }; $got += $r }
+            $s = 0
+            if ($from -gt 0) {
+                # a line being written as the length was taken began before it
+                if ($buf[0] -eq 10) { $s = 1 }
+                else { $s = [Array]::IndexOf($buf, [byte]10, 0, $got); $s = if ($s -lt 0) { $got } else { $s + 1 } }
+            }
+            while ($s -lt $got) {
+                $e = [Array]::IndexOf($buf, [byte]10, $s, $got - $s)
+                if ($e -lt 0) { $e = $got }
+                $ll = $e - $s
+                if ($ll -gt 0) {
+                    $rec = if ($ll -gt $keep) { Get-ChatqLineRecord ($utf8.GetString($buf, $s, 8192) + $utf8.GetString($buf, $e - 8192, 8192)) -Long }
+                    else { Get-ChatqLineRecord $utf8.GetString($buf, $s, $ll) }
+                    if ((& $count $rec) -and (-not $out.At -or $rec.At -gt $out.At)) { $out.At = [int64]$rec.At }
+                }
+                $s = $e + 1
+            }
+            $out.Done = $true
+            return $out
+        }
+        $pos = $len
+        $carry = $null      # the start of the block after: the rest of the line this one ends in
+        $long = $false      # inside a line too long to keep
+        $block = 262144
+        $read = 0
+        while ($pos -gt 0) {
+            if ($read -ge $Budget) { return $out }
+            $n = [int][Math]::Min($block, $pos)
+            $pos -= $n
+            $block = 1048576
+            $buf = [byte[]]::new($n)
+            [void]$fs.Seek($pos, [System.IO.SeekOrigin]::Begin)
+            $got = 0
+            while ($got -lt $n) { $r = $fs.Read($buf, $got, $n - $got); if ($r -le 0) { break }; $got += $r }
+            $read += $got
+            $atStart = $pos -le 0
+            $end = $n
+            $tail = $carry
+            if ($long) {
+                # this block ends inside the long line: drop that part
+                $last = [Array]::LastIndexOf($buf, [byte]10)
+                if ($last -lt 0) { continue }
+                $end = $last + 1
+                $tail = $null
+                $long = $false
+            }
+            $first = if ($atStart) { -1 } else { [Array]::IndexOf($buf, [byte]10, 0, $end) }
+            $tailLen = if ($tail) { $tail.Length } else { 0 }
+            if (-not $atStart -and $first -lt 0) {
+                # the whole block is the middle of one line
+                if ($end + $tailLen -gt $keep) { $long = $true; $carry = $null; continue }
+                $joined = [byte[]]::new($end + $tailLen)
+                [Array]::Copy($buf, 0, $joined, 0, $end)
+                if ($tailLen) { [Array]::Copy($tail, 0, $joined, $end, $tailLen) }
+                $carry = $joined
+                continue
+            }
+            $start = if ($atStart) { 0 } else { $first + 1 }
+            if (-not $atStart) {
+                if ($first -gt $keep) { $long = $true; $carry = $null }
+                else { $carry = [byte[]]::new($first); [Array]::Copy($buf, 0, $carry, 0, $first) }
+            }
+            $bytes = [byte[]]::new($end - $start + $tailLen)
+            [Array]::Copy($buf, $start, $bytes, 0, $end - $start)
+            if ($tailLen) { [Array]::Copy($tail, 0, $bytes, $end - $start, $tailLen) }
+            $lines = $utf8.GetString($bytes).Split([char]10)
+            for ($i = $lines.Count - 1; $i -ge 0; $i--) {
+                $l = $lines[$i]
+                if (-not $l -or $l.Length -gt $keep) { continue }
+                $rec = Get-ChatqLineRecord $l
+                if ($null -eq $rec.At) { continue }
+                if ($rec.Dated) {
+                    $out.Reached = [int64]$rec.At
+                    if ($rec.At -le $After) { $out.Done = $true; return $out }
+                }
+                if (& $count $rec) { $out.At = [int64]$rec.At; $out.Done = $true; return $out }
+            }
+        }
+        $out.Done = $true
+    }
+    finally { $fs.Dispose() }
+    return $out
+}
+
+function Get-ChatqMovedOn {
+    <#
+    Whether a chat, or the job an act from the phone is about, went on at
+    the PC after the phone was shown it - by an alert, or a board's handle,
+    at -Since - so the act would land on something the phone never saw.
+    @{ Why; TypedAt }, Why $null when it did not, else:
+      job       the job is not as it was (-Mark, Get-ChatqJobMark's words
+                then): run again after it ended, requeued, ended again,
+                closed. The watcher going on by itself is not that: a run
+                started, or put back in the queue by a limit, a 529 or a
+                network drop, ends nothing - the end the phone saw stands.
+                -Loose, for a prompt, which waits for the job anyway: a job
+                queued or running then that has run to an end since is not
+                either - unless it stopped on a question the phone was never
+                shown
+      answered  the job waits on input, and its chat was typed into after it
+                stopped, as Test-ChatqJobAnswered has it - the caller closes
+                it, as the overlay's pass would (Close-ChatqAnsweredJobs)
+      typed     a prompt went into the chat after -Since: typed at the PC,
+                or another job's. The job's own runs (Get-ChatqJobRuns), and
+                those of the phone's own jobs in that chat (rule phone,
+                -SessionId), are not the chat going on - unless a person
+                typed into it meanwhile; a prompt typed before one started
+                is. More written since than can be read is taken as gone on.
+    -SinceLen: the transcript's length at -Since, and the job's endLen at
+    its end - only what was written after is read (Get-ChatqTypedAfter).
+    -JobOnly reads no transcript: skip, stop and now send nothing into the
+    chat. Only a Claude chat's transcript is read - no reader knows a Codex
+    rollout's prompts yet (FUTURE_WORK.md) - and one not found says nothing.
+    TypedAt, epoch ms: the newest prompt after the job's end, when that
+    matters - a prompt's mode (Invoke-ChatqReply), a job waiting on input -
+    else after -Since.
+    #>
+    param($Job, [string]$Mark, $Since, $SinceLen, [string]$Path, [string]$Provider, [string]$SessionId, [switch]$Loose, [switch]$JobOnly)
+    $r = [pscustomobject]@{ Why = $null; TypedAt = $null }
+    $state = [string](Get-ChatField $Job 'state')
+    $endMs = if ($Job) { ConvertTo-ChatOverlayMs (ConvertTo-ChatqDate (Get-ChatField $Job 'endedAt')) } else { $null }
+    if ($Job -and $Mark -and (Get-ChatqJobMark $Job) -cne $Mark) {
+        $was = @($Mark -split '\|')
+        $wasState = if ($was.Count -ge 2) { $was[1] } else { '' }
+        $wasEnd = if ($was.Count -ge 3) { $was[2] } else { '' }
+        $byItself = $wasState -in 'queued', 'running' -and $state -in 'queued', 'running' -and "$endMs" -eq $wasEnd
+        $ranOn = $Loose -and $wasState -in 'queued', 'running' -and $state -in 'done', 'failed'
+        if (-not ($byItself -or $ranOn)) { $r.Why = 'job'; return $r }
+    }
+    if ($JobOnly -or ($Provider -and $Provider -ne 'claude')) { return $r }
+    if (-not $Path -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $r }
+    $from = ConvertTo-ChatOverlayMs (ConvertTo-ChatqDate $Since)
+    $runs = [System.Collections.Generic.List[object]]::new()
+    if ($Job) { $runs.AddRange([object[]](Get-ChatqJobRuns $Job)) }
+    $sid = if ($SessionId) { $SessionId } else { [string](Get-ChatField $Job 'sessionId') }
+    if ($sid) {
+        foreach ($pj in @(Get-ChatqJobs | Where-Object { [string]$_.sessionId -eq $sid -and [string](Get-ChatField $_ 'rule') -eq 'phone' -and (-not $Job -or [string]$_.id -ne [string]$Job.id) })) {
+            $runs.AddRange([object[]](Get-ChatqJobRuns $pj))
+        }
+    }
+    $skip = $runs.ToArray()
+    if ($endMs -and ($Loose -or $state -eq 'needs-input')) {
+        $te = Get-ChatqTypedAfter -Path $Path -After $endMs -Skip $skip -From (Get-ChatField $Job 'endLen')
+        $r.TypedAt = $te.At
+        if ($state -eq 'needs-input' -and $te.At) { $r.Why = 'answered'; return $r }
+    }
+    if (-not $from) { return $r }
+    $t = Get-ChatqTypedAfter -Path $Path -After $from -Skip $skip -From $SinceLen
+    if (-not $r.TypedAt) { $r.TypedAt = $t.At }
+    if ($t.At) { $r.Why = 'typed' }
+    elseif (-not $t.Done -and ($null -eq $t.Reached -or $t.Reached -gt $from)) { $r.Why = 'typed' }
+    return $r
 }
 
 function Get-ChatqModeRank {
@@ -1720,6 +2018,12 @@ function Invoke-ChatqReply {
     same, and the push says it goes only once that is answered there.
     permit and refuse answer a permission request (Invoke-ChatqPermitReply);
     -Raw is the message as the phone posted it, which the bridge opens again.
+    A prompt, retry, allow, skip or stop about a chat or a job that went on
+    at the PC since the alert showed it - typed into, run or queued again,
+    answered there (Get-ChatqMovedOn) - does nothing: the push says what
+    happened, about the chat and the job as they are now, and its link takes
+    the answer if it still stands. A job found answered is closed, as the
+    overlay would close it.
     #>
     param($Payload, $Entry, [string]$Aid, $Rc, [switch]$Quick,
         [string]$Raw)
@@ -1733,8 +2037,36 @@ function Invoke-ChatqReply {
     $limitNote = { param($m) " - runs in $m, the phone's limit" }
     $say = $null
     $live = [bool](Get-ChatField $Entry 'live')
-    $pick = if ($live -and $act -in 'retry', 'allow', 'skip', 'stop') { 'live-refused' } else { $act }
+    # A prompt lets its job run on (-Loose); skip and stop send nothing into
+    # the chat, so only their job counts (-JobOnly). The chat's transcript is
+    # found as the prompt would find it, when the alert's path is gone.
+    $moved = $null
+    if ($act -in 'prompt', 'retry', 'allow', 'skip', 'stop' -and ($act -eq 'prompt' -or -not $live)) {
+        $mvPath = if ($job -and $job.path) { [string]$job.path } else { [string]$Entry.path }
+        if ($Entry.sessionId -and -not ($mvPath -and (Test-Path -LiteralPath $mvPath -PathType Leaf))) {
+            $mvRow = Get-ChatqRowById -Id $Entry.sessionId -Provider $Entry.provider -Path $mvPath -Cwd $Entry.cwd
+            if ($mvRow) { $mvPath = [string]$mvRow.Path }
+        }
+        $mvSince = if (Get-ChatField $Entry 'seen') { Get-ChatField $Entry 'seen' } else { $Entry.at }
+        $mvProvider = if ($job) { [string]$job.provider } else { [string]$Entry.provider }
+        $moved = Get-ChatqMovedOn -Job $job -Mark ([string](Get-ChatField $Entry 'mark')) -Since $mvSince -SinceLen (Get-ChatField $Entry 'len') -Path $mvPath -Provider $mvProvider -SessionId ([string]$Entry.sessionId) -Loose:($act -eq 'prompt') -JobOnly:($act -in 'skip', 'stop')
+    }
+    $pick = if ($moved -and $moved.Why) { 'moved-on' } elseif ($live -and $act -in 'retry', 'allow', 'skip', 'stop') { 'live-refused' } else { $act }
     switch -Exact ($pick) {
+        'moved-on' {
+            $tail = if ($act -eq 'prompt') { 'nothing queued; answer this push if it still stands' } else { "nothing to $act" }
+            $name = if ($job -and $job.title) { [string]$job.title } elseif ($Entry.title) { [string]$Entry.title } else { 'that chat' }
+            if ($moved.Why -eq 'answered') {
+                $cur = Find-ChatqJob ([string]$job.id) -Exact
+                if ($cur -and $cur.state -eq 'needs-input') {
+                    Complete-ChatqJob $cur 'skipped' ([pscustomobject]@{ kind = 'skipped'; reason = 'answered in the chat' }) 'answered in the chat'
+                    $about = $cur
+                }
+                $say = "#$($job.seq) was answered in the chat at the PC and is closed - $tail"
+            }
+            elseif ($moved.Why -eq 'job') { $say = "#$($job.seq) is $($job.state) now, not as that alert saw it - $tail" }
+            else { $say = "$name moved on at the PC since that alert - $tail" }
+        }
         'live-refused' { $say = "that chat is one you run yourself, not a chatq job - nothing to $act; send it a prompt instead" }
         'prompt' {
             if (-not $text.Trim()) { $say = 'an empty reply - nothing queued'; break }
@@ -1758,6 +2090,19 @@ function Invoke-ChatqReply {
                 }
             }
             else {
+                # Nor above the chat's own, once a prompt went into it after
+                # that job ended: one typed at the PC carries the mode it
+                # went in (a chatq run most often none), so a chat put in
+                # plan there is not edited from the phone in the job's mode.
+                # A job closed as answered in its chat had one; its end is
+                # the closing's, after that prompt, so it is not by time.
+                $jEnd = if ($job) { ConvertTo-ChatOverlayMs (ConvertTo-ChatqDate $job.endedAt) } else { $null }
+                $answeredThere = $job -and [string](Get-ChatField (Get-ChatField $job 'result') 'reason') -eq 'answered in the chat'
+                $typedAfter = $moved -and $moved.TypedAt -and $jEnd -and [int64]$moved.TypedAt -gt [int64]$jEnd
+                if ($mode -and ($typedAfter -or $answeredThere) -and (Get-ChatqModeRank ([string]$info.Mode)) -lt (Get-ChatqModeRank $mode)) {
+                    $mode = [string]$info.Mode
+                    $note = " - runs in $mode, the chat's own at the PC"
+                }
                 $lim = Limit-ChatqPhoneMode $(if ($mode) { $mode } else { [string]$info.Mode }) $cap
                 if ($lim.Capped) { $mode = $lim.Mode; $note = & $limitNote $lim.Mode }
             }
@@ -1840,6 +2185,14 @@ function Invoke-ChatqReply {
         'wake' { $say = Invoke-ChatqReplyWake $Entry }
         'permit' { $say = Invoke-ChatqPermitReply $act $Payload $Entry $Aid $Raw }
         'refuse' { $say = Invoke-ChatqPermitReply $act $Payload $Entry $Aid $Raw }
+        # an answer to the question a chat you run yourself waits on, for
+        # chatq's hook to hand to Claude (src/ask.ps1); the chat's transcript
+        # is the alert's own, never one a request names
+        'answer' {
+            $tp = [string]$Entry.path
+            if (-not ($tp -and (Test-Path -LiteralPath $tp -PathType Leaf))) { $tp = Get-ChatqAskTranscript ([string]$Entry.sessionId) ([string]$Entry.cwd) $Entry.home }
+            $say = (Invoke-ChatqAskReply $Payload ([string]$Entry.sessionId) $tp $Raw 'alert' $Rc ([string]$Entry.title)).Say
+        }
         # the whole answer again, on the down topic - no push: the page is
         # open and waiting for it (src/phone-board.ps1)
         'read' { return (Invoke-ChatqReadAct $Entry $Aid -Rc $Rc -Quick:$Quick) }
@@ -1854,9 +2207,10 @@ function Invoke-ChatqReply {
         }
     }
     Write-ChatqReplyLog "-> $say"
-    # nothing queued for a chat you run yourself: the answer is about that
-    # chat still, so its link can take the prompt that was meant
-    $pushAbout = if (-not $about -and $live) { ConvertTo-ChatqLiveJob $Entry } else { $about }
+    # nothing queued for a chat you run yourself, or for one that moved on
+    # with its job gone: the answer is about that chat still, so its link
+    # can take the prompt that was meant
+    $pushAbout = if (-not $about -and ($live -or ($pick -eq 'moved-on' -and $Entry.sessionId))) { ConvertTo-ChatqLiveJob $Entry } else { $about }
     [void](Send-ChatqAlert 'reply' $say 1 -Loud -Job $pushAbout -Quick:$Quick)
     return [pscustomobject]@{ Act = $act; Feedback = $say; Job = $about }
 }
@@ -2358,7 +2712,8 @@ function Send-ChatqOutboxFile {
             $about = if (Get-ChatField $a 'sessionId') { ConvertTo-ChatqLiveJob $a } else { $null }
             $jid = [string](Get-ChatField $a 'jobId')
             if ($jid) { $fj = Find-ChatqJob $jid -Exact; if ($fj -and $fj.state -eq 'queued') { $about = $fj } }
-            $ok = Send-ChatqAlert ([string]$a.event) ([string]$a.text) ([int]$a.priority) -Job $about -UsageKind ([string](Get-ChatField $a 'kind'))
+            # its words are as old as the file: an answer is judged from then
+            $ok = Send-ChatqAlert ([string]$a.event) ([string]$a.text) ([int]$a.priority) -Job $about -UsageKind ([string](Get-ChatField $a 'kind')) -SeenAt $at
             $sent = $true
             Write-ChatqOutboxLog "${name}: $($a.event) $(if ($ok) { 'sent' } else { 'not sent' }) - $(@($script:ChatqAlertReport) -join ', ')"
         }

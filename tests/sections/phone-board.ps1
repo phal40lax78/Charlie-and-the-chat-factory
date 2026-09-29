@@ -283,6 +283,19 @@ Check 'its handles: six letters each, in replies.json picks - the chat, its fold
     ($bp | ConvertTo-Json -Compress -Depth 6) -notlike "*$idBa*" -and ($bp | ConvertTo-Json -Compress -Depth 6) -notlike "*projBoard\\*" -and @($bp.folders).Count -ge 2) "$hA / $(@($st.picks.Keys).Count) picks"
 Check 'the act recorded for the hour, the next 2 minutes polled faster, the answer counted against the day' (@($st.compose | Where-Object { $_.act -eq 'board' }).Count -eq 1 -and
     (ConvertTo-ChatqDate $st.hotUntil) -gt (Get-Date).AddSeconds(90) -and (Get-ChatqReplyPollSeconds) -eq 6 -and (Get-ChatqReplyPollSeconds -InRun) -eq 10 -and [int]$st.down.other -ge 1) ''
+# a job the watcher holds back says why, in the panel's words, before the
+# ETA; a chat a queued prompt runs in keeps its where, run, for the page
+$pbNow = Get-Date
+$pbJob = { param($id, $seq, $why) [pscustomobject]@{ id = $id; seq = $seq; state = 'queued'; kind = 'prompt'; provider = 'claude'; title = "held $seq"; cwd = $bdProj; sessionId = $idBa
+        deferWhy = $why; deferSince = $pbNow.AddMinutes(-8).ToUniversalTime().ToString('o'); deferUntil = $pbNow.AddMinutes(2).ToUniversalTime().ToString('o') } }
+$pbSnap = [pscustomobject]@{ header = [pscustomobject]@{ usage = @() }; recent = @(); rows = @(
+        [pscustomobject]@{ key = "s:$idBa"; kind = 'session'; provider = 'claude'; status = 'busy'; chat = 'busy'; rank = 1; project = 'projBoard'; title = 'Run'; prompt = 'x'; since = $nowMs; sessionId = $idBa; cwd = $bdProj; job = $null; where = 'run'; unread = $false }) }
+$pbB = (ConvertTo-ChatqPhoneBoard -Snap $pbSnap -Jobs @((& $pbJob 'pb1' 41 'in-use'), (& $pbJob 'pb2' 42 'background'), (& $pbJob 'pb3' 43 $null)) `
+        -Eta @{ pb1 = '14:15 (chat busy)'; pb2 = '14:15 (chat busy)'; pb3 = '14:20' } -Now $pbNow).Body
+$pbE = @($pbB.queue | ForEach-Object { "$($_.n)=$($_.e)" }) -join ','
+$pbWant = "41=waits for you to leave its tab,42=waits for a background command (since $(Format-ChatOverlayWhen $pbNow.AddMinutes(-8) $pbNow)),43=14:20"
+Check 'board: a job the watcher holds back says why, as the panel does - its tab, or a background command since when; others their ETA; where run passed on' (
+    $pbE -eq $pbWant -and @($pbB.open).Count -eq 1 -and $pbB.open[0].where -eq 'run' -and @($pbB.open[0].jobs).Count -eq 3 -and $pbB.open[0].jobs[0].e -eq 'waits for you to leave its tab') "$pbE / $($pbB.open[0].where)"
 
 # asked again within 10 s: the same board, not built again
 $bdBuildFn = ${function:Get-ChatqPhoneBoard}
@@ -387,6 +400,9 @@ foreach ($q in @($b5.queue)) { $qh[[int]$q.n] = $q }
 $chB = @($b5.open | Where-Object { $_.t -eq 'Radar viewer' })[0]
 Check 'the board''s queue: each job with its handle, state and "sends"; the chat''s row carries its jobs' ($qh[[int]$jQ.seq].s -eq 'queued' -and $qh[[int]$jN.seq].e -eq 'needs you' -and
     $qh[[int]$jF.seq].s -eq 'failed' -and $qh[[int]$jR.seq].e -eq 'running now' -and $qh[[int]$jQ.seq].h -cmatch '^[a-z2-7]{6}$' -and @($chB.jobs).Count -eq 4) "$(@($b5.queue | ForEach-Object { "#$($_.n) $($_.s) $($_.e)" }) -join ' | ')"
+$stQ = Get-ChatqReplyState
+Check 'a job''s handle keeps the job as the board showed it' ($stQ.picks[$qh[[int]$jN.seq].h].mark -eq (Get-ChatqJobMark (Find-ChatqJob $jN.id -Exact)) -and
+    $stQ.picks[$qh[[int]$jN.seq].h].mark -like '0|needs-input|*') "$($stQ.picks[$qh[[int]$jN.seq].h].mark)"
 $jact = { param($act, $j, [int]$n = 0) & $bdSend (& $bdSeal $act ([ordered]@{ h = $qh[[int]$j.seq].h; n = $(if ($n) { $n } else { [int]$j.seq }) })) }
 $r = & $jact 'now' $jQ
 $wake = if (Test-Path -LiteralPath $script:ChatqWakePath) { (Get-Content -LiteralPath $script:ChatqWakePath -Raw).Trim() } else { '' }
@@ -458,6 +474,88 @@ Check 'list (the chats and folders, not the overlay''s): chats with handles, the
     @($lst.chats | Where-Object { $_.t -eq 'Radar viewer' })[0].h -cmatch '^[a-z2-7]{6}$' -and @($lst.chats | Where-Object { $_.id -eq $idBa.Substring(0, 8) })[0].m -eq 'acceptEdits' -and
     @($lst.chats | Where-Object { $_.id -eq $idBa.Substring(0, 8) })[0].mc -eq $true -and @($lst.folders | Where-Object { $_.n -eq 'projBoard' }).Count -eq 1) (
     "$(@($lst.chats).Count) chats: " + (@($lst.chats | Select-Object -First 6 | ForEach-Object { "$($_.id) $($_.t) $($_.h) $($_.m) $($_.mc)" }) -join ' | ') + ' / ' + (@($lst.folders | ForEach-Object { $_.n }) -join ','))
+
+# --- a chat or a job that went on at the PC since the board --------------------------------
+$bdTyped = {
+    # a prompt typed at the PC, as Claude Code writes one, now
+    param([string]$Path, [string]$Id, [string]$Text)
+    Start-Sleep -Milliseconds 30
+    $u = [ordered]@{ parentUuid = $null; isSidechain = $false; type = 'user'; message = [ordered]@{ role = 'user'; content = $Text }
+        uuid = [guid]::NewGuid().ToString(); timestamp = (Get-Date).ToUniversalTime().ToString('o'); permissionMode = 'default'; cwd = $bdProj; sessionId = $Id }
+    [System.IO.File]::AppendAllText($Path, ($u | ConvertTo-Json -Compress -Depth 6) + "`n", $utf8)
+    Start-Sleep -Milliseconds 30
+}
+$null = Use-ChatqReplyState { param($st) $st.compose = @(); $st.composeRefusedAt = $null }
+$idBm = '6f6f6f6f-6f6f-46f6-86f6-6f6f6f6f6f6f'
+$pBm = New-FakeChat $bdProj $idBm 'Moved on' 2 @('begin') -Mode 'default'
+$rowBm = Get-ChatqRowById -Id $idBm -Provider claude -Path $pBm
+# the chat's handle, as a board or a list makes one
+$bmChat = { (Register-ChatqPicks $bdRc @(@{ Key = "chat|$idBm"; Pick = @{ kind = 'chat'; sessionId = $idBm; provider = 'claude'; cwd = $bdProj; title = 'Moved on'; home = $claudeHome; path = $pBm } }))["chat|$idBm"] }
+$hM = & $bmChat
+& $bdTyped $pBm $idBm 'typed at the PC'
+$jn = @(Get-ChatqJobs).Count
+$r = & $bdSend (& $bdSeal 'send' ([ordered]@{ h = $hM; id = $idBm.Substring(0, 8); text = 'written for the old view' }))
+Check 'send into a chat that took a prompt at the PC since the board: refused as out of date - the page asks again, the text kept - nothing queued' (
+    -not $r.Payload.ok -and $r.Payload.say -eq 'that chat moved on at the PC - the list is out of date, refresh it' -and @(Get-ChatqJobs).Count -eq $jn) "$($r.Payload.say)"
+& $bdQuiet
+$r = & $bdSend (& $bdSeal 'continue' ([ordered]@{ h = $hM }))
+Check 'Continue at reset the same: refused now, not queued and dropped later as already continued' (-not $r.Payload.ok -and
+    $r.Payload.say -eq 'that chat moved on at the PC - the list is out of date, refresh it' -and @(Get-ChatqJobs).Count -eq $jn) "$($r.Payload.say)"
+# the chat's last answer read since: that is what the phone was shown last
+$bmA = [ordered]@{ parentUuid = $null; isSidechain = $false; message = [ordered]@{ model = 'claude-opus-5'; id = 'msg_bm'; type = 'message'; role = 'assistant'
+        content = @([ordered]@{ type = 'text'; text = 'answered at the PC' }); stop_reason = 'end_turn' }
+    type = 'assistant'; uuid = [guid]::NewGuid().ToString(); timestamp = (Get-Date).ToUniversalTime().ToString('o'); cwd = $bdProj; sessionId = $idBm }
+[System.IO.File]::AppendAllText($pBm, ($bmA | ConvertTo-Json -Compress -Depth 8) + "`n", $utf8)
+& $bdQuiet
+$r = & $bdSend (& $bdSeal 'read' ([ordered]@{ h = $hM }))
+$r2 = & $bdSend (& $bdSeal 'send' ([ordered]@{ h = $hM; id = $idBm.Substring(0, 8); text = 'written after reading it' }))
+Check 'Read the last answer after the prompt at the PC: a send judged from then, and it goes' ($r.Payload.kind -eq 'reply' -and $r2.Payload.ok -and
+    @(Get-ChatqJobs).Count -eq $jn + 1) "$($r.Payload.kind) / $($r2.Payload.say)"
+# a board kept for its 10 s is dropped by the refusal: the one asked next is built afresh
+$script:ChatqBoardCache = $null
+$null = & $bdSend (& $bdSeal 'board' $null)
+$cached = [bool]$script:ChatqBoardCache
+& $bdTyped $pBm $idBm 'typed at the PC again'
+& $bdQuiet
+$r = & $bdSend (& $bdSeal 'send' ([ordered]@{ h = $hM; id = $idBm.Substring(0, 8); text = 'old view again' }))
+Check 'an out of date refusal drops the board kept in memory, so the next is built with fresh handles' ($cached -and -not $r.Payload.ok -and $null -eq $script:ChatqBoardCache) "$cached / $($r.Payload.say)"
+$hM = & $bmChat
+$r = & $bdSend (& $bdSeal 'send' ([ordered]@{ h = $hM; id = $idBm.Substring(0, 8); text = 'written for the new view' }))
+Check 'the board asked for again, the send goes' ($r.Payload.ok -and @(Get-ChatqJobs).Count -eq $jn + 2) "$($r.Payload.say)"
+# jobs the board showed, changed at the PC since
+$jBf = (New-ChatqJob -Row $rowBm -Prompt 'failed here' -Kind prompt).Job
+Complete-ChatqJob $jBf 'failed' ([pscustomobject]@{ kind = 'failed'; reason = 'broke' }) 'broke'
+$jBn = (New-ChatqJob -Row $rowBm -Prompt 'asks here' -Kind prompt).Job
+Complete-ChatqJob $jBn 'needs-input' ([pscustomobject]@{ kind = 'needs-input'; reason = 'asked' }) 'asked'
+$script:ChatqBoardCache = $null
+$b6 = (& $bdSend (& $bdSeal 'board' $null)).Payload
+$qm = @{}
+foreach ($q in @($b6.queue)) { $qm[[int]$q.n] = $q }
+$null = Reset-ChatqJob (Find-ChatqJob $jBf.id -Exact)
+& $bdQuiet
+$r = & $bdSend (& $bdSeal 'skip' ([ordered]@{ h = $qm[[int]$jBf.seq].h; n = [int]$jBf.seq }))
+Check 'Skip on a failed job the PC queued again since the board: refused as out of date, the requeue kept' (-not $r.Payload.ok -and
+    $r.Payload.say -eq "#$($jBf.seq) is queued now - the list is out of date, refresh it" -and (Find-ChatqJob $jBf.id -Exact).state -eq 'queued') "$($r.Payload.say)"
+& $bdTyped $pBm $idBm 'answered at the PC'
+& $bdQuiet
+$r = & $bdSend (& $bdSeal 'allow' ([ordered]@{ h = $qm[[int]$jBn.seq].h; n = [int]$jBn.seq }))
+$jBn2 = Find-ChatqJob $jBn.id -Exact
+Check 'Allow edits & continue on a job answered in its chat at the PC: refused, no mode raised, the job closed as answered there' (-not $r.Payload.ok -and
+    $r.Payload.say -eq "#$($jBn.seq) was answered in the chat at the PC and is closed - the list is out of date, refresh it" -and $jBn2.state -eq 'skipped' -and
+    -not $jBn2.mode -and $jBn2.result.reason -eq 'answered in the chat') "$($r.Payload.say) / $($jBn2.state) $($jBn2.mode)"
+$jBf2 = (New-ChatqJob -Row $rowBm -Prompt 'failed again' -Kind prompt).Job
+Complete-ChatqJob $jBf2 'failed' ([pscustomobject]@{ kind = 'failed'; reason = 'broke' }) 'broke'
+$script:ChatqBoardCache = $null
+$b7 = (& $bdSend (& $bdSeal 'board' $null)).Payload
+$hF2 = @($b7.queue | Where-Object { [int]$_.n -eq [int]$jBf2.seq })[0].h
+& $bdTyped $pBm $idBm 'went on at the PC'
+& $bdQuiet
+$r = & $bdSend (& $bdSeal 'retry' ([ordered]@{ h = $hF2; n = [int]$jBf2.seq }))
+Check 'Retry on a failed job whose chat took a prompt since the board: refused, nothing sent into it' (-not $r.Payload.ok -and
+    $r.Payload.say -eq "the chat of #$($jBf2.seq) moved on at the PC - the list is out of date, refresh it" -and (Find-ChatqJob $jBf2.id -Exact).state -eq 'failed') "$($r.Payload.say)"
+foreach ($j in @(Get-ChatqJobs | Where-Object { $_.sessionId -eq $idBm })) { $null = Remove-ChatqJob $j 'test' }
+Remove-Item -LiteralPath $pBm -Force -EA SilentlyContinue
+& $bdQuiet
 
 # --- read on an alert, and the scan with no overlay --------------------------------------
 $liveJob = ConvertTo-ChatqLiveJob @{ sessionId = $idBa; title = 'Parser'; path = $pBa; cwd = $bdProj; home = $claudeHome }
@@ -575,7 +673,7 @@ $null = Set-ChatqNotifyConfig @{ NewMode = 'default' }
 if ($script:ChatqIsWindows) {
     $wpfBoard = @"
 `$env:CHATQ_OVERLAY = '1'
-. '$(Join-Path $sb 'tool\VS-code-chat-manager.ps1')'
+. '$(Join-Path $sb 'tool\claude-codex-chat-manager.ps1')'
 Set-StrictMode -Off
 `$null = Set-ChatqNotifyConfig @{ FullText = 'off'; Listen = 'alerts' }
 `$w = New-ChatqPhoneSetupWindow -Theme dark

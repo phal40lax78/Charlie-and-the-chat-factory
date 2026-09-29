@@ -1,4 +1,4 @@
-# VS-code-chat-manager, src/host-work.ps1: dot-sourced by VS-code-chat-manager.ps1
+# claude-codex-chat-manager, src/host-work.ps1: dot-sourced by claude-codex-chat-manager.ps1
 # in its turn, never on its own - see the list there.
 
 #region the chats one VS Code window runs --------------------------------------
@@ -36,8 +36,11 @@ function Get-ChatHostWork {
     Written says whether its transcript was written in the last -Seconds,
     which Test-ChatIdle counts as live too. It is kept apart so the caller
     can leave out the chat a queued run has just written, as Test-ChatIdle's
-    -Except does. A background shell is not counted, as nowhere in chatq -
-    it is as often a server that never ends (FUTURE_WORK.md).
+    -Except does. A background shell is not counted - it is as often a
+    server that never ends (FUTURE_WORK.md), and a reload is not a question
+    of whether the chat would wake up and write beside a run. Only a queued
+    run into the chat waits on one, and for 20 minutes at most
+    (Resolve-ChatqLiveAction).
     Returns HostPid, Known and Chats, one per session: SessionId, Pids, Cwd,
     Transcript, Why, Written. Known is whether the processes' parents could
     be read at all. Off Windows they cannot, and every VS Code chat of the
@@ -73,8 +76,9 @@ function Get-ChatHostWork {
     # file yet. Looked at before any chat of the window is known, since a run
     # can go into a chat that no process of this window holds any more - a
     # run before it ended the window's idle process on purpose (liveIdle
-    # stop, Show-ChatFresh -Away), yet a tab here still shows the chat and
-    # would load it part way through. Every running one counts, whichever
+    # stop, or a handover whose tab closed), yet a view here still shows the
+    # chat - a side bar, the run's live view - and would load it part way
+    # through. Every running one counts, whichever
     # window: runs end, so waiting on one too many is the safe side.
     $running = @(try { @(Get-ChatqJobs) | Where-Object { $_.state -eq 'running' -and $_.PSObject.Properties['sessionId'] -and $_.sessionId } } catch { })
     if (-not $mine.Count -and -not $running.Count) { return $res }

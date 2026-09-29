@@ -1,4 +1,4 @@
-# VS-code-chat-manager, src/overlay-mac.ps1: dot-sourced by VS-code-chat-manager.ps1
+# claude-codex-chat-manager, src/overlay-mac.ps1: dot-sourced by claude-codex-chat-manager.ps1
 # in its turn, never on its own - see the list there.
 
 #region overlay: macOS panel ---------------------------------------------------
@@ -128,9 +128,11 @@ var CO = {
     var max = (snap && snap.config && snap.config.maxRows) || 8;
     for (i = 0; i < rows.length && i < max; i++) {
       var r = rows[i];
+      // a terminal's chat marked >_, one a queued prompt runs in a play
+      // triangle, as the Windows panel draws them; VS Code's unmarked
       out.push([[r.status === 'queued' ? '\u25CB ' : '\u25CF ', r.status, false],
         [r.project ? r.project + '  ' : '', 'project', true],
-        [(r.where === 'terminal' ? '>_ ' : '') + r.title + '   ', 'text', false],
+        [(r.where === 'terminal' ? '>_ ' : r.where === 'run' ? '\u25B7 ' : '') + r.title + '   ', 'text', false],
         [r.stateText, r.rank === 0 ? 'warn' : 'dim', false]]);
       if (r.prompt && (!snap.config || snap.config.prompts !== false)) { out.push([['    ' + r.prompt, 'dim', false]]); }
     }
@@ -388,7 +390,7 @@ function run(argv) {
     } catch (e) {}
   };
   stepAsk();
-  add('VS-code-chat-manager overlay', null);
+  add('claude-codex-chat-manager overlay', null);
   menu.addItem($.NSMenuItem.separatorItem);
   var lockItem = add(locked ? 'Unlock to move' : 'Lock', 'toggleLock:');
   var hideItem = add(hidden ? 'Show' : 'Hide', 'toggleHide:');

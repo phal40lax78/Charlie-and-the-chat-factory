@@ -1,4 +1,4 @@
-# VS-code-chat-manager, src/queue.ps1: dot-sourced by VS-code-chat-manager.ps1
+# claude-codex-chat-manager, src/queue.ps1: dot-sourced by claude-codex-chat-manager.ps1
 # in its turn, never on its own - see the list there.
 
 #region queue: configuration --------------------------------------------
@@ -17,10 +17,16 @@ $script:ChatqPidPath = Join-Path $script:ChatqData 'watcher.pid'
 $script:ChatqWakePath = Join-Path $script:ChatqData 'wake'
 $script:ChatqStopPath = Join-Path $script:ChatqData 'stop'
 $script:ChatqBoardPath = Join-Path $script:ChatqData 'queue.md'
+# held while a new job takes its number and id (New-ChatqJobSlot): a
+# shell, the overlay and the watcher all make jobs
+$script:ChatqSeqLockPath = Join-Path $script:ChatqData 'job-numbers.lock'
 # one file per cut-off the reset ask answered or announced (Get-ChatqResetAsk)
 $script:ChatqAutoDir = Join-Path $script:ChatqData 'auto'
 # written by chatinstall: a running watcher hands over to the new code
 $script:ChatqRestartPath = Join-Path $script:ChatqData 'restart'
+# a queued run's own --settings, <jobId>.json, while it runs: Ultracode as
+# its chat had it (Invoke-ChatqRun)
+$script:ChatqRunSettingsDir = Join-Path $script:ChatqData 'run-settings'
 # tests only: a scriptblock that stands in for launching a real watcher
 $script:ChatqSpawn = $null
 $script:ChatqScriptPath = $script:ChatScriptPath
@@ -1252,16 +1258,21 @@ function Get-ChatqClipboard {
 #region external CLIs ---------------------------------------------------------
 
 # Set in every shell a live Claude chat spawns (its Bash tool, a VS Code
-# terminal it opened). A child that inherits them believes it is part of that
-# session - its messaging socket, its session id, its effort - so none of them
-# survive into a run. The API keys go too: with one set, claude -p bills the
-# API instead of the subscription whose reset this whole tool is waiting for.
+# terminal it opened), and so in a watcher one of those started. A child that
+# inherits them believes it is part of that session - its messaging socket, its
+# session id, its effort - so none of them survive into a run. Some are the
+# VS Code extension's own settings for its chats: MCP_CONNECTION_NONBLOCKING
+# and CLAUDE_CODE_ENABLE_TASKS, and from Claude Code 2.1.284 the SDK's
+# CLAUDE_CODE_SDK_READS_SESSION_STATE (extra stream lines for an SDK host). The
+# API keys go too: with one set, claude -p bills the API instead of the
+# subscription whose reset this whole tool is waiting for.
 $script:ChatqEnvDrop = @(
     'CLAUDECODE', 'CLAUDE_PID', 'CLAUDE_EFFORT', 'CLAUDE_AGENT_SDK_VERSION',
     'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_EXECPATH', 'CLAUDE_CODE_SESSION_ID',
     'CLAUDE_CODE_SESSION_ATTENDED', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_SSE_PORT',
     'CLAUDE_CODE_MESSAGING_SOCKET', 'CLAUDE_CODE_MESSAGING_TOKEN',
     'CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING', 'CLAUDE_CODE_ENABLE_TASKS',
+    'CLAUDE_CODE_SDK_READS_SESSION_STATE', 'MCP_CONNECTION_NONBLOCKING',
     'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'OPENAI_API_KEY', 'CODEX_API_KEY'
 )
 $script:ChatqClaudeMin = '2.1.259'   # --permission-prompts none
@@ -1671,7 +1682,12 @@ function Get-ChatqClaudeOutcome {
             return [pscustomobject]$o
         }
     }
-    if ($Proc.Stopped) { $o.kind = 'failed'; $o.reason = $Proc.Stopped; return [pscustomobject]$o }
+    # The 4 h deadline after the turn itself had ended well: what print mode
+    # was still waiting on - a workflow or an agent the run started - was cut
+    # off, and the turn is done all the same.
+    $cut = $Proc.Stopped -eq 'timeout' -and $res -and -not $res.is_error -and $res.subtype -eq 'success'
+    if ($cut) { $o['note'] = 'background work it started was cut off at the 4 h deadline' }
+    elseif ($Proc.Stopped) { $o.kind = 'failed'; $o.reason = $Proc.Stopped; return [pscustomobject]$o }
     if (-not $res) {
         $err = ("$($Proc.StdErr)" -replace '\s+', ' ').Trim()
         if ($err.Length -gt 200) { $err = $err.Substring($err.Length - 200) }
@@ -1683,7 +1699,8 @@ function Get-ChatqClaudeOutcome {
         $o.kind = 'failed'; $o.reason = "$($res.subtype): $(Get-ChatqExcerpt $text 160)"
         return [pscustomobject]$o
     }
-    $den = @($res.permission_denials)
+    # a result with no permission_denials at all is none, not one $null
+    $den = @($res.permission_denials | Where-Object { $null -ne $_ })
     if ($den.Count) {
         $names = @($den | ForEach-Object {
                 $n = [string]$_.tool_name
@@ -2052,6 +2069,61 @@ function Get-ChatqRunModel {
     return [string]$Job.model
 }
 
+function Get-ChatqRunCarry {
+    <#
+    What a queued Claude run carries of the chat's session-only settings
+    (Get-ChatSessionSettings), which a new process for the chat - a run is
+    one - would start without: @{ Ultracode = [bool]; Effort = a level
+    --effort takes, or $null; UltracodeHeld = the run's mode when the chat
+    had Ultracode and the run goes without it, else $null }. Only into the
+    chat as it is, on its own model - never a new chat's first run, and
+    never on a -Model of the job's, which may not take them (Ultracode needs
+    a model that can do xhigh). Codex has neither. A level only where the
+    watcher's environment sets none: CLAUDE_CODE_EFFORT_LEVEL overrides
+    --effort, and is the user's own, left as it is.
+    Ultracode only in auto or bypassPermissions mode. Its standing
+    instruction has the model run a workflow for every real task - likely
+    the first - and Claude Code asks before each Workflow unless a rule
+    allows it: auto mode's classifier lets one through, bypassPermissions
+    asks nothing, but in any other mode nobody can answer a run (with
+    --permission-prompts none the ask is a denial, and the phone's bridge
+    never approves a Workflow), so each call is denied and the job ends
+    needs input, 'denied Workflow', where it would have run without.
+    #>
+    param($Job)
+    $none = [pscustomobject]@{ Ultracode = $false; Effort = $null; UltracodeHeld = $null }
+    if ($Job.provider -ne 'claude' -or (Get-ChatField $Job 'runModel') -or (Test-ChatqFreshChat $Job) -or -not $Job.path) { return $none }
+    $s = Get-ChatSessionSettings ([string]$Job.path)
+    $lvl = $null
+    if ($s.Effort -in $script:ChatEffortLevels -and -not [Environment]::GetEnvironmentVariable('CLAUDE_CODE_EFFORT_LEVEL')) { $lvl = [string]$s.Effort }
+    $uc = $s.Ultracode -eq $true
+    $held = $null
+    if ($uc) {
+        $mode = Get-ChatqPermitMode $Job
+        if ($mode -notin 'auto', 'bypassPermissions') { $uc = $false; $held = $mode }
+    }
+    return [pscustomobject]@{ Ultracode = $uc; Effort = $lvl; UltracodeHeld = $held }
+}
+
+function Test-ChatqRunUltracode {
+    # Whether a queued Claude run starts with Ultracode, as the chat last had
+    # it (Get-ChatqRunCarry)
+    param($Job)
+    return [bool](Get-ChatqRunCarry $Job).Ultracode
+}
+
+function Format-ChatqRunCarry {
+    # What a run carries of the chat's session, in words, from the job's own
+    # fields the watcher set at its start (Get-ChatqRunCarry): 'with
+    # Ultracode', 'at effort max', both, or ''. Pure.
+    param($Job)
+    $w = @()
+    if (Get-ChatField $Job 'ultracode') { $w += 'with Ultracode' }
+    $e = [string](Get-ChatField $Job 'effort')
+    if ($e) { $w += "at effort $e" }
+    return ($w -join ', ')
+}
+
 #endregion
 
 #region running one job -------------------------------------------------------
@@ -2080,12 +2152,31 @@ function Update-ChatqNewChatPath {
     Set-ChatqProp $Job 'group' (Split-Path (Split-Path $p -Parent) -Leaf)
 }
 
+# What a queued Claude run is given, each only where the watcher's own
+# environment does not set it already (Invoke-ChatqRun). Print mode kills a
+# background shell 5 s after the turn ends (Claude Code 2.1.283), so a suite
+# the model sent to the background died unseen: background tasks off, and it
+# runs in the foreground instead - up to an hour, and 30 minutes when the
+# model names no timeout, since with background tasks off a long command is
+# never moved to the background by itself either. Print mode waits for a
+# workflow or an agent the run started, up to the ceiling: an hour, not the
+# 10 minutes it would give, nor for ever - one hung workflow must not hold
+# every job behind it until the run's 4 h deadline.
+$script:ChatqRunEnv = [ordered]@{
+    CLAUDE_CODE_DISABLE_BACKGROUND_TASKS = '1'
+    BASH_MAX_TIMEOUT_MS                  = '3600000'
+    BASH_DEFAULT_TIMEOUT_MS              = '1800000'
+    CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS = '3600000'
+}
+
 function Invoke-ChatqRun {
     # Deliver one job's prompt into its chat and read what came back. The
     # caller owns the job's state; this only runs and classifies. -Permit:
     # New-ChatqPermitRun's run, when a prompt mid-run is to ask the phone.
+    # -Carry: the watcher's Get-ChatqRunCarry, judged once for its log;
+    # $null judges it here.
     param($Job, [string]$Prompt, [scriptblock]$OnTick, [scriptblock]$OnStart, [object[]]$Files,
-        $Permit)
+        $Permit, $Carry = $null)
     $exe = Find-ChatqExe $Job.provider
     if (-not $exe) { return [pscustomobject]@{ kind = 'failed'; reason = "no $($Job.provider) CLI found - install it or set CHATQ_$($Job.provider.ToUpper())" } }
     $log = Join-Path $script:ChatqLogDir "$($Job.id).jsonl"
@@ -2148,6 +2239,30 @@ function Invoke-ChatqRun {
     # only when -Model asked for one: a resume keeps the chat's own model, and
     # naming it would pin the run to an id that may since have been retired
     if ($Job.runModel) { $a += @('--model', $Job.runModel) }
+    # Ultracode and a session-only level live only in the chat's own
+    # process: a run not told starts without them, however the chat was left
+    # (Get-ChatqRunCarry). The level by --effort. Ultracode by a settings
+    # key, never --effort ultracode, which forces xhigh - and in the one
+    # --settings claude reads, the last one given: the permit's own file
+    # when the run has one, else a file of the job's (a file, never inline
+    # JSON, which cmd.exe would take apart for a claude.cmd).
+    if ($null -eq $Carry) { $Carry = Get-ChatqRunCarry $Job }
+    if ($Carry.Effort) { $a += @('--effort', [string]$Carry.Effort) }
+    $ownSet = $null
+    if ($Carry.Ultracode) {
+        if ($Permit) {
+            # added to the rules the permit's file was written from, never
+            # read back from it: a read that failed would save ultracode
+            # alone, and the run would go without the permit's deny rules
+            $Permit.Settings['ultracode'] = $true
+            Save-ChatqJson $Permit.SettingsPath $Permit.Settings
+        }
+        else {
+            $ownSet = Join-Path $script:ChatqRunSettingsDir "$($Job.id).json"
+            Save-ChatqJson $ownSet ([ordered]@{ ultracode = $true })
+            $a += @('--settings', $ownSet)
+        }
+    }
     # Claude Code 2.1.280 read files outside the project unasked (spike S18);
     # naming the job's folder keeps that true under a stricter version or a
     # settings file that limits reads to the workspace
@@ -2156,11 +2271,23 @@ function Invoke-ChatqRun {
     # claude's own wait on the bridge ends 3 minutes after the bridge's: a
     # call it times out is an error the model retries, never a denial (S35)
     if ($Permit) { $runEnv['MCP_TOOL_TIMEOUT'] = [string]$Permit.TimeoutMs }
-    $proc = Invoke-ChatqProcess -Exe $exe -ArgList $a -WorkDir $Job.cwd -StdIn $Prompt -LogPath $log `
-        -SetEnv $runEnv -OnTick $OnTick -OnLine {
-        param($l)
-        Update-ChatqClaudeState $st $l
-        if ($st.Init -and -not $st.Started) { $st.Started = $true; if ($OnStart) { & $OnStart $st } }
+    foreach ($k in $script:ChatqRunEnv.Keys) {
+        # the user's own setting stands; and never a $null, which removes one
+        if ($null -eq [Environment]::GetEnvironmentVariable($k)) { $runEnv[$k] = $script:ChatqRunEnv[$k] }
+    }
+    try {
+        $proc = Invoke-ChatqProcess -Exe $exe -ArgList $a -WorkDir $Job.cwd -StdIn $Prompt -LogPath $log `
+            -SetEnv $runEnv -OnTick $OnTick -OnLine {
+            param($l)
+            Update-ChatqClaudeState $st $l
+            if ($st.Init -and -not $st.Started) { $st.Started = $true; if ($OnStart) { & $OnStart $st } }
+        }
+    }
+    finally {
+        # read at the start only, and gone however the run ended - a start
+        # that threw included; one left by a watcher that died is written
+        # afresh by the job's next run
+        if ($ownSet) { Remove-Item -LiteralPath $ownSet -Force -EA SilentlyContinue }
     }
     if ($Permit) {
         # what the phone answered decides what the denials mean; a run the

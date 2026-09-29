@@ -124,6 +124,10 @@ and `downPerDay` are config-only (the table under "A few settings are only in co
 ```
 "picks":     { "<h>": { "kind":"chat"|"folder", "sessionId", "provider", "path", "cwd", "home",
                         "title", "at", "expires" } }     pruned past expires; 300 at most, oldest first
+                        (a job's: "kind":"job", "jobId", "seq", "sessionId", "title", "mark", "path";
+                        a Claude chat's and a job's also "len", its transcript's length then;
+                        "at" and "len" move on with each board or list that names it, and with a
+                        read of its last answer - as close as the PC knows to what the phone saw)
 "standing":  true | false                                 listen=always is in effect (section 7)
 "compose":   [ "<iso>", ... ]                             when each compose act was taken; pruned past 1 h
 "down":      { "day": "yyyy-MM-dd", "full": n, "other": n }   the day's down messages (local date)
@@ -291,6 +295,7 @@ chat; `ni` = the seq of a job of it that needs input; `more` = chats not listed.
   | more than 30 `list`/`status`, or 20 `send`+`new`, or 5 `new`, in the last hour | `too many from the phone this hour - nothing done` |
   | handle unknown, expired, wrong kind | `that list is out of date - refresh it` |
   | `id` is not the first 8 of the pick's `sessionId` | same as above |
+  | the chat took a prompt, or the job changed, since the pick (in `Invoke-ChatqCompose` / `Invoke-ChatqJobAct`, after the act is recorded) | `that chat moved on at the PC - the list is out of date, refresh it`, `#12 is queued now - ...`, and the like |
 
   4. `Invoke-ChatqCompose $Payload $Pick -Rc $Rc -Quick:$Quick` -> `@{ Act; Ok; Say; Job }`.
 - **`Invoke-ChatqCompose`**:
@@ -323,6 +328,16 @@ chat; `ni` = the seq of a job of it that needs input; `more` = chats not listed.
   - A job act (`now`, `skip`, `stop`, `retry`, `allow`) finds its job by the handle's whole id
     only (`Find-ChatqJob -Exact`), and only when that job still has the handle's number: a job
     queued in the same second for the same chat is that id with `-2`, never taken in its place.
+  - Only on what the board showed (`Get-ChatqMovedOn`, added after 0.9.0): a job's pick keeps
+    `mark` - `Get-ChatqJobMark`, "<attempts>|<state>|<endedAt as epoch ms>" - and a job act on a
+    job whose mark is not that any more is refused: `#12 is queued now - the list is out of
+    date, refresh it`. `send`, `continue`, `retry` and `allow` read the chat's transcript too
+    (Claude only, what was written after the pick's `len`, `Get-ChatqTypedAfter`): a prompt
+    typed after the pick's `at` - not the phone's own jobs' - refuses them, `that chat moved on at the
+    PC - the list is out of date, refresh it` (`the chat of #12 ...` for a job act); a
+    needs-input job whose chat was typed into after it stopped is closed, `answered in the
+    chat`, and the act refused. Every refusal names "out of date", so the page asks for the
+    board again and keeps the text.
 - The watcher is started for nothing new: a `send`/`new` job is picked up by the loop that read
   it, as reply jobs are.
 
