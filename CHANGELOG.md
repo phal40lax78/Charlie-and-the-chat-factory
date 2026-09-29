@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+- **Remove in the console works, and says what it did.** Its first click
+  turned the button into **Remove - sure?** for good, while only a second
+  click 0.4-5 s later removed: one after longer - back from VS Code, say -
+  asked again under the same label, and the second half of a double-click
+  was dropped, both with nothing said. "Sure?" now lasts 5 s, in red, and
+  goes back to **Remove** after, saying so; each click says what it did in
+  the status line; the clicks are timed by the mouse's own times, not by
+  when a busy window got to them. A removed job now stays removed: the
+  watcher, checking it at that moment, wrote it back - queued, or failed -
+  and a continue could still be sent. `Remove-ChatqJob` goes by the job's
+  file, not the caller's copy, and says when it could not remove it;
+  `chatqrm` and **Don't continue** say so too.
+- **The open chip says what it is doing.** A line on the panel says
+  `opening '<title>' - 3s` from the click, then `opened` or why not - every
+  exit code, a crash and no answer in 60 s among them, which said nothing
+  before - and the chip counts the seconds. A click the chip was not armed
+  for says **click again** rather than nothing. The open no longer waits on
+  `claude agents` to start: it reads Claude's session registry, as the
+  panel and **Show it** do.
+
 ## 0.9.0 — the overlay and permissions on the phone, cut-off chats continued, updates that wait
 
 Five pieces of work land together: the phone gets the overlay, Claude's

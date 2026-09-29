@@ -831,10 +831,14 @@ Show-ChatOverlayChip `$H `$rects[0] ([System.Drawing.Point]::new(-9000, -9000))
 `$dragged = `$script:Opened -eq 0 -and -not `$script:AutoActs.Count
 `$kids[0].RaiseEvent((& `$ev `$true)); `$kids[0].RaiseEvent((& `$ev `$false))
 `$same = (`$script:AutoActs -join ',') -eq 'dont' -and `$script:Opened -eq 0
-# an unarmed chip takes no click
+# an unarmed chip takes no click - but says so, click again, and is armed
+# for the next one
 `$H.ChipArmed = `$false
 `$kids[1].RaiseEvent((& `$ev `$true)); `$kids[1].RaiseEvent((& `$ev `$false))
-`$unarmed = `$script:Opened -eq 0
+`$unarmed = `$script:Opened -eq 0 -and `$H.ChipArmed -and `$kids[1].Child.Text -eq 'click again'
+`$kids[1].RaiseEvent((& `$ev `$true)); `$kids[1].RaiseEvent((& `$ev `$false))
+`$unarmed = `$unarmed -and `$script:Opened -eq 1
+`$script:Opened = 0
 # a plain row: open alone, flush right
 `$pr = [pscustomobject]@{ key = "s:`$sid"; kind = 'session'; provider = 'claude'; status = 'idle'; rank = 3; project = 'p'; title = 'plain'; prompt = `$null; stateText = 'idle 1m'; job = `$null; sessionId = `$sid; cwd = 'C:\p'; where = 'vscode' }
 `$H.Ctx.ViewSig = 'plain'

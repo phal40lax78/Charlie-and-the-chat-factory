@@ -335,11 +335,13 @@ function Test-ChatqClaudeProcess {
 }
 
 function Complete-ChatqJob {
-    # the one way a job leaves the queue for good
-    param($Job, [string]$State, $Result, [string]$Why)
+    # the one way a job leaves the queue for good. -Existing: not for a job
+    # removed meanwhile (Set-ChatqJobState), and says whether it ended it
+    param($Job, [string]$State, $Result, [string]$Why, [switch]$Existing)
     Set-ChatqProp $Job 'result' $Result
     Set-ChatqProp $Job 'endedAt' (Get-ChatqStamp)
     Set-ChatqProp $Job 'runnerPid' $null
+    if ($Existing) { return (Set-ChatqJobState $Job $State $Why -Existing) }
     Set-ChatqJobState $Job $State $Why
 }
 
@@ -364,13 +366,13 @@ function Invoke-ChatqJob {
         # a chat deleted or archived since auto-continue queued it: never
         # your job, so no failed alert - only the log says so
         if (-not $meta.Exists -and (Get-ChatField $Job 'auto')) {
-            Complete-ChatqJob $Job 'skipped' ([pscustomobject]@{ kind = 'skipped'; reason = 'the chat is gone' }) 'chat gone'
-            Write-ChatqWatchLog "#$($Job.seq) skipped: the chat is gone"
+            if (Complete-ChatqJob $Job 'skipped' ([pscustomobject]@{ kind = 'skipped'; reason = 'the chat is gone' }) 'chat gone' -Existing) { Write-ChatqWatchLog "#$($Job.seq) skipped: the chat is gone" }
             return
         }
         if (-not $meta.Exists) {
-            Complete-ChatqJob $Job 'failed' ([pscustomobject]@{ kind = 'failed'; reason = 'the chat is gone - its transcript was deleted' }) 'chat gone'
-            [void](Send-ChatqAlert 'failed' "$($Job.title) $($script:ChatqDot) chat is gone" 2 -Job $Job)
+            if (Complete-ChatqJob $Job 'failed' ([pscustomobject]@{ kind = 'failed'; reason = 'the chat is gone - its transcript was deleted' }) 'chat gone' -Existing) {
+                [void](Send-ChatqAlert 'failed' "$($Job.title) $($script:ChatqDot) chat is gone" 2 -Job $Job)
+            }
             return
         }
         # A "continue" only makes sense into a chat still stopped where the
@@ -379,14 +381,14 @@ function Invoke-ChatqJob {
         # requeue you asked for (chatqrun <n>) is sent regardless.
         $checkStop = $Job.kind -eq 'continue' -or ($Job.retryAs -eq 'continue' -and $Job.autoContinue)
         if ($checkStop -and $meta.LastTurn -and -not ($meta.LastTurn.Limit -or $meta.LastTurn.Overloaded)) {
-            Complete-ChatqJob $Job 'skipped' ([pscustomobject]@{ kind = 'skipped'; reason = 'already continued - by you or by Claude''s own auto-continue' }) 'already continued'
-            Write-ChatqWatchLog "#$($Job.seq) skipped: already continued"
+            if (Complete-ChatqJob $Job 'skipped' ([pscustomobject]@{ kind = 'skipped'; reason = 'already continued - by you or by Claude''s own auto-continue' }) 'already continued' -Existing) { Write-ChatqWatchLog "#$($Job.seq) skipped: already continued" }
             return
         }
     }
     if (-not $Job.cwd -or -not (Test-Path -LiteralPath $Job.cwd)) {
-        Complete-ChatqJob $Job 'failed' ([pscustomobject]@{ kind = 'failed'; reason = "the chat's folder is gone: $($Job.cwd)" }) 'folder gone'
-        [void](Send-ChatqAlert 'failed' "$($Job.title) $($script:ChatqDot) folder gone" 2 -Job $Job)
+        if (Complete-ChatqJob $Job 'failed' ([pscustomobject]@{ kind = 'failed'; reason = "the chat's folder is gone: $($Job.cwd)" }) 'folder gone' -Existing) {
+            [void](Send-ChatqAlert 'failed' "$($Job.title) $($script:ChatqDot) folder gone" 2 -Job $Job)
+        }
         return
     }
 
@@ -397,8 +399,7 @@ function Invoke-ChatqJob {
     $hold = if ($Job.provider -eq 'claude' -and -not $fresh) { Get-ChatShowHold $Job.sessionId $now } else { $null }
     if ($hold) {
         Set-ChatqProp $Job 'deferUntil' $hold.ToUniversalTime().ToString('o')
-        Save-ChatqJob $Job
-        Write-ChatqWatchLog "#$($Job.seq) held back: a window is showing that chat"
+        if (Save-ChatqJob $Job -Existing) { Write-ChatqWatchLog "#$($Job.seq) held back: a window is showing that chat" }
         return
     }
 
@@ -407,16 +408,14 @@ function Invoke-ChatqJob {
     # since is left to it, quietly; one open in a VS Code panel waits till
     # 5 minutes past the reset, for the panel's own auto-continue to go first
     if (Test-ChatqAutoTerminal $Job $live) {
-        Complete-ChatqJob $Job 'skipped' ([pscustomobject]@{ kind = 'skipped'; reason = 'the chat is open in a terminal - left to it' }) 'in a terminal'
-        Write-ChatqWatchLog "#$($Job.seq) skipped: the chat is open in a terminal"
+        if (Complete-ChatqJob $Job 'skipped' ([pscustomobject]@{ kind = 'skipped'; reason = 'the chat is open in a terminal - left to it' }) 'in a terminal' -Existing) { Write-ChatqWatchLog "#$($Job.seq) skipped: the chat is open in a terminal" }
         return
     }
     $autoHold = Get-ChatqAutoHold $Job $live $now
     if ($autoHold) {
         Set-ChatqProp $Job 'deferUntil' $autoHold.ToUniversalTime().ToString('o')
         Set-ChatqProp $Job 'deferWhy' 'vscode'
-        Save-ChatqJob $Job
-        Write-ChatqWatchLog "#$($Job.seq) held: auto-continue waits until $($autoHold.ToString('HH:mm')) - the chat is open in VS Code"
+        if (Save-ChatqJob $Job -Existing) { Write-ChatqWatchLog "#$($Job.seq) held: auto-continue waits until $($autoHold.ToString('HH:mm')) - the chat is open in VS Code" }
         return
     }
     $act = Resolve-ChatqLiveAction $Job $live
@@ -434,8 +433,9 @@ function Invoke-ChatqJob {
         $since = ConvertTo-ChatqDate $Job.deferredSince
         $hours = ($now - $since).TotalHours
         if ($hours -ge 24) {
-            Complete-ChatqJob $Job 'failed' ([pscustomobject]@{ kind = 'failed'; reason = 'the chat stayed busy for 24 h' }) 'busy 24h'
-            [void](Send-ChatqAlert 'failed' "$($Job.title) $($script:ChatqDot) busy for 24 h, gave up" 2 -Job $Job)
+            if (Complete-ChatqJob $Job 'failed' ([pscustomobject]@{ kind = 'failed'; reason = 'the chat stayed busy for 24 h' }) 'busy 24h' -Existing) {
+                [void](Send-ChatqAlert 'failed' "$($Job.title) $($script:ChatqDot) busy for 24 h, gave up" 2 -Job $Job)
+            }
             return
         }
         if ($hours -ge 2 -and -not $Job.busyAlerted) {
@@ -447,8 +447,7 @@ function Invoke-ChatqJob {
         Set-ChatqProp $Job 'deferUntil' $now.AddSeconds($back).ToUniversalTime().ToString('o')
         # busy now, not held for VS Code: the ETA says chat busy
         Set-ChatqProp $Job 'deferWhy' $null
-        Save-ChatqJob $Job
-        Write-ChatqWatchLog "#$($Job.seq) deferred: chat is in use"
+        if (Save-ChatqJob $Job -Existing) { Write-ChatqWatchLog "#$($Job.seq) deferred: chat is in use" }
         return
     }
     $stale = $false
@@ -464,6 +463,10 @@ function Invoke-ChatqJob {
     # keeps the chat's old view with its process gone (S29).
     $wasLive = $act.Action -in 'stop', 'warn'
 
+    # once more, before the prompt is read: chatqrm, or the console's Remove,
+    # during the checks above - its prompt and files went with it
+    $again = Find-ChatqJob $Job.id -Exact
+    if (-not $again -or $again.state -ne 'queued') { return }
     # A "continue" goes alone: the files went with the prompt the first time.
     $files = @()
     if ($sendsContinue) { $prompt = $script:ChatqContinueText }
@@ -477,13 +480,10 @@ function Invoke-ChatqJob {
         $files = @(Get-ChatqAttachments $Job)
     }
     if (-not $prompt) {
-        Complete-ChatqJob $Job 'failed' ([pscustomobject]@{ kind = 'failed'; reason = 'the prompt file is empty or gone' }) 'empty prompt'
+        $null = Complete-ChatqJob $Job 'failed' ([pscustomobject]@{ kind = 'failed'; reason = 'the prompt file is empty or gone' }) 'empty prompt' -Existing
         return
     }
 
-    # once more, just before the prompt goes out: chatqrm during the checks above
-    $again = Find-ChatqJob $Job.id -Exact
-    if (-not $again -or $again.state -ne 'queued') { return }
     # a cancel left behind by an earlier, crashed run must not stop this one
     $cancel = Join-Path $script:ChatqQueueDir "$($Job.id).cancel"
     if (Test-Path -LiteralPath $cancel) { Remove-Item -LiteralPath $cancel -Force -EA SilentlyContinue }
@@ -494,7 +494,8 @@ function Invoke-ChatqJob {
     Set-ChatqProp $Job 'deferUntil' $null
     Set-ChatqProp $Job 'deferredSince' $null
     Set-ChatqProp $Job 'retryAt' $null
-    Set-ChatqJobState $Job 'running' ("attempt $($Job.attempts)")
+    # removed in the last moment: not run, and not made again as running
+    if (-not (Set-ChatqJobState $Job 'running' ("attempt $($Job.attempts)") -Existing)) { Write-ChatqWatchLog "#$($Job.seq) removed as it was about to run - not sent"; return }
     $W.current = $Job.id
     Save-ChatqWatchState $W
     Write-ChatqBoard
@@ -833,7 +834,7 @@ function Invoke-ChatqWatchLoop {
                         $W.blocked = @{}; $W.lastAllowed = @{}; $W.outage = @{}
                         foreach ($j in @(Get-ChatqJobs | Where-Object { $_.state -eq 'queued' })) {
                             $W.scannedAt[(Get-ChatqLane $j)] = Get-Date
-                            if ($j.deferUntil) { Set-ChatqProp $j 'deferUntil' $null; Save-ChatqJob $j }
+                            if ($j.deferUntil) { Set-ChatqProp $j 'deferUntil' $null; $null = Save-ChatqJob $j -Existing }
                         }
                         Write-ChatqWatchLog 'woken: -Now'
                     }

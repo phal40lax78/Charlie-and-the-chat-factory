@@ -962,7 +962,10 @@ function Invoke-ChatOverlayAutoChip {
             $j = if ($id) { Find-ChatqJob $id -Exact } else { $null }
             if (-not $j) { $j = @(Get-ChatqAutoJobs -SessionId $sid) | Select-Object -First 1 }
             if ($j -and (Remove-ChatqJob $j 'chip')) { $say = "$title will not be continued after this reset." }
-            elseif ($j) { $say = "#$($j.seq) is running - it cannot be taken back now." }
+            elseif ($j) {
+                $now = Find-ChatqJob $j.id -Exact
+                $say = if ($now -and $now.state -eq 'running') { "#$($j.seq) is running - it cannot be taken back now." } else { "#$($j.seq) could not be removed - its file is in use; try again." }
+            }
             else { $say = 'That continue is gone already.' }
             Write-ChatOverlayLog "auto-continue: don't continue $($sid.Substring(0, [Math]::Min(8, $sid.Length))) from the chip" -Always
         }
@@ -1080,7 +1083,11 @@ function Invoke-ChatConsoleDontContinue {
     $j = if ($JobId) { Find-ChatqJob $JobId -Exact } else { $null }
     if (-not $j -and $SessionId) { $j = @(Get-ChatqAutoJobs -SessionId $SessionId) | Select-Object -First 1 }
     if (-not $j) { Set-ChatConsoleStatus $H 'that continue is gone already' 'warn'; return }
-    if (-not (Remove-ChatqJob $j 'the console')) { Set-ChatConsoleStatus $H "#$($j.seq) is running - cancel it instead" 'warn'; return }
+    if (-not (Remove-ChatqJob $j 'the console')) {
+        $now = Find-ChatqJob $j.id -Exact
+        Set-ChatConsoleStatus $H $(if ($now -and $now.state -eq 'running') { "#$($j.seq) is running - cancel it instead" } else { "#$($j.seq) could not be removed - its file is in use; try again" }) 'warn'
+        return
+    }
     Set-ChatConsoleStatus $H "#$($j.seq) removed - $(Format-ChatqAutoTitle $j.title) will not be continued after this reset"
     if ($H.Con.Sel -eq $j.id) { $H.Con.Sel = $null }
     Update-ChatConsoleNow $H

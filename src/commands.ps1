@@ -349,8 +349,21 @@ function Remove-ChatqJob {
     # A job and everything it has: its file, prompt, log, and the copies of
     # its files - the originals were never touched. Not a running one.
     param($Job, [string]$By = 'chatqrm')
+    # its state as the file has it now, not as the caller read it: the
+    # watcher may have started it since
+    $file = Join-Path $script:ChatqQueueDir "$($Job.id).json"
+    $disk = Read-ChatqJson $file
+    if ($disk -and $disk.id -eq $Job.id) { $Job = $disk }
     if ($Job.state -eq 'running') { return $false }
-    foreach ($p in @((Join-Path $script:ChatqQueueDir "$($Job.id).json"), (Get-ChatqPromptPath $Job), (Join-Path $script:ChatqLogDir "$($Job.id).jsonl"))) {
+    # its file first, and only on: a reader holding it open (the watcher,
+    # a board write) is waited out, as Read-ChatqJson waits - and a file
+    # that stays is said, never logged as removed
+    for ($try = 1; $try -le 3 -and (Test-Path -LiteralPath $file); $try++) {
+        Remove-Item -LiteralPath $file -Force -EA SilentlyContinue
+        if (Test-Path -LiteralPath $file) { Start-Sleep -Milliseconds 100 }
+    }
+    if (Test-Path -LiteralPath $file) { return $false }
+    foreach ($p in @((Get-ChatqPromptPath $Job), (Join-Path $script:ChatqLogDir "$($Job.id).jsonl"))) {
         if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Force -EA SilentlyContinue }
     }
     $ad = Get-ChatqAttachDir $Job
@@ -793,8 +806,8 @@ function chatqrm {
             Write-Host "    chatqrm $($j.seq) removes it, chatqrun $($j.seq) sends it again" -ForegroundColor DarkGray
             continue
         }
-        $null = Remove-ChatqJob $j
-        Write-Host "  removed #$($j.seq) '$($j.title)'" -ForegroundColor DarkGray
+        if (Remove-ChatqJob $j) { Write-Host "  removed #$($j.seq) '$($j.title)'" -ForegroundColor DarkGray }
+        else { Write-Host "  #$($j.seq) could not be removed - it started running, or its file is in use" -ForegroundColor Yellow }
     }
     Write-ChatqBoard
 }

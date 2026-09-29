@@ -758,6 +758,9 @@ function Get-ChatqResetAsk {
 # Ownership, so nothing needs a lock: the shell creates jobs, deletes ones not
 # running, and flips failed/needs-input back to queued; every move out of
 # queued is the watcher's. Cancelling a running job goes through a flag file.
+# The one overlap: the watcher holds a queued job for seconds of checks, and
+# the shell, the console or the phone may delete it meanwhile - so what the
+# watcher writes after them goes -Existing, and a deleted job stays deleted.
 
 function New-ChatqDir {
     param([string]$Path)
@@ -781,6 +784,28 @@ function Save-ChatqText {
             return
         }
         catch {
+            if ($try -eq 5) { throw }
+            Start-Sleep -Milliseconds (100 * $try)
+        }
+    }
+}
+
+function Update-ChatqText {
+    # Save-ChatqText over a file that must still be there: File.Replace
+    # alone, never the Move, so a file deleted meanwhile stays deleted -
+    # $false then, and the copy aside dropped. A reader holding it open is
+    # waited out, as there.
+    param([string]$Path, [string]$Text)
+    $tmp = "$Path.tmp"
+    $enc = New-Object System.Text.UTF8Encoding $false
+    for ($try = 1; $try -le 5; $try++) {
+        try {
+            [System.IO.File]::WriteAllText($tmp, $Text, $enc)
+            [System.IO.File]::Replace($tmp, $Path, [NullString]::Value)
+            return $true
+        }
+        catch {
+            if (-not (Test-Path -LiteralPath $Path)) { Remove-Item -LiteralPath $tmp -Force -EA SilentlyContinue; return $false }
             if ($try -eq 5) { throw }
             Start-Sleep -Milliseconds (100 * $try)
         }
@@ -823,8 +848,13 @@ function Get-ChatqJobs {
 }
 
 function Save-ChatqJob {
-    param($Job)
-    Save-ChatqJson (Join-Path $script:ChatqQueueDir "$($Job.id).json") $Job
+    # -Existing: only over its file, never making it again - for a copy
+    # read before seconds of checks, whose job may have been removed
+    # meanwhile. Returns whether it saved, then only.
+    param($Job, [switch]$Existing)
+    $path = Join-Path $script:ChatqQueueDir "$($Job.id).json"
+    if ($Existing) { return (Update-ChatqText $path ($Job | ConvertTo-Json -Depth 8)) }
+    Save-ChatqJson $path $Job
 }
 
 function Save-ChatqJson {
@@ -851,11 +881,15 @@ function Write-ChatqJobLog {
 }
 
 function Set-ChatqJobState {
-    param($Job, [string]$State, [string]$Why)
+    # -Existing: as Save-ChatqJob's - a job removed meanwhile is left gone,
+    # and the diary says nothing of it; returns whether it moved, then only
+    param($Job, [string]$State, [string]$Why, [switch]$Existing)
     $Job.state = $State
     $Job.history = @(@($Job.history) + [pscustomobject]@{ at = (Get-ChatqStamp); state = $State; why = $Why })
-    Save-ChatqJob $Job
+    if ($Existing) { if (-not (Save-ChatqJob $Job -Existing)) { return $false } }
+    else { Save-ChatqJob $Job }
     Write-ChatqJobLog "#$($Job.seq) $State$(if ($Why) { " - $Why" }) $($script:ChatqDot) $($Job.title)"
+    if ($Existing) { return $true }
 }
 
 function Find-ChatqJob {

@@ -152,8 +152,9 @@ function Read-ChatConsoleState {
 
 function New-ChatConsoleButton {
     # a flat button, drawn as a border: WPF's own Button brings the system's
-    # light look into a dark console
-    param([string]$Text, [scriptblock]$OnClick, [switch]$Accent, [string]$Tip, $Tag, [switch]$Small)
+    # light look into a dark console. -Tone: its words and edge in that
+    # colour - Remove's "sure?" in error's, so an ask standing shows
+    param([string]$Text, [scriptblock]$OnClick, [switch]$Accent, [string]$Tip, $Tag, [switch]$Small, [string]$Tone)
     $b = [System.Windows.Controls.Border]::new()
     $b.CornerRadius = [System.Windows.CornerRadius]::new(4)
     $b.BorderThickness = [System.Windows.Thickness]::new(1)
@@ -161,9 +162,9 @@ function New-ChatConsoleButton {
     $b.Margin = [System.Windows.Thickness]::new(0, 0, 6, 0)
     $b.Cursor = [System.Windows.Input.Cursors]::Hand
     $b.Background = if ($Accent) { Get-ChatOverlayBrush 'accent' } else { [System.Windows.Media.Brushes]::Transparent }
-    $b.BorderBrush = Get-ChatOverlayBrush $(if ($Accent) { 'accent' } else { 'inputEdge' })
+    $b.BorderBrush = Get-ChatOverlayBrush $(if ($Accent) { 'accent' } elseif ($Tone) { $Tone } else { 'inputEdge' })
     $b.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
-    $b.Child = New-ChatOverlayText $Text $(if ($Accent) { 'onAccent' } else { 'text' }) $(if ($Small) { 11 } else { 12 })
+    $b.Child = New-ChatOverlayText $Text $(if ($Accent) { 'onAccent' } elseif ($Tone) { $Tone } else { 'text' }) $(if ($Small) { 11 } else { 12 })
     if ($Tip) { $b.ToolTip = $Tip }
     $b.Tag = $Tag
     if (-not $Accent) {
@@ -1513,7 +1514,21 @@ function Show-ChatConsoleDetails {
     if ($autoNote) { $an = New-ChatOverlayText $autoNote 'dim' 11; $an.TextWrapping = [System.Windows.TextWrapping]::Wrap; & $add $an }
     $acts = [System.Windows.Controls.WrapPanel]::new()
     $acts.Margin = [System.Windows.Thickness]::new(0, 6, 0, 6)
-    $act = { param($label, $what, $tip) [void]$acts.Children.Add((New-ChatConsoleButton $label { param($s, $e) Invoke-ChatConsoleJobAction $script:ChatOverlayHost ([string]$s.Tag.Id) ([string]$s.Tag.Act) } -Small -Tag @{ Id = $j.id; Act = $what } -Tip $tip)) }
+    # The click's own time, as the mouse had it (Invoke-ChatConsoleJobAction)
+    # - 0 for a click raised in code, which is taken as now. What went wrong
+    # is said in the status line, not only in overlay.log.
+    $act = {
+        param($label, $what, $tip, $tone)
+        [void]$acts.Children.Add((New-ChatConsoleButton $label {
+                    param($s, $e)
+                    $X = $script:ChatOverlayHost
+                    try { Invoke-ChatConsoleJobAction $X ([string]$s.Tag.Id) ([string]$s.Tag.Act) $(if ($e.Timestamp) { [int64]$e.Timestamp } else { [int64][Environment]::TickCount }) }
+                    catch { Write-ChatOverlayLog "console: $($_.Exception.Message)"; Set-ChatConsoleStatus $X "$($s.Tag.Act) went wrong: $($_.Exception.Message)" 'error' }
+                } -Small -Tag @{ Id = $j.id; Act = $what } -Tip $tip -Tone $tone))
+    }
+    # Remove asked, for 5 s: "sure?", in error's colour (Update-ChatConsoleAsks)
+    $asking = $C.Confirm.ContainsKey([string]$j.id)
+    $rmTip = 'Drop this queued job - its prompt and its files. The chat itself stays.'
     switch ([string]$j.state) {
         'queued' {
             & $act 'Try now' 'now' 'Stop waiting for a reset: ask now, and send if the limit is over'
@@ -1521,12 +1536,12 @@ function Show-ChatConsoleDetails {
             # auto-continue's: one click, as in the Cut off list - the chat's
             # Continue there undoes it, so one rule for both places
             if (Get-ChatField $j 'auto') { & $act "Don't continue" 'dont' 'Not after this reset - its cut-off is not queued again; Continue in the Cut off list queues one' }
-            else { & $act $(if ($C.Confirm[$j.id]) { 'Remove - sure?' } else { 'Remove' }) 'remove' 'Drop it, its prompt and its files' }
+            else { & $act $(if ($asking) { 'Remove - sure?' } else { 'Remove' }) 'remove' $rmTip $(if ($asking) { 'error' }) }
         }
         'running' { & $act 'Cancel' 'cancel' 'Stop the run - it is marked failed' }
         default {
             & $act 'Requeue' 'requeue' 'Send it again - as "continue" if its prompt already reached the chat'
-            & $act $(if ($C.Confirm[$j.id]) { 'Remove - sure?' } else { 'Remove' }) 'remove' 'Drop it, its prompt and its files'
+            & $act $(if ($asking) { 'Remove - sure?' } else { 'Remove' }) 'remove' $rmTip $(if ($asking) { 'error' })
         }
     }
     if ($j.sessionId) { & $act 'Write to this chat' 'write' 'Pick this chat to write to' }
@@ -1581,33 +1596,82 @@ function Show-ChatConsoleDetails {
     }
 }
 
+function Get-ChatConsoleSince {
+    # ms from one tick count to a later one - the clock a mouse event's
+    # Timestamp is on - across its wrap every 49.7 days. Pure.
+    param([int64]$From, [int64]$To)
+    $d = $To - $From
+    if ($d -lt 0) { $d += 4294967296 }
+    return $d
+}
+
+function Get-ChatConsoleRemoveStep {
+    <#
+    What a click on a job's Remove does, from -Since, the ms from the ask
+    it answers to the click, both as the mouse had them - -1 for none:
+    ask, a first click; double, the second half of a double-click, under
+    0.4 s - no answer; remove, a later click while "sure?" shows; stale,
+    an ask older than -Keep ms that no tick has put back yet (the window
+    was busy): asked again, and said so. Pure.
+    #>
+    param([int64]$Since, [int64]$Keep = 5000)
+    if ($Since -lt 0) { return 'ask' }
+    if ($Since -lt 400) { return 'double' }
+    if ($Since -gt $Keep + 2000) { return 'stale' }
+    return 'remove'
+}
+
+function Update-ChatConsoleAsks {
+    # every tick: a Remove asked and not answered in 5 s is put back to
+    # Remove, and said so - what the button says is what a click on it does
+    param($H, [int64]$Now = [Environment]::TickCount)
+    $C = $H.Con
+    if (-not $C -or -not $C.Confirm -or -not $C.Confirm.Count) { return }
+    $old = @($C.Confirm.Keys | Where-Object { (Get-ChatConsoleSince $C.Confirm[$_] $Now) -gt 5000 })
+    if (-not $old) { return }
+    foreach ($k in $old) { $C.Confirm.Remove($k) }
+    $C.Sigs.Queue = $null
+    Update-ChatConsoleQueue $H
+    $n = @($C.Jobs | Where-Object { $_ -and [string]$_.id -in $old } | ForEach-Object { "#$($_.seq)" }) -join ' '
+    Set-ChatConsoleStatus $H "$(if ($n) { "$n kept" } else { 'kept' }) - Remove - sure? was not clicked within 5 s"
+}
+
 function Invoke-ChatConsoleJobAction {
     # what a button in the details does - the same core chatqrm, chatqrun
-    # and chatq <n> call
-    param($H, [string]$Id, [string]$Act)
-    # when the click came: finding the job reads the queue, and a slow read
-    # must not age the second half of a double-click past Remove's 0.4 s
-    $clickAt = Get-Date
+    # and chatq <n> call. -At: when the click came, as the mouse had it
+    # (MouseButtonEventArgs.Timestamp): a pass on this thread, or reading
+    # the queue, must not age a click that came in time, or bunch the two
+    # halves of a double-click into an answer.
+    param($H, [string]$Id, [string]$Act, [int64]$At = [Environment]::TickCount)
     $C = $H.Con
     $j = Find-ChatqJob $Id -Exact
     if (-not $j) { Set-ChatConsoleStatus $H 'that job is gone' 'warn'; $C.JobsSig = $null; return }
     $say = ''
+    $tone = 'dim'
     switch ($Act) {
         'now' { Set-ChatqJobFirst $j; $C.Request = Request-ChatqWatcher -Wake now; $say = "#$($j.seq) tried now - it sends if nothing holds it" }
         'first' { Set-ChatqJobFirst $j; $C.Request = Request-ChatqWatcher -Wake poke; $say = "#$($j.seq) moved to the front" }
         'remove' {
-            # Twice, and on purpose: a first click only asks, and the second
-            # counts from 0.4 s to 5 s after it - the second half of a
-            # double-click lands on "sure?" at once, and an old ask is stale.
+            # Twice, and on purpose: a first click asks, and "sure?" stands
+            # 5 s - Update-ChatConsoleAsks puts Remove back after. Every click
+            # says what it did: none is silent.
             $asked = $C.Confirm[$j.id]
-            $age = if ($asked) { ($clickAt - $asked).TotalSeconds } else { -1 }
-            if ($age -ge 0 -and $age -lt 0.4) { return }
-            # the ask's time is taken again once the pane is redrawn: the
-            # second half of a double-click waits in the queue while it draws,
-            # and a slow redraw would otherwise use up the 0.4 s
-            if ($age -lt 0 -or $age -gt 5) { $C.Confirm = @{ $j.id = (Get-Date) }; $C.Sigs.Queue = $null; Update-ChatConsoleQueue $H; $C.Confirm[$j.id] = Get-Date; return }
+            $step = Get-ChatConsoleRemoveStep $(if ($null -ne $asked) { Get-ChatConsoleSince $asked $At } else { -1 })
+            if ($step -eq 'double') { Set-ChatConsoleStatus $H "a double-click is not an answer - click Remove - sure? once to remove #$($j.seq)" 'warn'; return }
+            if ($step -ne 'remove') {
+                $C.Confirm = @{ $j.id = $At }
+                $C.Sigs.Queue = $null
+                Update-ChatConsoleQueue $H
+                Set-ChatConsoleStatus $H "remove #$($j.seq)? Click Remove - sure? within 5 s$(if ($step -eq 'stale') { ' - the last ask had run out' })" $(if ($step -eq 'stale') { 'warn' } else { 'dim' })
+                return
+            }
             $C.Confirm.Remove($j.id)
-            if (Remove-ChatqJob $j 'the console') { $say = "removed #$($j.seq)"; $C.Sel = $null } else { $say = "#$($j.seq) is running - cancel it first" }
+            if (Remove-ChatqJob $j 'the console') { $say = "removed #$($j.seq) - the queued prompt; the chat itself stays"; $C.Sel = $null }
+            else {
+                $now = Find-ChatqJob $j.id -Exact
+                $say = if ($now -and $now.state -eq 'running') { "#$($j.seq) is running - cancel it first" } else { "#$($j.seq) could not be removed - its file is in use; try again" }
+                $tone = 'warn'
+            }
         }
         'dont' { Invoke-ChatConsoleDontContinue $H $j.id $j.sessionId; return }
         'cancel' {
@@ -1643,7 +1707,7 @@ function Invoke-ChatConsoleJobAction {
     $C.Jobs = @(Get-ChatqJobs)
     $C.Sigs.Queue = $null
     Update-ChatConsoleQueue $H
-    if ($say) { Set-ChatConsoleStatus $H $say }
+    if ($say) { Set-ChatConsoleStatus $H $say $tone }
 }
 
 function Register-ChatConsoleHotkey {
