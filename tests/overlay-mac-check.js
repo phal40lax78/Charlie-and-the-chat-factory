@@ -69,6 +69,10 @@ if (CO) {
     const termFlat = CO.lines(termSnap, now, true).map(l => l.map(r => r[0]).join(''));
     check('a chat in a terminal marked >_, one in VS Code not',
         termFlat.some(l => l.indexOf('>_ chat 1') >= 0) && termFlat.some(l => l.indexOf('chat 2') >= 0) && !termFlat.some(l => l.indexOf('>_ chat 2') >= 0));
+    const runSnap = Object.assign({}, snap, { rows: [Object.assign(row(1, 'busy'), { where: 'run' }), Object.assign(row(2, 'idle'), { where: 'terminal' })] });
+    const runFlat = CO.lines(runSnap, now, true).map(l => l.map(r => r[0]).join(''));
+    check('a chat a queued prompt runs in marked with a play triangle, not >_',
+        runFlat.some(l => l.indexOf('\u25B7 chat 1') >= 0) && !runFlat.some(l => l.indexOf('>_ chat 1') >= 0) && runFlat.some(l => l.indexOf('>_ chat 2') >= 0));
     const newSnap = Object.assign({}, snap, { rows: [Object.assign(row(1, 'idle'), { unread: true }), row(2, 'idle')] });
     const newFlat = CO.lines(newSnap, now, true).map(l => l.map(r => r[0]).join(''));
     // unread is Windows only: no chip here clears it, so no mark is drawn

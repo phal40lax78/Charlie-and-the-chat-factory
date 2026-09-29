@@ -1,4 +1,4 @@
-# VS-code-chat-manager, src/phone-extras.ps1: dot-sourced by VS-code-chat-manager.ps1
+# claude-codex-chat-manager, src/phone-extras.ps1: dot-sourced by claude-codex-chat-manager.ps1
 # in its turn, never on its own - see the list there.
 
 #region phone extras: shared ---------------------------------------------------
@@ -350,7 +350,9 @@ function Send-ChatqUsageSoon {
             $script:ChatqUsageSent[$key] = $true
             if (-not $go) { continue }
             $d = $script:ChatqDot
-            $text = "$(Format-ChatqLane $lane) resets $(Format-ChatqClockTime $b.Until $Now) $d $($jobs.Count) queued $d they go then"
+            # one at a time: the watcher runs one job, then the next
+            $go = if ($jobs.Count -gt 1) { 'they go then, one at a time' } else { 'it goes then' }
+            $text = "$(Format-ChatqLane $lane) resets $(Format-ChatqClockTime $b.Until $Now) $d $($jobs.Count) queued $d $go"
             $null = Send-ChatqAlert 'usage' $text 0 -UsageKind soon
             Write-ChatqWatchLog "$lane resets at $($b.Until.ToString('HH:mm')) with $($jobs.Count) queued - soon alert sent"
         }

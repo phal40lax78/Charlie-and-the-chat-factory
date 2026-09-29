@@ -8,7 +8,7 @@ $work = Join-Path $sb 'work'
 $projA = Join-Path $work 'projA'
 $projM = Join-Path $work 'projA-Mobile'
 foreach ($d in $claudeHome, $codexHome, $projA, $projM, (Join-Path $sb 'tool')) { $null = New-Item -ItemType Directory -Path $d -Force }
-Copy-Item -LiteralPath (Join-Path $root 'VS-code-chat-manager.ps1') -Destination (Join-Path $sb 'tool\VS-code-chat-manager.ps1')
+Copy-Item -LiteralPath (Join-Path $root 'claude-codex-chat-manager.ps1') -Destination (Join-Path $sb 'tool\claude-codex-chat-manager.ps1')
 Copy-Item -LiteralPath (Join-Path $root 'src') -Destination (Join-Path $sb 'tool') -Recurse
 
 $env:CLAUDE_CONFIG_DIR = $claudeHome
@@ -224,7 +224,7 @@ $hidLines = @(
 [System.IO.File]::WriteAllText((Join-Path (Join-Path (Join-Path $claudeHome 'projects') (Get-Slug $projA)) "$idHid.jsonl"), ($hidLines -join "`n") + "`n", $utf8)
 
 # --- load --------------------------------------------------------------------
-. (Join-Path $sb 'tool\VS-code-chat-manager.ps1')
+. (Join-Path $sb 'tool\claude-codex-chat-manager.ps1')
 Set-Location -LiteralPath $projA
 # nothing real leaves the sandbox: no desktop toast, no idle clock (as if
 # nobody were at the PC), no push service, no ghost-watch events
@@ -256,4 +256,8 @@ $script:ChatForegroundSeam = { 0 }
 # and no run waits out a window showing its chat: tests run one job after
 # another into the same chat. 'show fresh' checks the wait itself.
 $script:ChatShowHoldSeconds = 0
+# nor asks a window to hand its tab over, and waits seconds for an answer
+# no extension here gives: every chat's parent is a window (above), so every
+# run into a live chat would. The 'handover' section turns it on.
+$script:ChatHandoverOff = $true
 $script:SeamsAtStart = @{ Stop = $script:ChatStopSeam; Parent = $script:ChatParentSeam; Code = $script:ChatCodeSeam; Titles = $script:ChatWindowTitlesSeam }

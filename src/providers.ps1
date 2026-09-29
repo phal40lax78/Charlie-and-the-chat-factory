@@ -1,4 +1,4 @@
-# VS-code-chat-manager, src/providers.ps1: dot-sourced by VS-code-chat-manager.ps1
+# claude-codex-chat-manager, src/providers.ps1: dot-sourced by claude-codex-chat-manager.ps1
 # in its turn, never on its own - see the list there.
 
 #region provider: claude ------------------------------------------------------
@@ -328,7 +328,8 @@ $script:ChatProviders = [ordered]@{
 function chatclean {
     <#
     .SYNOPSIS
-    Delete ghost chats - transcripts that hold no messages at all.
+    Delete ghost chats - transcripts that hold no messages at all - and list
+    again the Claude chats Claude Code left out of its lists.
     .DESCRIPTION
     Clicking a chat in the VS Code list after its transcript was deleted makes
     the extension write the session back as a stub: a title line, a mode line,
@@ -337,6 +338,11 @@ function chatclean {
 
     A file counts as empty only if it is under 64 KB AND contains no user or
     assistant message at all, so a real chat can never match.
+
+    First, every Claude chat a claude -p run hid from Claude Code's lists by
+    its tail is listed again, with the one line a run into it adds as it ends
+    - for chats hidden before 0.8.1, or by a watcher that died mid-run. A chat
+    in use is left, and said; run chatclean again once it is idle.
     .PARAMETER Force
     Delete every ghost found without asking.
     .EXAMPLE
@@ -345,7 +351,15 @@ function chatclean {
     param([string[]]$Provider, [switch]$Force)
     Set-StrictMode -Off
 
-    $candidates =@(Sync-ChatIndex -Provider $Provider | Where-Object { -not $_.First })
+    $rows = @(Sync-ChatIndex -Provider $Provider)
+    if (-not $Provider -or $Provider -contains 'claude') {
+        $m = Repair-ChatListedAll -Rows $rows -Live @(Get-ChatqLiveSessions $script:ChatClaudeHome -RegistryOnly)
+        foreach ($r in $m.Relisted) { Write-Host "  listed again in Claude Code: $($r.Title)" -ForegroundColor Green }
+        if ($m.Held.Count) {
+            Write-Host "  $($m.Held.Count) more left out of Claude Code's lists, in use now - chatclean again once idle: $(@($m.Held | ForEach-Object { $_.Title }) -join ', ')" -ForegroundColor DarkGray
+        }
+    }
+    $candidates = @($rows | Where-Object { -not $_.First })
     $ghosts = foreach ($row in $candidates) {
         $p = $script:ChatProviders[$row.Provider]
         if (-not $p.IsEmpty) { continue }

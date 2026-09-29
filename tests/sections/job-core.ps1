@@ -83,6 +83,58 @@ $jlNew = [System.IO.File]::ReadAllText($jl, $utf8).Substring($jl0)
 Check 'Remove-ChatqJob refuses a job running on disk though the caller''s copy says queued, and logs no removal' ($rrKept -and $jlNew -notmatch 'removed by') "$rrKept [$jlNew]"
 Set-ChatqJobState $rrDisk 'failed' 'test'
 $null = Remove-ChatqJob $rrDisk 'test'
+# A job's number is held from the moment its slot is taken. A chatq editor
+# tab still open has its prompt file and no .json yet, and a job made then
+# took the same number - and the same prompt file, over the tab's own text.
+$openSlot = New-ChatqJobSlot $rowCard
+$meanwhile = New-ChatqJob -Row $rowCard -Prompt 'made while a tab is open' -Rule 'picked'
+Check 'a slot with no .json yet holds its number: a job made meanwhile gets the next, and a prompt file of its own' (
+    $meanwhile.Job -and [int]$meanwhile.Job.seq -eq [int]$openSlot.Seq + 1 -and $meanwhile.Job.promptFile -ne $openSlot.File -and
+    (Read-ChatqPrompt $meanwhile.Job) -eq 'made while a tab is open' -and [System.IO.File]::ReadAllText($openSlot.Path) -eq $openSlot.Header -and
+    $meanwhile.Job.id -ne $openSlot.Id) "#$($openSlot.Seq) $($openSlot.File) $($openSlot.Id) / #$($meanwhile.Job.seq) $($meanwhile.Job.promptFile) $($meanwhile.Job.id)"
+Check 'the folder that held a job''s id goes once its .json is saved, when no file went in' (
+    (Test-Path -LiteralPath $openSlot.Dir) -and -not (Test-Path -LiteralPath (Get-ChatqAttachDir $meanwhile.Job)))
+$null = Remove-ChatqJob $meanwhile.Job 'test'
+Remove-Item -LiteralPath $openSlot.Path, $openSlot.Dir -Recurse -Force
+Check 'a tab closed empty gives its number back' ((New-ChatqSeq) -eq [int]$openSlot.Seq) "$(New-ChatqSeq) for #$($openSlot.Seq)"
+# job-numbers.lock held by someone else past its 3 s: the job is made anyway
+$seqLock = [System.IO.File]::Open($script:ChatqSeqLockPath, 'OpenOrCreate', 'ReadWrite', 'None')
+try { $unlocked = New-ChatqJob -Row $rowCard -Prompt 'the lock held elsewhere' -Rule 'picked' } finally { $seqLock.Dispose() }
+Check 'job-numbers.lock held by another process: the job is made all the same' (
+    $unlocked.Job -and -not $unlocked.Error -and (Read-ChatqPrompt $unlocked.Job) -eq 'the lock held elsewhere') "$($unlocked.Error)"
+$null = Remove-ChatqJob $unlocked.Job 'test'
+# Two processes making jobs for one chat at once - a shell's chatq and the
+# overlay's console, say - never take one number, one id or one prompt file
+$raceGo = Join-Path $sb 'seq-race.go'
+$raceOut = Join-Path $sb 'seq-race.out'
+$raceFile = Join-Path $sb 'seq-race.ps1'
+[System.IO.File]::WriteAllText($raceFile, @"
+`$ErrorActionPreference = 'Stop'
+. '$(Join-Path $sb 'tool\claude-codex-chat-manager.ps1')'
+`$row = Get-ChatqRowById '$idCard' 'claude' '$($rowCard.Path)'
+[System.IO.File]::WriteAllText('$raceGo', 'go')
+`$got = foreach (`$i in 1..12) { (New-ChatqJob -Row `$row -Prompt "child `$i" -Rule 'picked').Job.seq }
+[System.IO.File]::WriteAllText('$raceOut', (`$got -join ','))
+"@, [System.Text.UTF8Encoding]::new($true))
+$racePsi = New-Object System.Diagnostics.ProcessStartInfo
+$racePsi.FileName = (Get-Process -Id $PID).Path
+$racePsi.Arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$raceFile`""
+$racePsi.UseShellExecute = $false
+$racePsi.CreateNoWindow = $true
+$racer = [System.Diagnostics.Process]::Start($racePsi)
+$raceUntil = (Get-Date).AddSeconds(90)
+while (-not (Test-Path -LiteralPath $raceGo) -and -not $racer.HasExited -and (Get-Date) -lt $raceUntil) { Start-Sleep -Milliseconds 10 }
+$raceMine = @(foreach ($i in 1..12) { (New-ChatqJob -Row $rowCard -Prompt "parent $i" -Rule 'picked').Job.seq })
+$null = $racer.WaitForExit(90000)
+$raceTheirs = @(if (Test-Path -LiteralPath $raceOut) { ([System.IO.File]::ReadAllText($raceOut)).Trim() -split ',' | Where-Object { $_ } })
+$raceJobs = @(Get-ChatqJobs | Where-Object { $_.sessionId -eq $idCard -and (Read-ChatqPrompt $_) -match '^(parent|child) \d+$' })
+Check 'two processes making jobs for one chat at once: no number, id or prompt file taken twice, none lost' (
+    $raceMine.Count -eq 12 -and $raceTheirs.Count -eq 12 -and @(@($raceMine) + @($raceTheirs) | ForEach-Object { [int]$_ } | Sort-Object -Unique).Count -eq 24 -and
+    $raceJobs.Count -eq 24 -and @($raceJobs | ForEach-Object { $_.id } | Sort-Object -Unique).Count -eq 24 -and
+    @($raceJobs | ForEach-Object { $_.promptFile } | Sort-Object -Unique).Count -eq 24 -and
+    @($raceJobs | ForEach-Object { Read-ChatqPrompt $_ } | Sort-Object -Unique).Count -eq 24) "mine $($raceMine -join ',') / theirs $($raceTheirs -join ',') / $($raceJobs.Count) jobs"
+foreach ($x in $raceJobs) { $null = Remove-ChatqJob $x 'test' }
+Remove-Item -LiteralPath $raceGo, $raceOut, $raceFile -Force -EA SilentlyContinue
 # what a run did, from its log - the plain run above
 $ran = @(Get-ChatqJobs | Where-Object { $_.state -eq 'done' -and (Test-Path -LiteralPath (Join-Path $script:ChatqLogDir "$($_.id).jsonl")) })[0]
 $ents = @(Get-ChatqLogEntries $ran)

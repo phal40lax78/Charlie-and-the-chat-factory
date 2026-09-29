@@ -127,6 +127,83 @@ $s11 = & $SfStop @(New-SfLive 1111)
 Check 'busy by the time its file is read again: held; no file to read: kept - neither ended' ($s10.OldProcess -eq 'held' -and $s11.OldProcess -eq 'kept' -and -not $script:SfStops.Count) "$($s10.OldProcess) $($s11.OldProcess)"
 Clear-SfLive
 
+# Show it closes the tab first, then ends what outlived the close: judged
+# only, then given a grace, in its own window, never a tab opened since
+$sfLog = Join-Path $script:ChatqLogDir 'watcher.log'
+$sfLogN = { @(if (Test-Path -LiteralPath $sfLog) { [System.IO.File]::ReadAllLines($sfLog, $utf8) }).Count }
+Set-SfSession 1120
+$script:SfStops.Clear()
+$jo1 = @(Show-ChatFresh -Via button -JudgeOnly -SessionId $idS -Cwd $projS -ConfigDir $sfHome)[-1]
+$vjo = ConvertTo-ChatFreshVerdict $jo1
+$vjoO = $vjo | ConvertFrom-Json
+$vplain = ConvertTo-ChatFreshVerdict ([pscustomobject]@{ Busy = $false; OldProcess = 'ended'; Outcome = 'ok'; HostPids = @(4242) }) | ConvertFrom-Json
+Check 'Show it asked only to judge (-JudgeOnly): its idle process live, its window named, nothing ended - and the verdict says judged only' (
+    $jo1.Outcome -eq 'ok' -and $jo1.OldProcess -eq 'live' -and (@($jo1.HostPids) -join ',') -eq '4242' -and -not $script:SfStops.Count -and
+    $vjoO.judged -eq 'only' -and -not $vplain.PSObject.Properties['judged']) "$($jo1.OldProcess) $vjo"
+# what the extension's parseVerdict takes: busy null or a boolean, a known
+# oldProcess, an outcome, whole numbers for hostPids - an extra field is left alone
+Check 'the judged-only verdict still reads as a verdict to an extension from before it: the same four fields, of the same types' (
+    ($null -eq $vjoO.busy -or $vjoO.busy -is [bool]) -and $vjoO.oldProcess -in 'none', 'ended', 'live', 'held', 'other', 'kept' -and $vjoO.outcome -is [string] -and
+    @(@($vjoO.hostPids) | Where-Object { $_ -isnot [int] -and $_ -isnot [long] }).Count -eq 0 -and $vjo -notmatch '[^\x20-\x7E]') $vjo
+Clear-SfLive
+Set-SfSession 1121
+$script:SfStops.Clear()
+$script:SfSleeps = 0
+$script:ChatGraceSleepSeam = { param($ms) $script:SfSleeps++; if ($script:SfSleeps -eq 3) { Remove-Item -LiteralPath (Join-Path $sfSess '1121.json') -Force } }
+$gl0 = & $sfLogN
+$g1 = & $SfStop @(New-SfLive 1121) @{ GraceSeconds = 8 }
+$glNew = @([System.IO.File]::ReadAllLines($sfLog, $utf8) | Select-Object -Skip $gl0)
+Check 'with a grace: a process that leaves by itself as its tab closes counts as ended, nothing is taken down, and watcher.log says it left' (
+    $g1.OldProcess -eq 'ended' -and -not $script:SfStops.Count -and $script:SfSleeps -eq 3 -and
+    @($glNew | Where-Object { $_ -like '*show: idle chat process 1121 (5f5f5f5f) left by itself' }).Count -eq 1) "$($g1.OldProcess) $($script:SfSleeps) $($glNew -join ' | ')"
+Set-SfSession 1122
+$script:SfSleeps = 0
+$script:ChatGraceSleepSeam = { param($ms) $script:SfSleeps++ }
+$g2 = & $SfStop @(New-SfLive 1122) @{ GraceSeconds = 8 }
+$g2Stops = $script:SfStops -join ','
+$g2Sleeps = $script:SfSleeps
+Set-SfSession 1122
+$g0 = & $SfStop @(New-SfLive 1122) @{ GraceSeconds = 0 }
+$script:ChatGraceSleepSeam = $null
+Check 'one that stays through the 8 s is ended after them, not before; with no grace, at once' (
+    $g2.OldProcess -eq 'ended' -and $g2Stops -eq '1122' -and $g2Sleeps -eq 32 -and $g0.OldProcess -eq 'ended' -and $script:SfSleeps -eq 32 -and
+    ($script:SfStops -join ',') -eq '1122,1122') "$($g2.OldProcess) $g2Stops $g2Sleeps $($g0.OldProcess) $($script:SfStops -join ',')"
+Clear-SfLive
+# gone before the grace's first look - its file and its process (1127 is no
+# pid Windows hands out): it left by itself, not kept; one still running with
+# no file to check it by (this very process) is kept
+$script:SfStops.Clear()
+$script:ChatGraceSleepSeam = { param($ms) $script:SfSleeps++ }
+$gl3 = & $sfLogN
+$g3 = & $SfStop @(New-SfLive 1127) @{ GraceSeconds = 8 }
+$g4 = & $SfStop @(New-SfLive $PID) @{ GraceSeconds = 8 }
+$script:ChatGraceSleepSeam = $null
+$gl3New = @([System.IO.File]::ReadAllLines($sfLog, $utf8) | Select-Object -Skip $gl3)
+Check 'with a grace: a process gone with its file before the first look left by itself (ended, said so); one running with no file is kept' (
+    $g3.OldProcess -eq 'ended' -and $g4.OldProcess -eq 'kept' -and -not $script:SfStops.Count -and
+    @($gl3New | Where-Object { $_ -like '*show: idle chat process 1127 (5f5f5f5f) left by itself' }).Count -eq 1) "$($g3.OldProcess) $($g4.OldProcess) $($gl3New -join ' | ')"
+$script:SfStops.Clear()
+$script:ChatParentSeam = { param($e) if ($e.Pid -eq 1124) { @{ Pid = 5353; Name = 'Code'; StartTime = [datetime]::MinValue } } else { @{ Pid = 4242; Name = 'Code'; StartTime = [datetime]::MinValue } } }
+Set-SfSession 1123
+Set-SfSession 1124
+$hp1 = & $SfStop @((New-SfLive 1123), (New-SfLive 1124)) @{ HostPid = 4242 }
+$hp2 = @(Show-ChatFresh -Via button -HostPid 7777 -SessionId $idS -Cwd $projS -ConfigDir $sfHome)[-1]
+$script:ChatParentSeam = $script:SeamsAtStart.Parent
+Check '-HostPid: only that window''s process of the chat ended, another window''s left; a window holding none ends none' (
+    $hp1.OldProcess -eq 'ended' -and ($script:SfStops -join ',') -eq '1123' -and (@($hp1.HostPids) -join ',') -eq '4242' -and
+    $hp2.OldProcess -eq 'none' -and $script:SfStops.Count -eq 1) "$($hp1.OldProcess) $($script:SfStops -join ',') $($hp2.OldProcess)"
+Clear-SfLive
+$script:SfStops.Clear()
+$sfNowMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+Set-SfSession 1125
+Set-SfSession 1126 'busy' -StartedAt $sfNowMs
+$sfNew = New-SfLive 1126 'busy'
+$sfNew.StartedAt = $sfNowMs
+$sb1 = & $SfStop @((New-SfLive 1125), $sfNew) @{ StartedBefore = (Get-Date).AddSeconds(-5).ToUniversalTime().ToString('o') }
+Check '-StartedBefore: the process a tab opened since is never ended, nor its loading turn taken for the chat''s - the old one is' (
+    $sb1.OldProcess -eq 'ended' -and ($script:SfStops -join ',') -eq '1125') "$($sb1.OldProcess) $($script:SfStops -join ',')"
+Clear-SfLive
+
 # liveIdle stop, before the run, by the same checks
 $cfgWas = [System.IO.File]::ReadAllText($script:ChatqConfigPath, $utf8)
 $cfgS = Get-ChatqConfig
@@ -157,6 +234,24 @@ $jS2 = Find-ChatqJob $jS2.id
 Check 'liveIdle stop with a workflow in flight: the job waits, as for a busy chat, and nothing is ended' ($jS2.state -eq 'queued' -and $jS2.deferUntil -and -not $script:SfStops.Count) "$($jS2.state) $($jS2.deferUntil)"
 $null = Remove-ChatqJob $jS2 'test'
 Add-SfDone $pS 'wsf0002'
+# Cancel clicked while liveIdle stop ends the process (the job running): the
+# prompt never goes in - cancelled, not run
+Push-Location -LiteralPath $projS
+$jS3 = New-TestJob 'Show fresh chat' 'cancelled at the stop'
+Pop-Location
+Set-ChatqProp $jS3 'home' $sfHome; Save-ChatqJob $jS3
+Set-SfSession 1203
+Set-SfAgents @(New-SfLive 1203)
+$script:SfStops.Clear()
+$stopWas = $script:ChatStopSeam
+$script:ChatStopSeam = { param($e) Save-ChatqText (Join-Path $script:ChatqQueueDir "$($jS3.id).cancel") 'cancel'; & $stopWas $e }
+Invoke-ChatqJob (New-ChatqWatchState) (Find-ChatqJob $jS3.id)
+$script:ChatStopSeam = $stopWas
+$jS3 = Find-ChatqJob $jS3.id
+Check 'liveIdle stop, cancelled meanwhile: failed as cancelled, the cancel file gone, the prompt never sent' (
+    $jS3.state -eq 'failed' -and $jS3.result.reason -eq 'cancelled' -and ($script:SfStops -join ',') -eq '1203' -and
+    -not (Test-Path -LiteralPath (Join-Path $script:ChatqQueueDir "$($jS3.id).cancel")) -and
+    -not (Test-Path -LiteralPath (Join-Path $script:ChatqLogDir "$($jS3.id).jsonl"))) "$($jS3.state) $($jS3.result.reason) stops=$($script:SfStops -join ',')"
 [System.IO.File]::WriteAllText($script:ChatqConfigPath, $cfgWas, $utf8)
 Clear-SfLive
 
@@ -166,8 +261,9 @@ Set-SfAgents @(New-SfLive 1301)
 $script:SfStops.Clear()
 $f1 = @(Show-ChatFresh -Via run -SessionId $idS -Cwd $projS -Title 'Show fresh chat' -ConfigDir $sfHome -Transcript $pS -Away $true)[-1]
 $rq1 = [System.IO.File]::ReadAllText($script:ChatReloadPath, $utf8) | ConvertFrom-Json
-Check 'after a run, nobody at the PC: the idle process ended, and the request says so' ($f1.OldProcess -eq 'ended' -and $f1.Busy -eq $false -and
-    $rq1.oldProcess -eq 'ended' -and $rq1.busy -eq $false -and $rq1.away -eq $true -and (@($rq1.hostPids) -join ',') -eq '4242' -and $rq1.home -eq $sfHome) ($rq1 | ConvertTo-Json -Compress)
+Check 'after a run, nobody at the PC: nothing ended any more - live, and the request says so, naming its window' ($f1.OldProcess -eq 'live' -and $f1.Busy -eq $false -and
+    -not $script:SfStops.Count -and $rq1.oldProcess -eq 'live' -and $rq1.busy -eq $false -and $rq1.away -eq $true -and (@($rq1.hostPids) -join ',') -eq '4242' -and
+    $rq1.home -eq $sfHome -and -not $rq1.PSObject.Properties['jobId']) ($rq1 | ConvertTo-Json -Compress)
 Set-SfSession 1302
 Set-SfAgents @(New-SfLive 1302)
 $script:SfStops.Clear()
@@ -177,6 +273,21 @@ Set-SfAgents @(New-SfLive 1302 'busy')
 $f3 = @(Show-ChatFresh -Via run -SessionId $idS -Cwd $projS -Title 'Show fresh chat' -ConfigDir $sfHome -Transcript $pS -Away $true)[-1]
 $rq3 = [System.IO.File]::ReadAllText($script:ChatReloadPath, $utf8) | ConvertFrom-Json
 Check 'the chat itself working: held, and busy' ($f3.OldProcess -eq 'held' -and $f3.Busy -eq $true -and $rq3.busy -eq $true -and -not $script:SfStops.Count) "$($f3.OldProcess) $($f3.Busy)"
+Clear-SfLive
+# after a handover: the chat's process left with its tab, and the request
+# names the window that closed it all the same, and the job
+$env:FAKE_AGENTS = '[]'
+$f6 = @(Show-ChatFresh -Via run -SessionId $idS -Cwd $projS -Title 'Show fresh chat' -ConfigDir $sfHome -Transcript $pS -Away $false -HandoverPids @(4242) -JobId 'job-after-handover')[-1]
+$rq6 = [System.IO.File]::ReadAllText($script:ChatReloadPath, $utf8) | ConvertFrom-Json
+Set-SfAgents @(New-SfLive 1303)
+Set-SfSession 1303
+$script:ChatParentSeam = { param($e) @{ Pid = 6161; Name = 'Code'; StartTime = [datetime]::MinValue } }
+$f7 = @(Show-ChatFresh -Via run -SessionId $idS -Cwd $projS -Title 'Show fresh chat' -ConfigDir $sfHome -Transcript $pS -Away $false -HandoverPids @(4242) -JobId 'job-2')[-1]
+$script:ChatParentSeam = $script:SeamsAtStart.Parent
+$rq7 = [System.IO.File]::ReadAllText($script:ChatReloadPath, $utf8) | ConvertFrom-Json
+Check 'after a handover the run''s request names the windows it asked when none holds the chat now, and the job; one that holds it still is named instead' (
+    $f6.OldProcess -eq 'none' -and $rq6.oldProcess -eq 'none' -and (@($rq6.hostPids) -join ',') -eq '4242' -and $rq6.jobId -eq 'job-after-handover' -and
+    $f7.OldProcess -eq 'live' -and (@($rq7.hostPids) -join ',') -eq '6161' -and $rq7.jobId -eq 'job-2') "$($rq6 | ConvertTo-Json -Compress) | $($rq7 | ConvertTo-Json -Compress)"
 Clear-SfLive
 
 # Background work, told apart by who started it, never by when. The run left
@@ -191,7 +302,8 @@ Set-SfSession 1312
 Set-SfAgents @(New-SfLive 1312)
 $script:SfStops.Clear()
 $f4 = @(Show-ChatFresh -Via run -SessionId $idS -Cwd $projS -Title 'Show fresh chat' -ConfigDir $sfHome -Transcript $pS -Away $true)[-1]
-Check 'after a run that left work of its own behind: ended, and not busy' ($f4.OldProcess -eq 'ended' -and $f4.Busy -eq $false -and ($script:SfStops -join ',') -eq '1312') "$($f4.OldProcess) $($f4.Busy)"
+Check 'after a run that left work of its own behind: not held - live, not busy, nothing ended' ($f4.OldProcess -eq 'live' -and $f4.Busy -eq $false -and -not $script:SfStops.Count) "$($f4.OldProcess) $($f4.Busy)"
+Clear-SfLive
 Set-SfSession 1313
 $script:SfStops.Clear()
 $b1 = @(Show-ChatFresh -Via button -SessionId $idS -Cwd $projS -ConfigDir $sfHome)[-1]
@@ -311,10 +423,39 @@ Push-Location -LiteralPath $projS
 $jR = New-TestJob 'Show fresh chat' 'running now'
 Pop-Location
 Set-ChatqJobState $jR 'running' 'test'
+$script:SfCode.Clear()
+Remove-Item -LiteralPath $script:ChatOpenPath -Force -EA SilentlyContinue
 $c4 = @(Show-ChatFresh -Via chip -SessionId $idS -Cwd $projS -ConfigDir $sfHome)[-1]
+$wq4 = [System.IO.File]::ReadAllText($script:ChatOpenPath, $utf8) | ConvertFrom-Json
+$code4 = $script:SfCode.Count
+# a live view opening holds no run back, as a chat opening does
+$script:ChatShowHoldSeconds = 30
+$hold4 = Get-ChatShowHold $idS
+$script:ChatShowHoldSeconds = 0
+# the run's handover asked a window, and none is on exactly the folder
+$null = Write-ChatRunState $jR 'running' @{ HostPids = @(4242); OldProcess = 'live'; HandoverId = 'h-test' }
+$script:ChatWindowTitlesSeam = { @('notes.md - my-workspace (Workspace) - Visual Studio Code') }
+$c4b = @(Show-ChatFresh -Via chip -SessionId $idS -Cwd $projS -ConfigDir $sfHome -TitleB64 ([Convert]::ToBase64String($utf8.GetBytes($tSel))))[-1]
+$wq4b = [System.IO.File]::ReadAllText($script:ChatOpenPath, $utf8) | ConvertFrom-Json
+$script:ChatWindowTitlesSeam = $exactTitles
+$code4b = $script:SfCode.Count
 Set-ChatqJobState $jR 'queued' 'test'
 $null = Remove-ChatqJob (Find-ChatqJob $jR.id) 'test'
-Check 'the chip while a queued prompt runs in that chat: 15' ($c4.ExitCode -eq 15) $c4.ExitCode
+Remove-Item -LiteralPath $script:ChatOpenPath -Force -EA SilentlyContinue
+Check 'the chip while a queued prompt runs in that chat: watch (16) - its live view asked for, by job, and the window brought forward' (
+    $c4.ExitCode -eq 16 -and $c4.Outcome -eq 'watch' -and $wq4.kind -eq 'watch' -and $wq4.jobId -eq $jR.id -and [int]$wq4.seq -eq [int]$jR.seq -and
+    $wq4.sessionId -eq $idS -and $wq4.cwd -eq $projS -and $wq4.title -eq 'Show fresh chat' -and $wq4.home -eq $sfHome -and @($wq4.hostPids).Count -eq 0 -and
+    $wq4.id -and $wq4.at -and $code4 -eq 1 -and $null -eq $hold4) "$($c4.ExitCode) $($wq4 | ConvertTo-Json -Compress) code $code4 hold $hold4"
+Check 'with the run''s handover window named and none exactly on the folder: that window in the request, and 25 - no code -n' (
+    $c4b.ExitCode -eq 25 -and $wq4b.kind -eq 'watch' -and (@($wq4b.hostPids) -join ',') -eq '4242' -and $wq4b.title -eq $tSel -and $code4b -eq 1) "$($c4b.ExitCode) $($wq4b | ConvertTo-Json -Compress) code $code4b"
+Set-SfAgents @(New-SfLive 1406 'busy' 'print')
+# the chip reads the registry alone, where Claude Code 2.1.283 writes a
+# claude -p as interactive, stamped sdk-cli
+Set-SfSession 1406 'busy' 'interactive' 'sdk-cli'
+$c4c = @(Show-ChatFresh -Via chip -SessionId $idS -Cwd $projS -ConfigDir $sfHome)[-1]
+Check 'someone''s own claude -p going into it, no job of chatq''s: 15, as before - nothing asked of the window' (
+    $c4c.ExitCode -eq 15 -and -not (Test-Path -LiteralPath $script:ChatOpenPath)) $c4c.ExitCode
+Clear-SfLive
 Set-SfSession 1403
 Set-SfAgents @(New-SfLive 1403)
 $script:SfCode.Clear()
@@ -359,9 +500,11 @@ Set-SfAgents @(New-SfLive 1501)
 $e1 = & $runS 'nobody here'
 $rqE = [System.IO.File]::ReadAllText($script:ChatReloadPath, $utf8) | ConvertFrom-Json
 $a1 = & $lastAlert
-Check 'a run into a chat a window holds, nobody at the PC: its process ended after, the request names the chat and its window' (
-    $e1.state -eq 'done' -and ($script:SfStops -join ',') -eq '1501' -and $rqE.sessionId -eq $idS -and $rqE.oldProcess -eq 'ended' -and (@($rqE.hostPids) -join ',') -eq '4242') ($rqE | ConvertTo-Json -Compress)
-Check 'and the alert says to show it' ($a1 -like '*Show it in VS Code to see the run*') $a1
+Check 'a run into a chat a window holds, nobody at the PC: its process left running - the window closes its tab first - and the request names the chat, its window and the job' (
+    $e1.state -eq 'done' -and -not $script:SfStops.Count -and $rqE.sessionId -eq $idS -and $rqE.oldProcess -eq 'live' -and (@($rqE.hostPids) -join ',') -eq '4242' -and
+    $rqE.jobId -eq $e1.id) ($rqE | ConvertTo-Json -Compress)
+Check 'and the alert says to show it before typing' ($a1 -like '*Show it in VS Code before typing*') $a1
+Clear-SfLive
 $script:ChatqIdleSeam = 30
 Set-SfSession 1502
 Set-SfAgents @(New-SfLive 1502)
@@ -394,9 +537,11 @@ Remove-Item -LiteralPath $env:FAKE_AGENTS_FILE -Force -EA SilentlyContinue
 Remove-Item env:FAKE_REGISTER, env:FAKE_REGISTER_BODY, env:FAKE_AGENTS_FILE
 $rqL = if (Test-Path -LiteralPath $script:ChatReloadPath) { [System.IO.File]::ReadAllText($script:ChatReloadPath, $utf8) | ConvertFrom-Json } else { $null }
 $a4 = & $lastAlert
-Check 'a window that opened the chat during the run: treated as holding it - its process ended, the window told, the alert says so' (
-    $e4.state -eq 'done' -and $rqL -and $rqL.kind -eq 'ran' -and $rqL.sessionId -eq $idS -and $rqL.oldProcess -eq 'ended' -and
-    ($script:SfStops -join ',') -eq '1504' -and $a4 -like '*Show it in VS Code*') "$($e4.state) $($rqL | ConvertTo-Json -Compress) $($script:SfStops -join ',') $a4"
+Check 'a window that opened the chat during the run: treated as holding it - its process left to the window, the window told, the alert says so' (
+    $e4.state -eq 'done' -and $rqL -and $rqL.kind -eq 'ran' -and $rqL.sessionId -eq $idS -and $rqL.oldProcess -eq 'live' -and
+    -not $script:SfStops.Count -and $a4 -like '*Show it in VS Code*') "$($e4.state) $($rqL | ConvertTo-Json -Compress) $($script:SfStops -join ',') $a4"
+# that window's process, gone as a closed tab's would be
+Remove-Item -LiteralPath (Join-Path $sfSess '1504.json') -Force -EA SilentlyContinue
 # one in the registry from before the run, which claude agents did not list
 # (another chat's is all it names): not opened meanwhile, so not this
 Set-SfSession 1505
@@ -554,7 +699,7 @@ Check 'the chip on a chat whose window has a profile: the window brought forward
 # the chip itself, built and shown off every screen, in the STA process WPF needs
 $chipWpf = @"
 `$env:CHATQ_OVERLAY = '1'
-. '$(Join-Path $sb 'tool\VS-code-chat-manager.ps1')'
+. '$(Join-Path $sb 'tool\claude-codex-chat-manager.ps1')'
 Set-StrictMode -Off
 Initialize-ChatOverlayNative
 `$H = New-ChatOverlayHostState

@@ -1,4 +1,4 @@
-# VS-code-chat-manager, src/chatrm.ps1: dot-sourced by VS-code-chat-manager.ps1
+# claude-codex-chat-manager, src/chatrm.ps1: dot-sourced by claude-codex-chat-manager.ps1
 # in its turn, never on its own - see the list there.
 
 #region search and delete -----------------------------------------------------
@@ -355,6 +355,68 @@ function Remove-ChatSession {
     return $true
 }
 
+function Remove-ChatSessionById {
+    <#
+    chatrm for one Claude chat by its id, asked by a button rather than
+    typed - the overlay's delete chip. No prompt, since the button asked
+    twice; nothing waited on; and the answer is one sentence to show, not
+    console lines: Done, and Say. -Live is the registry as the caller has
+    it: a chat at work, or open in a terminal, is kept - cut from under its
+    process, it loses the turn or is written straight back. A chat a queued
+    prompt holds is kept too, as chatrm keeps it without -DropJobs. Gone, it
+    leaves the same reload request chatrm does while VS Code runs, with busy
+    judged from -Live for the chat's folder.
+    #>
+    param([string]$SessionId, [string]$Cwd, [string]$Title, [string]$ConfigDir = $script:ChatClaudeHome, [object[]]$Live = @())
+    $t = '"' + (Format-ChatTitle $Title 40) + '"'
+    $say = { param($done, $text) [pscustomobject]@{ Done = $done; Say = $text } }
+    $mine = @($Live | Where-Object { $_ -and [string](Get-ChatField $_ 'SessionId') -eq $SessionId })
+    # a print-mode claude stamps itself sdk-*: a queued prompt, or someone's
+    # claude -p - which Claude Code 2.1.283 registers as interactive, so it
+    # would read as a terminal below
+    if (@($mine | Where-Object { [string](Get-ChatField $_ 'Entrypoint') -cin $script:ChatSdkEntrypoints }).Count) {
+        return (& $say $false "$t has a queued prompt running in it - delete it once that ends.")
+    }
+    if (@($mine | Where-Object { [string](Get-ChatField $_ 'Status') -in 'busy', 'waiting' }).Count -or (Test-ChatPrintLive $mine $SessionId)) {
+        return (& $say $false "$t is working - delete it once it finishes.")
+    }
+    if (@($mine | Where-Object { $ep = [string](Get-ChatField $_ 'Entrypoint'); $ep -and $ep -ne 'claude-vscode' }).Count) {
+        return (& $say $false "$t is open in a terminal - end it there first.")
+    }
+    # its folder's slug first, then any project: a chat moved with its folder
+    $projects = Join-Path $ConfigDir 'projects'
+    $file = $null
+    $dirs = @()
+    if ($Cwd) { $dirs += Join-Path $projects (Get-ChatSlug $Cwd) }
+    $dirs += @(Get-ChildItem -LiteralPath $projects -Directory -EA SilentlyContinue | ForEach-Object { $_.FullName })
+    foreach ($d in $dirs) {
+        $p = Join-Path $d "$SessionId.jsonl"
+        if (Test-Path -LiteralPath $p) { $file = Get-Item -LiteralPath $p -EA SilentlyContinue; if ($file) { break } }
+    }
+    if (-not $file) { return (& $say $false "$t is not on disk any more.") }
+    $rec = & $script:ChatProviders['claude'].Describe $file
+    # a chat with no prompt in it yet has nothing to describe, and goes all the same
+    if (-not $rec) { $rec = [pscustomobject]@{ Id = $SessionId; Title = (Format-ChatTitle $Title); Group = $file.Directory.Name } }
+    $hit = [pscustomobject]@{ Provider = 'claude'; File = $file; Record = $rec }
+    if (Test-ChatJobsHold $hit 6>$null) {
+        $nums = @(Get-ChatqJobs | Where-Object { $_.sessionId -eq $SessionId -and $_.state -in 'queued', 'running' } | ForEach-Object { "#$($_.seq)" }) -join ' '
+        return (& $say $false "$t has $nums queued for it - kept. chatrm -DropJobs drops them first.")
+    }
+    if (-not (Remove-ChatSession $hit 6>$null)) {
+        return (& $say $false "$t is held open by another process - nothing deleted.")
+    }
+    $procs = if ($script:ChatIsMac) { @('Electron', 'Code Helper*') } else { @('Code') }
+    if (@(Get-Process -Name $procs -EA SilentlyContinue).Count) {
+        $key = if ($Cwd) { $Cwd.TrimEnd('\', '/') } else { '' }
+        $busy = [bool]@($Live | Where-Object {
+                $_ -and [string](Get-ChatField $_ 'SessionId') -ne $SessionId -and [string](Get-ChatField $_ 'Status') -in 'busy', 'waiting' -and
+                ([string](Get-ChatField $_ 'Cwd')).TrimEnd('\', '/') -eq $key
+            }).Count
+        Write-ChatReloadRequest -Title $rec.Title -Cwd $Cwd -Kind deleted -Busy $busy
+    }
+    return (& $say $true "Deleted $t.")
+}
+
 #region archive and restore ---------------------------------------------------
 # chatrm -Archive puts a chat out of the way without losing it: a Claude chat
 # and its leftovers move into data/archive/claude/<id>/ with a manifest of where
@@ -670,13 +732,19 @@ function Get-ChatBackgroundTasks {
     #
     # A start is a tool result whose toolUseResult is 'async_launched', with a
     # taskId (a workflow) or an agentId (an agent); SendMessage waking a
-    # stopped agent is a resumedAgentId. Every end - completed, failed,
-    # stopped - is a <task-notification> naming the same task id.
+    # stopped agent is a resumedAgentId. An end is a <task-notification>
+    # naming the same task id - completed, failed, stopped - or TaskStop's
+    # result naming it, which leaves no notification. A workflow can end with
+    # neither: an interrupt of the turn that started it kills it, silently,
+    # and only its run record says so (Step-ChatBackgroundLine).
     #
     # Only starts after $Since count: the work dies with the process that ran
     # it, so one from before the chat was last opened is gone whether or not
     # it ever reported. A background shell is left out on purpose - as often a
-    # server that never ends, which would hold the chat busy for good.
+    # server that never ends, which would hold the chat busy for good. The
+    # overlay, which only shows, counts one (Select-ChatBackgroundOpen -Shells),
+    # and so does a queued run's wait, for 20 minutes at most
+    # (Resolve-ChatqLiveAction).
     # -SkipPrint leaves out the starts a print-mode run wrote: claude -p stamps
     # every record entrypoint sdk-cli - chatq's queued runs among them - where
     # a window's says claude-vscode and a terminal's cli. That run has ended,
@@ -684,42 +752,832 @@ function Get-ChatBackgroundTasks {
     # print-mode process of the chat still alive (Test-ChatPrintLive) - and a
     # start the chat's own window made stays counted whenever it was made.
     param([string]$Path, [datetime]$Since = [datetime]::MinValue, [switch]$SkipPrint)
-    $open = [System.Collections.Generic.List[string]]::new()
-    try { $fs = Open-ChatRead $Path } catch { return }   # can vanish mid-scan
+    $open = Read-ChatBackgroundOpen $Path
+    if ($null -eq $open) { return }
+    return @(Select-ChatBackgroundOpen $open $Since -SkipPrint:$SkipPrint -SessionDir (Get-ChatSessionDir $Path) | ForEach-Object { $_.Id })
+}
+
+function Read-ChatBackgroundOpen {
+    # A transcript read whole through Step-ChatBackgroundLine: every start it
+    # holds that nothing in it ended, for Select-ChatBackgroundOpen to judge.
+    # $null when it cannot be opened - it can vanish mid-scan.
+    param([string]$Path)
+    $open = [ordered]@{}
+    try { $fs = Open-ChatRead $Path } catch { return $null }
     try {
         $sr = [System.IO.StreamReader]::new($fs, [System.Text.Encoding]::UTF8)
         try {
-            while ($null -ne ($line = $sr.ReadLine())) {
-                # a cheap look first: most lines are neither, and parsing each
-                # one would be the whole cost of a long chat
-                if ($line.IndexOf('"async_launched"', [StringComparison]::Ordinal) -ge 0 -or
-                    $line.IndexOf('"resumedAgentId"', [StringComparison]::Ordinal) -ge 0) {
-                    $o = try { $line | ConvertFrom-Json } catch { $null }
-                    $r = if ($o -and $o.PSObject.Properties['toolUseResult']) { $o.toolUseResult } else { $null }
-                    $id = $null
-                    if ($r -and $r.PSObject.Properties['status'] -and $r.status -eq 'async_launched') {
-                        $id = if ($r.PSObject.Properties['taskId'] -and $r.taskId) { $r.taskId }
-                        elseif ($r.PSObject.Properties['agentId']) { $r.agentId }
-                    }
-                    elseif ($r -and $r.PSObject.Properties['resumedAgentId']) { $id = $r.resumedAgentId }
-                    if ($id) {
-                        if ($SkipPrint -and $o.PSObject.Properties['entrypoint'] -and [string]$o.entrypoint -eq 'sdk-cli') { continue }
-                        $at = ConvertTo-ChatqDate $o.timestamp
-                        if ((-not $at -or $at -ge $Since) -and -not $open.Contains([string]$id)) { $open.Add([string]$id) }
-                        continue
-                    }
-                }
-                if ($open.Count -and $line.IndexOf('<task-id>', [StringComparison]::Ordinal) -ge 0) {
-                    foreach ($t in @($open)) {
-                        if ($line.IndexOf("<task-id>$t</task-id>", [StringComparison]::Ordinal) -ge 0) { [void]$open.Remove($t) }
-                    }
-                }
-            }
+            while ($null -ne ($line = $sr.ReadLine())) { Step-ChatBackgroundLine $open $line }
         }
         finally { $sr.Dispose() }
     }
     finally { $fs.Dispose() }
-    return $open.ToArray()
+    return $open
+}
+
+# the words a transcript line needs for Step-ChatBackgroundLine to have
+# anything to do with it: a start, a TaskStop's result, a notification
+$script:ChatBackgroundWords = @('"async_launched"', '"resumedAgentId"', '"backgroundTaskId"', '"task_type"', '<task-id>')
+
+function Step-ChatBackgroundLine {
+    <#
+    One transcript line's part in the background work a chat has out
+    (Get-ChatBackgroundTasks): a start puts its task id in -Open, an end
+    takes it out. -Open is an ordered dictionary, id to @{ Id; At; Print;
+    Kind; Run; Note }: At the start's time ($null when it names none), Print
+    whether a print-mode run wrote it (entrypoint sdk-cli), Kind workflow,
+    agent, shell - a Bash command sent to the background, by the model or
+    by its timeout - or task for a start of none of these, Run a
+    workflow's run id, and Note what it is in words, where the start says
+    (an agent's description, a workflow's name). A later start of the same id - SendMessage waking the
+    agent - stands in for the earlier: the work runs in the process that
+    woke it. The ends a line can hold: a <task-notification> naming the id
+    (its copies in queued_command and queue-operation records too), and a
+    TaskStop result, which stops a task and writes no notification. Which
+    starts count - since when, whose, shells or not - and a workflow's run
+    record are Select-ChatBackgroundOpen's to judge, so one reading serves
+    every caller, the overlay's across its passes.
+    #>
+    param([System.Collections.Specialized.OrderedDictionary]$Open, [string]$Line)
+    # a cheap look first: most lines are none of these, and parsing each one
+    # would be the whole cost of a long chat
+    $start = $Line.IndexOf('"async_launched"', [StringComparison]::Ordinal) -ge 0 -or
+        $Line.IndexOf('"resumedAgentId"', [StringComparison]::Ordinal) -ge 0 -or
+        $Line.IndexOf('"backgroundTaskId"', [StringComparison]::Ordinal) -ge 0
+    $stop = $Open.Count -and $Line.IndexOf('"task_type"', [StringComparison]::Ordinal) -ge 0
+    if ($start -or $stop) {
+        $o = try { $Line.TrimStart([char]0xFEFF) | ConvertFrom-Json } catch { $null }
+        $r = if ($o -and $o.PSObject.Properties['toolUseResult']) { $o.toolUseResult } else { $null }
+        if ($r -isnot [System.Management.Automation.PSCustomObject]) { $r = $null }
+        $id = $null
+        $kind = 'task'
+        $run = $null
+        if ($r -and $r.PSObject.Properties['status'] -and $r.status -eq 'async_launched') {
+            if ($r.PSObject.Properties['taskId'] -and $r.taskId) {
+                $id = $r.taskId
+                if (($r.PSObject.Properties['taskType'] -and [string]$r.taskType -eq 'local_workflow') -or $r.PSObject.Properties['workflowName']) { $kind = 'workflow' }
+                if ($r.PSObject.Properties['runId'] -and $r.runId) { $run = [string]$r.runId }
+            }
+            elseif ($r.PSObject.Properties['agentId']) { $id = $r.agentId; $kind = 'agent' }
+        }
+        elseif ($r -and $r.PSObject.Properties['resumedAgentId']) { $id = $r.resumedAgentId; $kind = 'agent' }
+        elseif ($r -and $r.PSObject.Properties['backgroundTaskId'] -and $r.backgroundTaskId) { $id = $r.backgroundTaskId; $kind = 'shell' }
+        elseif ($r -and $r.PSObject.Properties['task_id'] -and $r.PSObject.Properties['task_type']) {
+            # TaskStop's result: that task is over
+            $t = [string]$r.task_id
+            if ($Open.Contains($t)) { $Open.Remove($t) }
+            return
+        }
+        if ($id) {
+            $id = [string]$id
+            $print = [bool]($o.PSObject.Properties['entrypoint'] -and [string]$o.entrypoint -eq 'sdk-cli')
+            $at = if ($o.PSObject.Properties['timestamp']) { ConvertTo-ChatqDate $o.timestamp } else { $null }
+            # what it is, in words, where the start names it: an agent's
+            # description, a workflow's name - a shell's command is only in
+            # the call before its result, so none
+            $note = $null
+            foreach ($n in 'description', 'workflowName', 'command') {
+                if ($r.PSObject.Properties[$n] -and $r.$n) { $note = [string]$r.$n; break }
+            }
+            if ($Open.Contains($id)) { $Open.Remove($id) }
+            $Open[$id] = @{ Id = $id; At = $at; Print = $print; Kind = $kind; Run = $run; Note = $note }
+            return
+        }
+    }
+    if ($Open.Count -and $Line.IndexOf('<task-id>', [StringComparison]::Ordinal) -ge 0) {
+        foreach ($t in @($Open.Keys)) {
+            if ($Line.IndexOf("<task-id>$t</task-id>", [StringComparison]::Ordinal) -ge 0) { $Open.Remove($t) }
+        }
+    }
+}
+
+function Get-ChatSessionDir {
+    # The folder Claude Code keeps beside a chat's transcript, named by its
+    # id: subagents/, workflows/, tool-results/. Pure.
+    param([string]$Path)
+    if (-not $Path) { return $null }
+    return (Join-Path (Split-Path $Path -Parent) ([System.IO.Path]::GetFileNameWithoutExtension($Path)))
+}
+
+# How much of a transcript Get-ChatSessionSettings reads, from the end,
+# before it gives up: a switch can sit at the chat's first turn, but a queued
+# run must not wait on a 20 MB chat that never had one.
+$script:ChatSessionScanBudget = 16777216
+# the levels claude --effort takes - a session-only level is carried only as
+# one of these
+$script:ChatEffortLevels = @('low', 'medium', 'high', 'xhigh', 'max')
+# the patterns Read-ChatEffortSay and Get-ChatSessionSettings build on their
+# first call
+$script:ChatSayRx = $null
+$script:ChatSessionRx = $null
+
+function Read-ChatEffortSay {
+    <#
+    What one /effort printed, in Claude Code's words (Get-ChatSessionSettings):
+    @{ Ultracode = $true|$false|$null; Level = $true when it set the level;
+    Effort = that level when it was for this session only, else $null }.
+    -Version is the record's: what goes unsaid depends on it, and one that is
+    not x.y.z is on neither side of 2.1.284.
+    2.1.284: Ultracode is a switch of its own - "Ultracode on (this session
+    only): ... Effort stays X." and "Ultracode off. Effort stays X." leave the
+    level; "Set effort level to X (this session only)" is session-only,
+    "(saved as your default ...)" and "(saved, though your organization ...)"
+    come back by themselves; a cap names the level it set instead; auto, or a
+    level CLAUDE_CODE_EFFORT_LEVEL holds, leaves nothing of the session's; a
+    level set over a remote transport ends " . Ultracode off"; a status ends
+    " . Ultracode on" when it is on, and without it says off.
+    2.1.283 tied Ultracode to xhigh: "Set effort level to ultracode (this
+    session only)" set both, its status named it as the level, and any other
+    level or auto set switched it off unsaid.
+    The patterns are JavaScript's, as extension.js reads the same words: \w
+    and \d ASCII, \s and trim JavaScript's whitespace, case kept. Pure.
+    #>
+    param([string]$Text, [string]$Version)
+    $x = $script:ChatSayRx
+    if (-not $x) {
+        # JavaScript's whitespace, what its trim takes off and its \s matches
+        $space = [char[]](@(9, 10, 11, 12, 13, 32, 0xA0, 0x1680) + @(0x2000..0x200A) + @(0x2028, 0x2029, 0x202F, 0x205F, 0x3000, 0xFEFF))
+        $w = -join @($space | ForEach-Object { '\u{0:x4}' -f [int]$_ })
+        $s = "[$w]"
+        $ns = "[^$w]"
+        $b = '(?![A-Za-z0-9_])'
+        $x = @{
+            Space = $space
+            On = [regex]('\AUltracode on' + $b)
+            Off = [regex]('\AUltracode off' + $b)
+            Both = [regex]('\ASet effort level to ultracode' + $b)
+            Set = [regex]'\ASet effort level to ([A-Za-z0-9_]+)( \(this session only\))?'
+            Cap = [regex]'\AEffort ''[^'']*'' exceeds the cap for [^;]*; set to ''([A-Za-z0-9_]+)'' instead( \(this session only\))?'
+            Auto = [regex]('\AEffort level set to auto' + $b)
+            Env = [regex]('\A(?:Effort set to auto|Cleared effort from settings|CLAUDE_CODE_EFFORT_LEVEL=' + $ns + '* overrides|Not applied: CLAUDE_CODE_EFFORT_LEVEL=)')
+            Status = [regex]('\A(?:Current effort level: |Effort level: auto' + $b + ')')
+            StatusBoth = [regex]('\ACurrent effort level: ultracode' + $b)
+            OnEnd = [regex]('Ultracode on' + $s + '*\z')
+            OffEnd = [regex]('Ultracode off' + $s + '*\z')
+            Version = [regex]'\A([0-9]+)\.([0-9]+)\.([0-9]+)'
+        }
+        $script:ChatSayRx = $x
+    }
+    $r = @{ Ultracode = $null; Level = $false; Effort = $null }
+    # 2.1.284 or later: $true, $false, or $null for a version that is not x.y.z
+    $newer = $null
+    $vm = $x.Version.Match([string]$Version)
+    if ($vm.Success) {
+        $v = @(foreach ($gi in 1, 2, 3) { $d = $vm.Groups[$gi].Value.TrimStart([char]'0'); if ($d.Length -gt 300) { [double]::PositiveInfinity } else { [double]('0' + $d) } })
+        $newer = if ($v[0] -ne 2) { $v[0] -gt 2 } elseif ($v[1] -ne 1) { $v[1] -gt 1 } else { $v[2] -ge 284 }
+    }
+    $t = ([string]$Text).Trim($x.Space)
+    if ($x.On.IsMatch($t)) { $r.Ultracode = $true; return $r }
+    if ($x.Off.IsMatch($t)) { $r.Ultracode = $false; return $r }
+    if ($x.Both.IsMatch($t)) { $r.Ultracode = $true; $r.Level = $true; return $r }
+    # a level set, or auto: which, in 2.1.283, switched Ultracode off unsaid
+    $implied = $false
+    $m = $x.Set.Match($t)
+    if (-not $m.Success) { $m = $x.Cap.Match($t) }
+    if ($m.Success) {
+        $lvl = $m.Groups[1].Value.ToLowerInvariant()
+        if ($lvl -ceq 'med') { $lvl = 'medium' }
+        $r.Level = $true
+        if ($m.Groups[2].Success -and $script:ChatEffortLevels -ccontains $lvl) { $r.Effort = $lvl }
+        $implied = $true
+    }
+    elseif ($x.Auto.IsMatch($t)) { $r.Level = $true; $implied = $true }
+    elseif ($x.Env.IsMatch($t)) { $r.Level = $true }
+    elseif ($x.Status.IsMatch($t)) {
+        if ($x.OnEnd.IsMatch($t) -or $x.StatusBoth.IsMatch($t)) { $r.Ultracode = $true }
+        elseif ($newer -eq $true) { $r.Ultracode = $false }
+        return $r
+    }
+    else { return $r }
+    if ($x.OffEnd.IsMatch($t)) { $r.Ultracode = $false }
+    elseif ($implied -and $newer -eq $false) { $r.Ultracode = $false }
+    return $r
+}
+
+function Get-ChatSessionSettings {
+    <#
+    What a Claude chat set for its session only, which a new process for it -
+    a tab closed and opened again, a queued run - starts without:
+    @{ Ultracode = $true|$false|$null; Effort = a level|$null }, $null where
+    nothing says. Claude Code never saves Ultracode, nor max, nor a level
+    /effort set "(this session only)"; a level from the tab's menu, or one
+    /effort saved, comes back by itself and is none of this.
+    The records (Get-ChatSessionRecord) are the chat's own: a print-mode
+    entrypoint's (sdk-cli, sdk-ts, sdk-py) is a claude -p run's, chatq's
+    among them; a subagent's is its own; a tool's result is no one's. Read
+    from the end, as far as each answer needs.
+    Ultracode: an /effort that said on or off, or a notice of the chat's
+    (ultra_effort_enter / ultra_effort_exit), after its last prompt says it.
+    Else the prompt came with no notice, and Claude Code writes one with a
+    prompt only when the state changed - an enter when on and the last notice
+    it can see is not one, an exit when off and it is an enter - so the
+    prompt had what the nearest notice before it says. Any process's notice:
+    that look back ignores the entrypoint, so a run's exit is what the chat's
+    next prompt was judged against. A compaction ends what it can see, so a
+    compact_boundary met first is off - but for the first, when the prompt
+    came under 5 s after it: one queued while /compact ran was judged on the
+    chat from before, where one typed after the compaction comes 8 s or more
+    after. Neither, the file read whole: off, as every chat starts.
+    Effort: max, when the latest turn a prompt of the user's started ran at
+    it - the level on the turn's first assistant record, the one it started
+    at - as max is never saved. Else the last /effort that set a level: its
+    level, when for this session only and the latest such turn since, if
+    any, ran at it. Assistant records after another user record - a task's
+    notification, an interruption - are that record's turn.
+    Records by their shape, never the words of a tool's output nor structure
+    in a tool's input. The file is read backwards -Chunk bytes at a time, a
+    line longer than that joined whole, and each line judged that can matter
+    to what is still open; every line that begins in the last -Budget bytes
+    (0: all), and what is not found by then is $null. Read as Latin-1, one
+    char a byte, so an index in the text is one in the block; what is looked
+    for is ASCII, and a string taken is decoded as UTF-8. Never throws.
+    #>
+    param([string]$Path, [int64]$Budget = $script:ChatSessionScanBudget, [int]$Chunk = 1048576)
+    $none = @{ Ultracode = $null; Effort = $null }
+    if (-not $Path -or $Budget -lt 0) { return $none }
+    if ($Chunk -lt 1) { $Chunk = 1048576 }
+    $x = $script:ChatSessionRx
+    if (-not $x) {
+        # JSON by pattern, one line at a time: a string; a number, true, false
+        # or null; an object or array to its closing bracket, strings whole;
+        # each taken whole, never given back
+        $q = '"(?>[^"\\\x00-\x1f]*(?:\\(?:["\\/bfnrt]|u[0-9A-Fa-f]{4})[^"\\\x00-\x1f]*)*)"'
+        $lit = '(?>-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?(?![0-9.eE+-])|true|false|null)'
+        $one = "(?>$q|$lit)"
+        $nest = '(?>[\{\[](?>(?:' + $q + '|[^"\{\}\[\]]+|(?<o>[\{\[])|(?<-o>[\}\]]))*)(?(o)(?!))[\}\]])'
+        $any = "(?>$q|$nest|$lit)"
+        $x = @{
+            # the keys before the first that holds an object or array; that
+            # key; and a tool's result, as the first block of the content
+            Head = [regex]('\A[ \t\r]*\{(?:(?:"type":(?<ty>' + $one + ')|"isSidechain":(?<sc>' + $one + ')|"entrypoint":(?<ep>' + $one + ')|"effort":(?<ef>' + $one +
+                ')|' + $q + ':' + $one + '),)*(?:(?<nk>' + $q + '):(?<tr>\{(?:' + $q + ':' + $one + ',)*"content":\[\{(?:' + $q + ':' + $one + ',)*"type":"tool_result")?)?')
+            # an assistant record's keys from its type to the end
+            Tail = [regex]('\A"type":"assistant"(?:,(?:"isSidechain":(?<sc>' + $any + ')|"entrypoint":(?<ep>' + $any + ')|"effort":(?<ef>' + $any + ')|' + $q + ':' + $any + '))*\}[ \t\r]*\z')
+            Obj = [regex]('\A[ \t\r]*\{(?:(?<k>' + $q + '):(?<v>' + $any + ')(?:,(?<k>' + $q + '):(?<v>' + $any + '))*)?\}[ \t\r]*\z')
+            Arr = [regex]('\A\[(?:(?<e>' + $any + ')(?:,(?<e>' + $any + '))*)?\]\z')
+            Out = [regex]'<local-command-stdout>([\s\S]*?)</local-command-stdout>'
+        }
+        $script:ChatSessionRx = $x
+    }
+    try { $fs = Open-ChatRead $Path } catch { return $none }
+    try {
+        $size = $fs.Length
+        $from = [int64]0
+        if ($Budget -gt 0 -and $size -gt $Budget) { $from = $size - $Budget }
+        # nothing before the byte ahead of $from, which shows whether a line
+        # begins at it
+        $floor = [int64]0
+        if ($from -gt 0) { $floor = $from - 1 }
+        $latin = [System.Text.Encoding]::GetEncoding(28591)
+        $ord = [StringComparison]::Ordinal
+        $sdk = $script:ChatSdkEntrypoints
+        # Ultracode: settled, and the last prompt ($hFound, its time), and a
+        # boundary passed over. The level: settled, the level after the prompt
+        # being come to ($pend), the latest turn's ($turn)
+        $uc = $null; $ucDone = $false; $hFound = $false; $hTs = $null; $passedB = $false
+        $ef = $null; $efDone = $false; $pend = $null; $turn = $null
+        # what a line that can matter now holds, by what is still open
+        $lits = $null; $sig = -1
+        # a line longer than a chunk, its pieces in order. Joined with -join,
+        # and never a block handed to a .NET method: pwsh 7 shows each string
+        # argument of one to the antimalware scan (AMSI), some 20 ms a MB, so
+        # a pattern gets a line, its head or its tail
+        $carry = @()
+        # the file's last piece: maybe half written, so parsed in full
+        $lastOpen = $true
+        $buf = $null
+        $pos = $size
+        :walk while ($pos -gt $floor) {
+            $n = [int][Math]::Min([int64]$Chunk, $pos - $floor)
+            if ($null -eq $buf -or $buf.Length -lt $n) { $buf = [byte[]]::new($n) }
+            $start = $pos - $n
+            [void]$fs.Seek($start, [System.IO.SeekOrigin]::Begin)
+            $got = 0
+            while ($got -lt $n) { $r = $fs.Read($buf, $got, $n - $got); if ($r -le 0) { break }; $got += $r }
+            if ($got -lt $n) { return $none }   # cut short under us
+            $pos = $start
+            $text = $latin.GetString($buf, 0, $n)
+            $first = $text.IndexOf([char]10)
+            $end = $start -eq $floor
+            if ($first -lt 0 -and -not $end) { $carry = @($text) + $carry; continue }
+            $lastNl = $text.LastIndexOf([char]10)
+            $cache = @{}
+            $lo = $first + 1
+            $hi = $lastNl
+            # the chunk's lines, last first: the piece after its last newline,
+            # with what was carried; the lines inside, where one can matter;
+            # the piece before its first, carried on, or the file's first line
+            $step = 0
+            while ($step -lt 3) {
+                $s2 = [int]$ucDone + 2 * [int]$hFound + 4 * [int]$efDone + 8 * [int]($null -ne $turn)
+                if ($s2 -ne $sig) {
+                    $sig = $s2
+                    $l = [System.Collections.Generic.List[string]]::new()
+                    if (-not $ucDone) {
+                        $l.Add('"ultra_effort_e')
+                        if ($hFound) { $l.Add('"compact_boundary"') } else { $l.Add('"local_command"') }
+                    }
+                    if (-not $efDone) {
+                        if (-not $l.Contains('"local_command"')) { $l.Add('"local_command"') }
+                        if ($null -eq $turn) { $l.Add('"effort":"'); $l.Add('"type":"user"') }
+                    }
+                    if (-not $ucDone -and -not $hFound -and -not $l.Contains('"type":"user"')) { $l.Add('"kind":"human"') }
+                    $lits = $l.ToArray()
+                }
+                $last = $false
+                $need = $true
+                if ($step -eq 0) {
+                    $step = 1
+                    if ($first -lt 0) { continue }
+                    if ($carry.Count) {
+                        $T = $text.Substring($lastNl + 1) + (-join $carry)
+                        $carry = @()
+                        $ls = 0
+                        $le = $T.Length
+                    }
+                    else { $T = $text; $ls = $lastNl + 1; $le = $n }
+                    $last = $lastOpen
+                    $lastOpen = $false
+                    if ($le -le $ls) { continue }
+                }
+                elseif ($step -eq 1) {
+                    $best = -1
+                    if ($hi -gt $lo) {
+                        foreach ($w in $lits) {
+                            $c = $cache[$w]
+                            if ($null -eq $c -or $c -ge $hi) { $c = $text.LastIndexOf($w, $hi - 1, $hi - $lo, $ord); $cache[$w] = $c }
+                            if ($c -gt $best) { $best = $c }
+                        }
+                    }
+                    if ($best -lt 0) { $step = 2; continue }
+                    $T = $text
+                    $ls = $text.LastIndexOf([char]10, $best) + 1
+                    $le = $text.IndexOf([char]10, $best)
+                    $hi = $ls
+                    $need = $false
+                }
+                else {
+                    $step = 3
+                    if (-not $end) {
+                        if ($first -ge 0) { $carry = @($text.Substring(0, $first)) + $carry }
+                        continue
+                    }
+                    if ($from -gt 0) { continue }   # begun before the budget
+                    if ($first -ge 0) { $T = $text; $ls = 0; $le = $first }
+                    else {
+                        $T = $text + (-join $carry)
+                        $carry = @()
+                        $ls = 0
+                        $le = $T.Length
+                        $last = $lastOpen
+                    }
+                    if ($le -le $ls) { continue }
+                }
+                if ($need) {
+                    $hit = $false
+                    foreach ($w in $lits) { if ($T.IndexOf($w, $ls, $le - $ls, $ord) -ge 0) { $hit = $true; break } }
+                    if (-not $hit) { continue }
+                }
+                # the line's kind: most by their first and last keys, as
+                # Claude Code orders them - a tool's result, a turn - the rest
+                # parsed as far as they need
+                $k = $null
+                $full = $true
+                if (-not $last) {
+                    $hm = $x.Head.Match($T.Substring($ls, [Math]::Min($le - $ls, 4096)))
+                    if (-not $hm.Success) { $full = $false }
+                    else {
+                        $hg = $hm.Groups
+                        $ty = $hg['ty']
+                        if ($ty.Success) {
+                            $tv = $ty.Value
+                            if ($tv -cne '"user"' -and $tv -cne '"assistant"' -and $tv -cne '"system"' -and $tv -cne '"attachment"') { $full = $false }
+                            elseif ($tv -ceq '"user"' -and $hg['tr'].Success -and $hg['nk'].Value -ceq '"message"') { $full = $false }
+                        }
+                        elseif ($hg['nk'].Value -ceq '"message"') {
+                            # a turn: its own keys follow its type, past the
+                            # message and every tool's input; one named in
+                            # neither end may sit between, parsed then in full
+                            $p = $T.LastIndexOf('"type":"assistant"', $le - 1, $le - $ls, $ord)
+                            if ($p -gt $ls -and ($T[$p - 1] -eq [char]',' -or $T[$p - 1] -eq [char]'{') -and $T.IndexOf('{"parentUuid":', $ls + 1, $p - $ls - 1, $ord) -lt 0) {
+                                $tm = $x.Tail.Match($T.Substring($p, $le - $p))
+                                if ($tm.Success) {
+                                    $tg = $tm.Groups
+                                    $mid = $ls + $hg['nk'].Index
+                                    $vs = $null; $ve = $null; $vf = $null; $full = $false
+                                    if ($tg['sc'].Success) { $vs = $tg['sc'].Value } elseif ($hg['sc'].Success) { $vs = $hg['sc'].Value }
+                                    elseif ($T.IndexOf('"isSidechain":', $mid, $p - $mid, $ord) -ge 0) { $full = $true }
+                                    if ($tg['ep'].Success) { $ve = $tg['ep'].Value } elseif ($hg['ep'].Success) { $ve = $hg['ep'].Value }
+                                    elseif ($T.IndexOf('"entrypoint":', $mid, $p - $mid, $ord) -ge 0) { $full = $true }
+                                    if ($tg['ef'].Success) { $vf = $tg['ef'].Value } elseif ($hg['ef'].Success) { $vf = $hg['ef'].Value }
+                                    elseif ($T.IndexOf('"effort":', $mid, $p - $mid, $ord) -ge 0) { $full = $true }
+                                    if (-not $full -and $vs -cne 'true' -and $vf) {
+                                        $e = Read-ChatJsonText $vf
+                                        if ($e -and -not ($ve -and ([Array]::IndexOf($sdk, [string](Read-ChatJsonText $ve)) -ge 0))) { $k = @{ K = 'A'; Effort = $e } }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if ($full) { $k = Get-ChatSessionRecord ($T.Substring($ls, $le - $ls)) }
+                if (-not $k) { continue }
+                $kk = $k.K
+                if (-not $ucDone) {
+                    if (-not $hFound) {
+                        if ($kk -ceq 'N' -and $k.Own) { $uc = $k.On; $ucDone = $true }
+                        elseif ($kk -ceq 'S' -and $null -ne $k.S.Ultracode) { $uc = $k.S.Ultracode; $ucDone = $true }
+                        elseif ($kk -ceq 'H') { $hFound = $true; $hTs = $k.Ts }
+                    }
+                    elseif ($kk -ceq 'N') { $uc = $k.On; $ucDone = $true }
+                    elseif ($kk -ceq 'B') {
+                        $d = $null
+                        if ($null -ne $hTs -and $null -ne $k.Ts) { $d = $hTs - $k.Ts }
+                        if (-not $passedB -and $null -ne $d -and $d -ge 0 -and $d -lt 5000) { $passedB = $true }
+                        else { $uc = $false; $ucDone = $true }
+                    }
+                }
+                if (-not $efDone) {
+                    if ($kk -ceq 'A') { $pend = $k.Effort }
+                    elseif ($kk -ceq 'F') { $pend = $null }
+                    elseif ($kk -ceq 'H') {
+                        if ($null -ne $pend -and $null -eq $turn) {
+                            $turn = $pend
+                            if ([string]::Equals($pend, 'max')) { $ef = 'max'; $efDone = $true }
+                        }
+                        $pend = $null
+                    }
+                    elseif ($kk -ceq 'S' -and $k.S.Level) {
+                        if ($null -eq $turn) { $ef = $k.S.Effort }
+                        elseif ($k.S.Effort -and [string]::Equals($k.S.Effort, $turn)) { $ef = $turn }
+                        $efDone = $true
+                    }
+                }
+                if ($ucDone -and $efDone) { break walk }
+            }
+        }
+        if (-not $ucDone -and $from -eq 0 -and $hFound) { $uc = $false }
+        return @{ Ultracode = $uc; Effort = $ef }
+    }
+    catch { return $none }
+    finally { $fs.Dispose() }
+}
+
+function Get-ChatSessionRecord {
+    <#
+    One transcript line as Get-ChatSessionSettings counts it, or $null:
+    @{ K = 'N' (an Ultracode notice, any process's: On, Own) | 'B'
+    (compact_boundary: Ts) | 'S' (the chat's /effort that said something:
+    S, Read-ChatEffortSay's) | 'H' (a prompt the user typed or pasted: Ts) |
+    'F' (another user record of the chat's) | 'A' (a turn of the chat's:
+    Effort) }. Ts: JavaScript's Date.parse of its timestamp, $null for NaN.
+    JSON.parse's reading, by pattern and only as deep as the kind needs - a
+    record can run to megabytes. $Line is read as Latin-1, one char a byte.
+    #>
+    param([string]$Line)
+    $x = $script:ChatSessionRx
+    $m = $x.Obj.Match($Line)
+    if (-not $m.Success) { return $null }
+    # its keys, case kept; the last of a repeat, as JSON.parse keeps it
+    $f = [hashtable]::new()
+    $ks = $m.Groups['k'].Captures
+    $vs = $m.Groups['v'].Captures
+    for ($i = 0; $i -lt $ks.Count; $i++) {
+        $kv = $ks[$i].Value
+        if ($kv.IndexOf([char]'\') -ge 0) { $kv = Read-ChatJsonText $kv } else { $kv = $kv.Substring(1, $kv.Length - 2) }
+        $f[$kv] = $vs[$i]
+    }
+    # false, null, 0 and "": what JavaScript takes as not there
+    $falsy = '\A(?:false|null|""|-?0(?:\.0+)?(?:[eE][+-]?[0-9]+)?)\z'
+    if ($f['isSidechain'] -and $f['isSidechain'].Value -ceq 'true') { return $null }
+    $ep = $null
+    if ($f['entrypoint']) { $ep = Read-ChatJsonText $f['entrypoint'].Value }
+    $own = -not ($null -ne $ep -and ([Array]::IndexOf($script:ChatSdkEntrypoints, $ep) -ge 0))
+    $type = $null
+    if ($f['type']) { $type = Read-ChatJsonText $f['type'].Value }
+    $sub = $null
+    if ($f['subtype']) { $sub = Read-ChatJsonText $f['subtype'].Value }
+    if ([string]::Equals($type, 'attachment') -and $f['attachment']) {
+        $at = Find-ChatJsonKey $f['attachment'].Value 'type'
+        if ($at) { $at = Read-ChatJsonText $at }
+        if ([string]::Equals($at, 'ultra_effort_enter') -or [string]::Equals($at, 'ultra_effort_exit')) { return @{ K = 'N'; Own = $own; On = ([string]::Equals($at, 'ultra_effort_enter')) } }
+    }
+    if ([string]::Equals($type, 'system') -and [string]::Equals($sub, 'compact_boundary')) {
+        $ts = $null
+        if ($f['timestamp']) { $ts = ConvertFrom-ChatIsoTime (Read-ChatJsonText $f['timestamp'].Value) }
+        return @{ K = 'B'; Ts = $ts }
+    }
+    if (-not $own) { return $null }
+    if ([string]::Equals($type, 'system') -and [string]::Equals($sub, 'local_command') -and $f['content'] -and $Line[$f['content'].Index] -eq [char]'"') {
+        # /effort's output; a version that names no command, by the words alone
+        $cr = $f['commandRun']
+        if ($cr -and $cr.Value -cnotmatch $falsy) {
+            $cc = Find-ChatJsonKey $cr.Value 'command'
+            if (-not $cc -or -not [string]::Equals((Read-ChatJsonText $cc), 'effort')) { return $null }
+        }
+        $om = $x.Out.Match([string](Read-ChatJsonText $f['content'].Value))
+        if (-not $om.Success) { return $null }
+        $ver = $null
+        if ($f['version']) { $ver = Read-ChatJsonText $f['version'].Value }
+        $say = Read-ChatEffortSay -Text $om.Groups[1].Value -Version $ver
+        if ($null -eq $say.Ultracode -and -not $say.Level) { return $null }
+        return @{ K = 'S'; S = $say }
+    }
+    if ([string]::Equals($type, 'assistant')) {
+        $e = $null
+        if ($f['effort']) { $e = Read-ChatJsonText $f['effort'].Value }
+        if ($e) { return @{ K = 'A'; Effort = $e } }
+        return $null
+    }
+    if ([string]::Equals($type, 'user')) {
+        $msg = $f['message']
+        if ($msg) {
+            # a tool's result: a block of its content (only structure has the
+            # words, a string's quotes being escaped)
+            $c = Find-ChatJsonKey $msg.Value 'content'
+            if ($c -and $c[0] -eq [char]'[' -and $c.IndexOf('"type":"tool_result"', [StringComparison]::Ordinal) -ge 0) {
+                foreach ($b in $x.Arr.Match($c).Groups['e'].Captures) {
+                    $bt = Find-ChatJsonKey $b.Value 'type'
+                    if ($bt -and [string]::Equals((Read-ChatJsonText $bt), 'tool_result')) { return $null }
+                }
+            }
+        }
+        $meta = [bool]($f['isMeta'] -and $f['isMeta'].Value -cnotmatch $falsy)
+        $o = $f['origin']
+        if ($o -and -not $meta -and -not ($f['isCompactSummary'] -and $f['isCompactSummary'].Value -cnotmatch $falsy)) {
+            $ok = Find-ChatJsonKey $o.Value 'kind'
+            if ($ok -and [string]::Equals((Read-ChatJsonText $ok), 'human')) {
+                $ts = $null
+                if ($f['timestamp']) { $ts = ConvertFrom-ChatIsoTime (Read-ChatJsonText $f['timestamp'].Value) }
+                return @{ K = 'H'; Ts = $ts }
+            }
+        }
+        if ($meta) { return $null }
+        return @{ K = 'F' }
+    }
+    return $null
+}
+
+function Find-ChatJsonKey {
+    # One key's value in a JSON object's text, by pattern
+    # (Get-ChatSessionRecord): the value's JSON text, the last where the key
+    # repeats; $null for no such key, or no object
+    param([string]$Json, [string]$Key)
+    if ($Json.Length -lt 2 -or $Json[0] -ne [char]'{') { return $null }
+    $m = $script:ChatSessionRx.Obj.Match($Json)
+    if (-not $m.Success) { return $null }
+    $ks = $m.Groups['k'].Captures
+    $want = '"' + $Key + '"'
+    $hit = -1
+    for ($i = 0; $i -lt $ks.Count; $i++) {
+        $kv = $ks[$i].Value
+        if ([string]::Equals($kv, $want) -or ($kv.IndexOf([char]'\') -ge 0 -and [string]::Equals((Read-ChatJsonText $kv), $Key))) { $hit = $i }
+    }
+    if ($hit -lt 0) { return $null }
+    return $m.Groups['v'].Captures[$hit].Value
+}
+
+function Read-ChatJsonText {
+    # A JSON string token's text, the token read as Latin-1 (one char a byte):
+    # its bytes as UTF-8, its escapes undone; $null for a token that is no
+    # string
+    param([string]$Token)
+    if ($Token.Length -lt 2 -or $Token[0] -ne [char]'"') { return $null }
+    $s = $Token.Substring(1, $Token.Length - 2)
+    if ($s -match '[^\x00-\x7f]') { $s = [System.Text.Encoding]::UTF8.GetString([System.Text.Encoding]::GetEncoding(28591).GetBytes($s)) }
+    if ($s.IndexOf([char]'\') -ge 0) { try { $s = [regex]::Unescape($s) } catch { return $null } }
+    return $s
+}
+
+function ConvertFrom-ChatIsoTime {
+    # JavaScript's Date.parse of a timestamp as Claude Code writes them
+    # (toISOString): ms since 1970, or $null where it gives NaN
+    param([string]$Text)
+    $m = [regex]::Match([string]$Text, '\A([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2})(?::([0-9]{2})(?:\.([0-9]+))?)?(Z|([+-])([0-9]{2}):([0-9]{2}))\z')
+    if (-not $m.Success) { return $null }
+    $g = $m.Groups
+    $sec = 0
+    if ($g[6].Success) { $sec = [int]$g[6].Value }
+    try { $t = [DateTimeOffset]::new([int]$g[1].Value, [int]$g[2].Value, [int]$g[3].Value, [int]$g[4].Value, [int]$g[5].Value, $sec, [TimeSpan]::Zero) }
+    catch { return $null }
+    $ms = [double]$t.ToUnixTimeMilliseconds()
+    if ($g[7].Success) { $ms += [double](($g[7].Value + '00').Substring(0, 3)) }
+    if ($g[9].Success) {
+        $off = ([double]$g[10].Value * 60 + [double]$g[11].Value) * 60000
+        if ($g[9].Value -eq '+') { $ms -= $off } else { $ms += $off }
+    }
+    return $ms
+}
+
+function Get-ChatUltracode {
+    # Whether a Claude chat last had Ultracode on: $true, $false, or $null
+    # when nothing says - Get-ChatSessionSettings' Ultracode
+    param([string]$Path, [int64]$Budget = $script:ChatSessionScanBudget)
+    return (Get-ChatSessionSettings $Path $Budget).Ultracode
+}
+
+# Test-ChatAgentDone's answers by file, length and write time
+$script:ChatAgentDoneCache = @{}
+
+function Test-ChatAgentDone {
+    <#
+    Has a background agent finished, by its own transcript
+    (<chat>/subagents/agent-<id>.jsonl)? $true once its last message is the
+    model's, stopped with end_turn or stop_sequence - what every unannounced
+    finish here ended on; $false otherwise: a tool call, the result owed the
+    model, a block still streaming (Claude Code writes those with no stop
+    reason), max_tokens, or a refusal, after which Claude Code tries the turn
+    again on a fallback model with nothing written between - once for 5
+    minutes. $null with no file to tell by, or no whole message in its last
+    16 MB. The notification is not enough: an agent whose output the model
+    already took (TaskOutput, a resume) can finish and never be announced -
+    eleven agent runs in the transcripts here, seven started and four wakes
+    of one more, every one of them finished.
+    -After: the start being judged. A file untouched since holds only what
+    came before it - SendMessage waking the agent has not reached it yet -
+    and says nothing of this run: $false.
+    #>
+    param([string]$Path, $After)
+    if (-not $Path) { return $null }
+    $fi = [System.IO.FileInfo]::new($Path)
+    if (-not $fi.Exists) { return $null }
+    if ($After -is [datetime] -and $fi.LastWriteTime -lt $After) { return $false }
+    $key = "$Path|$($fi.Length)|$($fi.LastWriteTimeUtc.Ticks)"
+    if ($script:ChatAgentDoneCache.ContainsKey($key)) { return $script:ChatAgentDoneCache[$key] }
+    $done = Read-ChatLastWord $Path
+    if ($null -eq $done) { return $null }   # nothing kept: it is asked again
+    if ($script:ChatAgentDoneCache.Count -gt 256) { $script:ChatAgentDoneCache.Clear() }
+    $script:ChatAgentDoneCache[$key] = $done
+    return $done
+}
+
+function Read-ChatLastWord {
+    <#
+    Test-ChatAgentDone's reading: the transcript's last whole record that
+    carries a message, from its end - 64 KB, then 1 MB, then 16 MB back, as
+    far as it takes to hold that record whole. An agent's last word can be a
+    report of 50 KB, and records of 80 KB can follow it, so no fixed tail
+    will do. Read by its words, not parsed: Windows PowerShell's
+    ConvertFrom-Json refuses some real records whole (keys that differ only
+    in case, in a tool's input). The message's role is the first "role" in
+    its line - nothing before the message names one - and its stop reason
+    the last "stop_reason", which follows the content; either one inside a
+    string is escaped, and so never read. $true done, $false not, $null
+    when the last 16 MB hold no whole message record.
+    #>
+    param([string]$Path)
+    $fs = try { Open-ChatRead $Path } catch { $null }
+    if (-not $fs) { return $null }
+    try {
+        $len = $fs.Length
+        foreach ($size in 64KB, 1MB, 16MB) {
+            $take = [int][Math]::Min([int64]$size, $len)
+            $null = $fs.Seek($len - $take, [System.IO.SeekOrigin]::Begin)
+            $buf = [byte[]]::new($take)
+            $n = 0
+            while ($n -lt $take) {
+                $got = $fs.Read($buf, $n, $take - $n)
+                if ($got -le 0) { break }
+                $n += $got
+            }
+            $lines = [System.Text.Encoding]::UTF8.GetString($buf, 0, $n) -split "`n"
+            # the first line is a piece of one, unless this reached the start
+            $low = if ($take -lt $len) { 1 } else { 0 }
+            for ($i = $lines.Count - 1; $i -ge $low; $i--) {
+                $l = $lines[$i]
+                if ($l.IndexOf('"message":{', [StringComparison]::Ordinal) -lt 0) { continue }
+                $role = [regex]::Match($l, '"role":"(assistant|user)"')
+                if (-not $role.Success) { continue }
+                if ($role.Groups[1].Value -eq 'user') { return $false }
+                $sr = [regex]::Match($l, '"stop_reason":(?:null|"([a-z_]+)")', [System.Text.RegularExpressions.RegexOptions]::RightToLeft)
+                return [bool]($sr.Success -and $sr.Groups[1].Value -in 'end_turn', 'stop_sequence')
+            }
+            if ($take -ge $len) { return $false }   # the whole file, and not a message in it
+        }
+        return $null
+    }
+    catch { return $null }
+    finally { $fs.Dispose() }
+}
+
+function Select-ChatBackgroundOpen {
+    <#
+    The starts in -Open (Step-ChatBackgroundLine) that can still be at work:
+    made since -Since - the work dies with the process that ran it - and,
+    with -SkipPrint, none a print-mode run made. A shell only with -Shells:
+    whether one still runs is the process tree's to say (the overlay's
+    Get-ChatShellChildCount), since one ended from the task list leaves no
+    mark in the transcript. -SessionDir (Get-ChatSessionDir) holds what ends the
+    rest when no notification does:
+      workflow  workflows/<run id>.json, which Claude Code writes as a run
+                ends - completed, failed or killed - and not before; only
+                one written since the start counts, as a resumed run keeps
+                its run id. An interrupt of the turn that started one kills
+                it and writes no notification; a run that ended during that
+                turn can go unannounced too. Fifteen here, every one with
+                its record.
+      agent     subagents/agent-<id>.jsonl, finished (Test-ChatAgentDone).
+    Oldest first.
+    #>
+    param([System.Collections.Specialized.OrderedDictionary]$Open, [datetime]$Since = [datetime]::MinValue, [switch]$SkipPrint,
+        [switch]$Shells, [string]$SessionDir)
+    if (-not $Open) { return }
+    foreach ($t in @($Open.Values)) {
+        if ($SkipPrint -and $t.Print) { continue }
+        if ($t.At -and $t.At -lt $Since) { continue }
+        if ($t.Kind -eq 'shell' -and -not $Shells) { continue }
+        if ($SessionDir) {
+            if ($t.Kind -eq 'workflow' -and $t.Run) {
+                # written since this start: a resumed run keeps its run id, and
+                # the record of the run it resumes is there all along. A
+                # second's slack for the start's own record, stamped just after
+                # the run began.
+                $rf = [System.IO.FileInfo]::new((Join-Path (Join-Path $SessionDir 'workflows') "$($t.Run).json"))
+                if ($rf.Exists -and (-not $t.At -or $rf.LastWriteTime -ge $t.At.AddSeconds(-1))) { continue }
+            }
+            if ($t.Kind -eq 'agent' -and (Test-ChatAgentDone (Join-Path (Join-Path $SessionDir 'subagents') "agent-$($t.Id).jsonl") $t.At)) { continue }
+        }
+        $t
+    }
+}
+
+function Update-ChatBackgroundScan {
+    <#
+    Get-ChatBackgroundTasks' reading, kept up to date a piece at a time:
+    -State (a hashtable kept between calls) holds the transcript's path, how
+    far it has been read - always to a line's end - and what is out so far
+    (Open, as Step-ChatBackgroundLine keeps it). Each call reads on from
+    there, at most -MaxBytes, less the one line that runs past it, whole. A
+    line still being written, with no newline yet, waits for the next call.
+    A transcript that shrank, or another path, is read again from the start.
+    Done says every whole line of it has been read. The overlay asks every 2 s, on
+    the thread the Windows panel draws on, so only the lines that can start
+    or end something are parsed at all: each piece is searched as one
+    string, and a line is taken out only where a word it needs is in it.
+    #>
+    param([hashtable]$State, [string]$Path, [int64]$MaxBytes = 8MB)
+    if ($State.Path -ne $Path -or $null -eq $State.Open) {
+        $State.Path = $Path; $State.Offset = [int64]0; $State.Open = [ordered]@{}; $State.Done = $false
+    }
+    $fs = try { Open-ChatRead $Path } catch { $null }   # can vanish mid-scan
+    if (-not $fs) { return }
+    try {
+        $len = $fs.Length
+        if ($len -lt $State.Offset) { $State.Offset = [int64]0; $State.Open = [ordered]@{} }
+        $left = $len - $State.Offset
+        if ($left -le 0) { $State.Done = $true; return }
+        $null = $fs.Seek($State.Offset, [System.IO.SeekOrigin]::Begin)
+        $want = [int][Math]::Min($left, $MaxBytes)
+        $buf = [byte[]]::new($want)
+        $n = 0
+        while ($n -lt $want) {
+            $got = $fs.Read($buf, $n, $want - $n)
+            if ($got -le 0) { break }
+            $n += $got
+        }
+        $cut = if ($n -gt 0) { [Array]::LastIndexOf($buf, [byte]10, $n - 1, $n) } else { -1 }
+        if ($cut -lt 0 -and $n -lt $left) {
+            # one line longer than a call reads: taken whole, once, rather
+            # than coming back to its start for ever
+            $ms = [System.IO.MemoryStream]::new()
+            $ms.Write($buf, 0, $n)
+            $more = [byte[]]::new(1MB)
+            while ($true) {
+                $got = $fs.Read($more, 0, $more.Length)
+                if ($got -le 0) { break }
+                $nl = [Array]::IndexOf($more, [byte]10, 0, $got)
+                if ($nl -ge 0) { $ms.Write($more, 0, $nl + 1); break }
+                $ms.Write($more, 0, $got)
+            }
+            $buf = $ms.ToArray()
+            $n = $buf.Length
+            $cut = if ($n -gt 0 -and $buf[$n - 1] -eq 10) { $n - 1 } else { -1 }
+        }
+        # Done: read to the end of the file, but for a last line still being
+        # written - which Claude Code leaves only for a moment, and which
+        # would otherwise leave nearly every look at a live chat undone
+        $State.Done = ($State.Offset + $n -ge $len)
+        # nothing but a line still being written
+        if ($cut -lt 0) { return }
+        $text = [System.Text.Encoding]::UTF8.GetString($buf, 0, $cut + 1)
+        $State.Offset += $cut + 1
+    }
+    finally { $fs.Dispose() }
+    # the lines that hold a start, or an end once anything is out, in the
+    # order they were written
+    $starts = [System.Collections.Generic.SortedSet[int]]::new()
+    foreach ($w in $script:ChatBackgroundWords) {
+        $i = 0
+        while (($i = $text.IndexOf($w, $i, [StringComparison]::Ordinal)) -ge 0) {
+            $null = $starts.Add($text.LastIndexOf([char]10, $i) + 1)
+            $i += $w.Length
+        }
+    }
+    foreach ($s in $starts) {
+        $e = $text.IndexOf([char]10, $s)
+        if ($e -lt 0) { $e = $text.Length }
+        Step-ChatBackgroundLine $State.Open $text.Substring($s, $e - $s).TrimEnd([char]13)
+    }
 }
 
 function Test-ChatPrintLive {
@@ -832,9 +1690,14 @@ function Write-ChatReloadRequest {
     # before it opens the chat, if Claude Code has left it out of its lists.
     # Without -SessionId the request is what 0.5.0 wrote, byte for byte.
     # -Auto: the run was auto-continue's, and the window words its offer so
+    # -HandoverPids: the windows a handover asked to close the chat's tab as
+    # the run began (Invoke-ChatqHandover). Its process gone since, the end
+    # of the run finds no window holding the chat - named anyway, so only the
+    # window that closed its tab acts, and not every window on the folder.
+    # -JobId: the run's job, which that window's live view of it is keyed by.
     param([string]$Title, [string]$Cwd = (Get-Location).Path, [string]$Kind = 'deleted', $Busy = $null, $Away = $null,
         [string]$SessionId, [string]$ConfigHome, [string]$OldProcess, [int[]]$HostPids = @(), [string]$Transcript,
-        [switch]$Auto)
+        [switch]$Auto, [int[]]$HandoverPids = @(), [string]$JobId)
     $req = [ordered]@{
         id    = [guid]::NewGuid().ToString()
         kind  = $Kind
@@ -847,9 +1710,12 @@ function Write-ChatReloadRequest {
         $req.sessionId = $SessionId
         $req.home = $(if ($ConfigHome) { $ConfigHome } else { $null })
         $req.oldProcess = $(if ($OldProcess) { $OldProcess } else { 'none' })
-        $req.hostPids = [int[]]@($HostPids | Where-Object { $_ })
+        $hp = [int[]]@($HostPids | Where-Object { $_ })
+        if (-not $hp.Count) { $hp = [int[]]@($HandoverPids | Where-Object { $_ }) }
+        $req.hostPids = $hp
         if ($Transcript) { $req.file = $Transcript }
         if ($Auto) { $req.auto = $true }
+        if ($JobId) { $req.jobId = $JobId }
     }
     $req.at = (Get-Date).ToString('o')
     Save-ChatSignal $script:ChatReloadPath $req
@@ -879,19 +1745,122 @@ function Write-ChatOpenRequest {
     Save-ChatSignal $script:ChatOpenPath $req
 }
 
+function Write-ChatWatchRequest {
+    # The chip on a chat a queued prompt is going into: open that run's live
+    # view in the window, rather than the chat, which would load it part way
+    # through. The open request's file and targeting - its hostPids are the
+    # windows the run's handover asked, else none, and the window on exactly
+    # the folder takes it - plus the job it is.
+    param([string]$SessionId, [string]$Cwd, [string]$Title, [string]$ConfigHome, [string]$JobId, $Seq, [int[]]$HostPids = @())
+    $req = [ordered]@{
+        id        = [guid]::NewGuid().ToString()
+        kind      = 'watch'
+        sessionId = $SessionId
+        jobId     = $JobId
+        seq       = $Seq
+        cwd       = $Cwd
+        title     = $Title
+        home      = $(if ($ConfigHome) { $ConfigHome } else { $null })
+        hostPids  = [int[]]@($HostPids | Where-Object { $_ })
+        at        = (Get-Date).ToString('o')
+    }
+    Save-ChatSignal $script:ChatOpenPath $req
+}
+
+function Write-ChatRunState {
+    <#
+    data/run-state: the queued run going on now, for the extension in
+    extension/ - the window whose tab shows the chat hands it over to the
+    run's live view, and the status bar says a run is going. One slot, each
+    write replacing the last: the watcher runs one job at a time. Phases:
+      handover  a window's tab still shows the chat: the windows in hostPids
+                are asked to close it, and each answers in
+                run-ack/<its pid>.json with this write's id (handoverId)
+      running   the run goes in - every job, Codex's too
+      ended     it is over, however: state is the job's then
+    -Run carries what the start judged and did, and stays the same across a
+    run's writes: HostPids and OldProcess (Stop-ChatIdleProcess -JudgeOnly),
+    Away (the idle clock), Beside - why the run goes in beside a view of the
+    chat still open: background (a command it runs, whose tab is left
+    alone), unsure (no window closed it), timed-out (its process outlived
+    the close) - and HandoverId. ultracode and effort are the job's own
+    fields. runnerPid lets the extension tell a
+    watcher killed mid-run, which never writes ended: the next one does
+    (Repair-ChatqInterrupted). UTF-8, swapped in whole. Returns the id.
+    #>
+    param($Job, [ValidateSet('handover', 'running', 'ended')][string]$Phase, [hashtable]$Run = @{})
+    $sendsContinue = $Job.kind -eq 'continue' -or [string](Get-ChatField $Job 'retryAs') -eq 'continue'
+    $o = [ordered]@{
+        id         = [guid]::NewGuid().ToString()
+        # the job's kind, so a live view heads a continue as one
+        kind       = $(if ($sendsContinue) { 'continue' } else { 'prompt' })
+        phase      = $Phase
+        jobId      = [string]$Job.id
+        seq        = $Job.seq
+        provider   = [string]$Job.provider
+        sessionId  = $(if ($Job.sessionId) { [string]$Job.sessionId } else { $null })
+        title      = [string]$Job.title
+        cwd        = [string]$Job.cwd
+        home       = $(if ($Job.home) { [string]$Job.home } else { $null })
+        hostPids   = [int[]]@($Run.HostPids | Where-Object { $_ })
+        oldProcess = $(if ($Run.OldProcess) { [string]$Run.OldProcess } else { 'none' })
+        handoverId = $(if ($Run.HandoverId) { [string]$Run.HandoverId } else { $null })
+        runnerPid  = $PID
+        away       = $Run.Away
+        beside     = $(if ($Run.Beside) { [string]$Run.Beside } else { $null })
+        # the run goes in with Ultracode, and at a session-only level, as the
+        # chat last had them (Get-ChatqRunCarry), for the live view to say so
+        ultracode  = [bool](Get-ChatField $Job 'ultracode')
+        effort     = $(if (Get-ChatField $Job 'effort') { [string](Get-ChatField $Job 'effort') } else { $null })
+        log        = (Join-Path $script:ChatqLogDir "$($Job.id).jsonl")
+        job        = (Join-Path $script:ChatqQueueDir "$($Job.id).json")
+        state      = [string]$Job.state
+        startedAt  = $Job.startedAt
+        at         = (Get-Date).ToString('o')
+    }
+    if ($Phase -eq 'handover') { $o.handoverId = $o.id }
+    try { Save-ChatqText $script:ChatRunStatePath ($o | ConvertTo-Json -Compress) } catch {}
+    if ($script:ChatRunStateSeam) { $null = & $script:ChatRunStateSeam ([pscustomobject]$o) }   # tests
+    return $o.id
+}
+
+function Read-ChatRunState {
+    # data/run-state as the watcher last wrote it, or $null
+    param([string]$Path = $script:ChatRunStatePath)
+    if (-not (Test-Path -LiteralPath $Path)) { return $null }
+    try { return ([System.IO.File]::ReadAllText($Path).TrimStart([char]0xFEFF) | ConvertFrom-Json) } catch { return $null }
+}
+
+function Read-ChatRunAck {
+    # A window's answer to a handover: run-ack/<its ext host pid>.json,
+    # @{ id; answer; at } - or $null. A BOM is let past, as the extension's
+    # own reader lets one past.
+    param([int]$HostPid)
+    $f = Join-Path $script:ChatRunAckDir "$HostPid.json"
+    if (-not (Test-Path -LiteralPath $f)) { return $null }
+    try { return ([System.IO.File]::ReadAllText($f).TrimStart([char]0xFEFF) | ConvertFrom-Json) } catch { return $null }
+}
+
 function Get-ChatShowHold {
     # Until when a window may still be showing this chat fresh on a request
     # just written for it - a run's (ran) or the chip's (open) - or $null.
     # A run going into the chat meanwhile would have the window load it part
     # way through, with a new process remembering only that much; so the next
-    # run into it waits that out (Invoke-ChatqJob).
+    # run into it waits that out (Invoke-ChatqJob). A handed-over run's end
+    # (data/run-state 'ended' with a handoverId) counts as one too: the window
+    # that closed the chat's tab puts it back then, however the run ended -
+    # a cancel or a requeue writes no 'ran' request to wait on.
     param([string]$SessionId, [datetime]$Now = (Get-Date))
     if (-not $SessionId -or $script:ChatShowHoldSeconds -le 0) { return $null }
     $until = $null
-    foreach ($f in $script:ChatReloadPath, $script:ChatOpenPath) {
+    foreach ($f in $script:ChatReloadPath, $script:ChatOpenPath, $script:ChatRunStatePath) {
         if (-not (Test-Path -LiteralPath $f)) { continue }
-        $r = try { [System.IO.File]::ReadAllText($f) | ConvertFrom-Json } catch { $null }
-        if (-not $r -or [string](Get-ChatField $r 'sessionId') -ne $SessionId -or [string](Get-ChatField $r 'kind') -notin 'ran', 'open') { continue }
+        $r = try { [System.IO.File]::ReadAllText($f).TrimStart([char]0xFEFF) | ConvertFrom-Json } catch { $null }
+        if (-not $r -or [string](Get-ChatField $r 'sessionId') -ne $SessionId) { continue }
+        if ($f -eq $script:ChatRunStatePath) {
+            if ([string](Get-ChatField $r 'phase') -ne 'ended' -or -not (Get-ChatField $r 'handoverId')) { continue }
+        }
+        elseif ([string](Get-ChatField $r 'kind') -notin 'ran', 'open') { continue }
         $at = ConvertTo-ChatqDate (Get-ChatField $r 'at')
         if (-not $at) { continue }
         $end = $at.AddSeconds($script:ChatShowHoldSeconds)
@@ -946,7 +1915,7 @@ function Write-ChatGhostAdvice {
         $true { Write-Host '  all project chat is idle - safe to reload now' -ForegroundColor Green }
         $false {
             Write-Host '  a chat is still active - reload once it finishes' -ForegroundColor Yellow
-            Write-Host '  -WaitForIdle waits and tells you when' -ForegroundColor DarkGray
+            Write-Host '  chatrm without -NoWait waits and tells you when' -ForegroundColor DarkGray
         }
         default { }   # no index to judge by: say nothing rather than guess
     }
@@ -1234,11 +2203,15 @@ function chatrm {
     .PARAMETER AllProjects
     Match titles from every project rather than the one this directory belongs
     to. Ids are unambiguous and always reach any project.
+    .PARAMETER NoWait
+    Say whether the window is safe to reload and return, instead of waiting.
+    By default, while a VS Code window is up, chatrm waits after deleting until
+    nothing in this project's chats has been written for a minute, then says
+    the window is safe to reload. A reload restarts the extensions, so one
+    taken mid-answer loses that answer. The wait blocks the shell; Ctrl+C
+    stops it and deletes nothing back.
     .PARAMETER WaitForIdle
-    Wait after deleting until nothing in this project's chats has been written
-    for a minute, then say the window is safe to reload. A reload restarts the
-    extensions, so one taken mid-answer loses that answer. It blocks the shell
-    while it waits; Ctrl+C stops it and deletes nothing back.
+    The default now; still accepted, so scripts that pass it keep working.
     .PARAMETER DropJobs
     A chat with a prompt queued for it by chatq is kept, and the job named.
     -DropJobs drops those jobs first - cancelling one that is running and
@@ -1259,13 +2232,14 @@ function chatrm {
         [string[]]$Provider,
         [switch]$Force,
         [switch]$AllProjects,
+        [switch]$NoWait,
         [switch]$WaitForIdle,
         [switch]$DropJobs,
         [switch]$Archive
     )
     Set-StrictMode -Off
 
-    if (-not $Target) { Write-Error 'usage: chatrm <id>... | "<title>" [-Force] [-AllProjects] [-WaitForIdle] [-DropJobs] [-Archive]'; return }
+    if (-not $Target) { Write-Error 'usage: chatrm <id>... | "<title>" [-Force] [-AllProjects] [-NoWait] [-DropJobs] [-Archive]'; return }
     # one step for both paths below: delete, or put away
     $take = { param($h) if ($Archive) { Save-ChatArchive $h } else { Remove-ChatSession $h } }
     $names = if ($Provider) { $Provider } else { @($script:ChatProviders.Keys) }
@@ -1333,7 +2307,9 @@ function chatrm {
     if ($deleted) {
         $what = if ($deleted -eq 1) { $lastTitle } else { "$deleted chats" }
         $kind = if ($Archive) { 'archived' } else { 'deleted' }
-        Write-ChatGhostAdvice -WaitForIdle:$WaitForIdle -AllProjects:$AllProjects -Title $what -Kind $kind
+        # waiting is the default, -NoWait the way out: a reload taken
+        # mid-answer loses the answer, so the safe moment is worth the wait
+        Write-ChatGhostAdvice -WaitForIdle:(-not $NoWait) -AllProjects:$AllProjects -Title $what -Kind $kind
     }
 }
 

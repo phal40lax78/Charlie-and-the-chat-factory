@@ -1,4 +1,4 @@
-# VS-code-chat-manager, src/permit.ps1: dot-sourced by VS-code-chat-manager.ps1
+# claude-codex-chat-manager, src/permit.ps1: dot-sourced by claude-codex-chat-manager.ps1
 # in its turn, never on its own - see the list there.
 
 #region permit: a queued run asks the phone ------------------------------------
@@ -160,7 +160,9 @@ function New-ChatqPermitRun {
     made afresh with mcp.json - the bridge - and settings.json, the run's own
     rules merged over the user's: AskUserQuestion denied, as none denied it
     (nobody answers questions mid-run), and no edit of chatq's data/ without
-    a prompt. Returns what Invoke-ChatqRun and the watcher's tick need.
+    a prompt. Returns what Invoke-ChatqRun and the watcher's tick need -
+    Settings, those rules as written, for a run that adds to them to save
+    whole again rather than read the file back.
     #>
     param($Job, $Cfg)
     if (-not $Cfg) { $Cfg = Get-ChatqConfig }
@@ -183,7 +185,7 @@ function New-ChatqPermitRun {
     Save-ChatqJson $setPath $set
     Write-ChatqWatchLog "#$($Job.seq) asks the phone for permissions (run $runId, $($pc.WaitMinutes) min each)"
     [pscustomobject]@{
-        JobId = [string]$Job.id; RunId = $runId; Dir = $dir; McpPath = $mcpPath; SettingsPath = $setPath
+        JobId = [string]$Job.id; RunId = $runId; Dir = $dir; McpPath = $mcpPath; SettingsPath = $setPath; Settings = $set
         WaitMinutes = $pc.WaitMinutes; TimeoutMs = ($pc.WaitMinutes + 3) * 60000
         St = $null; Seen = @{}; Open = @{}; Launch = $l
     }

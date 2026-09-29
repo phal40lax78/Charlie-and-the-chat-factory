@@ -724,7 +724,7 @@ Check 'chatnotify -Permit off' ($said -like '*permissions from the phone off*' -
 # --- the setup window, never shown ---------------------------------------------------------------
 if ($script:ChatqIsWindows) {
     $null = Set-ChatqNotifyConfig @{ Permit = 'on' }
-    $stTool = (Join-Path $sb 'tool\VS-code-chat-manager.ps1').Replace("'", "''")
+    $stTool = (Join-Path $sb 'tool\claude-codex-chat-manager.ps1').Replace("'", "''")
     $winOut = Invoke-Sta 'permit-window' @"
 `$ErrorActionPreference = 'Stop'
 `$env:CHATQ_OVERLAY = '1'; `$env:CHATQ_WATCHER = '1'

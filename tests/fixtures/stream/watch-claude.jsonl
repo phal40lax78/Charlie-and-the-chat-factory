@@ -1,0 +1,24 @@
+{"type":"system","subtype":"init","session_id":"{{SESSION}}","model":"claude-fake-1","permissionMode":"acceptEdits","claude_code_version":"2.1.283"}
+{"type":"user","message":{"role":"user","content":"run the tests and fix what fails"},"session_id":"{{SESSION}}"}
+{"type":"assistant","message":{"model":"claude-fake-1","role":"assistant","content":[{"type":"thinking","thinking":"the model's own","signature":"x"}]},"parent_tool_use_id":null}
+{"type":"assistant","message":{"model":"claude-fake-1","role":"assistant","content":[{"type":"text","text":"Running the <suite> & fixing it."}]},"parent_tool_use_id":null}
+{"type":"assistant","message":{"model":"claude-fake-1","role":"assistant","content":[{"type":"tool_use","id":"toolu_todo","name":"TodoWrite","input":{"todos":[{"content":"Read the tests","status":"completed","activeForm":"Reading the tests"},{"content":"Run the suite","status":"completed","activeForm":"Running the suite"},{"content":"Fix the parser","status":"in_progress","activeForm":"Fixing the parser"},{"content":"Run it again","status":"pending","activeForm":"Running it again"}]}}]},"parent_tool_use_id":null}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_todo","content":"Todos have been modified successfully."}]},"parent_tool_use_id":null}
+{"type":"assistant","message":{"model":"claude-fake-1","role":"assistant","content":[{"type":"tool_use","id":"toolu_bash","name":"Bash","input":{"command":"npm test\n# and more","description":"Run the suite"}}]},"parent_tool_use_id":null}
+{"type":"tool_progress","tool_use_id":"toolu_bash","tool_name":"Bash","parent_tool_use_id":null,"elapsed_time_seconds":90,"session_id":"{{SESSION}}"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_bash","content":"line 1\nline 2\nline 3\nline 4\nline 5","is_error":true}]},"parent_tool_use_id":null}
+{"type":"assistant","message":{"model":"claude-fake-1","role":"assistant","content":[{"type":"tool_use","id":"toolu_read","name":"Read","input":{"file_path":"C:\\work\\parser.js"}}]},"parent_tool_use_id":null}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_read","content":[{"type":"text","text":"{{LONG}}"}]}]},"parent_tool_use_id":null}
+{"type":"assistant","message":{"model":"claude-fake-1","role":"assistant","content":[{"type":"tool_use","id":"toolu_agent","name":"Agent","input":{"description":"Look for callers","prompt":"find every caller","subagent_type":"general-purpose"}}]},"parent_tool_use_id":null}
+{"type":"assistant","message":{"model":"claude-fake-1","role":"assistant","content":[{"type":"tool_use","id":"toolu_grep","name":"Grep","input":{"pattern":"parseLine\\("}}]},"parent_tool_use_id":"toolu_agent"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_grep","content":"src/a.js\nsrc/b.js"}]},"parent_tool_use_id":"toolu_agent"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_agent","content":[{"type":"text","text":"Two callers."}]}]},"parent_tool_use_id":null}
+{"type":"assistant","message":{"model":"claude-fake-1","role":"assistant","content":[{"type":"tool_use","id":"toolu_edit","name":"Edit","input":{"file_path":"C:\\work\\parser.js","old_string":"a","new_string":"b\nc"}}]},"parent_tool_use_id":null}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_edit","content":"The file was updated."}]},"parent_tool_use_id":null}
+{"type":"assistant","message":{"model":"claude-fake-1","role":"assistant","content":[{"type":"tool_use","id":"toolu_write","name":"Write","input":{"file_path":"C:\\work\\note.txt","content":"one\ntwo\nthree"}}]},"parent_tool_use_id":null}
+{"type":"system","subtype":"permission_denied","tool_name":"Write","tool_use_id":"toolu_write","message":"denied"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_write","content":"Permission for this tool use was denied.","is_error":true}]},"parent_tool_use_id":null}
+{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1790000000,"rateLimitType":"five_hour"},"session_id":"{{SESSION}}"}
+{"type":"assistant","message":{"model":"claude-fake-1","role":"assistant","content":[{"type":"tool_use","id":"toolu_open","name":"Bash","input":{"command":"sleep 600"}}]},"parent_tool_use_id":null}
+{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":1790000000,"rateLimitType":"five_hour"},"session_id":"{{SESSION}}"}
+{"type":"result","subtype":"success","is_error":false,"num_turns":7,"duration_ms":754000,"result":"Fixed.","session_id":"{{SESSION}}"}

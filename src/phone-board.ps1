@@ -1,4 +1,4 @@
-# VS-code-chat-manager, src/phone-board.ps1: dot-sourced by VS-code-chat-manager.ps1
+# claude-codex-chat-manager, src/phone-board.ps1: dot-sourced by claude-codex-chat-manager.ps1
 # in its turn, never on its own - see the list there.
 
 #region phone: the board and any chat, from the phone ---------------------------
@@ -41,6 +41,8 @@ $script:ChatqComposeActs = @{
     stop = @{ Age = 1800; Class = 'change'; Kind = 'job' }
     retry = @{ Age = 1800; Class = 'change'; Kind = 'job' }
     allow = @{ Age = 1800; Class = 'change'; Kind = 'job' }
+    # an answer to the question a chat waits on (src/ask.ps1)
+    answer = @{ Age = 1800; Class = 'change'; Kind = 'chat' }
 }
 # how many of each in the last hour: a board is asked every 30 s while the
 # page is up, a list or a status now and then; what changes the queue, and
@@ -245,7 +247,7 @@ function Receive-ChatqCompose {
                     $p = if ($h -cmatch '^[a-z2-7]{6}$') { $st.picks[$h] } else { $null }
                     $x = if ($p) { ConvertTo-ChatqDate $p.expires } else { $null }
                     $idOk = switch ($composeAct) {
-                        'send' { [bool]($p -and $p.sessionId -and ([string]$pl.id) -ceq ([string]$p.sessionId).Substring(0, [Math]::Min(8, ([string]$p.sessionId).Length))) }
+                        { $_ -in 'send', 'answer' } { [bool]($p -and $p.sessionId -and ([string]$pl.id) -ceq ([string]$p.sessionId).Substring(0, [Math]::Min(8, ([string]$p.sessionId).Length))) }
                         { $_ -in 'now', 'skip', 'stop', 'retry', 'allow' } { [bool]($p -and $p.seq -and ($pl.n -as [int]) -eq [int]$p.seq) }
                         default { $true }
                     }
@@ -288,6 +290,9 @@ function Receive-ChatqCompose {
     if ($nonce) { $script:ChatqReplySeen[$nonce] = $true }
     $cid = [string]$v.Cid
     if ($rec.Fail) {
+        # a handle out of date: the board the page asks for next is built
+        # afresh, not sent again from memory with the same handles
+        if ([string]$rec.Fail -like 'handle *') { $script:ChatqBoardCache = $null }
         if ($rec.Fail -ne 'seen before') { Write-ChatqReplyLog "compose $Id refused - $composeAct - $($rec.Fail)" }
         if ($rec.Say -and $rec.Budget) { $null = Send-ChatqComposeAck $Rc $cid $composeAct $false $rec.Say -Quick:$Quick }
         return $null
@@ -297,7 +302,7 @@ function Receive-ChatqCompose {
         Write-ChatqReplyLog "compose $Id - no answer: the day's down messages are used (reply.downPerDay)"
         if ($composeAct -in 'board', 'list', 'status', 'read') { return [pscustomobject]@{ Act = $composeAct; Ok = $false; Say = 'the day''s budget is used'; Job = $null } }
     }
-    return (Invoke-ChatqCompose $pl $rec.Pick -Cid $cid -Rc $Rc -Quick:$Quick -NoAck:(-not $rec.Budget))
+    return (Invoke-ChatqCompose $pl $rec.Pick -Cid $cid -Rc $Rc -Quick:$Quick -NoAck:(-not $rec.Budget) -Raw $Message)
 }
 
 function Send-ChatqComposeAck {
@@ -317,9 +322,14 @@ function Invoke-ChatqCompose {
     ack - and, for anything that changed the queue, the usual reply push as
     well, which reaches a phone whose page was closed and whose link answers
     the job. -NoAck: the day's budget is used, so nothing goes on the down
-    topic. Returns @{ Act; Ok; Say; Job }.
+    topic. Returns @{ Act; Ok; Say; Job }. A send or continue into a chat
+    that took a prompt since the board showed it (the handle's at,
+    Get-ChatqMovedOn) is refused as out of date, as a job act on a job that
+    changed is (Invoke-ChatqJobAct): the page asks for the board again and
+    keeps the text. -Raw: the message as the phone posted it, which an
+    answer's hook opens again (src/ask.ps1).
     #>
-    param($Payload, $Pick, [string]$Cid, $Rc, [switch]$Quick, [switch]$NoAck)
+    param($Payload, $Pick, [string]$Cid, $Rc, [switch]$Quick, [switch]$NoAck, [string]$Raw)
     $act = [string]$Payload.act
     $cap = if ($Rc.MaxMode) { $Rc.MaxMode } else { 'acceptEdits' }
     $ok = $false
@@ -349,6 +359,10 @@ function Invoke-ChatqCompose {
             $row = Get-ChatqRowById -Id $Pick.sessionId -Provider $Pick.provider -Path $Pick.path -Cwd $Pick.cwd
             if (-not $row) { $say = 'that chat is gone'; break }
             if ($row.Provider -ne 'claude') { $say = 'the last answer is read from Claude chats only'; break }
+            # the moment and the length the answer is read at, before it is
+            # read: a prompt written while it goes is one the phone did not see
+            $readAt = Get-ChatqStamp
+            $readLen = try { [int64][System.IO.FileInfo]::new([string]$row.Path).Length } catch { $null }
             $turn = Get-ChatqTurnText ([string]$row.Path) $Rc.FullMax
             if (-not $turn -or -not @($turn.Parts).Count) { $say = 'that chat has no answer yet'; break }
             $body = [ordered]@{
@@ -357,11 +371,35 @@ function Invoke-ChatqCompose {
             }
             if ($NoAck) { return [pscustomobject]@{ Act = $act; Ok = $false; Say = 'the day''s budget is used'; Job = $null } }
             $r = Send-ChatqDown $Rc $Cid $body -Quick:$Quick
+            # the chat as the phone has it now: a send is judged from this
+            # answer on, as from a board drawn now (Get-ChatqMovedOn)
+            if ($r.Ok) {
+                $readH = [string]$Payload.h
+                $readPath = [string]$row.Path
+                try {
+                    $null = Use-ChatqReplyState {
+                        param($st)
+                        $rp = $st.picks[$readH]
+                        if ($rp) {
+                            $rp['at'] = $readAt
+                            # the length only for the file the handle means
+                            if ($null -ne $readLen -and (-not $rp['path'] -or [string]$rp['path'] -eq $readPath)) { $rp['len'] = $readLen }
+                            else { $rp.Remove('len') }
+                        }
+                    } $Rc.Hours
+                }
+                catch {}
+            }
             return [pscustomobject]@{ Act = $act; Ok = [bool]$r.Ok; Say = $(if ($r.Ok) { 'answer sent' } else { $r.Error }); Job = $null }
         }
         'send' {
             $row = Get-ChatqRowById -Id $Pick.sessionId -Provider $Pick.provider -Path $Pick.path -Cwd $Pick.cwd
             if (-not $row) { $say = 'that chat is gone - nothing queued'; break }
+            # a prompt went into the chat since the board showed it: the text
+            # was written for a chat that is not there any more, so the page
+            # asks for the board again ("out of date") and keeps the text
+            $mv = Get-ChatqMovedOn -Since (Get-ChatField $Pick 'at') -SinceLen (Get-ChatField $Pick 'len') -Path ([string]$row.Path) -Provider ([string]$row.Provider) -SessionId ([string]$row.Id)
+            if ($mv.Why) { $say = 'that chat moved on at the PC - the list is out of date, refresh it'; break }
             $how = @{ Row = $row; Text = [string]$Payload.text; Cap = $cap }
             if ($Pick.ContainsKey('home')) { $how['JobHome'] = $Pick['home'] }
             $made = New-ChatqPhoneJob @how
@@ -401,6 +439,10 @@ function Invoke-ChatqCompose {
         'continue' {
             $row = Get-ChatqRowById -Id $Pick.sessionId -Provider $Pick.provider -Path $Pick.path -Cwd $Pick.cwd
             if (-not $row) { $say = 'that chat is gone - nothing queued'; break }
+            # continued at the PC since the board showed it cut off: said
+            # now, not queued and then dropped as already continued
+            $mv = Get-ChatqMovedOn -Since (Get-ChatField $Pick 'at') -SinceLen (Get-ChatField $Pick 'len') -Path ([string]$row.Path) -Provider ([string]$row.Provider) -SessionId ([string]$row.Id)
+            if ($mv.Why) { $say = 'that chat moved on at the PC - the list is out of date, refresh it'; break }
             $busy = @(Get-ChatqJobs | Where-Object { $_.sessionId -eq $row.Id -and $_.state -in 'queued', 'running' })[0]
             if ($busy) { $say = "#$($busy.seq) is $($busy.state) for that chat already - nothing queued"; break }
             $how = @{ Row = $row; Text = ''; Cap = $cap; Kind = 'continue' }
@@ -424,6 +466,17 @@ function Invoke-ChatqCompose {
             }
             catch { Write-ChatqReplyLog "continue #$($job.seq): its cut-off not marked - $($_.Exception.Message)" }
         }
+        # an answer to the question the chat waits on, for chatq's hook to
+        # hand to Claude (src/ask.ps1): the chat's transcript found from the
+        # handle's chat, never from a request. The ack says it; no push - the
+        # page is open, and Test-ChatqAskLanded pushes if it did not land
+        'answer' {
+            $tp = [string]$Pick.path
+            if (-not ($tp -and (Test-Path -LiteralPath $tp -PathType Leaf))) { $tp = Get-ChatqAskTranscript ([string]$Pick.sessionId) ([string]$Pick.cwd) $Pick['home'] }
+            $ar = Invoke-ChatqAskReply $Payload ([string]$Pick.sessionId) $tp $Raw 'board' $Rc ([string]$Pick.title)
+            $ok = [bool]$ar.Ok
+            $say = $ar.Say
+        }
         default {
             $r = Invoke-ChatqJobAct $act $Pick -Cap $cap
             $ok = $r.Ok
@@ -434,12 +487,14 @@ function Invoke-ChatqCompose {
     }
     Write-ChatqReplyLog "-> $say"
     # the queue changed: the page asks for its board again as it goes back,
-    # often within the 10 s a board is sent again unbuilt
-    if ($ok -and $act -ne 'status') { $script:ChatqBoardCache = $null }
+    # often within the 10 s a board is sent again unbuilt. So it does after
+    # an act on what moved on since: that board is built afresh, its
+    # handles made again for the chats and jobs as they are now.
+    if (($ok -and $act -ne 'status') -or (-not $ok -and "$say" -like '*out of date*')) { $script:ChatqBoardCache = $null }
     if (-not $NoAck) { $null = Send-ChatqComposeAck $Rc $Cid $act $ok $say $seq -Quick:$Quick }
     # a change to the queue gets the usual push too: about the job, so its
     # link answers it
-    if ($ok -and $act -ne 'status') { [void](Send-ChatqAlert 'reply' $(if ($push) { $push } else { $say }) 1 -Loud -Job $job -Quick:$Quick) }
+    if ($ok -and $act -notin 'status', 'answer') { [void](Send-ChatqAlert 'reply' $(if ($push) { $push } else { $say }) 1 -Loud -Job $job -Quick:$Quick) }
     return [pscustomobject]@{ Act = $act; Ok = $ok; Say = $say; Job = $job }
 }
 
@@ -450,6 +505,11 @@ function Invoke-ChatqJobAct {
     chatqrun <n> -Now for that job: to the front of its lane, and the
     watcher told to stop waiting - it probes first, so nothing is sent while
     a limit still holds. Returns @{ Ok; Say; Job }.
+    Only on the job as the board showed it (the handle's mark): one run,
+    queued, ended or closed since is refused, and the page asks for the
+    board again ("out of date"). retry and allow send into the chat, so its
+    transcript is read too: typed into since the board, refused; answered
+    while the job waited, the job closed as the overlay would close it.
     #>
     param([string]$Act, $Pick, [string]$Cap)
     $job = Find-ChatqJob ([string]$Pick.jobId) -Exact
@@ -459,6 +519,16 @@ function Invoke-ChatqJobAct {
     $limitNote = { param($m) " - runs in $m, the phone's limit" }
     $fail = { param($t) [pscustomobject]@{ Ok = $false; Say = $t; Job = $job } }
     if (-not $job) { return (& $fail "$n is gone - nothing to $Act") }
+    $mv = Get-ChatqMovedOn -Job $job -Mark ([string](Get-ChatField $Pick 'mark')) -Since (Get-ChatField $Pick 'at') -SinceLen (Get-ChatField $Pick 'len') -Path ([string]$job.path) -Provider ([string]$job.provider) -JobOnly:($Act -in 'now', 'skip', 'stop')
+    switch ($mv.Why) {
+        'job' { return (& $fail "#$($job.seq) is $($job.state) now - the list is out of date, refresh it") }
+        'answered' {
+            $cur = Find-ChatqJob ([string]$job.id) -Exact
+            if ($cur -and $cur.state -eq 'needs-input') { Complete-ChatqJob $cur 'skipped' ([pscustomobject]@{ kind = 'skipped'; reason = 'answered in the chat' }) 'answered in the chat' }
+            return (& $fail "#$($job.seq) was answered in the chat at the PC and is closed - the list is out of date, refresh it")
+        }
+        'typed' { return (& $fail "the chat of #$($job.seq) moved on at the PC - the list is out of date, refresh it") }
+    }
     switch -Exact ($Act) {
         'now' {
             if ($job.state -ne 'queued') { return (& $fail "#$($job.seq) is $($job.state) - send now is for a queued job") }
@@ -633,15 +703,30 @@ function Register-ChatqPicks {
     <#
     Handles for what a board or a list names, in one Use-ChatqReplyState
     block: -Items are @{ Key; Pick }, Pick a hashtable (kind, sessionId,
-    provider, path, cwd, home, title, jobId, seq). A chat, job or folder
-    that has a handle still good keeps it - its expiry moved on - so a page
-    that asks every 30 s does not fill the 300 with the same chats, and a
-    chat view left open keeps working. Returns key -> handle; throws when
-    replies.json cannot be saved.
+    provider, path, cwd, home, title, jobId, seq, mark). A chat, job or
+    folder that has a handle still good keeps it - its expiry moved on - so
+    a page that asks every 30 s does not fill the 300 with the same chats,
+    and a chat view left open keeps working. Its at moves on too, and a
+    job's mark is the job's now: what the phone was last shown, which an act
+    is checked against (Get-ChatqMovedOn). Returns key -> handle; throws
+    when replies.json cannot be saved.
     #>
     param($Rc, [object[]]$Items)
     $pickItems = @($Items)
     $pickHours = if ($Rc -and $Rc.Hours) { [double]$Rc.Hours } else { 12 }
+    # A Claude chat's transcript length as the board is built (len): what is
+    # written after it the phone has not seen. Its path from the handle, else
+    # where Claude Code puts it for that folder - no search, before the lock.
+    foreach ($it in $pickItems) {
+        $pk = if ($it) { $it.Pick } else { $null }
+        if (-not $pk -or [string]$pk['kind'] -notin 'chat', 'job' -or [string]$pk['provider'] -notin '', 'claude') { continue }
+        $pp = [string]$pk['path']
+        if (-not $pp -and $pk['sessionId'] -and $pk['cwd']) {
+            $ph = if ($pk['home']) { [string]$pk['home'] } else { $script:ChatClaudeHome }
+            $pp = Join-Path (Join-Path (Join-Path $ph 'projects') (Get-ChatSlug ([string]$pk['cwd']))) "$($pk['sessionId']).jsonl"
+        }
+        if ($pp) { try { $fi = [System.IO.FileInfo]::new($pp); if ($fi.Exists) { $pk['len'] = [int64]$fi.Length } } catch {} }
+    }
     return (Use-ChatqReplyState {
             param($st)
             $now = Get-Date
@@ -726,14 +811,18 @@ function ConvertTo-ChatqPhoneBoard {
       cut     chats the limit or a 529 stopped: the overlay's own words, the
               reset when the scan knows it, a continue queued for it
       queue   jobs queued, running, needing input, and failed in the last
-              12 hours, with "sends" as chatqlist has it
+              12 hours, with "sends" as chatqlist has it - or what the
+              watcher holds one back for (Format-ChatOverlayDeferral)
       recent  the overlay's Recent list
       folders where a new chat can start: the board's chats' folders, the
               console's, the queue's - 15 at most
     Titles 60 characters, prompts 120. -Home is the chats' config dir,
-    $null for the default one. -CutInfo: session id -> reset time.
+    $null for the default one. -CutInfo: session id -> reset time. -Asks:
+    session id -> the question a waiting chat asks (Get-ChatqAskView), put
+    on its open row as ask, and said in its what (src/ask.ps1).
     #>
-    param($Snap, [object[]]$Jobs, [hashtable]$Eta, [string]$From = 'overlay', [datetime]$Now = (Get-Date), $HomeDir, [hashtable]$CutInfo, [string[]]$Folders)
+    param($Snap, [object[]]$Jobs, [hashtable]$Eta, [string]$From = 'overlay', [datetime]$Now = (Get-Date), $HomeDir, [hashtable]$CutInfo, [string[]]$Folders,
+        [hashtable]$Asks)
     $items = [System.Collections.Generic.List[object]]::new()
     $known = @{}
     $key = {
@@ -746,14 +835,18 @@ function ConvertTo-ChatqPhoneBoard {
     $boardJobs = @(@($Jobs) | Where-Object {
             $_ -and ($_.state -in 'queued', 'running', 'needs-input' -or ($_.state -eq 'failed' -and (ConvertTo-ChatqDate $_.endedAt) -gt $cutoff12))
         })
+    # the job as the board shows it goes with its handle (mark): an act on
+    # one that changed since is refused (Invoke-ChatqJobAct)
     $jobKey = {
         param($j)
-        & $key "job|$($j.id)" @{ kind = 'job'; jobId = [string]$j.id; seq = [int]$j.seq; sessionId = [string]$j.sessionId; title = [string]$j.title }
+        & $key "job|$($j.id)" @{ kind = 'job'; jobId = [string]$j.id; seq = [int]$j.seq; sessionId = [string]$j.sessionId; title = [string]$j.title; mark = (Get-ChatqJobMark $j); path = [string]$j.path }
     }
     $sendsOf = {
         param($j)
         switch ([string]$j.state) {
-            'queued' { $e = if ($Eta) { [string]$Eta[$j.id] } else { '' }; if ($e) { $e } else { 'next' } }
+            # held back by the watcher for a reason of its own: that reason,
+            # in the panel's words, which the page shows as they are
+            'queued' { $e = Format-ChatOverlayDeferral $j $Now; if (-not $e -and $Eta) { $e = [string]$Eta[$j.id] }; if ($e) { $e } else { 'next' } }
             'running' { 'running now' }
             'needs-input' { 'needs you' }
             default { [string]$j.state }
@@ -796,13 +889,20 @@ function ConvertTo-ChatqPhoneBoard {
         }
         if ($kind -ne 'session' -or $chat -notin 'waiting', 'busy', 'idle') { continue }
         if ($open.Count -ge 25) { $more++; continue }
-        $open.Add([ordered]@{
-                h = (& $chatKey $sid $cwd ([string](Get-ChatField $r 'title')) $null); id8 = $sid.Substring(0, [Math]::Min(8, $sid.Length)); t = $title
-                f = [string](Get-ChatField $r 'project'); where = [string](Get-ChatField $r 'where'); state = $chat
-                what = $(if ($chat -eq 'waiting') { [string](Get-ChatField $r 'detail') } else { '' })
-                prompt = (Get-ChatqBoardLine ([string](Get-ChatField $r 'prompt')) 120); new = [bool](Get-ChatField $r 'unread')
-                age = (& $iso $since); jobs = @(& $jobsOf $sid)
-            })
+        # a question it waits on: waiting, whatever the registry says while
+        # chatq's hook holds the question
+        $ask = if ($Asks) { $Asks[$sid] } else { $null }
+        if ($ask) { $chat = 'waiting' }
+        $row = [ordered]@{
+            h = (& $chatKey $sid $cwd ([string](Get-ChatField $r 'title')) $null); id8 = $sid.Substring(0, [Math]::Min(8, $sid.Length)); t = $title
+            f = [string](Get-ChatField $r 'project'); where = [string](Get-ChatField $r 'where'); state = $chat
+            what = $(if ($ask) { Get-ChatqAskWhat $ask } elseif ($chat -eq 'waiting') { [string](Get-ChatField $r 'detail') } else { '' })
+            prompt = (Get-ChatqBoardLine ([string](Get-ChatField $r 'prompt')) 120); new = [bool](Get-ChatField $r 'unread')
+            age = (& $iso $since); jobs = @(& $jobsOf $sid)
+        }
+        # the question it waits on, every option with its description
+        if ($ask) { $row['ask'] = $ask }
+        $open.Add($row)
     }
     $queue = [System.Collections.Generic.List[object]]::new()
     foreach ($j in $boardJobs) {
@@ -870,9 +970,17 @@ function Get-ChatqBoardScan {
     param([datetime]$Now = (Get-Date))
     $ctx = New-ChatOverlayContext
     $ctx.RecentWhole = $true
-    $entries = @(try { Read-ChatqSessionRegistry (Join-Path $ctx.ClaudeHome 'sessions') } catch { @() })
-    $live = @($entries | Where-Object { $_.SessionId -and (-not $_.Kind -or $_.Kind -eq 'interactive') -and (Test-ChatqSessionAlive $_) })
+    # kept between boards too, so a status's time survives a rewrite of the
+    # registry that did not change it (Read-ChatqSessionRegistry)
+    if ($null -eq $script:ChatqBoardRegCache) { $script:ChatqBoardRegCache = @{} }
+    $entries = @(try { Read-ChatqSessionRegistry (Join-Path $ctx.ClaudeHome 'sessions') $script:ChatqBoardRegCache } catch { @() })
+    $alive = @($entries | Where-Object { $_.SessionId -and (Test-ChatqSessionAlive $_) })
+    $live = @($alive | Where-Object { -not $_.Kind -or $_.Kind -eq 'interactive' })
     foreach ($e in $live) { try { Update-ChatOverlayText $ctx $e } catch {} }
+    # an idle chat's workflows, background agents and shells, each transcript
+    # read on from where the last board left it
+    if ($null -eq $script:ChatqBoardBgCache) { $script:ChatqBoardBgCache = @{} }
+    $bg = try { Update-ChatOverlayBackground $script:ChatqBoardBgCache $live $alive $ctx.Text $null -Whole } catch { @{} }
     $jobs = @(Get-ChatqJobs | Where-Object { $_.state -in 'queued', 'running', 'needs-input' })
     $blocks = try { Get-ChatqBlocks } catch { @{} }
     $eta = if ($jobs) { Get-ChatqEta $jobs $blocks } else { @{} }
@@ -884,7 +992,7 @@ function Get-ChatqBoardScan {
     $cutRows = @(try { Get-ChatqCutOffChats @() -Hours 12 -Skip $working -Cache $script:ChatqBoardCutCache } catch { @() })
     $cutInfo = @{}
     foreach ($c in $cutRows) { if ($c.ResetsAt) { $cutInfo[[string]$c.Id] = $c.ResetsAt } }
-    $rows = @(Get-ChatOverlayRows -Sessions $live -Texts $ctx.Text -Jobs $wrapped -Eta $eta -Now $Now -CutOff $cutRows -Unread @{})
+    $rows = @(Get-ChatOverlayRows -Sessions $live -Texts $ctx.Text -Jobs $wrapped -Eta $eta -Now $Now -CutOff $cutRows -Unread @{} -Background $bg)
     try { Update-ChatOverlayRecent $ctx (@($live | ForEach-Object { [string]$_.SessionId }) + @($rows | ForEach-Object { [string]$_.sessionId })) $Now } catch {}
     $usage = @(foreach ($u in @(try { Get-ChatqUsage } catch { @() })) {
             $ws = @(foreach ($p in @($u.Parts)) {
@@ -928,7 +1036,34 @@ function Get-ChatqPhoneBoard {
         if ($cs -and $cs.PSObject.Properties['folders']) { $folders = @($cs.folders | Where-Object { $_ -and (Test-ChatOverlayFolder ([string]$_)) } | ForEach-Object { [string]$_ }) }
     }
     catch {}
-    $b = ConvertTo-ChatqPhoneBoard -Snap $snap -Jobs $jobs -Eta $eta -From $from -Now $Now -HomeDir $homeDir -CutInfo $cutInfo -Folders $folders
+    # a waiting chat's question, from its own transcript - found from its
+    # folder and id, as a handle's is (src/ask.ps1)
+    # - and one the hook holds a question for, whatever the registry says of
+    # it while the hook runs
+    $asks = @{}
+    $askCfg = Get-ChatqConfig
+    $askRc = Get-ChatqReplyConfig $askCfg
+    # data/ask tidied now and then - a watcher listening all the time lives
+    # for days - and read once for the whole board
+    if (-not $script:ChatqAskTidiedAt -or ((Get-Date) - $script:ChatqAskTidiedAt).TotalSeconds -ge 60) {
+        $script:ChatqAskTidiedAt = Get-Date
+        try { Remove-ChatqAskLeftovers } catch {}
+    }
+    $askReqs = @(try { Get-ChatqAskRequests } catch { @() })
+    $held = @{}
+    foreach ($q in $askReqs) { if ([string]$q.state -eq 'open' -and (ConvertTo-ChatqDate $q.until) -gt (Get-Date)) { $held[[string]$q.session] = $true } }
+    foreach ($r in @($snap.rows)) {
+        if (-not $r -or [string](Get-ChatField $r 'kind') -ne 'session') { continue }
+        $sid = [string](Get-ChatField $r 'sessionId')
+        $chat = [string](Get-ChatField $r 'chat')
+        if (-not $sid -or $asks.ContainsKey($sid) -or -not ($chat -eq 'waiting' -or ($chat -eq 'busy' -and $held[$sid]))) { continue }
+        try {
+            $v = Get-ChatqAskView $sid (Get-ChatqAskTranscript $sid ([string](Get-ChatField $r 'cwd')) $homeDir) $askRc $askCfg $askReqs
+            if ($v) { $asks[$sid] = $v }
+        }
+        catch {}
+    }
+    $b = ConvertTo-ChatqPhoneBoard -Snap $snap -Jobs $jobs -Eta $eta -From $from -Now $Now -HomeDir $homeDir -CutInfo $cutInfo -Folders $folders -Asks $asks
     # a folder gone since is not offered; one on another machine is not
     # asked (Test-ChatOverlayFolder), a share asleep would hold the watcher
     $gone = @{}

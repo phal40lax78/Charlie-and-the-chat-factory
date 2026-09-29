@@ -1,14 +1,20 @@
-# VS-code-chat-manager, src/commands.ps1: dot-sourced by VS-code-chat-manager.ps1
+# claude-codex-chat-manager, src/commands.ps1: dot-sourced by claude-codex-chat-manager.ps1
 # in its turn, never on its own - see the list there.
 
 #region commands --------------------------------------------------------------
 
 function New-ChatqSeq {
-    # -Jobs: a list already read, as the console has one every pass
-    param([object[]]$Jobs)
-    if (-not $Jobs) { $Jobs = @(Get-ChatqJobs) }
+    # One past the highest number taken. A number is taken by a job's .json,
+    # and by a prompt file in data/queue named for it: a job has that file
+    # before its .json - for as long as a chatq editor tab stays open, or its
+    # files take to copy - and a number counted from the .json alone went to
+    # two jobs, which then shared the one prompt file. Read afresh each time,
+    # never from a list read earlier: another process may have queued since.
     $max = 0
-    foreach ($j in $Jobs) { if ([int]$j.seq -gt $max) { $max = [int]$j.seq } }
+    foreach ($j in @(Get-ChatqJobs)) { if ([int]$j.seq -gt $max) { $max = [int]$j.seq } }
+    foreach ($f in @(Get-ChildItem -LiteralPath $script:ChatqQueueDir -Filter '#*' -File -EA SilentlyContinue)) {
+        if ($f.Name -match '^#(\d{1,9}) ' -and [int]$Matches[1] -gt $max) { $max = [int]$Matches[1] }
+    }
     return $max + 1
 }
 
@@ -107,24 +113,41 @@ function Write-ChatqJobInfo {
 # writes to the host or starts the watcher.
 
 function New-ChatqJobSlot {
-    # A new job's number, id and file names. An id is the time to the second
-    # and the chat's first four hex digits; one already taken - two jobs for
-    # one chat inside a second, which the console can make - gets -2, -3.
-    param($Row, [string]$Title, [object[]]$Jobs)
+    # A new job's number, id and file names, and its prompt file, written
+    # now with the header alone: that file holds the number (New-ChatqSeq)
+    # until the job's .json does. Its folder is made now too, and holds the
+    # id the same way; Register-ChatqJob removes it again if no file went
+    # in. Both are taken holding data/job-numbers.lock, so a shell, the
+    # overlay and the watcher never take one number, or one id, between
+    # them; a lock not had within 3 s takes them without it, rather than
+    # make no job. A caller that gives the job up removes the prompt file
+    # and the folder, and the number is free again.
+    # An id is the time to the second and the chat's first four hex digits;
+    # one already taken - two jobs for one chat inside a second, which the
+    # console can make - gets -2, -3.
+    param($Row, [string]$Title)
     New-ChatqDir $script:ChatqQueueDir
-    $seq = New-ChatqSeq -Jobs $Jobs
-    $name = if ($Title) { $Title } else { [string]$Row.Title }
-    $hex = if ($Row.Id) { ([string]$Row.Id).Substring(0, [Math]::Min(4, ([string]$Row.Id).Length)) } else { [guid]::NewGuid().ToString('N').Substring(0, 4) }
-    $base = '{0}-{1}' -f (Get-Date).ToString('yyyyMMdd-HHmmss'), $hex
-    $id = $base
-    for ($n = 2; (Test-Path -LiteralPath (Join-Path $script:ChatqQueueDir "$id.json")) -or (Test-Path -LiteralPath (Join-Path $script:ChatqQueueDir $id)); $n++) { $id = "$base-$n" }
-    # no run of dashes survives into the comment, so no title can close it early
-    $safe = $name -replace '-{2,}', '-'
-    $file = "#$seq $(Get-ChatqSafeName $name).md"
-    [pscustomobject]@{
-        Seq = $seq; Id = $id; File = $file; Path = (Join-Path $script:ChatqQueueDir $file); Dir = (Join-Path $script:ChatqQueueDir $id)
-        Header = "<!-- chatq: prompt for '$safe' ($($Row.Provider)). Everything after this comment is sent as it is when the limit resets. Save and close the tab to queue it; leave it empty to cancel. -->`n`n"
+    $take = {
+        $seq = New-ChatqSeq
+        $name = if ($Title) { $Title } else { [string]$Row.Title }
+        $hex = if ($Row.Id) { ([string]$Row.Id).Substring(0, [Math]::Min(4, ([string]$Row.Id).Length)) } else { [guid]::NewGuid().ToString('N').Substring(0, 4) }
+        $base = '{0}-{1}' -f (Get-Date).ToString('yyyyMMdd-HHmmss'), $hex
+        $id = $base
+        for ($n = 2; (Test-Path -LiteralPath (Join-Path $script:ChatqQueueDir "$id.json")) -or (Test-Path -LiteralPath (Join-Path $script:ChatqQueueDir $id)); $n++) { $id = "$base-$n" }
+        # no run of dashes survives into the comment, so no title can close it early
+        $safe = $name -replace '-{2,}', '-'
+        $file = "#$seq $(Get-ChatqSafeName $name).md"
+        $slot = [pscustomobject]@{
+            Seq = $seq; Id = $id; File = $file; Path = (Join-Path $script:ChatqQueueDir $file); Dir = (Join-Path $script:ChatqQueueDir $id)
+            Header = "<!-- chatq: prompt for '$safe' ($($Row.Provider)). Everything after this comment is sent as it is when the limit resets. Save and close the tab to queue it; leave it empty to cancel. -->`n`n"
+        }
+        New-ChatqDir $slot.Dir
+        Save-ChatqText $slot.Path $slot.Header
+        $slot
     }
+    try { return (Invoke-ChatqLocked $script:ChatqSeqLockPath $take) }
+    catch { if ($_.Exception.Message -notlike '* is held by another process') { throw } }
+    return (& $take)
 }
 
 function New-ChatqJobRecord {
@@ -183,7 +206,9 @@ function New-ChatqJobRecord {
         cutUuid = $null
         deferUntil = $null
         # why it waits till deferUntil: vscode, auto-continue's hold for a
-        # chat open in a VS Code panel; unset, a chat that was busy
+        # chat open in a VS Code panel; background, a command the chat's own
+        # process started (the watcher adds deferSince and deferNote); in-use,
+        # its tab in front of you at the handover; unset, a chat that was busy
         deferWhy = $null
         deferredSince = $null
         busyAlerted = $false
@@ -211,6 +236,9 @@ function Register-ChatqJob {
     Save-ChatqJob $Job
     $missed = if ($NoLinks) { @() } else { @(Sync-ChatqAttachments $Job) }
     $files = @(Get-ChatqAttachments $Job)
+    # the folder New-ChatqJobSlot made to hold the id, which the .json holds
+    # now; only while empty - Delete refuses a folder with anything in it
+    if (-not $files) { try { [System.IO.Directory]::Delete((Get-ChatqAttachDir $Job), $false) } catch {} }
     Write-ChatqJobLog "#$($Job.seq) queued ($($Job.kind)$(if ($LogNote) { ", $LogNote" })$(if ($files) { ", $($files.Count) file$(if ($files.Count -ne 1) { 's' })" })) $($script:ChatqDot) $($Job.title)"
     return [pscustomobject]@{ Files = $files; Missed = $missed }
 }
@@ -240,7 +268,7 @@ function New-ChatqJob {
     #>
     param($Row, [string]$Prompt, [ValidateSet('prompt', 'continue', 'new')][string]$Kind = 'prompt', $Info,
         [string]$Mode, [string]$Model, $NotBefore, [switch]$First, [switch]$SendNow, $Sources, [switch]$MoveSources,
-        [string]$Typed, $Resolve, [string]$Rule, [string]$Title, [object[]]$Jobs, [string]$Cwd, $JobHome, [switch]$NoLinks,
+        [string]$Typed, $Resolve, [string]$Rule, [string]$Title, [string]$Cwd, $JobHome, [switch]$NoLinks,
         [hashtable]$Set, [string]$LogNote)
     $fail = { param($c, $t) [pscustomobject]@{ Error = $t; Code = $c; Job = $null; Files = @(); Missed = @() } }
     if ($Kind -eq 'new') {
@@ -267,12 +295,15 @@ function New-ChatqJob {
     if ($Kind -ne 'continue' -and -not ([string]$Prompt).Trim()) { return & $fail 'empty' 'empty prompt - nothing queued' }
     if (-not $Info) { $Info = Get-ChatqJobInfo $Row }
     if ($Info.Error) { return & $fail 'info' $Info.Error }
-    $slot = New-ChatqJobSlot $Row $Title $Jobs
+    $slot = New-ChatqJobSlot $Row $Title
     # the files before the prompt: one that cannot be copied stops the job
-    # before anything of it is written
+    # before anything of it is written, and gives its number back
     if ($hasFiles) {
         try { $null = Save-ChatqAttachSources $slot.Dir $Sources -Move:$MoveSources }
-        catch { return & $fail 'copy' "a file could not be copied - nothing queued: $($_.Exception.Message)" }
+        catch {
+            Remove-Item -LiteralPath $slot.Path -Force -EA SilentlyContinue
+            return & $fail 'copy' "a file could not be copied - nothing queued: $($_.Exception.Message)"
+        }
     }
     if ($NoLinks -and $Kind -ne 'continue') { $Prompt = ([string]$Prompt).Replace('](', ']\(') }
     Save-ChatqText $slot.Path ($slot.Header + $(if ($Kind -eq 'continue') { $script:ChatqContinueText } else { $Prompt }))
@@ -345,9 +376,20 @@ function Invoke-ChatqContinueChats {
     return [pscustomobject]@{ Queued = $queued.ToArray(); Had = $had.ToArray(); Fails = $fails.ToArray() }
 }
 
+function Format-ChatqContinueSay {
+    # What a Continue said it did, in the console and for the reset ask: how
+    # many it queued, and that they go one at a time - the watcher runs one
+    # job, then the next, so chats one limit cut off are continued one after
+    # another, never side by side. Pure.
+    param([int]$Queued, [int]$Had)
+    $how = if ($Queued -gt 1) { ' - one at a time, each when its limit is over' } elseif ($Queued -eq 1) { ' - it goes when its limit is over' } else { '' }
+    return "queued $Queued continue$(if ($Queued -ne 1) { 's' })$how$(if ($Had) { "; $Had had one already" })"
+}
+
 function Remove-ChatqJob {
     # A job and everything it has: its file, prompt, log, and the copies of
-    # its files - the originals were never touched. Not a running one.
+    # its files - the originals were never touched - and a run's own
+    # settings a watcher that died left (Invoke-ChatqRun). Not a running one.
     param($Job, [string]$By = 'chatqrm')
     # its state as the file has it now, not as the caller read it: the
     # watcher may have started it since
@@ -363,7 +405,8 @@ function Remove-ChatqJob {
         if (Test-Path -LiteralPath $file) { Start-Sleep -Milliseconds 100 }
     }
     if (Test-Path -LiteralPath $file) { return $false }
-    foreach ($p in @((Get-ChatqPromptPath $Job), (Join-Path $script:ChatqLogDir "$($Job.id).jsonl"))) {
+    foreach ($p in @((Get-ChatqPromptPath $Job), (Join-Path $script:ChatqLogDir "$($Job.id).jsonl"),
+            (Join-Path $script:ChatqRunSettingsDir "$($Job.id).json"))) {
         if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Force -EA SilentlyContinue }
     }
     $ad = Get-ChatqAttachDir $Job
@@ -699,15 +742,20 @@ function chatq {
         $missed = $made.Missed
     }
     else {
-        # The editor. The files go in before the tab opens: a copy that fails -
-        # one moved or locked since it was checked - then stops the job before
-        # a word of it has been typed, rather than after.
+        # The editor. The slot writes the prompt file, header and all, and
+        # that file holds the job's number for as long as the tab stays open.
+        # The files go in before the tab opens: a copy that fails - one moved
+        # or locked since it was checked - then stops the job before a word of
+        # it has been typed, rather than after.
         $slot = New-ChatqJobSlot $res.Row
         if ($got) {
             try { $null = Save-ChatqAttachSources $slot.Dir $got }
-            catch { Write-Host "  a file could not be copied - nothing queued: $($_.Exception.Message)" -ForegroundColor Yellow; return }
+            catch {
+                Remove-Item -LiteralPath $slot.Path -Force -EA SilentlyContinue
+                Write-Host "  a file could not be copied - nothing queued: $($_.Exception.Message)" -ForegroundColor Yellow
+                return
+            }
         }
-        Save-ChatqText $slot.Path $slot.Header
         Write-Host '     write the prompt in the editor tab, then save and close it (empty = cancel)' -ForegroundColor DarkGray
         Write-Host '     Ctrl+V there pastes a screenshot into it, and it goes with the prompt' -ForegroundColor DarkGray
         Invoke-ChatqEditor $slot.Path
@@ -1051,6 +1099,13 @@ function chatnotify {
     phone may approve (default: Bash, PowerShell, Edit, Write, MultiEdit,
     NotebookEdit, WebFetch; mcp__server__* for an MCP server's tools).
 
+    A chat you run yourself that asks a question (AskUserQuestion) shows it
+    on the board and its needs input alert's page, every option with its
+    description. -Ask on lets the phone answer it too: chatq adds a small
+    Claude Code hook, as the plugin chatq-ask, that holds the question for
+    the phone -AskWait minutes (240) while the PC's dialog stays open - the
+    first answer counts. -Manual prints the hook for your settings instead.
+
     The page shows Claude's whole answer with done, needs input and failed
     (-FullText off leaves the alert's excerpt only), and opened from a
     bookmark it is the overlay on the phone - usage, every chat, the queue -
@@ -1090,6 +1145,8 @@ function chatnotify {
     chatnotify -Say 'needs input', failed
     .EXAMPLE
     chatnotify -Permit on -PermitWait 15
+    .EXAMPLE
+    chatnotify -Ask on
     #>
     param(
         [string]$ApiKey, [string]$Device, [switch]$Test, [switch]$Off,
@@ -1100,6 +1157,7 @@ function chatnotify {
         [ValidateSet('on', 'off')][string]$UsageAlerts, [string[]]$UsageAt, [ValidateSet('on', 'off')][string]$UsageReset,
         [string]$QuietHours, [string[]]$Urgent, [string[]]$Say, [string]$SayLanguage,
         [ValidateSet('on', 'off')][string]$Permit, [string]$PermitWait, [string[]]$PermitTools,
+        [ValidateSet('on', 'off')][string]$Ask, [string]$AskWait, [switch]$Manual,
         [ValidateSet('on', 'off')][string]$FullText, [ValidateSet('on', 'off')][string]$Compose, [ValidateSet('alerts', 'always')][string]$Listen, [string]$NewMode
     )
     Set-StrictMode -Off
@@ -1123,6 +1181,7 @@ function chatnotify {
         Write-Host '      chatnotify -LiveAlerts on|off / -ReplyPage <https URL>' -ForegroundColor Cyan
         Write-Host '      chatnotify -UsageAt 90 / -UsageReset on|off / -QuietHours 00:00-07:00 / -Say ''needs input''' -ForegroundColor Cyan
         Write-Host '      chatnotify -Permit on|off [-PermitWait <min>]                 approve tool calls from the phone' -ForegroundColor Cyan
+        Write-Host '      chatnotify -Ask on|off [-AskWait <min>] [-Manual]              answer Claude''s questions from the phone' -ForegroundColor Cyan
         Write-Host '      chatnotify -FullText on|off / -Compose on|off / -Listen alerts|always / -NewMode <mode>' -ForegroundColor Cyan
         return
     }
@@ -1160,6 +1219,9 @@ function chatnotify {
     if ($Permit) { $ch['Permit'] = $Permit }
     if ($PSBoundParameters.ContainsKey('PermitWait')) { $ch['PermitWait'] = $PermitWait }
     if ($PSBoundParameters.ContainsKey('PermitTools')) { $ch['PermitTools'] = $PermitTools }
+    # answering Claude's questions from the phone (src/ask.ps1)
+    if ($Ask) { $ch['Ask'] = $Ask; $ch['AskManual'] = [bool]$Manual }
+    if ($PSBoundParameters.ContainsKey('AskWait')) { $ch['AskWait'] = $AskWait }
     # the whole answer, the board and new chats, listening all the time
     if ($FullText) { $ch['FullText'] = $FullText }
     if ($Compose) { $ch['Compose'] = $Compose }
@@ -1218,6 +1280,7 @@ function chatnotify {
         $rcs = Get-ChatqReplyConfig $cfg
         if ($rcs.Wanted -and $rcs.MaxMode -ne 'acceptEdits') { Write-Host "    a reply runs a job in $($rcs.MaxMode) at most" -ForegroundColor DarkGray }
         Write-Host "  permissions from the phone: $(Get-ChatqPermitStatusText $cfg)" -ForegroundColor DarkGray
+        Write-Host "  questions from the phone: $(Get-ChatqAskStatusText $cfg)" -ForegroundColor DarkGray
         Write-ChatqBoardNotifyStatus $cfg
         if ($any) { Write-Host '  chatnotify -Test sends one' -ForegroundColor DarkGray }
         else {
@@ -1248,7 +1311,7 @@ function Write-ChatqCheatSheet {
     Write-Host '  -Attach a.png, spec.pdf / -Paste   send files, a screenshot or the clipboard with it' -ForegroundColor DarkGray
     Write-Host '  Tab fills in a title from any part of it, like chatrm: chatq card red<Tab>' -ForegroundColor DarkGray
     Write-Host '  chat = every command, find and delete included' -ForegroundColor DarkGray
-    Write-Host "  VS-code-chat-manager $script:ChatVersion $($script:ChatqDot) $script:ChatqScriptPath" -ForegroundColor DarkGray
+    Write-Host "  claude-codex-chat-manager $script:ChatVersion $($script:ChatqDot) $script:ChatqScriptPath" -ForegroundColor DarkGray
 }
 
 #endregion

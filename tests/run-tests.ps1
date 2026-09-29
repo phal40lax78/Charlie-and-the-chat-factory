@@ -1,5 +1,5 @@
 <#
-VS-code-chat-manager self-test. No Pester, no network, no model: every claude/codex call goes
+claude-codex-chat-manager self-test. No Pester, no network, no model: every claude/codex call goes
 to tests/fake-agent.ps1. The exit code is the number of failed checks.
 
     powershell -NoProfile -ExecutionPolicy Bypass -File tests\run-tests.ps1
@@ -51,7 +51,7 @@ function Invoke-Sta([string]$Name, [string]$Script) {
 # The sandbox, then every section, from tests/sections/ in this order: one
 # scope, as the one file had, so a later section uses what an earlier one
 # built - the sandbox's chats, the script it loaded, helpers and seams.
-$testSections = 'sandbox', 'bigrams', 'resolver', 'metadata', 'limits', 'classifier', 'overload', 'review-regressions', 'process-runner', 'watcher', 'job-core', 'new-chats', 'find-delete', 'retries', 'model-order', 'attachments', 'handoff', 'alert-channels', 'usage', 'archive', 'reload-safety', 'status-alerts', 'overlay', 'reset-ask', 'show-fresh', 'phone', 'phone-extras', 'permit', 'phone-board', 'auto-continue', 'host-work'
+$testSections = 'sandbox', 'bigrams', 'resolver', 'metadata', 'limits', 'classifier', 'overload', 'review-regressions', 'process-runner', 'watcher', 'job-core', 'new-chats', 'find-delete', 'retries', 'model-order', 'attachments', 'handoff', 'alert-channels', 'usage', 'archive', 'reload-safety', 'background', 'status-alerts', 'overlay', 'reset-ask', 'show-fresh', 'phone', 'phone-extras', 'permit', 'phone-board', 'ask', 'auto-continue', 'host-work', 'handover', 'ultracode'
 foreach ($testSection in $testSections) { . (Join-Path (Join-Path $here 'sections') "$testSection.ps1") }
 
 Set-Location -LiteralPath $here

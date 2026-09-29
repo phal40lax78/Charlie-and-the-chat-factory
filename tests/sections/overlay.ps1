@@ -190,17 +190,46 @@ Check 'a chat open in two windows is one row, at its more urgent state' ($r1 -an
 Check 'its row: project, title, newest prompt, what it waits on' ($r1.project -eq 'projO' -and $r1.title -eq 'Loader fixes' -and $r1.prompt -eq 'fix the loader' -and $r1.stateText -like 'permission *') "$($r1.project) | $($r1.title) | $($r1.prompt) | $($r1.stateText)"
 Check 'where it runs, from the registry''s entrypoint: a VS Code panel, in the snapshot the view key is made of' (
     $r1.where -eq 'vscode' -and $ctx.ViewSig -like '*"where":"vscode"*') "$($r1.where)"
+# a rewrite that leaves the status alone (a limit reset rewrites them all)
+# stamps statusUpdatedAt anew; the timer keeps the time the status began
+$suDir = Join-Path $claudeHome 'sessions-su'
+$null = New-Item -ItemType Directory -Force $suDir
+$suWrite = { param($st, $at, $pad) [System.IO.File]::WriteAllText((Join-Path $suDir '901.json'), (@{ pid = 901; sessionId = 'su1'; status = $st; updatedAt = $at; statusUpdatedAt = $at; name = $pad } | ConvertTo-Json -Compress), $utf8) }
+$suCache = @{}
+& $suWrite 'busy' 1000 'a'
+$su0 = @(Read-ChatqSessionRegistry $suDir $suCache)[0].StatusUpdatedAt
+& $suWrite 'busy' 9000 'ab'
+$su1 = @(Read-ChatqSessionRegistry $suDir $suCache)[0].StatusUpdatedAt
+& $suWrite 'idle' 9500 'abc'
+$su2 = @(Read-ChatqSessionRegistry $suDir $suCache)[0].StatusUpdatedAt
+Check 'a registry rewrite in the same status keeps its time; a new status takes the new one' ($su0 -eq 1000 -and $su1 -eq 1000 -and $su2 -eq 9500) "$su0 $su1 $su2"
 $wS = @(
     [pscustomobject]@{ SessionId = 'e-vs'; Pid = 1; Status = 'idle'; Cwd = 'C:\p\one'; StatusUpdatedAt = 1; Entrypoint = 'claude-vscode' }
     [pscustomobject]@{ SessionId = 'e-cli'; Pid = 2; Status = 'idle'; Cwd = 'C:\p\two'; StatusUpdatedAt = 1; Entrypoint = 'cli' }
     [pscustomobject]@{ SessionId = 'e-none'; Pid = 3; Status = 'idle'; Cwd = 'C:\p\three'; StatusUpdatedAt = 1 }
+    # claude -p, chatq's queued prompt among them: a run, not a terminal
+    [pscustomobject]@{ SessionId = 'e-sdk'; Pid = 4; Status = 'busy'; Cwd = 'C:\p\five'; StatusUpdatedAt = 1; Entrypoint = 'sdk-cli' }
+    [pscustomobject]@{ SessionId = 'e-ts'; Pid = 5; Status = 'busy'; Cwd = 'C:\p\six'; StatusUpdatedAt = 1; Entrypoint = 'sdk-ts' }
+    # a run going in beside a window's copy wins the mark, whichever comes first
+    [pscustomobject]@{ SessionId = 'e-both'; Pid = 6; Status = 'idle'; Cwd = 'C:\p\seven'; StatusUpdatedAt = 1; Entrypoint = 'claude-vscode' }
+    [pscustomobject]@{ SessionId = 'e-both'; Pid = 7; Status = 'busy'; Cwd = 'C:\p\seven'; StatusUpdatedAt = 1; Entrypoint = 'sdk-cli' }
 )
-$wT = @{ 'e-vs' = @{ Path = 'x'; AiTitle = 'a' }; 'e-cli' = @{ Path = 'x'; AiTitle = 'b' }; 'e-none' = @{ Path = 'x'; AiTitle = 'c' } }
+$wT = @{ 'e-vs' = @{ Path = 'x'; AiTitle = 'a' }; 'e-cli' = @{ Path = 'x'; AiTitle = 'b' }; 'e-none' = @{ Path = 'x'; AiTitle = 'c' }; 'e-sdk' = @{ Path = 'x'; AiTitle = 'd' }
+    'e-ts' = @{ Path = 'x'; AiTitle = 'e' }; 'e-both' = @{ Path = 'x'; AiTitle = 'f' } }
 $wJ = @([pscustomobject]@{ First = 'x'; Job = [pscustomobject]@{ id = 'jw'; seq = 1; state = 'queued'; provider = 'claude'; sessionId = 'gone'; title = 't'; cwd = 'C:\p\four'; createdAt = $null } })
 $wR = @(Get-ChatOverlayRows -Sessions $wS -Texts $wT -Jobs $wJ)
 $wOf = { param($k) [string](@($wR | Where-Object { $_.key -eq $k })[0].where) }
-Check 'claude-vscode is a VS Code panel, any other entrypoint a terminal, none nothing; a job runs nowhere' (
-    (& $wOf 's:e-vs') -eq 'vscode' -and (& $wOf 's:e-cli') -eq 'terminal' -and (& $wOf 's:e-none') -eq '' -and (& $wOf 'j:jw') -eq '') (($wR | ForEach-Object { "$($_.key)=$($_.where)" }) -join ' ')
+Check 'claude-vscode is a VS Code panel, an SDK entrypoint (claude -p) a run, any other a terminal, none nothing; a run beside a window wins; a job runs nowhere' (
+    (& $wOf 's:e-vs') -eq 'vscode' -and (& $wOf 's:e-cli') -eq 'terminal' -and (& $wOf 's:e-none') -eq '' -and (& $wOf 'j:jw') -eq '' -and
+    (& $wOf 's:e-sdk') -eq 'run' -and (& $wOf 's:e-ts') -eq 'run' -and (& $wOf 's:e-both') -eq 'run' -and
+    (Get-ChatOverlayWhere 'sdk-py') -eq 'run' -and (Get-ChatOverlayWhere 'SDK-CLI') -eq 'terminal') (($wR | ForEach-Object { "$($_.key)=$($_.where)" }) -join ' ')
+# the where values' consumers: delete greyed on a run as on a terminal, so
+# the refusal a terminal had does not drop off by the new name
+$dRow = { param($where, $st = 'idle') [pscustomobject]@{ key = 's:d'; kind = 'session'; provider = 'claude'; sessionId = $idCard; cwd = $projA; status = $st; where = $where } }
+$dActs = { param($where) $a = @(Get-ChatOverlayChipActions (& $dRow $where)); "$((@($a | ForEach-Object Id)) -join ','):$(@($a | Where-Object { $_.Id -eq 'delete' })[0].Disabled)" }
+Check 'delete greyed on a chat a queued prompt runs in, as on a terminal''s; not on a VS Code one' (
+    -not (Test-ChatOverlayRowDeletable (& $dRow 'run')) -and -not (Test-ChatOverlayRowDeletable (& $dRow 'terminal')) -and (Test-ChatOverlayRowDeletable (& $dRow 'vscode')) -and
+    (& $dActs 'run') -eq 'open,delete:True' -and (& $dActs 'vscode') -eq 'open,delete:False') "$(& $dActs 'run') $(& $dActs 'vscode')"
 Check 'a rename wins over the generated title' ((& $row $idO4).title -eq $tCustom) (& $row $idO4).title
 Check 'a registry entry whose process is gone has no row' (-not (& $row $idO2))
 Check 'a working chat with no transcript yet shows the registry name' ((& $row $idO6).title -eq 'fresh-chat-1a')
@@ -246,9 +275,13 @@ Check 'a window closing leaves the chat''s other one' (@((& $row $idO1).pids).Co
 Set-OvSession 889 $idO3 'idle' 30 $null 'derived-name' 'interactive' 'cli'
 Remove-Item -LiteralPath (Join-Path $sessDir '333.json')
 $prOut = (@(Write-ChatOverlayPrint 6>&1 | ForEach-Object { "$_" }) -join '')
+# and a print-mode run's - a queued prompt - with a mark of its own
+Set-OvSession 889 $idO3 'busy' 30 $null 'derived-name' 'interactive' 'sdk-cli'
+$prRun = (@(Write-ChatOverlayPrint 6>&1 | ForEach-Object { "$_" }) -join '')
 Remove-Item -LiteralPath (Join-Path $sessDir '889.json')
 Set-OvSession 333 $idO3 'idle' 30
 Check '-Print marks a chat in a terminal >_, one in VS Code not' ($prOut -like '*>_ projO  Noisy chat*' -and $prOut -like '*projO  Loader fixes*' -and $prOut -notlike '*>_ projO  Loader*') $prOut
+Check '-Print marks a chat a queued prompt runs in |>, not >_' ($prRun -like '*|> projO  Noisy chat*' -and $prRun -notlike '*>_ projO  Noisy*') $prRun
 
 # the watcher's own reader of the registry, when claude agents cannot run
 $was = $env:CHATQ_CLAUDE
@@ -604,6 +637,30 @@ Check 'resize: collapsed, width only; a row height not known taken as 36 units, 
 $rzK = { param($dy) (Get-ChatOverlayResize 380 3 0 $dy 36 1 1904 -Kept 8).Rows }
 Check 'resize from fewer rows drawn than kept: down never below those kept, past them a row a row''s height; up takes one off those drawn' (
     (& $rzK 40) -eq 8 -and (& $rzK 0) -eq 8 -and (& $rzK 10) -eq 8 -and (& $rzK 200) -eq 8 -and (& $rzK 216) -eq 9 -and (& $rzK -40) -eq 2) "$(& $rzK 40) $(& $rzK 0) $(& $rzK 216) $(& $rzK -40)"
+# the panel's edges, by the compass: the side across from the one dragged held
+$ezE = Get-ChatOverlayResize 380 8 40 0 36 1 1904 -Edge 'e' -Left 1524
+$ezE2 = Get-ChatOverlayResize 380 8 -1000 0 36 1 1904 -Edge 'e' -Left 1524
+$ezW = Get-ChatOverlayResize 380 8 -40 200 36 1 1904 -Edge 'w'
+$ezN = Get-ChatOverlayResize 380 8 30 -80 36 1 1904 -Edge 'n'
+$ezN2 = Get-ChatOverlayResize 380 8 0 40 36 1 1904 -Edge 'n'
+$ezS = Get-ChatOverlayResize 380 8 -40 80 36 1 1904 -Edge 's'
+$ezNE = Get-ChatOverlayResize 380 8 60 -80 54 1.5 1904 -Edge 'ne' -Left 1334
+$ezNK = (Get-ChatOverlayResize 380 3 0 -40 36 1 1904 -Kept 8 -Edge 'n').Rows
+Check 'an edge''s drag: the right side widens to the right, its left edge held; the top a row for each row''s height up; a side never the rows, the top or bottom never the width' (
+    $ezE.Width -eq 420 -and $ezE.Left -eq 1524 -and $ezE.Rows -eq 8 -and $ezE2.Width -eq 260 -and $ezE2.Left -eq 1524 -and
+    $ezW.Width -eq 420 -and $ezW.Left -eq 1484 -and $ezW.Rows -eq 8 -and $ezN.Rows -eq 10 -and $ezN.Steps -eq 2 -and $ezN.Width -eq 380 -and
+    $ezN2.Rows -eq 7 -and $ezS.Rows -eq 10 -and $ezS.Width -eq 380 -and $ezNE.Width -eq 420 -and $ezNE.Rows -eq 9 -and $ezNE.Left -eq 1334 -and $ezNK -eq 8) (
+    "e $($ezE.Width)@$($ezE.Left)/$($ezE.Rows) $($ezE2.Width)@$($ezE2.Left) w $($ezW.Width)@$($ezW.Left)/$($ezW.Rows) n $($ezN.Rows)/$($ezN.Width) $($ezN2.Rows) s $($ezS.Rows)/$($ezS.Width) ne $($ezNE.Width)@$($ezNE.Left)/$($ezNE.Rows) kept $ezNK")
+$cu = { param($e, $f) Get-ChatOverlayEdgeCursor $e $f }
+Check 'each edge''s cursor: up and down for the top and bottom, sideways for the sides, a diagonal for a corner - sideways for every corner while folded' (
+    (& $cu 'n' $false) -eq 'SizeNS' -and (& $cu 's' $false) -eq 'SizeNS' -and (& $cu 'w' $false) -eq 'SizeWE' -and (& $cu 'e' $false) -eq 'SizeWE' -and
+    (& $cu 'ne' $false) -eq 'SizeNESW' -and (& $cu 'sw' $false) -eq 'SizeNESW' -and (& $cu 'nw' $false) -eq 'SizeNWSE' -and (& $cu 'se' $false) -eq 'SizeNWSE' -and
+    (& $cu 'ne' $true) -eq 'SizeWE' -and (& $cu 'se' $true) -eq 'SizeWE')
+$edR = Get-ChatOverlayEdgesRect @(1524, 200, 380, 400) 5
+Check 'the edges'' window: the panel''s rect, the band''s depth more on every side' (($edR -join ',') -eq '1519,195,390,410' -and $null -eq (Get-ChatOverlayEdgesRect @(1, 2) 5)) ($edR -join ',')
+$capB = Get-ChatOverlayHeightCap 900 ([pscustomobject]@{ X = 0; Y = 40; Width = 1920; Height = 1000 }) 1.5 40 640
+$capB0 = Get-ChatOverlayHeightCap 900 ([pscustomobject]@{ X = 0; Y = 40; Width = 1920; Height = 1000 }) 1 40 60
+Check 'the height cap as the top edge is dragged: from the bottom held up to the working area''s top, never under the floor' ($capB -eq 400 -and $capB0 -eq 40) "$capB $capB0"
 # shown, on panel, on buttons, dragging, button held, ms resting on the panel, ms since over either
 $sh = { param($s, $p, $c, $d, $dn, $r, $o) [bool](Get-ChatOverlayControlsShown $s $p $c $d $dn $r $o) }
 Check 'the buttons come after the pointer rests on the panel, and stay while it is on either or a button is held' (
@@ -648,9 +705,12 @@ $pv2 = Get-ChatConsoleSendPreview @{ Kind = 'chat'; Live = 'busy' } $pNow ([pscu
 $pv3 = Get-ChatConsoleSendPreview @{ Kind = 'new'; Live = $null } $pTurn $null 2 $true $tn
 $pv4 = Get-ChatConsoleSendPreview @{ Kind = 'chat'; Live = 'idle' } $pNow ([pscustomobject]@{ Until = $tn; Type = 'overloaded' }) 0 $true $tn
 $pv5 = Get-ChatConsoleSendPreview $null $pNow $null 0 $true $tn
-Check 'console preview: what Send will do - soon, a limit, a busy chat, behind others, a new chat, a 529, the watcher' (
+$pv6 = Get-ChatConsoleSendPreview @{ Kind = 'chat'; Live = $null } $pNow $null 0 $true $tn -Running 7
+$pv7 = Get-ChatConsoleSendPreview @{ Kind = 'chat'; Live = $null } $pTurn $null 0 $true $tn -Running 7
+Check 'console preview: what Send will do - soon, a limit, a busy chat, behind others, a new chat, a 529, the watcher, Now behind a run in progress' (
     $pv1 -eq 'sends within a few seconds' -and $pv2 -eq 'limited until 12:59 - sends 13:00 - that chat is working in VS Code - it goes once the chat is idle, looked at every 30 s - the watcher starts for it' -and
-    $pv3 -like 'after the 2 queued ahead of it - a new chat*' -and $pv4 -like 'Claude is overloaded*open in VS Code*' -and $pv5 -like 'pick a chat*') "$pv1 | $pv2 | $pv3 | $pv4"
+    $pv3 -like 'after the 2 queued ahead of it - a new chat*' -and $pv4 -like 'Claude is overloaded*open in VS Code*' -and $pv5 -like 'pick a chat*' -and
+    $pv6 -eq 'sends once #7, running now, ends - one job runs at a time' -and $pv7 -eq $pv6) "$pv1 | $pv2 | $pv3 | $pv4 | $pv6 | $pv7"
 # a refused login is no limit: it says what the CLI said, not "limited until"
 $pvL = Get-ChatConsoleSendPreview @{ Kind = 'chat'; Live = $null } $pNow ([pscustomobject]@{ Until = $tn.AddMinutes(15); Type = 'login needed'; Why = 'login refused: OAuth token has expired. (401)' }) 0 $true $tn
 $pvL2 = Get-ChatConsoleSendPreview @{ Kind = 'chat'; Live = $null } $pNow ([pscustomobject]@{ Until = $tn.AddMinutes(15); Type = 'login needed'; Why = 'probe' }) 0 $true $tn
@@ -676,6 +736,41 @@ $js1 = Get-ChatConsoleJobStatus ([pscustomobject]@{ state = 'queued' }) '13:01'
 $js2 = Get-ChatConsoleJobStatus ([pscustomobject]@{ state = 'needs-input'; result = [pscustomobject]@{ reason = 'Edit denied' } }) $null
 $js3 = Get-ChatConsoleJobStatus ([pscustomobject]@{ state = 'failed'; result = [pscustomobject]@{ reason = 'chat gone' } }) $null
 Check 'console queue: each job says where it stands, in its colour' ($js1.Text -eq 'sends 13:01' -and $js1.Tone -eq 'queued' -and $js2.Text -eq 'needs you - Edit denied' -and $js2.Tone -eq 'waiting' -and $js3.Text -eq 'failed - chat gone' -and $js3.Tone -eq 'error') "$($js1.Text) | $($js2.Text) | $($js3.Text)"
+# a job the watcher held back for a reason of its own says that reason, in
+# the words every reader shares - while the hold stands, and for a queued
+# job only; any other wait is the ETA's
+$dfNow = [datetime]'2026-09-28T14:10:00'
+# as the watcher writes them: ISO, in UTC
+$dfIso = { param([datetime]$d) $d.ToUniversalTime().ToString('o') }
+$dfAt = & $dfIso $dfNow.AddMinutes(-8)
+$dfJob = { param($why, $untilMin, $state = 'queued', $since = $dfAt)
+    [pscustomobject]@{ id = 'df'; seq = 15; state = $state; deferWhy = $why; deferSince = $since; deferNote = 'npm run dev'
+        deferUntil = $(if ($null -ne $untilMin) { & $dfIso $dfNow.AddMinutes($untilMin) } else { $null }) } }
+$dfBg = Format-ChatOverlayDeferral (& $dfJob 'background' 5) $dfNow
+$dfBgOld = Format-ChatOverlayDeferral (& $dfJob 'background' 5 'queued' (& $dfIso ([datetime]'2026-09-25T09:30:00'))) $dfNow
+$dfBgNone = Format-ChatOverlayDeferral (& $dfJob 'background' 5 'queued' $null) $dfNow
+$dfTab = Format-ChatOverlayDeferral (& $dfJob 'in-use' 1) $dfNow
+$dfOthers = @((Format-ChatOverlayDeferral (& $dfJob 'background' -1) $dfNow), (Format-ChatOverlayDeferral (& $dfJob 'in-use' $null) $dfNow),
+    (Format-ChatOverlayDeferral (& $dfJob 'vscode' 5) $dfNow), (Format-ChatOverlayDeferral (& $dfJob $null 5) $dfNow),
+    (Format-ChatOverlayDeferral (& $dfJob 'background' 5 'running') $dfNow)) | Where-Object { $_ }
+Check 'a held job''s reason: waits for a background command (since when), or for you to leave its tab; nothing once the hold is over, for another reason, or not queued' (
+    $dfBg -eq 'waits for a background command (since 14:02)' -and $dfBgOld -eq 'waits for a background command (since Fri 09:30)' -and
+    $dfBgNone -eq 'waits for a background command' -and $dfTab -eq 'waits for you to leave its tab' -and -not @($dfOthers).Count) "$dfBg | $dfBgOld | $dfBgNone | $dfTab | $(@($dfOthers) -join ',')"
+$dfCon = Get-ChatConsoleJobStatus (& $dfJob 'background' 5) '14:15 (chat busy)' $dfNow
+$dfConTab = Get-ChatConsoleJobStatus (& $dfJob 'in-use' 1) $null $dfNow
+$dfConDone = Get-ChatConsoleJobStatus (& $dfJob 'background' -1) '14:15' $dfNow
+$dfSid = '0d0d0d0d-0d0d-40d0-80d0-0d0d0d0d0d01'
+$dfRows = @(Get-ChatOverlayRows -Now $dfNow -Sessions @([pscustomobject]@{ SessionId = $dfSid; Pid = 1; Status = 'idle'; Cwd = 'C:\p\df'; StatusUpdatedAt = 1; Entrypoint = 'claude-vscode' }) `
+        -Texts @{ $dfSid = @{ Path = 'x'; AiTitle = 'held' } } -Eta @{ df = '14:15 (chat busy)'; df2 = '14:20' } -Jobs @(
+        [pscustomobject]@{ First = 'x'; Job = [pscustomobject]@{ id = 'df'; seq = 15; state = 'queued'; provider = 'claude'; sessionId = $dfSid; title = 'held'; cwd = 'C:\p\df'
+                createdAt = $null; deferWhy = 'in-use'; deferUntil = (& $dfIso $dfNow.AddMinutes(1)) } }
+        [pscustomobject]@{ First = 'y'; Job = [pscustomobject]@{ id = 'df2'; seq = 16; state = 'queued'; provider = 'claude'; sessionId = 'gone'; title = 'other'; cwd = 'C:\p\df'
+                createdAt = $null; deferWhy = 'background'; deferSince = $dfAt; deferUntil = (& $dfIso $dfNow.AddMinutes(5)) } }))
+$dfOn = @($dfRows | Where-Object { $_.key -eq "s:$dfSid" })[0].stateText
+$dfOwn = @($dfRows | Where-Object { $_.key -eq 'j:df2' })[0].stateText
+Check 'the console and the panel''s rows say a held job''s reason where its send time would be; a hold that is over, its ETA again' (
+    $dfCon.Text -eq 'waits for a background command (since 14:02)' -and $dfCon.Tone -eq 'queued' -and $dfConTab.Text -eq 'waits for you to leave its tab' -and
+    $dfConDone.Text -eq 'sends 14:15' -and $dfOn -like '#15 waits for you to leave its tab *' -and $dfOwn -eq '#16 waits for a background command (since 14:02)') "$($dfCon.Text) | $($dfConTab.Text) | $($dfConDone.Text) | $dfOn | $dfOwn"
 $areaC = [pscustomobject]@{ X = 0; Y = 0; Width = 1536; Height = 816 }
 # a panel 380 wide at the top right: the console's right edge and top are the panel's
 $plNew = Get-ChatConsolePlacement @(1100, 100, 380, 200) $null $areaC
@@ -1101,7 +1196,7 @@ $script:ChatShowSpawnSeam = { param($c) 'spawned' }
 $Hu = @{ Ctx = $cu8; OpenProc = $null; ChipText = $null }
 $script:uSays = @()
 $uRowA = @($uR | Where-Object { $_.sessionId -eq $uA })[0]
-$uEnds = @(foreach ($code in '0', '10', '25', '15', '20', '30', '40', '41', '50', 'late') {
+$uEnds = @(foreach ($code in '0', '10', '25', '15', '16', '20', '30', '40', '41', '50', 'late') {
         $cu8.Unread[$uA] = $true
         Invoke-ChatOverlayOpen $Hu $uRowA
         $during = $cu8.Unread.ContainsKey($uA)
@@ -1113,10 +1208,10 @@ $uEnds = @(foreach ($code in '0', '10', '25', '15', '20', '30', '40', '41', '50'
         "$code=$during/$($cu8.Unread.ContainsKey($uA))/$([bool]$Hu.OpenProc)"
     }) -join ' '
 $script:ChatShowSpawnSeam = { param($c) $null }
-Check 'unread: the open chip takes the dot only once its child says the open request was written - not held, turned away or failed before it' (
-    $uEnds -eq '0=True/False/False 10=True/True/False 25=True/False/False 15=True/True/False 20=True/True/False 30=True/True/False 40=True/False/False 41=True/False/False 50=True/True/False late=True/True/False') $uEnds
+Check 'unread: the open chip takes the dot only once its child says the open request was written - not held, turned away or failed before it, nor for a run''s live view (16)' (
+    $uEnds -eq '0=True/False/False 10=True/True/False 25=True/False/False 15=True/True/False 16=True/True/False 20=True/True/False 30=True/True/False 40=True/False/False 41=True/False/False 50=True/True/False late=True/True/False') $uEnds
 # and each one said on the panel: under way from the click, then how it went
-# - only 0 in the quiet tone; a child that never started said at once
+# - only 0 and a run's live view (16) in the quiet tone; a child that never started said at once
 $uSaid = $script:uSays -join ' '
 $Hu.OpenProc = $null; $Hu.OpenSay = $null
 $script:ChatShowSpawnSeam = { param($c) $null }
@@ -1126,8 +1221,33 @@ $Hu.OpenSay.Until = (Get-Date).AddSeconds(-1)
 Update-ChatOverlayOpen $Hu
 $uGoneSaid = $null -eq $Hu.OpenSay
 Check 'an open from the chip is said from the click to its end: busy, then opened or why not - a timeout and a child that did not start too - and the line goes once its time is up' (
-    $uSaid -eq '0=True/done/dim 10=True/done/warn 25=True/done/warn 15=True/done/warn 20=True/done/warn 30=True/done/warn 40=True/done/warn 41=True/done/warn 50=True/done/warn late=True/late/warn' -and
+    $uSaid -eq '0=True/done/dim 10=True/done/warn 25=True/done/warn 15=True/done/warn 16=True/done/dim 20=True/done/warn 30=True/done/warn 40=True/done/warn 41=True/done/warn 50=True/done/warn late=True/late/warn' -and
     $uNoStart -and $uGoneSaid) "$uSaid $uNoStart $uGoneSaid"
+# the chip on a chat a job of chatq's runs in reads watch - the same open,
+# which Show-ChatFresh turns into the run's live view (16) - and says so
+$wChip = { param($state) @(Get-ChatOverlayChipActions ([pscustomobject]@{ key = "s:$uA"; kind = 'session'; provider = 'claude'; sessionId = $uA; cwd = $projO; status = 'busy'; where = 'run'
+                job = $(if ($state) { [pscustomobject]@{ seq = 15; state = $state; eta = $null } } else { $null }) }))[0] }
+$wRun = & $wChip 'running'
+$wQueued = & $wChip 'queued'
+$wNone = & $wChip $null
+Check 'the chip reads watch while the row''s job runs - the same open under another word; open otherwise' (
+    $wRun.Id -eq 'open' -and $wRun.Label -eq 'watch' -and $wRun.Tip -like '*watch it live*' -and $wQueued.Id -eq 'open' -and $wQueued.Label -eq 'open' -and $wNone.Label -eq 'open') "$($wRun.Id)=$($wRun.Label) $($wQueued.Label) $($wNone.Label)"
+Check 'the tray for a run''s live view asked for (16), and a print-mode run no job is (15) as before' (
+    (Get-ChatOverlayOpenBalloon 16) -eq 'A queued prompt is running in that chat - its live view opens in VS Code.' -and
+    (Get-ChatOverlayOpenBalloon 15) -eq 'A queued prompt is running in that chat - open it once it finishes.') "$(Get-ChatOverlayOpenBalloon 16)"
+# the watch chip's word comes back once its open ends (brushes by name: no
+# WPF in this process)
+$fnBrush = ${function:Get-ChatOverlayBrush}
+${function:Get-ChatOverlayBrush} = { param($n) $n }
+try {
+    $script:ChatShowSpawnSeam = { param($c) [pscustomobject]@{ HasExited = $true; ExitCode = 16 } }
+    $Hw = @{ Ctx = $cu8; OpenProc = $null; ChipText = [pscustomobject]@{ Text = 'watch'; Foreground = $null }; ChipOpenLabel = 'watch' }
+    Invoke-ChatOverlayOpen $Hw $uRowA
+    $wDuring = [string]$Hw.ChipText.Text
+    Update-ChatOverlayOpen $Hw
+}
+finally { ${function:Get-ChatOverlayBrush} = $fnBrush; $script:ChatShowSpawnSeam = { param($c) $null } }
+Check 'the watch chip says opening while its child runs, and watch again after' ($wDuring -eq 'opening' -and $Hw.ChipText.Text -eq 'watch' -and -not $Hw.OpenProc) "$wDuring $($Hw.ChipText.Text)"
 $cu8.Unread.Remove($uA)
 Update-ChatOverlayUnread $cu8 @((& $uE $uA 'idle'), (& $uE $uB 'busy'), (& $uE $uD 'idle'))
 $uBusy = -not $cu8.Unread.ContainsKey($uA) -and -not $cu8.Unread.ContainsKey($uB) -and $cu8.Unread.ContainsKey($uD)
@@ -1244,7 +1364,7 @@ Check 'unread: none off Windows - the pass skips it, nothing counted or marked' 
 # the Windows panel itself, built but never shown, in the STA process WPF needs
 $wpf = @"
 `$env:CHATQ_OVERLAY = '1'
-. '$(Join-Path $sb 'tool\VS-code-chat-manager.ps1')'
+. '$(Join-Path $sb 'tool\claude-codex-chat-manager.ps1')'
 Set-StrictMode -Off
 Initialize-ChatOverlayNative
 `$H = New-ChatOverlayHostState
@@ -1366,9 +1486,9 @@ $ex = if ($wp.Count -ge 5) { [int64]$wp[4] } else { 0 }
 Check 'the panel: 8 rows and "+2 more", or one line when nothing is open' ($wp[0] -eq '11' -and $wp[1] -eq 'True' -and $wp[2] -eq '3' -and $wp[3] -eq 'True') "$wpfOut"
 Check 'shown, a tool window that never activates and lets clicks through, and no taskbar button' ((($ex -band 0x80800A0) -eq 0x80800A0) -and -not ($ex -band 0x40000)) ('0x{0:X}' -f $ex)
 $cex = if ($wp.Count -ge 11) { [int64]$wp[10] } else { 0 }
-Check 'eight in a window of their own - the console''s button and the resize handle among them - out of sight until the pointer comes' ($wp[5] -eq '8' -and $wp[6] -eq 'False') "$wpfOut"
+Check 'seven in a window of their own - the console''s button among them - out of sight until the pointer comes' ($wp[5] -eq '7' -and $wp[6] -eq 'False') "$wpfOut"
 Check 'that window, shown, takes clicks but never focus, and has no taskbar button' ((($cex -band 0x8080080) -eq 0x8080080) -and -not ($cex -band 0x20) -and -not ($cex -band 0x40000)) ('0x{0:X}' -f $cex)
-Check 'the grip at the left end, close at the corner' ($wp[14] -eq 'Drag to move' -and $wp[17] -like 'Close*') "$wpfOut"
+Check 'the grip at the left end, close at the corner' ($wp[14] -like 'Drag to move - *' -and $wp[17] -like 'Close*') "$wpfOut"
 Check 'the buttons sit on the panel''s top edge, flush right, and stay put pass after pass - placed by their size, not where they are' ($wp[15] -eq 'True') "$wpfOut"
 Check 'the settings box opens above the buttons, never over the panel' ($wp[16] -eq 'True') "$wpfOut"
 Check 'while hidden, the pointer check counts the very spot the buttons then show on, and the gap to the panel' ($wp[21] -eq 'True') "$wpfOut"
@@ -1384,7 +1504,7 @@ Check 'collapsed: one line of counts and usage, and the chevron offers to expand
 # read: the drag is handed where it is (-At). config.json put back after.
 $wpfSize = @"
 `$env:CHATQ_OVERLAY = '1'
-. '$(Join-Path $sb 'tool\VS-code-chat-manager.ps1')'
+. '$(Join-Path $sb 'tool\claude-codex-chat-manager.ps1')'
 Set-StrictMode -Off
 `$cfgWas = [IO.File]::ReadAllText(`$script:ChatqConfigPath)
 Set-ChatOverlayConfig @{ width = 380; maxRows = 8; hotkey = 'none'; consoleHotkey = 'none' }
@@ -1406,11 +1526,39 @@ Update-ChatOverlayView `$H `$snap
 `$H.Win.UpdateLayout()
 `$more = { @(`$H.Stack.Children | Where-Object { `$_ -is [System.Windows.Controls.TextBlock] -and `$_.Text -like '+* more*' } | ForEach-Object { `$_.Text }) -join '' }
 `$right = { `$r = [ChatOverlayNative]::GetRect(`$H.Hwnd); `$r[0] + `$r[2] }
-# the handle, beside the grip
-`$hd = `$H.CtlLine.Children[1]
-`$handle = `$hd -eq `$H.CtlSize -and `$hd.ToolTip -eq 'Drag to resize - sideways for width, up and down for rows' -and `$hd.Cursor -eq [System.Windows.Input.Cursors]::SizeNESW -and
-    `$H.CtlLine.Children[2] -eq `$H.CtlButtons[1] -and `$H.CtlButtons[4].ToolTip -eq 'Settings - size, rows, opacity, theme, usage, compact rows, recent chats, cut-off chats' -and
+# no handle beside the grip: collapse second, seven in all, the grip
+# naming the edges
+`$handle = `$H.CtlLine.Children.Count -eq 7 -and `$H.CtlLine.Children[1] -eq `$H.CtlButtons[1] -and `$H.CtlButtons[1].ToolTip -eq 'Collapse to one line' -and
+    `$H.CtlButtons[0].ToolTip -like 'Drag to move - drag an edge or corner*' -and
+    `$H.CtlButtons[4].ToolTip -eq 'Settings - size, rows, opacity, theme, usage, compact rows, recent chats, cut-off chats' -and
     `$H.CtlButtons[6].ToolTip -like 'Close the overlay - it starts again with the next shell or VS Code window*'
+# the edges: shown with the buttons, over the panel's rect and 4 units
+# round it, taking clicks but never focus, a cursor each, all but
+# invisible; folded, no top or bottom and the corners sideways; the line
+# along the sides an edge sizes; gone with the buttons
+Show-ChatOverlayControls `$H `$true
+`$ep = [ChatOverlayNative]::GetRect(`$H.Hwnd)
+`$eOut = [int][Math]::Round(4 * (Get-ChatOverlayScale `$H `$ep -Device))
+`$eRect = [ChatOverlayNative]::GetRect(`$H.EdgesHwnd)
+`$eex = [ChatOverlayNative]::GetExStyle(`$H.EdgesHwnd)
+`$cur = [System.Windows.Input.Cursors]
+`$ec = { param(`$s) `$H.EdgeParts[`$s].Cursor }
+`$edges = `$H.EdgesWin.IsVisible -and (`$eRect -join ',') -eq ((Get-ChatOverlayEdgesRect `$ep `$eOut) -join ',') -and
+    ((`$eex -band 0x8080080) -eq 0x8080080) -and -not (`$eex -band 0x20) -and -not (`$eex -band 0x40000) -and @(`$H.EdgeParts.Keys).Count -eq 8 -and
+    (& `$ec 'n') -eq `$cur::SizeNS -and (& `$ec 'w') -eq `$cur::SizeWE -and (& `$ec 'ne') -eq `$cur::SizeNESW -and (& `$ec 'se') -eq `$cur::SizeNWSE -and
+    `$H.EdgeParts['s'].Background.Color.A -eq 1
+Show-ChatOverlayEdgeHint `$H 'ne'
+`$t1 = `$H.EdgesHint.BorderThickness
+Show-ChatOverlayEdgeHint `$H ''
+`$edges = `$edges -and `$t1.Top -eq 2 -and `$t1.Right -eq 2 -and `$t1.Left -eq 0 -and `$t1.Bottom -eq 0 -and `$H.EdgesHint.Visibility -eq 'Hidden'
+Set-ChatOverlayCollapsed `$H `$true
+Show-ChatOverlayEdgeHint `$H 'ne'
+`$edges = `$edges -and `$H.EdgeParts['n'].Visibility -eq 'Collapsed' -and `$H.EdgeParts['s'].Visibility -eq 'Collapsed' -and `$H.EdgeParts['w'].Visibility -eq 'Visible' -and
+    (& `$ec 'ne') -eq `$cur::SizeWE -and `$H.EdgesHint.BorderThickness.Top -eq 0 -and `$H.EdgesHint.BorderThickness.Right -eq 2
+Set-ChatOverlayCollapsed `$H `$false
+`$edges = `$edges -and `$H.EdgeParts['n'].Visibility -eq 'Visible' -and (& `$ec 'ne') -eq `$cur::SizeNESW
+Show-ChatOverlayControls `$H `$false
+`$edges = `$edges -and -not `$H.EdgesWin.IsVisible -and `$H.EdgesHint.Visibility -eq 'Hidden'
 # the sliders: whole numbers, their values beside them
 Set-ChatOverlaySettingsOpen `$H `$true
 `$sl = @(`$H.Settings.Child.Children | Where-Object { `$_ -is [System.Windows.Controls.Slider] })
@@ -1552,11 +1700,12 @@ Set-ChatOverlayRowStyle `$H 'compact'
     `$hComp -lt `$hFull -and (& `$on (& `$chipsOf 'compact')) -eq 'compact'
 Set-ChatOverlayRowStyle `$H 'full'
 `$compact = `$compact -and (Get-ChatOverlayConfig).prompts -and @(`$H.Stack.Children | Where-Object { `$_.Tag -and `$_.Tag -isnot [string] -and `$_.Children.Count -eq 2 }).Count -eq [int]`$H.Ctx.Config.maxRows
-# where each chat runs, after its dot: VS Code, a terminal, none known;
-# a job has no mark, whatever it carries
+# where each chat runs, after its dot: VS Code, a terminal, a queued
+# prompt's run, none known; a job has no mark, whatever it carries
 `$wr = @(
     [pscustomobject]@{ key = 's:v'; kind = 'session'; status = 'idle'; rank = 3; project = 'p'; title = 'in vs code'; prompt = 'x'; stateText = 'idle'; job = `$null; where = 'vscode' }
     [pscustomobject]@{ key = 's:t'; kind = 'session'; status = 'idle'; rank = 3; project = 'p'; title = 'in a terminal'; prompt = 'x'; stateText = 'idle'; job = `$null; where = 'terminal' }
+    [pscustomobject]@{ key = 's:r'; kind = 'session'; status = 'busy'; rank = 1; project = 'p'; title = 'a queued prompt in it'; prompt = 'x'; stateText = 'working'; job = `$null; where = 'run' }
     [pscustomobject]@{ key = 's:n'; kind = 'session'; status = 'idle'; rank = 3; project = 'p'; title = 'nowhere known'; prompt = 'x'; stateText = 'idle'; job = `$null; where = '' }
     [pscustomobject]@{ key = 'j:1'; kind = 'job'; status = 'queued'; rank = 4; project = 'p'; title = 'a job'; prompt = 'x'; stateText = '#1'; job = `$null; where = 'terminal' }
 )
@@ -1567,20 +1716,73 @@ Update-ChatOverlayView `$H ([pscustomobject]@{ header = [pscustomobject]@{ usage
         `$p = @(`$ln.Children | Where-Object { `$_ -is [System.Windows.Shapes.Path] })
         if (`$p.Count -eq 1 -and `$ln.Children[1] -eq `$p[0] -and `$p[0].Width -eq 10 -and `$p[0].Height -eq 9 -and `$p[0].Stroke -eq (Get-ChatOverlayBrush 'dim')) { [string]`$p[0].Tag } elseif (`$p.Count) { 'bad' } else { '-' }
     }) -join ','
-`$where = `$marks -eq 'vscode,terminal,-,-'
+`$where = `$marks -eq 'vscode,terminal,run,-,-'
+# the edges dragged: the right side - wider to the right, the left edge,
+# top and rows where they were; the top - a row for each row's height up,
+# the bottom held, and the place kept
+Set-ChatOverlayConfig @{ width = 380; maxRows = 6 }
+`$H.Ctx.Config = Get-ChatOverlayConfig
+Set-ChatOverlayWidth `$H 380
+# room to its right for the 40 units at any scale: at 125% the panel at
+# -2594 ends 39 px short of the work area's edge, and the drag is kept in it
+[ChatOverlayNative]::MoveTo(`$H.Hwnd, -2800, 400)
+`$H.Ctx.ViewSig = 'edges'
+Update-ChatOverlayView `$H `$snap
+`$H.Win.UpdateLayout()
+`$q0 = [ChatOverlayNative]::GetRect(`$H.Hwnd)
+Start-ChatOverlaySizeDrag `$null `$o 'e'
+Move-ChatOverlaySizeDrag ([System.Drawing.Point]::new(100 + [int][Math]::Round(40 * `$H.SizeDrag.Px), 700))
+Stop-ChatOverlaySizeDrag `$null
+`$H.Win.UpdateLayout()
+`$q1 = [ChatOverlayNative]::GetRect(`$H.Hwnd)
+`$eDrag = `$H.Win.Width -eq 420 -and `$q1[0] -eq `$q0[0] -and `$q1[1] -eq `$q0[1] -and (Get-ChatOverlayConfig).width -eq 420 -and
+    [int]`$H.Ctx.Config.maxRows -eq 6 -and (Get-ChatOverlayDrawnRows `$H) -eq 6
+Start-ChatOverlaySizeDrag `$null `$o 'n'
+Move-ChatOverlaySizeDrag ([System.Drawing.Point]::new(400, 100 - [int](2.5 * `$H.SizeDrag.RowPx)))
+`$qm = [ChatOverlayNative]::GetRect(`$H.Hwnd)
+`$nMid = Get-ChatOverlayDrawnRows `$H
+Stop-ChatOverlaySizeDrag `$null
+`$H.Win.UpdateLayout()
+`$q2 = [ChatOverlayNative]::GetRect(`$H.Hwnd)
+`$nDrag = `$nMid -eq 8 -and (`$qm[1] + `$qm[3]) -eq (`$q1[1] + `$q1[3]) -and `$qm[1] -lt `$q1[1] -and `$qm[0] -eq `$q1[0] -and `$H.Win.Width -eq 420 -and
+    (Get-ChatOverlayConfig).maxRows -eq 8 -and (Get-ChatOverlayDrawnRows `$H) -eq 8 -and (`$q2 -join ',') -eq (`$qm -join ',') -and (Read-ChatOverlayState).y -eq `$q2[1]
+# down near the foot of a screen 500 pixels tall, rows cut: the top edge
+# up a row's height brings one back, the rows kept as they were and the
+# bottom held - within the five units kept clear of the foot
+`$tall = 500
+Set-ChatOverlayRowCount `$H 12
+[ChatOverlayNative]::MoveTo(`$H.Hwnd, -2594, 197)
+Sync-ChatOverlayHeightCap `$H
+`$H.Win.UpdateLayout()
+`$f0 = Get-ChatOverlayDrawnRows `$H
+`$qf = [ChatOverlayNative]::GetRect(`$H.Hwnd)
+Start-ChatOverlaySizeDrag `$null `$o 'n'
+Move-ChatOverlaySizeDrag ([System.Drawing.Point]::new(100, 100 - [int](1.5 * `$H.SizeDrag.RowPx)))
+Stop-ChatOverlaySizeDrag `$null
+`$H.Win.UpdateLayout()
+`$qg = [ChatOverlayNative]::GetRect(`$H.Hwnd)
+`$fpx = Get-ChatOverlayScale `$H `$qg -Device
+`$f1 = Get-ChatOverlayDrawnRows `$H
+`$footDrag = `$f0 -lt 12 -and `$f1 -eq (`$f0 + 1) -and [int]`$H.Ctx.Config.maxRows -eq 12 -and `$qg[1] -lt `$qf[1] -and
+    (`$qg[1] + `$qg[3]) -le (`$qf[1] + `$qf[3]) -and (`$qg[1] + `$qg[3]) -ge (`$qf[1] + `$qf[3] - [Math]::Ceiling(5 * `$fpx)) -and
+    (`$qg[1] + `$qg[3]) -le 500 -and (& `$more) -like "+`$(12 - `$f1) more*"
+`$tall = 1020
 [IO.File]::WriteAllText(`$script:ChatqConfigPath, `$cfgWas)
-'{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}|{9}|{10}|{11}|{12}|{13}|{14}|{15}|{16}' -f `$handle, `$sliders, `$wide, `$fewer, `$rested, `$dragged, `$folded, `$cut, `$reload,
-    `$restPlace, `$pendReload, `$edgeHeld, `$fewDrag, `$synced, (`$styleOk -and `$compact), `$where,
-    "e0 `$e0 e1 `$e1 mid `$midW/`$midN/`$midE rowpx `$(`$d.RowPx) px `$(`$d.Px) c2 `$(`$c2.width)/`$(`$c2.maxRows) c3 `$(`$c3.width)/`$(`$c3.maxRows) cut `$n max `$(`$H.Win.MaxHeight) h `$(`$H.Win.ActualHeight) more '`$(& `$more)' w `$(`$H.Win.Width) st3 `$(`$st3.x)/`$(`$pr3[0]) c4 `$(`$c4.width)/`$(`$c4.maxRows) edge `$(`$pl -join ',') rows `$down8/`$up2 sync `$wD/`$nD/`$(`$H.WidthSlider.Value) box `$boxH style `$([bool]`$styleOk) compact `$([bool]`$compact) h `$hFull/`$hComp marks `$marks"
+'{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}|{9}|{10}|{11}|{12}|{13}|{14}|{15}|{16}|{17}|{18}|{19}' -f `$handle, `$sliders, `$wide, `$fewer, `$rested, `$dragged, `$folded, `$cut, `$reload,
+    `$restPlace, `$pendReload, `$edgeHeld, `$fewDrag, `$synced, (`$styleOk -and `$compact), `$where, `$edges, (`$eDrag -and `$nDrag), `$footDrag,
+    "e0 `$e0 e1 `$e1 mid `$midW/`$midN/`$midE rowpx `$(`$d.RowPx) px `$(`$d.Px) c2 `$(`$c2.width)/`$(`$c2.maxRows) c3 `$(`$c3.width)/`$(`$c3.maxRows) cut `$n max `$(`$H.Win.MaxHeight) h `$(`$H.Win.ActualHeight) more '`$(& `$more)' w `$(`$H.Win.Width) st3 `$(`$st3.x)/`$(`$pr3[0]) c4 `$(`$c4.width)/`$(`$c4.maxRows) edge `$(`$pl -join ',') rows `$down8/`$up2 sync `$wD/`$nD/`$(`$H.WidthSlider.Value) box `$boxH style `$([bool]`$styleOk) compact `$([bool]`$compact) h `$hFull/`$hComp marks `$marks edges `$(`$eRect -join ',') of `$(`$ep -join ',') out `$eOut e `$(`$q0 -join ',') > `$(`$q1 -join ',') n `$nMid `$(`$qm -join ',') > `$(`$q2 -join ',') foot `$f0>`$f1 `$(`$qf -join ',') > `$(`$qg -join ',')"
 "@
 $sizeOut = Invoke-Sta 'size-test' $wpfSize
 $sz = "$sizeOut" -split '\|'
-Check 'the resize handle between the grip and collapse, and the tooltips of settings and close' ($sz[0] -eq 'True') "$sizeOut"
+Check 'no resize handle: collapse beside the grip, seven in all, the grip''s tooltip naming the edges, and the tooltips of settings and close' ($sz[0] -eq 'True') "$sizeOut"
+Check 'the edges: with the buttons, over the panel and 4 units round it, taking clicks but never focus, a cursor each; folded, no top or bottom; a line along the sides one sizes' ($sz[16] -eq 'True') "$sizeOut"
+Check 'the right side dragged: wider to the right, the left edge held; the top: a row a row''s height up, the bottom held, the place kept' ($sz[17] -eq 'True') "$sizeOut"
+Check 'the top edge by the screen''s foot: a row the foot cut comes back for a row''s travel up, the rows kept, the bottom held but for the five units kept clear' ($sz[18] -eq 'True') "$sizeOut"
 Check 'the settings box has width and rows sliders, whole numbers, their values beside them' ($sz[1] -eq 'True') "$sizeOut"
 Check 'the width slider widens the panel with its right edge held; the rows slider snaps and redraws, "+N more" under them' ($sz[2] -eq 'True' -and $sz[3] -eq 'True') "$sizeOut"
 Check 'config.json gets width and rows once the sliders rest' ($sz[4] -eq 'True') "$sizeOut"
-Check 'the handle dragged left and down: wider with the right edge held, rows added one a row''s height, kept on release' ($sz[5] -eq 'True') "$sizeOut"
-Check 'collapsed, the handle sets the width only' ($sz[6] -eq 'True') "$sizeOut"
+Check 'the bottom-left corner dragged left and down: wider with the right edge held, rows added one a row''s height, kept on release' ($sz[5] -eq 'True') "$sizeOut"
+Check 'collapsed, a corner sets the width only' ($sz[6] -eq 'True') "$sizeOut"
 Check 'never past its screen''s foot, from its top edge down: rows it cannot hold are counted on the "+N more" line' ($sz[7] -eq 'True') "$sizeOut"
 Check 'a reload takes width and rows from config.json, the right edge held' ($sz[8] -eq 'True') "$sizeOut"
 Check 'the width slider at rest keeps where the panel''s left edge went, for the next start' ($sz[9] -eq 'True') "$sizeOut"
@@ -1589,13 +1791,13 @@ Check 'widened by the screen''s left edge: held there, it grows to the right' ($
 Check 'fewer chats than rows: dragged down, the rows kept never drop; up, one off those drawn' ($sz[12] -eq 'True') "$sizeOut"
 Check 'the settings box opened after a drag shows what was dragged to, and a nudge moves on from there' ($sz[13] -eq 'True') "$sizeOut"
 Check 'the settings box: width and rows on one row, Style full or compact; compact draws one line a chat, and full brings the prompts back' ($sz[14] -eq 'True') "$sizeOut"
-Check 'where a chat runs, after its dot: a window for VS Code, >_ for a terminal; nothing for a job' ($sz[15] -eq 'True') "$sizeOut"
+Check 'where a chat runs, after its dot: a window for VS Code, >_ for a terminal, a play triangle for a queued prompt''s run; nothing for a job' ($sz[15] -eq 'True') "$sizeOut"
 
 # the Recent list and the unread dot, drawn - in a process of its own, as a
 # command line holds only so much of the one above
 $wpfRecent = @"
 `$env:CHATQ_OVERLAY = '1'
-. '$(Join-Path $sb 'tool\VS-code-chat-manager.ps1')'
+. '$(Join-Path $sb 'tool\claude-codex-chat-manager.ps1')'
 Set-StrictMode -Off
 `$cfgWas = [IO.File]::ReadAllText(`$script:ChatqConfigPath)
 Set-ChatOverlayConfig @{ width = 380; maxRows = 8; prompts = `$true; recent = 5; hotkey = 'none'; consoleHotkey = 'none' }
@@ -1711,7 +1913,7 @@ Check 'the height cap goes by the panel''s top edge, worked out again as a drag 
 # back to the panel by Esc, the back button, a close and the verbs
 $con = @"
 `$env:CHATQ_OVERLAY = '1'
-. '$(Join-Path $sb 'tool\VS-code-chat-manager.ps1')'
+. '$(Join-Path $sb 'tool\claude-codex-chat-manager.ps1')'
 Set-StrictMode -Off
 `$script:ChatqSpawn = { `$true }
 `$script:ChatConsoleNoSync = `$true
@@ -1842,6 +2044,29 @@ if (`$C.EditBox) { `$C.EditBox.Text = 'edited in place' }
 `$C.Sigs.Queue = `$null
 Update-ChatConsoleQueue `$H
 `$editKept = [bool](`$C.EditBox -and `$C.EditBox.Text -eq 'edited in place')
+# running, a Claude chat's job offers Watch in VS Code beside Cancel: the
+# chip's own open, in its child - one at a time; the tray says how it went
+Set-ChatqProp `$j 'state' 'running'
+Save-ChatqJob `$j
+`$C.Jobs = @(Get-ChatqJobs)
+`$C.Sigs.Queue = `$null
+Update-ChatConsoleQueue `$H
+`$runBtns = (@(`$C.Details.Children | Where-Object { `$_ -is [System.Windows.Controls.WrapPanel] } | ForEach-Object { @(`$_.Children) } | ForEach-Object { `$_.Child.Text }) -join ',')
+`$script:WatchCmds = @()
+`$script:ChatShowSpawnSeam = { param(`$c) `$script:WatchCmds += `$c; [pscustomobject]@{ HasExited = `$false } }
+Invoke-ChatConsoleJobAction `$H `$j.id 'watch'
+`$watchSaid = [string]`$C.Status.Text
+Invoke-ChatConsoleJobAction `$H `$j.id 'watch'
+`$againSaid = [string]`$C.Status.Text
+`$script:ChatShowSpawnSeam = `$null
+`$H.OpenProc = `$null
+`$watchOk = `$runBtns -eq 'Cancel,Watch in VS Code,Write to this chat' -and @(`$script:WatchCmds).Count -eq 1 -and
+    `$script:WatchCmds[0] -like "*Show-ChatFresh -Via chip -SessionId '$idCard' *" -and `$watchSaid -eq "#`$(`$j.seq): its live view opens in VS Code" -and
+    `$againSaid -like 'an open is still going*'
+`$watchSay = "[`$runBtns] [`$watchSaid] [`$againSaid] `$(@(`$script:WatchCmds).Count)" -replace '\|', '/'
+Set-ChatqProp `$j 'state' 'queued'
+Save-ChatqJob `$j
+`$C.Jobs = @(Get-ChatqJobs)
 # Remove, clicked as the mouse clicks it: its Border found again after each
 # redraw, each click at a time of its own on the tick count's clock. The
 # first asks - "sure?" in error's colour, and the status says so; the second
@@ -1895,6 +2120,16 @@ if (`$cxItem) {
 `$H.Ctx.Config.theme = 'light'
 Update-ChatOverlayTheme `$H
 `$kept = `$C.Prompt.Text -eq 'kept across a theme' -and `$C.Root.Background.Color.ToString() -eq '#FFF6F8FA' -and `$H.Mode -eq 'console' -and `$H.Win.Content -eq `$C.Root
+# the header moves the window from anywhere on it but its controls; the
+# look in it is the panel's: the console opens at the panel's opacity, and
+# one set in the console is the window's, kept, and the panel's box's
+`$keep = @(`$C.BackBtn, `$C.Look)
+`$dragOk = (Test-ChatConsoleDragFrom `$C.Header `$C.Bar `$keep) -and (Test-ChatConsoleDragFrom `$C.Bar `$C.Bar `$keep) -and
+    -not (Test-ChatConsoleDragFrom `$C.BackBtn.Child `$C.Bar `$keep) -and -not (Test-ChatConsoleDragFrom `$C.LookSlider `$C.Bar `$keep) -and -not (Test-ChatConsoleDragFrom `$C.Prompt `$C.Bar `$keep)
+`$opWas = `$H.Win.Opacity
+`$lookOk = `$opWas -eq (Get-ChatOverlayConfig).opacity -and `$C.LookSlider.Value -eq `$opWas
+`$C.LookSlider.Value = 0.6
+`$lookOk = `$lookOk -and `$H.Win.Opacity -eq 0.6 -and `$C.LookText.Text -eq '60%'
 # Esc, as the prompt box would have it: back to the panel exactly as it was
 `$src = [System.Windows.PresentationSource]::FromVisual(`$H.Win)
 `$kd = [System.Windows.Input.KeyEventArgs]::new([System.Windows.Input.Keyboard]::PrimaryDevice, `$src, 0, [System.Windows.Input.Key]::Escape)
@@ -1902,6 +2137,11 @@ Update-ChatOverlayTheme `$H
 `$C.Prompt.RaiseEvent(`$kd)
 `$afterEsc = & `$panelSays
 `$escOk = `$afterEsc -eq `$was
+`$lookOk = `$lookOk -and `$H.Win.Opacity -eq 0.6 -and (Get-ChatOverlayConfig).opacity -eq 0.6 -and `$H.OpacitySlider.Value -eq 0.6
+`$lookSay = "was `$opWas now `$(`$H.Win.Opacity) config `$((Get-ChatOverlayConfig).opacity) box `$(`$H.OpacitySlider.Value) drag `$dragOk"
+Set-ChatOverlayConfig @{ opacity = `$opWas }
+`$H.Ctx.Config = Get-ChatOverlayConfig
+`$H.Win.Opacity = `$opWas
 `$st = Read-ChatConsoleState
 `$saved = `$st.draft.text -eq 'kept across a theme' -and `$st.draft.target.Id -eq '$idCard' -and `$H.Mode -eq 'panel'
 # the size kept, not the place: back at that size next time
@@ -1994,9 +2234,9 @@ Invoke-ChatOverlayVerb 'stop'
 `$verbSay = "`$(`$verbSay -join ' ') `$shownHidden `$(`$H.Mode)"
 if (`$j -and (Find-ChatqJob `$j.id)) { `$null = Remove-ChatqJob `$j 'test' }
 `$modeSay = "was [`$was] esc [`$afterEsc] back [`$afterBack] close [`$afterClose] console ex `$ex rect `$(`$cr -join ',') again `$(`$again -join ',') panel `$(`$p0 -join ',') m11 `$m11 saved `$(`$st.w)x`$(`$st.h) view `$viewOk"
-'{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}|{9}|{10}|{11}|{12}|{13}|{14}|{15}|{16}|{17}|{18}|{19}|{20}|{21}|{22}|{23}|{24}|{25}|{26}|{27}|{28}|{29}|{30}|{31}|{32}|{33}' -f `$modeOk, `$kinds, `$searched, `$to, `$staged, `$sent, `$kept, `$saved, `$folderSaid, `$files, `$editKept, `$askHeld, `$removed, `$contOnce, `$codexOpts, `$codexSent, `$contSay, `$idxRead, `$idxSay,
+'{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}|{9}|{10}|{11}|{12}|{13}|{14}|{15}|{16}|{17}|{18}|{19}|{20}|{21}|{22}|{23}|{24}|{25}|{26}|{27}|{28}|{29}|{30}|{31}|{32}|{33}|{34}|{35}|{36}|{37}' -f `$modeOk, `$kinds, `$searched, `$to, `$staged, `$sent, `$kept, `$saved, `$folderSaid, `$files, `$editKept, `$askHeld, `$removed, `$contOnce, `$codexOpts, `$codexSent, `$contSay, `$idxRead, `$idxSay,
     `$viewOk, `$escOk, `$backOk, `$closeOk, `$verbsOk, `$sizeOk, `$verbSay, `$modeSay, `$rowsOk, `$pickOk, (`$rowSay -replace '\|', '/'), `$roundOk, `$placeOk, `$minOk,
-    ("round [`$(`$script:roundBad -join ' / ')] place [`$placeSay] min [`$minSay]" -replace '\|', '/')
+    ("round [`$(`$script:roundBad -join ' / ')] place [`$placeSay] min [`$minSay]" -replace '\|', '/'), `$watchOk, `$watchSay, (`$dragOk -and `$lookOk), (`$lookSay -replace '\|', '/')
 "@
 $conOut = Invoke-Sta 'console-test' $con
 $cp = "$conOut" -split '\|'
@@ -2015,9 +2255,11 @@ Check 'a click on a chat in the console''s list picks it: the accent''s bar on t
 Check 'it lists the chats the limit cut off and those open in VS Code; the search narrows them' ($cp[1] -like '*cutoff*' -and $cp[1] -like '*open*' -and $cp[2] -eq '1') "$conOut"
 Check 'a chat picked is the one written to; a file dropped and a screenshot pasted go with it, a folder does not' ($cp[3] -like 'To*Card*' -and $cp[4] -eq 'clip.png,console-drop.txt' -and $cp[8] -eq 'True') "$conOut"
 Check 'Send makes the job chatq would - first, sent now, files moved in - and clears the box for the next' ($cp[5] -eq 'True') "$conOut"
+Check 'the console''s header moves the window from anywhere but its controls; its opacity is the panel''s, set from either and kept' ($cp.Count -gt 37 -and $cp[36] -eq 'True') "$($cp[37])"
 Check 'a theme switch keeps what is typed, in the console''s mode still; going back keeps the draft for next time' ($cp[6] -eq 'True' -and $cp[7] -eq 'True') "$conOut"
 Check 'a queued prompt being edited outlives a redraw of the queue' ($cp[10] -eq 'True') "$conOut"
 Check 'Remove clicked: asks with sure? in red and says so, a double-click does not answer and says so, an ask 5 s old goes back to Remove, a second click 1.5 s on removes - timed by the clicks themselves' ($cp[11] -eq 'True' -and $cp[12] -eq 'True') "$conOut"
+Check 'a running Claude job: Watch in VS Code beside Cancel, through the chip''s own Show-ChatFresh child, one at a time' ($cp.Count -gt 35 -and $cp[34] -eq 'True') "$($cp[35])"
 Check 'Continue clicked twice queues one continue' ($cp[13] -eq 'True') "$($cp[16])"
 Check 'the index is read in a runspace of its own, never on the window''s thread, and its rows taken when ready' ($cp[17] -eq 'True') "$($cp[18])"
 Check 'a Codex chat is offered no mode or model, and is sent none' ($cp[14] -eq 'True' -and $cp[15] -eq 'True') "$conOut"
@@ -2028,7 +2270,7 @@ Check 'a Codex chat is offered no mode or model, and is sent none' ($cp[14] -eq 
 # Brought forward through the seam, so the test never takes the keyboard.
 $flow = @"
 `$env:CHATQ_OVERLAY = '1'
-. '$(Join-Path $sb 'tool\VS-code-chat-manager.ps1')'
+. '$(Join-Path $sb 'tool\claude-codex-chat-manager.ps1')'
 Set-StrictMode -Off
 `$script:ChatqSpawn = { `$true }
 `$script:ChatConsoleNoSync = `$true

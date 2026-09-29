@@ -1,4 +1,4 @@
-# VS-code-chat-manager, src/phone-setup.ps1: dot-sourced by VS-code-chat-manager.ps1
+# claude-codex-chat-manager, src/phone-setup.ps1: dot-sourced by claude-codex-chat-manager.ps1
 # in its turn, never on its own - see the list there.
 
 #region phone setup: the dialog -----------------------------------------------
@@ -77,8 +77,8 @@ public static class ChatqPhoneSetupNative {
 }
 '@
 
-# What Send test, Pair phone and a pairing's Confirm run in a runspace of
-# their own. A push can take minutes when the network is bad - Join and ntfy
+# What Send test, Pair phone, a pairing's Confirm and the question hook's
+# install or removal (Ask) run in a runspace of their own. A push can take minutes when the network is bad - Join and ntfy
 # each try three times, and the user's command may run for 30 s - and on the
 # window's thread that is a window Windows calls Not Responding. The runspace
 # starts empty, so the script is loaded into it first. One object back,
@@ -96,9 +96,17 @@ $env:CHATQ_OVERLAY = '1'
 try { . $Path }
 finally { Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference', 'env:CHATQ_OVERLAY' -EA SilentlyContinue }
 if ($Seam) { . ([scriptblock]::Create($Seam)) }
-$r = [pscustomobject]@{ ChatqSetupJob = $true; Kind = $Kind; Ok = $false; Error = $null; Until = $null; Label = $null; Sent = $null; Lines = @() }
+$r = [pscustomobject]@{ ChatqSetupJob = $true; Kind = $Kind; Ok = $false; Error = $null; Until = $null; Label = $null; Sent = $null; Lines = @(); Messages = @() }
 try {
-    if ($Kind -eq 'pair') {
+    if ($Kind -eq 'ask') {
+        # the question hook in or out: what chatnotify -Ask on|off does, with
+        # its lines handed back for the status line ($Text is on or off)
+        $a = Set-ChatqNotifyConfig @{ Ask = $Text } 6>$null
+        $r.Error = if ($a.Error) { [string]$a.Error } else { $null }
+        $r.Ok = -not $r.Error
+        $r.Messages = @(@($a.Messages) | Where-Object { $_ } | ForEach-Object { [pscustomobject]@{ Text = [string]$_.Text; Color = [string]$_.Color } })
+    }
+    elseif ($Kind -eq 'pair') {
         $p = @(Start-ChatqReplyPairing)[-1]
         $r.Error = if ($p.Error) { [string]$p.Error } else { $null }
         $r.Ok = [bool](-not $p.Error -and $p.Sent)
@@ -388,6 +396,8 @@ $script:ChatqPhoneSetupXaml = @'
           <TextBlock x:Name="PairNote" Style="{StaticResource Hint}" Margin="23,4,0,0"/>
           <CheckBox x:Name="PermitBox" Content="Approve tool calls from the phone" Margin="23,10,0,0"/>
           <TextBlock x:Name="PermitHint" Style="{StaticResource Hint}" Margin="46,2,0,0"/>
+          <CheckBox x:Name="AskBox" Content="Answer Claude's questions from the phone" Margin="23,10,0,0"/>
+          <TextBlock x:Name="AskHint" Style="{StaticResource Hint}" Margin="46,2,0,0" Text="A question in a chat you run yourself shows on the phone with its choices; answer there or at the PC - the first answer counts. Adds a small hook to Claude Code, as a plugin."/>
           <!-- the replies' own options, each indented under Reply from the phone -->
           <CheckBox x:Name="FullBox" Content="Show Claude's whole answer on the phone" Margin="23,10,0,0"/>
           <TextBlock Style="{StaticResource Hint}" Margin="46,2,0,6" Text="With done, needs input and failed. Sealed, like a reply; ntfy.sh passes it on."/>
@@ -489,8 +499,8 @@ function Start-ChatqPhoneSetup {
     }
     $path = $script:ChatqScriptPath
     if (-not $script:ChatqPhoneSetupSpawn -and (-not $path -or -not (Test-Path -LiteralPath $path))) {
-        if ($NoWait) { Write-ChatqPhoneSetupLog 'cannot open phone setup: this process does not know where VS-code-chat-manager.ps1 is'; return $false }
-        Write-Host '  cannot open phone setup: this shell does not know where VS-code-chat-manager.ps1 is' -ForegroundColor Yellow
+        if ($NoWait) { Write-ChatqPhoneSetupLog 'cannot open phone setup: this process does not know where claude-codex-chat-manager.ps1 is'; return $false }
+        Write-Host '  cannot open phone setup: this shell does not know where claude-codex-chat-manager.ps1 is' -ForegroundColor Yellow
         return
     }
     $log = Join-Path $script:ChatqLogDir 'phone-setup.log'
@@ -696,7 +706,7 @@ function New-ChatqPhoneSetupWindow {
         'Status', 'SaveBtn', 'CloseBtn') {
         $U[$n] = $w.FindName($n)
     }
-    foreach ($n in 'PermitBox', 'PermitHint') { $U[$n] = $w.FindName($n) }
+    foreach ($n in 'PermitBox', 'PermitHint', 'AskBox', 'AskHint') { $U[$n] = $w.FindName($n) }
     $w.Tag = $U
     # the whole answer, the board and listening all the time (src/phone-board.ps1)
     Initialize-ChatqBoardSetup $U
@@ -725,6 +735,7 @@ function New-ChatqPhoneSetupWindow {
     $U.ToastBox.ToolTip = 'A Windows notification here for every alert'
     $U.LiveBox.ToolTip = 'A chat in VS Code that waits on you, or finishes, while you are away - not only the ones chatq runs'
     $U.PermitBox.ToolTip = 'This lets the phone make a command run on this PC. Serve the reply page from a site of your own first (chatnotify -ReplyPage).'
+    $U.AskBox.ToolTip = 'This lets the phone answer for you in a chat. Serve the reply page from a site of your own first (chatnotify -ReplyPage).'
 
     $U.KeyBox.add_PasswordChanged({ param($src, $e) Invoke-ChatqPhoneSetupAction $src { param($U) Update-ChatqPhoneSetupKey $U } })
     $U.KeyBox.add_PreviewKeyDown({
@@ -742,6 +753,7 @@ function New-ChatqPhoneSetupWindow {
     $U.ToastBox.add_Click({ param($src, $e) Invoke-ChatqPhoneSetupAction $src { param($U) Update-ChatqPhoneSetupDirty $U } })
     $U.LiveBox.add_Click({ param($src, $e) Invoke-ChatqPhoneSetupAction $src { param($U) Update-ChatqPhoneSetupDirty $U } })
     $U.PermitBox.add_Click({ param($src, $e) Invoke-ChatqPhoneSetupAction $src { param($U) Update-ChatqPhoneSetupDirty $U } })
+    $U.AskBox.add_Click({ param($src, $e) Invoke-ChatqPhoneSetupAction $src { param($U) Update-ChatqPhoneSetupDirty $U } })
     foreach ($b in $U.QuietBox, $U.NtfyServerBox, $U.CommandBox) {
         $b.add_TextChanged({ param($src, $e) Invoke-ChatqPhoneSetupAction $src { param($U) Update-ChatqPhoneSetupGhosts $U; Update-ChatqPhoneSetupDirty $U } })
     }
@@ -897,6 +909,11 @@ function Read-ChatqPhoneSetupForm {
         $U.PermitBox.IsChecked = $U.PermitWas
         $U.PermitBox.IsEnabled = [bool]$U.ReplyBox.IsChecked
         $U.PermitHint.Text = "A queued run that needs a permission asks the phone - Allow once or Deny - and waits $($pmc.WaitMinutes) min. Off: it stops as needs input."
+        # a chat's question answered from the phone (src/ask.ps1): off unless the
+        # file says on
+        $U.AskWas = [bool](Get-ChatqAskConfig $cfg).On
+        $U.AskBox.IsChecked = $U.AskWas
+        $U.AskBox.IsEnabled = [bool]$U.ReplyBox.IsChecked
         $U.ToastWas = -not ($cfg.PSObject.Properties['toast'] -and $cfg.toast -eq $false)
         $U.ToastBox.IsChecked = $U.ToastWas
         Read-ChatqBoardSetupForm $U $cfg
@@ -964,7 +981,8 @@ function Get-ChatqPhoneSetupSnapshot {
     # everything the form says, as one string: unsaved means it differs from
     # the one taken when the form was last filled. Not the replies box: that
     # one is held against the file itself (ReplyOn), which pairing changes
-    # while the form is open.
+    # while the form is open. Nor the questions box: held against the file
+    # too (AskWas), which its background install changes while the form is open.
     param($U)
     $d = Get-ChatqPhoneSetupPicked $U
     $dev = if (-not $d) { '' } elseif (Test-ChatqPhoneSetupSameDevice $U $d) { '=' } else { [string]$d.Id }
@@ -975,7 +993,7 @@ function Get-ChatqPhoneSetupSnapshot {
 
 function Test-ChatqPhoneSetupDirty {
     param($U)
-    return ((Get-ChatqPhoneSetupSnapshot $U) -ne $U.Baseline -or [bool]$U.ReplyBox.IsChecked -ne [bool]$U.ReplyOn)
+    return ((Get-ChatqPhoneSetupSnapshot $U) -ne $U.Baseline -or [bool]$U.ReplyBox.IsChecked -ne [bool]$U.ReplyOn -or [bool]$U.AskBox.IsChecked -ne [bool]$U.AskWas)
 }
 
 function Update-ChatqPhoneSetupDirty {
@@ -983,6 +1001,8 @@ function Update-ChatqPhoneSetupDirty {
     param($U)
     # permissions from the phone only while replies are on: nothing else answers them
     if ($U.PermitBox) { $U.PermitBox.IsEnabled = [bool]$U.ReplyBox.IsChecked }
+    # and questions from the phone the same
+    if ($U.AskBox) { $U.AskBox.IsEnabled = [bool]$U.ReplyBox.IsChecked }
     if ($U.Loading) { return }
     $d = Test-ChatqPhoneSetupDirty $U
     # and not while a push is under way: Save would write the file under it
@@ -1249,6 +1269,10 @@ function Get-ChatqPhoneSetupChanges {
     if ($live -ne $U.LiveWas) { $c.LiveAlerts = $live }
     $permit = [bool]$U.PermitBox.IsChecked
     if ($permit -ne [bool]$U.PermitWas) { $c.Permit = if ($permit) { 'on' } else { 'off' } }
+    # Ask: Save takes it out again and runs it in the background, the install
+    # being several claude plugin commands (Start-ChatqPhoneSetupJob 'ask')
+    $ask = [bool]$U.AskBox.IsChecked
+    if ($ask -ne [bool]$U.AskWas) { $c.Ask = if ($ask) { 'on' } else { 'off' } }
     $toast = [bool]$U.ToastBox.IsChecked
     if ($toast -ne $U.ToastWas) { $c.Toast = if ($toast) { 'on' } else { 'off' } }
     $topic = ([string]$U.NtfyTopicBox.Password).Trim()
@@ -1288,6 +1312,12 @@ function Save-ChatqPhoneSetup {
     $r = Get-ChatqPhoneSetupChanges $U
     if ($r.Error) { Set-ChatqPhoneSetupNote $U $U.Status $r.Error 'warn'; return $false }
     $pair = [bool]($Pair -or $r.Pair)
+    # The question hook is not among the keys Set-ChatqNotifyConfig gets here:
+    # its install runs several claude plugin commands, so it goes to the
+    # background after the rest is saved. With a pairing still to come it
+    # waits for the next Save - a question needs a paired phone to reach.
+    $askWant = $null
+    if ($r.Changes.ContainsKey('Ask')) { $askWant = [string]$r.Changes.Ask; $r.Changes.Remove('Ask') }
     # The pairing alert needs a way to the phone - the one saved, or the one
     # this Save saves. Without one, the rest is saved and the box stays
     # ticked, unsaved, with the note saying what is missing.
@@ -1297,7 +1327,7 @@ function Save-ChatqPhoneSetup {
     # the setting stands whatever becomes of the push - the window closed
     # under it, or Join down.
     elseif ($pair -and -not $U.ReplyOn) { $r.Changes.Reply = 'on' }
-    if (-not $r.Changes.Count -and -not $pair -and -not $noWay) {
+    if (-not $r.Changes.Count -and -not $pair -and -not $noWay -and -not $askWant) {
         if (-not $Quiet) { Set-ChatqPhoneSetupNote $U $U.Status 'nothing to save' 'dim' }
         return $true
     }
@@ -1313,6 +1343,17 @@ function Save-ChatqPhoneSetup {
         Read-ChatqPhoneSetupForm $U -KeepDevices
         if ($warn) { Set-ChatqPhoneSetupNote $U $U.Status "saved - $($warn[-1])" 'warn' }
         else { Set-ChatqPhoneSetupNote $U $U.Status "saved $((Get-Date).ToString('HH:mm'))" 'ok' }
+    }
+    # the form read back from the file put the questions box back as it was
+    # saved: it stays as ticked until its install ends, or until the next Save
+    if ($askWant) { $U.AskBox.IsChecked = ($askWant -eq 'on') }
+    if ($askWant -and ($pair -or $noWay)) {
+        Set-ChatqPhoneSetupNote $U $U.Status 'the question hook goes in on the next Save, once the phone is paired' 'warn'
+        Update-ChatqPhoneSetupDirty $U
+    }
+    elseif ($askWant -and -not (Start-ChatqPhoneSetupJob $U 'ask' -Arg $askWant)) {
+        Update-ChatqPhoneSetupDirty $U
+        return $false
     }
     if ($noWay) {
         $U.ReplyBox.IsChecked = $true
@@ -1341,6 +1382,8 @@ function Invoke-ChatqPhoneSetupTest {
     if ($U.Job) { return }
     if (-not (Save-ChatqPhoneSetup $U -Quiet)) { return }
     if ($U.Job) {
+        # the save began the question hook's install: the test waits for it
+        if ($U.Job.Kind -eq 'ask') { Set-ChatqPhoneSetupNote $U $U.TestNote 'saved - send the test again once the question hook is in' 'warn'; return }
         # the save switched replies on and so began pairing: that push takes
         # the same way to the phone, so it is the test
         Set-ChatqPhoneSetupNote $U $U.TestNote 'the pairing alert goes instead - it takes the same way' 'dim'
@@ -1367,12 +1410,12 @@ function Start-ChatqPhoneSetupJob {
     until it ends. -Arg: the answer's id, for confirm. $true when it
     started.
     #>
-    param($U, [ValidateSet('test', 'pair', 'confirm')][string]$Kind, [string]$Arg = '')
+    param($U, [ValidateSet('test', 'pair', 'confirm', 'ask')][string]$Kind, [string]$Arg = '')
     if ($U.Job) { return $false }
-    $note = if ($Kind -eq 'test') { $U.TestNote } else { $U.PairNote }
+    $note = switch ($Kind) { 'test' { $U.TestNote } 'ask' { $U.Status } default { $U.PairNote } }
     $path = $script:ChatqScriptPath
     if (-not $path -or -not (Test-Path -LiteralPath $path)) {
-        Set-ChatqPhoneSetupNote $U $note 'not sent: this window does not know where VS-code-chat-manager.ps1 is' 'error'
+        Set-ChatqPhoneSetupNote $U $note 'not sent: this window does not know where claude-codex-chat-manager.ps1 is' 'error'
         return $false
     }
     $text = if ($Kind -eq 'test') { "chatq reaches this device $($script:ChatqDot) $([Environment]::MachineName)" } else { $Arg }
@@ -1400,6 +1443,7 @@ function Start-ChatqPhoneSetupJob {
     $U.Job = $j
     Update-ChatqPhoneSetupBusy $U
     Start-ChatqPhoneSetupTimer $U
+    if ($Kind -eq 'ask') { Set-ChatqPhoneSetupNote $U $U.Status "$(if ($Arg -eq 'on') { 'installing' } else { 'removing' }) the question hook..." 'dim' }
     return $true
 }
 
@@ -1409,7 +1453,7 @@ function Update-ChatqPhoneSetupJob {
     param($U)
     $j = $U.Job
     if (-not $j) { return }
-    $note = if ($j.Kind -eq 'test') { $U.TestNote } else { $U.PairNote }
+    $note = switch ($j.Kind) { 'test' { $U.TestNote } 'ask' { $U.Status } default { $U.PairNote } }
     if (-not $j.Handle.IsCompleted) {
         $sec = [int][Math]::Floor(((Get-Date) - $j.At).TotalSeconds)
         # past a few seconds, the count says it is still going and not stuck
@@ -1417,6 +1461,7 @@ function Update-ChatqPhoneSetupJob {
             $what = switch ($j.Kind) {
                 'pair' { "still sending - $sec s. Closing this window does not stop it." }
                 'confirm' { "pairing - $sec s. Closing this window does not stop it." }
+                'ask' { "$(if ($j.Arg -eq 'on') { 'installing' } else { 'removing' }) the question hook... $sec s. Closing this window does not stop it." }
                 default { "sending... $sec s" }
             }
             Set-ChatqPhoneSetupNote $U $note $what 'dim'
@@ -1445,8 +1490,36 @@ function Update-ChatqPhoneSetupJob {
     switch ($j.Kind) {
         'pair' { Complete-ChatqPhoneSetupPair $U $res $err }
         'confirm' { Complete-ChatqPhoneSetupConfirm $U $res $err }
+        'ask' { Complete-ChatqPhoneSetupAsk $U $res $err $j.Arg }
         default { Complete-ChatqPhoneSetupTest $U $res $err }
     }
+}
+
+function Complete-ChatqPhoneSetupAsk {
+    <#
+    The question hook's install or removal ended. The file says whether it
+    took (a failed install leaves ask.on off), so the box follows it - unless
+    it was changed while the job ran. The status line gets what
+    Set-ChatqNotifyConfig said: its green and yellow lines, the full text as
+    the tooltip.
+    #>
+    param($U, $Res, [string]$Err, [string]$Want)
+    $U.Cfg = Get-ChatqConfig
+    $was = ($Want -eq 'on')
+    $now = $false
+    try { $now = [bool](Get-ChatqAskConfig $U.Cfg).On } catch {}
+    if ([bool]$U.AskBox.IsChecked -eq $was) { $U.AskBox.IsChecked = $now }
+    $U.AskWas = $now
+    $lines = if ($Res) { @(@($Res.Messages) | Where-Object { $_ -and $_.Color -in 'Green', 'Yellow' -and $_.Text } | ForEach-Object { [string]$_.Text }) } else { @() }
+    $warned = [bool]($Res -and @(@($Res.Messages) | Where-Object { $_ -and $_.Color -eq 'Yellow' }).Count)
+    if ($Err) { $say = "the question hook: $Err"; $tone = 'error' }
+    elseif ($Res.Error) { $say = "the question hook: $($Res.Error)"; $tone = 'warn' }
+    else {
+        $say = if ($lines) { $lines -join '; ' } else { 'the question hook is done' }
+        $tone = if ($now -eq $was -and -not $warned) { 'ok' } else { 'warn' }
+    }
+    Set-ChatqPhoneSetupNote $U $U.Status $say $tone
+    Update-ChatqPhoneSetupDirty $U
 }
 
 function Complete-ChatqPhoneSetupTest {
@@ -1559,7 +1632,7 @@ function Stop-ChatqPhoneSetupJob {
     if (-not $j) { return }
     if ($j.Handle -and -not $j.Handle.IsCompleted) {
         if ($j.Kind -eq 'test') { try { [void]$j.Ps.BeginStop($null, $null) } catch {} }
-        else { Write-ChatqPhoneSetupLog "closed while the $(if ($j.Kind -eq 'pair') { 'pairing alert' } else { 'confirmation' }) was on its way - it goes on" }
+        else { Write-ChatqPhoneSetupLog "closed while the $(switch ($j.Kind) { 'pair' { 'pairing alert' } 'ask' { 'question hook change' } default { 'confirmation' } }) was on its way - it goes on" }
         $script:ChatqPhoneSetupOrphans.Add($j)
     }
     else { Close-ChatqPhoneSetupJobHandles $j }

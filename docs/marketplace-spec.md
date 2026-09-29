@@ -197,12 +197,16 @@ The decision is a pure function, so it can be tested:
       Single tenant, no redirect URI.
    2. **Certificates & secrets → Federated credentials → Add → GitHub
       Actions.** Organization `phal40lax78` (a personal account's
-      username), repository `VS-code-chat-manager`, entity type
+      username), repository `claude-codex-chat-manager`, entity type
       Environment, environment `marketplace`. The form fills in the
       numeric IDs, 199534513 and 1380880732. Leave the subject as it
-      builds it, `repo:phal40lax78@199534513/VS-code-chat-manager@1380880732:environment:marketplace`:
+      builds it, `repo:phal40lax78@199534513/claude-codex-chat-manager@1380880732:environment:marketplace`:
       this repo's tokens use that immutable form (`gh api
-      repos/phal40lax78/VS-code-chat-manager/actions/oidc/customization/sub`).
+      repos/phal40lax78/claude-codex-chat-manager/actions/oidc/customization/sub`).
+      Immutable pins the IDs, not the name: renaming the repo changes
+      the subject, and the login fails with AADSTS700213 until this
+      credential names the new repo. The 0.10.0 publish, the first after
+      the rename from `VS-code-chat-manager`, failed so.
    3. **In the repo's Settings → Secrets and variables → Actions,** add
       `AZURE_CLIENT_ID` (the Application ID) and `AZURE_TENANT_ID` (the
       Directory ID).
@@ -293,7 +297,18 @@ The decision is a pure function, so it can be tested:
    under the publisher the owner made, whose ID is not the GitHub name
    `phal40lax78` the spec first assumed; an upload whose manifest names
    another publisher is refused - and display name "VS Code Chat Manager".
-   Both passed M2.
+   Both passed M2. **Renamed 2026-09-28** to "Chat Manager for Claude Code
+   & Codex", ID `redaechan.claude-codex-chat-manager`: the name is the
+   field Marketplace search weights most, and "VS Code" matched every
+   extension while "Claude" and "Codex" were missing. A Marketplace query
+   found neither in use. A new ID is a new extension that old installs
+   never update to; three days after the first publish the owner was its
+   only user, so no handover was built - the old one is uninstalled by
+   hand, and the old-extension guard still knows only the reload one.
+   The repo, the loader and the default tool folder were renamed the same
+   day to `claude-codex-chat-manager`. The federated credential in M1
+   step 2 names the repo, so its subject became
+   `repo:phal40lax78@199534513/claude-codex-chat-manager@1380880732:environment:marketplace`.
 2. **The profile line:** asked once, as above, rather than only through
    the command.
 3. **Publishing:** by hand for 0.7.0, and from CI once M1 passes.

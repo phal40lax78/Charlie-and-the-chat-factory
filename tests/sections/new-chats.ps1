@@ -190,3 +190,39 @@ $apGone = Join-Path $lDir 'append-gone.jsonl'
 $apRefused = try { (Open-ChatAppend $apGone).Dispose(); $false } catch { $true }
 Check 'the line is appended as the extension appends it: a record another process adds after the open stays, and this lands after it; no file is made' (
     [System.IO.File]::ReadAllText($ap, $utf8) -eq "first`ntheirs`nours`n" -and $apRefused -and -not (Test-Path -LiteralPath $apGone)) ([System.IO.File]::ReadAllText($ap, $utf8))
+
+# chatclean lists again what nothing else will: a chat hidden before 0.8.1,
+# neither run into nor opened since. Held while in use; a side transcript,
+# which Claude Code never lists, left as it is; a second pass adds nothing
+$ccHidId = 'c1c1c1c1-0000-4000-8000-00000000c1c1'
+$ccBusyId = 'c2c2c2c2-0000-4000-8000-00000000c2c2'
+$ccSideId = 'c3c3c3c3-0000-4000-8000-00000000c3c3'
+$ccPaths = foreach ($x in @(@($ccHidId, 'hidden before 0.8.1'), @($ccBusyId, 'hidden and in use'), @($ccSideId, 'a side transcript'))) {
+    $f = New-FakeChat $newDir $x[0] $x[1] 2 @(('A' * 70000), 'and then')
+    [System.IO.File]::AppendAllText($f, (& $epl 'sdk-cli'), $utf8)
+    $f
+}
+$ccSide = $ccPaths[2]
+[System.IO.File]::WriteAllText($ccSide, ([System.IO.File]::ReadAllText($ccSide, $utf8) -replace '"isSidechain":false', '"isSidechain":true'), $utf8)
+$ccBusyBytes = [System.IO.File]::ReadAllBytes($ccPaths[1])
+$ccSideBytes = [System.IO.File]::ReadAllBytes($ccSide)
+$ccLive = @([pscustomobject]@{ SessionId = $ccBusyId; Status = 'busy'; Kind = 'interactive' })
+$ccCodex = [pscustomobject]@{ Provider = 'codex'; Id = $ccHidId; Path = $ccPaths[0]; Hidden = $false }
+$cc1 = Repair-ChatListedAll -Rows (@(Sync-ChatIndex -Provider claude) + $ccCodex) -Live $ccLive
+$cc2 = Repair-ChatListedAll -Rows @(Sync-ChatIndex -Provider claude) -Live $ccLive
+$ccMine = { param($rows) @($rows | Where-Object { $_.Id -in $ccHidId, $ccBusyId, $ccSideId } | ForEach-Object { $_.Id }) -join ',' }
+Check 'a chat hidden by its tail, never run into or opened since: listed again from the index; one in use held, untouched; a side transcript passed over; a second pass adds none' (
+    (& $ccMine $cc1.Relisted) -eq $ccHidId -and (& $ccMine $cc1.Held) -eq $ccBusyId -and -not $cc2.Relisted.Count -and (& $ccMine $cc2.Held) -eq $ccBusyId -and
+    @([System.IO.File]::ReadAllLines($ccPaths[0], $utf8))[-1] -ceq (Get-ChatListedLine $ccHidId) -and
+    [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($ccPaths[1])) -eq [Convert]::ToBase64String($ccBusyBytes) -and
+    [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($ccSide)) -eq [Convert]::ToBase64String($ccSideBytes)) "relisted $(& $ccMine $cc1.Relisted) / held $(& $ccMine $cc1.Held) / again $($cc2.Relisted.Count)"
+# chatclean itself, once the chat is no longer in use: it says which it
+# listed again. The ghost picker declines, so nothing of the sandbox goes
+$ccPick = ${function:Select-ChatItems}
+${function:Select-ChatItems} = { param($Items, $Title) @() }
+try { $ccOut = (chatclean -Provider claude *>&1 | Out-String) }
+finally { ${function:Select-ChatItems} = $ccPick }
+Check 'chatclean lists it again once idle, and says so by its title' (
+    $ccOut -like '*listed again in Claude Code: hidden and in use*' -and $ccOut -notlike '*a side transcript*' -and
+    @([System.IO.File]::ReadAllLines($ccPaths[1], $utf8))[-1] -ceq (Get-ChatListedLine $ccBusyId)) $ccOut
+Remove-Item -LiteralPath $ccPaths -Force -EA SilentlyContinue

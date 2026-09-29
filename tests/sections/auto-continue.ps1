@@ -83,6 +83,10 @@ $armedNext = & $S (& $stCut) @(& $stJob) -e @{ j12 = 'next' }
 $due = & $S (& $stCut -Reset $tn.AddMinutes(-11)) @(& $stJob) -e @{ j12 = '13:05 (open in VS Code)' }
 $dueAfter = & $S (& $stCut -Reset $tn.AddMinutes(-11)) @(& $stJob) -e @{ j12 = 'after #3' }
 $running = & $S (& $stCut) @(& $stJob 'running')
+# behind a continue that waits for the same reset: after it, one at a time;
+# behind a run in progress, the reset still ahead: at the reset
+$armedTied = & $S (& $stCut) @((& $stJob), [pscustomobject]@{ id = 'j11'; seq = 11; sessionId = 's0'; state = 'queued' }) -e @{ j11 = '13:01'; j12 = 'after #11' }
+$armedBusy = & $S (& $stCut) @((& $stJob), [pscustomobject]@{ id = 'j3'; seq = 3; sessionId = 's0'; state = 'running' }) -e @{ j3 = 'running'; j12 = 'after #3' }
 $off = & $S (& $stCut) -cfg (& $stCfg $false)
 $askSt = & $S (& $stCut) -cfg (& $stCfg $false -Mode 'ask')
 $always = & $S (& $stCut) -cfg (& $stCfg $false @{ s1 = [pscustomobject]@{ auto = 'always' } })
@@ -107,8 +111,10 @@ Check 'the states: ready, armed, due, running - words exact, short on the row an
     (& $ws $ready) -eq "ready|resets 13:00|cut off - resets 13:00 $d auto-continue queues it" -and
     (& $ws $armed) -eq 'armed|#12 auto 13:01|#12 auto-continues 13:01' -and (& $ws $armedNext) -eq 'armed|#12 auto 13:01|#12 auto-continues 13:01' -and
     (& $ws $due) -eq 'due|#12 auto 13:05|#12 auto-continues 13:05 (open in VS Code)' -and (& $ws $dueAfter) -eq 'due|#12 auto after #3|#12 auto-continues after #3' -and
-    (& $ws $running) -eq 'running|#12 running|#12 running' -and $armed.Seq -eq 12 -and $armed.JobId -eq 'j12' -and $armed.At -eq '13:01') (
-    @($ready, $armed, $armedNext, $due, $dueAfter, $running) | ForEach-Object { & $ws $_ }) -join ' / '
+    (& $ws $running) -eq 'running|#12 running|#12 running' -and $armed.Seq -eq 12 -and $armed.JobId -eq 'j12' -and $armed.At -eq '13:01' -and
+    (& $ws $armedTied) -eq 'armed|#12 auto after #11|#12 auto-continues after #11' -and $armedTied.Why -like '*sends "continue" after #11' -and
+    (& $ws $armedBusy) -eq 'armed|#12 auto 13:01|#12 auto-continues 13:01') (
+    @($ready, $armed, $armedNext, $due, $dueAfter, $running, $armedTied, $armedBusy) | ForEach-Object { & $ws $_ }) -join ' / '
 Check 'the states: off - and ask, which says it asks - always with them, never, terminal (a terminal''s claude, any entry not a panel''s), a panel''s is no bar' (
     (& $ws $off) -eq 'off|resets 13:00|cut off - resets 13:00' -and $off.Why -like 'auto-continue is off*' -and $askSt.State -eq 'off' -and $askSt.Why -like 'auto-continue asks once the limit is over*' -and
     $always.State -eq 'ready' -and
@@ -331,7 +337,7 @@ $raceCode = {
 }
 $race = @(foreach ($n in 1, 2) {
         $ps = [powershell]::Create()
-        [void]$ps.AddScript($raceCode.ToString()).AddArgument((Join-Path $sb 'tool\VS-code-chat-manager.ps1')).AddArgument($go).AddArgument($idAR).AddArgument($n)
+        [void]$ps.AddScript($raceCode.ToString()).AddArgument((Join-Path $sb 'tool\claude-codex-chat-manager.ps1')).AddArgument($go).AddArgument($idAR).AddArgument($n)
         @{ Ps = $ps; H = $ps.BeginInvoke() }
     })
 $t0 = Get-Date
@@ -576,7 +582,9 @@ $jo2 = @(Get-AcJobs $idO2)[0]
 Check 'a -Peek pass, and a context no host made (chatoverlay -Print), queue nothing' ($peekJobs -eq 0 -and $printJobs -eq 0) "$peekJobs $printJobs"
 Check 'the host''s pass queues; a closed chat keeps one orange cut-off row carrying its job, and the job no row of its own' ($jo1 -and $ro1.Count -eq 1 -and
     $ro1[0].kind -eq 'cutoff' -and $ro1[0].status -eq 'cutoff' -and $ro1[0].rank -eq 0.5 -and $ro1[0].auto.state -eq 'armed' -and $ro1[0].job.seq -eq $jo1.seq -and
-    $ro1[0].stateText -match "^#$($jo1.seq) auto ([A-Z][a-z]{2} )?\d\d:\d\d$") ($ro1 | ConvertTo-Json -Compress -Depth 4)
+    # its time, or after a job queued earlier in this sandbox for the same
+    # reset minute: those go one at a time (Get-ChatqEta)
+    $ro1[0].stateText -match "^#$($jo1.seq) auto (([A-Z][a-z]{2} )?\d\d:\d\d|after #\d+)$") ($ro1 | ConvertTo-Json -Compress -Depth 4)
 Check 'an open chat: its own row stays orange with the job on it, held for VS Code; the counts say cut off, and auto; the switch in the header, and no reset ask while it is on' ($jo2 -and $jo2.deferWhy -eq 'vscode' -and $ro2.Count -eq 1 -and
     $ro2[0].kind -eq 'session' -and $ro2[0].status -eq 'cutoff' -and $ro2[0].auto.state -eq 'armed' -and $ro2[0].job.seq -eq $jo2.seq -and
     [int]$snapA.counts.cutOff -ge 2 -and [int]$snapA.counts.auto -ge 2 -and $snapA.header.autoOn -eq $true -and $snapA.header.autoContinue -eq 'on' -and
@@ -621,9 +629,9 @@ $rowOf = { param($st, [string]$cwd = 'C:\p') [pscustomobject]@{ key = 'c:x'; kin
         auto = [pscustomobject]@{ state = $st; words = 'w'; long = 'L'; why = 'y'; seq = 3; jobId = 'j3' } } }
 $acts = { param($r) (@(Get-ChatOverlayChipActions $r) | ForEach-Object Id) -join ',' }
 Check 'the chips a row gets: don''t continue on armed and due, continue where nothing will, none on running, a terminal or a 529 - open beside where it opens' (
-    (& $acts (& $rowOf 'armed')) -eq 'dont,open' -and (& $acts (& $rowOf 'due')) -eq 'dont,open' -and
-    (@('off', 'never', 'declined', 'failed', 'stopped', 'far', 'late', 'ready') | ForEach-Object { & $acts (& $rowOf $_) }) -join '|' -eq ((1..8 | ForEach-Object { 'continue,open' }) -join '|') -and
-    (& $acts (& $rowOf 'running')) -eq 'open' -and (& $acts (& $rowOf 'terminal')) -eq 'open' -and (& $acts (& $rowOf 'overloaded')) -eq 'open' -and
+    (& $acts (& $rowOf 'armed')) -eq 'dont,open,delete' -and (& $acts (& $rowOf 'due')) -eq 'dont,open,delete' -and
+    (@('off', 'never', 'declined', 'failed', 'stopped', 'far', 'late', 'ready') | ForEach-Object { & $acts (& $rowOf $_) }) -join '|' -eq ((1..8 | ForEach-Object { 'continue,open,delete' }) -join '|') -and
+    (& $acts (& $rowOf 'running')) -eq 'open,delete' -and (& $acts (& $rowOf 'terminal')) -eq 'open,delete' -and (& $acts (& $rowOf 'overloaded')) -eq 'open,delete' -and
     (& $acts (& $rowOf 'armed' '')) -eq 'dont' -and (& $acts ([pscustomobject]@{ provider = 'claude'; sessionId = 'x' })) -eq '') ''
 $dontTip = @(Get-ChatOverlayChipActions (& $rowOf 'armed'))[0].Tip
 Check 'don''t continue''s tooltip carries what the row says in full, and the spec''s words' ($dontTip -like 'L. Don''t send "continue" to this chat after this reset. The next time the limit cuts it off, it is continued again - chatq ''T'' -AutoContinue never stops that.') $dontTip
@@ -633,9 +641,10 @@ $cpB = Get-ChatOverlayChipPlacement @(1524, 200, 380, 20) @(170, 18) $scrA 400
 $cpC = Get-ChatOverlayChipPlacement @(1524, 200, 380, 20) @(40, 18) $scrA
 Check 'the auto chips keep clear of the row''s state, and never leave the row; open alone stays flush right' ($cpA.X -eq (1524 + 380 - 90 - 170) -and $cpB.X -eq 1524 -and $cpC.X -eq (1524 + 380 - 40)) "$($cpA.X) $($cpB.X) $($cpC.X)"
 # a press on one chip released on another does nothing; the auto chips never take the unread dot
-$script:AcOpened = 0; $script:AcAuto = @(); $script:AcAsk = @()
-$fnOpen = ${function:Invoke-ChatOverlayOpen}; $fnAuto = ${function:Invoke-ChatOverlayAutoChip}; $fnAsk = ${function:Invoke-ChatOverlayAskAnswer}
+$script:AcOpened = 0; $script:AcAuto = @(); $script:AcAsk = @(); $script:AcDel = 0
+$fnOpen = ${function:Invoke-ChatOverlayOpen}; $fnAuto = ${function:Invoke-ChatOverlayAutoChip}; $fnAsk = ${function:Invoke-ChatOverlayAskAnswer}; $fnDel = ${function:Invoke-ChatOverlayDeleteChip}
 ${function:Invoke-ChatOverlayOpen} = { param($H, $Row) $script:AcOpened++ }
+${function:Invoke-ChatOverlayDeleteChip} = { param($H, $Row) $script:AcDel++ }
 ${function:Invoke-ChatOverlayAutoChip} = { param($H, $Row, $Act) $script:AcAuto += $Act }
 ${function:Invoke-ChatOverlayAskAnswer} = { param($H, $Answer, $Keys) $script:AcAsk += "$Answer=$(@($Keys) -join ',')" }
 try {
@@ -646,13 +655,18 @@ try {
     $mis = $script:AcOpened -eq 0 -and -not $script:AcAuto.Count
     Invoke-ChatOverlayChipRelease $Hx 'dont' 'dont'
     Invoke-ChatOverlayChipRelease $Hx 'open' 'open'
+    Invoke-ChatOverlayChipRelease $Hx 'open' 'delete'
+    Invoke-ChatOverlayChipRelease $Hx 'delete' 'delete'
+    # greyed on a chat at work: its release does nothing
+    $Hx.ChipRow = [pscustomobject]@{ key = 's:x'; kind = 'session'; provider = 'claude'; status = 'busy'; sessionId = '11111111-1111-4111-8111-111111111111'; cwd = 'C:\p' }
+    Invoke-ChatOverlayChipRelease $Hx 'delete' 'delete'
     $Hx.ChipRow = [pscustomobject]@{ key = 'ask'; kind = 'ask'; keys = @('k_1', 'k_2') }
     Invoke-ChatOverlayChipRelease $Hx 'ask-go' 'ask-go'
     Invoke-ChatOverlayChipRelease $Hx 'ask-go' 'ask-leave'
 }
-finally { ${function:Invoke-ChatOverlayOpen} = $fnOpen; ${function:Invoke-ChatOverlayAutoChip} = $fnAuto; ${function:Invoke-ChatOverlayAskAnswer} = $fnAsk }
+finally { ${function:Invoke-ChatOverlayOpen} = $fnOpen; ${function:Invoke-ChatOverlayAutoChip} = $fnAuto; ${function:Invoke-ChatOverlayAskAnswer} = $fnAsk; ${function:Invoke-ChatOverlayDeleteChip} = $fnDel }
 Check 'a chip acts only when pressed and released on it - a press dragged onto another does nothing; the banner''s answers go the same way' (
-    $mis -and $script:AcOpened -eq 1 -and ($script:AcAuto -join ',') -eq 'dont' -and ($script:AcAsk -join '|') -eq 'continue=k_1,k_2') "$($script:AcOpened) $($script:AcAuto -join ',') $($script:AcAsk -join '|')"
+    $mis -and $script:AcOpened -eq 1 -and $script:AcDel -eq 1 -and ($script:AcAuto -join ',') -eq 'dont' -and ($script:AcAsk -join '|') -eq 'continue=k_1,k_2') "$($script:AcOpened) $($script:AcAuto -join ',') $($script:AcAsk -join '|')"
 $Hu = @{ Ctx = @{ Unread = @{ $idO1 = $true }; JobsSig = 'x' }; Tray = $null }
 $rowO1 = @($snapA.rows | Where-Object { $_.sessionId -eq $idO1 })[0]
 Invoke-ChatOverlayAutoChip $Hu $rowO1 'dont'
@@ -727,7 +741,7 @@ Check 'no act turns auto-continue on or off from the phone' ($null -eq $nobody -
 if ($script:ChatqIsWindows) {
     $acWpf = @"
 `$env:CHATQ_OVERLAY = '1'
-. '$(Join-Path $sb 'tool\VS-code-chat-manager.ps1')'
+. '$(Join-Path $sb 'tool\claude-codex-chat-manager.ps1')'
 Set-StrictMode -Off
 `$script:ChatqSpawn = { `$true }
 `$cfgWas = [IO.File]::ReadAllText(`$script:ChatqConfigPath)
@@ -815,7 +829,7 @@ Show-ChatOverlayChip `$H `$rects[0] ([System.Drawing.Point]::new(-9000, -9000))
 `$kids = @(`$H.ChipWin.Content.Children)
 `$cr = [ChatOverlayNative]::GetRect(`$H.ChipHwnd)
 `$sr = `$rects[0].State
-`$two = `$kids.Count -eq 2 -and (@(`$kids | ForEach-Object { `$_.Tag }) -join ',') -eq 'dont,open' -and `$kids[0].Child.Text -eq "don't continue" -and
+`$two = `$kids.Count -eq 3 -and (@(`$kids | ForEach-Object { `$_.Tag }) -join ',') -eq 'dont,open,delete' -and `$kids[0].Child.Text -eq "don't continue" -and
     `$kids[0].ToolTip -like '#12 auto-continues 13:01. Don''t send*' -and `$H.ChipText -eq `$kids[1].Child -and `$sr -and (`$cr[0] + `$cr[2]) -le `$sr[0]
 # a row with no mark keeps its title in the column: an empty slot where the mark goes
 `$slot = @(@(`$H.Stack.Children | Where-Object { `$_.Tag -and `$_.Tag -isnot [string] })[0].Children[0].Children | Where-Object { `$_.Tag -eq 'slot' }).Count -eq 1
@@ -839,7 +853,7 @@ Show-ChatOverlayChip `$H `$rects[0] ([System.Drawing.Point]::new(-9000, -9000))
 `$kids[1].RaiseEvent((& `$ev `$true)); `$kids[1].RaiseEvent((& `$ev `$false))
 `$unarmed = `$unarmed -and `$script:Opened -eq 1
 `$script:Opened = 0
-# a plain row: open alone, flush right
+# a plain row: open and delete, flush right
 `$pr = [pscustomobject]@{ key = "s:`$sid"; kind = 'session'; provider = 'claude'; status = 'idle'; rank = 3; project = 'p'; title = 'plain'; prompt = `$null; stateText = 'idle 1m'; job = `$null; sessionId = `$sid; cwd = 'C:\p'; where = 'vscode' }
 `$H.Ctx.ViewSig = 'plain'
 Update-ChatOverlayView `$H ([pscustomobject]@{ header = [pscustomobject]@{ usage = @(); notes = @() }; rows = @(`$pr) })
@@ -848,7 +862,7 @@ Update-ChatOverlayView `$H ([pscustomobject]@{ header = [pscustomobject]@{ usage
 Show-ChatOverlayChip `$H `$rects[0] ([System.Drawing.Point]::new(-9000, -9000))
 `$cr2 = [ChatOverlayNative]::GetRect(`$H.ChipHwnd)
 `$ln = `$rects[0].Line
-`$plain = @(`$H.ChipWin.Content.Children).Count -eq 1 -and [Math]::Abs((`$cr2[0] + `$cr2[2]) - (`$ln[0] + `$ln[2])) -le 1
+`$plain = (@(`$H.ChipWin.Content.Children | ForEach-Object { `$_.Tag }) -join ',') -eq 'open,delete' -and [Math]::Abs((`$cr2[0] + `$cr2[2]) - (`$ln[0] + `$ln[2])) -le 1
 # the collapsed line counts the auto ones
 `$H.Ctx.ViewSig = 'fold'
 `$H.Collapsed = `$true
@@ -869,7 +883,7 @@ if (`$null -ne `$stateWas) { [IO.File]::WriteAllText(`$script:ChatqAutoPath, `$s
     Check 'seven rows fit: with the panel at the screen''s top, the buttons and box go below it, on the screen' ($aw[4] -eq 'True') "$acOut"
     Check 'the chip window over an auto row: don''t continue and open, left of the row''s state, the state in the tooltip' ($aw[5] -eq 'True') "$acOut"
     Check 'a press on one chip released on the other does nothing; on the same chip it acts; an unarmed chip takes no click' ($aw[6] -eq 'True' -and $aw[7] -eq 'True' -and $aw[8] -eq 'True') "$acOut"
-    Check 'a plain row still gets open alone, flush with its right end' ($aw[9] -eq 'True') "$acOut"
+    Check 'a plain row gets open and delete, flush with its right end' ($aw[9] -eq 'True') "$acOut"
     Check 'collapsed, the one line counts the cut-off chats auto-continue will continue' ($aw[10] -eq 'True') "$acOut"
     Check 'Continue chosen in the settings box: on, and the notice said once' ($aw[11] -eq 'True') "$acOut"
     Check 'a row with no mark gets an empty slot, so every title starts in one column' ($aw[12] -eq 'True') "$acOut"

@@ -1,4 +1,4 @@
-# VS-code-chat-manager, src/overlay.ps1: dot-sourced by VS-code-chat-manager.ps1
+# claude-codex-chat-manager, src/overlay.ps1: dot-sourced by claude-codex-chat-manager.ps1
 # in its turn, never on its own - see the list there.
 
 #region overlay: the command ---------------------------------------------------
@@ -114,7 +114,7 @@ function Start-ChatOverlayProcess {
     if (-not $script:ChatqIsWindows -and -not $script:ChatIsMac) { return $false }
     $path = $script:ChatqScriptPath
     if (-not $path -or -not (Test-Path -LiteralPath $path)) {
-        Write-Host '  cannot start the overlay: this shell does not know where VS-code-chat-manager.ps1 is' -ForegroundColor Yellow
+        Write-Host '  cannot start the overlay: this shell does not know where claude-codex-chat-manager.ps1 is' -ForegroundColor Yellow
         return $false
     }
     $l = Get-ChatOverlayLaunch $path -Open $Open
@@ -170,8 +170,9 @@ function chatoverlay {
     fifteen; Codex's is what Codex wrote on its last run.
 
     Clicks go through it and it never takes focus. On Windows the pointer
-    brings up a row of buttons over its top-right corner: a grip to drag it by, a
-    handle to resize it (sideways for width, up and down for rows), collapse to
+    brings up its edges, to drag as any window's (the sides for width, the
+    top and bottom for rows, the corners for both), and a row of buttons
+    over its top-right corner: a grip to drag it by, collapse to
     one line, refresh usage, the console (chatconsole), settings (width, rows,
     opacity, theme, usage as lines or bars, full or compact rows, how many
     recent chats, and whether chats the limit cut off are asked about or
@@ -381,7 +382,7 @@ function chatoverlay {
         Write-Host '  overlay started - top right of the main screen' -ForegroundColor Green
         if ($script:ChatIsMac) { Write-Host '  macOS support is untested - TESTING.md lists what to check' -ForegroundColor DarkGray }
     }
-    if ($script:ChatqIsWindows) { Write-Host '  clicks go through it - point at it for its buttons: move, resize, collapse, refresh, console, settings, hide, close' -ForegroundColor DarkGray }
+    if ($script:ChatqIsWindows) { Write-Host '  clicks go through it - point at it for its edges, to resize it, and its buttons: move, collapse, refresh, console, settings, hide, close' -ForegroundColor DarkGray }
     else { Write-Host '  clicks go through it - the CQ menu bar item unlocks it to drag' -ForegroundColor DarkGray }
     # what comes back by itself, as config.json has it now
     if ((Get-ChatOverlayConfig).autoStart) {

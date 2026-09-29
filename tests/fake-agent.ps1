@@ -1,5 +1,6 @@
 # Fake claude / codex for tests/run-tests.ps1. Driven by environment variables:
-#   FAKE_RECORD    folder: writes stdin.bin (raw bytes), argv.txt, env.txt
+#   FAKE_RECORD    folder: writes stdin.bin (raw bytes), argv.txt, env.txt,
+#                  and settings.json - a copy of the --settings file, if any
 #   FAKE_SCENARIO  a .jsonl to replay on stdout, {{RESETS}} / {{SESSION}}
 #                  replaced; absent means a plain success
 #   FAKE_LAND      a transcript to append the prompt to as a user record, the
@@ -84,11 +85,19 @@ if ($env:FAKE_RECORD) {
     [IO.File]::WriteAllText((Join-Path $env:FAKE_RECORD 'pid.txt'), "$PID", $utf8)
     [IO.File]::WriteAllBytes((Join-Path $env:FAKE_RECORD 'stdin.bin'), $bytes)
     [IO.File]::WriteAllText((Join-Path $env:FAKE_RECORD 'argv.txt'), ($argv -join "`n"), $utf8)
-    $seen = @('ANTHROPIC_API_KEY', 'CLAUDECODE', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_CONFIG_DIR') | ForEach-Object {
+    # and what a queued run is given for background work (Invoke-ChatqRun)
+    $seen = @('ANTHROPIC_API_KEY', 'CLAUDECODE', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_CONFIG_DIR', 'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS',
+        'BASH_MAX_TIMEOUT_MS', 'BASH_DEFAULT_TIMEOUT_MS', 'CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS') | ForEach-Object {
         "$_=$([Environment]::GetEnvironmentVariable($_))"
     }
-    $seen = @($seen) + "MCP_TOOL_TIMEOUT=$env:MCP_TOOL_TIMEOUT"
+    $seen = @($seen) + "MCP_TOOL_TIMEOUT=$env:MCP_TOOL_TIMEOUT" + "CLAUDE_CODE_EFFORT_LEVEL=$env:CLAUDE_CODE_EFFORT_LEVEL"
     [IO.File]::WriteAllText((Join-Path $env:FAKE_RECORD 'env.txt'), ($seen -join "`n"), $utf8)
+    # the one --settings claude reads - the last given - as it stood at the
+    # start: chatq removes a run's own when the run ends
+    $setRec = Join-Path $env:FAKE_RECORD 'settings.json'
+    $si = [Array]::LastIndexOf([string[]]$argv, '--settings')
+    if ($si -ge 0 -and $si + 1 -lt $argv.Count -and (Test-Path -LiteralPath $argv[$si + 1])) { [IO.File]::WriteAllText($setRec, [IO.File]::ReadAllText($argv[$si + 1], $utf8), $utf8) }
+    elseif (Test-Path -LiteralPath $setRec) { Remove-Item -LiteralPath $setRec -Force }
 }
 
 if ($argv -contains '--version') {
