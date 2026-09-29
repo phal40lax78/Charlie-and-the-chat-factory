@@ -197,12 +197,16 @@ The decision is a pure function, so it can be tested:
       Single tenant, no redirect URI.
    2. **Certificates & secrets → Federated credentials → Add → GitHub
       Actions.** Organization `phal40lax78` (a personal account's
-      username), repository `VS-code-chat-manager`, entity type
+      username), repository `claude-codex-chat-manager`, entity type
       Environment, environment `marketplace`. The form fills in the
       numeric IDs, 199534513 and 1380880732. Leave the subject as it
-      builds it, `repo:phal40lax78@199534513/VS-code-chat-manager@1380880732:environment:marketplace`:
+      builds it, `repo:phal40lax78@199534513/claude-codex-chat-manager@1380880732:environment:marketplace`:
       this repo's tokens use that immutable form (`gh api
-      repos/phal40lax78/VS-code-chat-manager/actions/oidc/customization/sub`).
+      repos/phal40lax78/claude-codex-chat-manager/actions/oidc/customization/sub`).
+      Immutable pins the IDs, not the name: renaming the repo changes
+      the subject, and the login fails with AADSTS700213 until this
+      credential names the new repo. The 0.10.0 publish, the first after
+      the rename from `VS-code-chat-manager`, failed so.
    3. **In the repo's Settings → Secrets and variables → Actions,** add
       `AZURE_CLIENT_ID` (the Application ID) and `AZURE_TENANT_ID` (the
       Directory ID).
