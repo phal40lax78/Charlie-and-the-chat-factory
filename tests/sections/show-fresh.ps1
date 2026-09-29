@@ -169,19 +169,24 @@ Check 'one that stays through the 8 s is ended after them, not before; with no g
     $g2.OldProcess -eq 'ended' -and $g2Stops -eq '1122' -and $g2Sleeps -eq 32 -and $g0.OldProcess -eq 'ended' -and $script:SfSleeps -eq 32 -and
     ($script:SfStops -join ',') -eq '1122,1122') "$($g2.OldProcess) $g2Stops $g2Sleeps $($g0.OldProcess) $($script:SfStops -join ',')"
 Clear-SfLive
-# gone before the grace's first look - its file and its process (1127 is no
-# pid Windows hands out): it left by itself, not kept; one still running with
-# no file to check it by (this very process) is kept
+# gone before the grace's first look - its file and its process: it left by
+# itself, not kept; one still running with no file to check it by (this very
+# process) is kept. The gone pid is a multiple of 4 no process has: Windows
+# drops a pid's low two bits when it opens one, so under pwsh (.NET's
+# OpenProcess) 1127 answered as 1124 whenever the runner had a 1124.
+$sfLiveIds = @(Get-Process | ForEach-Object { $_.Id })
+$sfGonePid = 61440
+while ($sfGonePid -in $sfLiveIds) { $sfGonePid += 4 }
 $script:SfStops.Clear()
 $script:ChatGraceSleepSeam = { param($ms) $script:SfSleeps++ }
 $gl3 = & $sfLogN
-$g3 = & $SfStop @(New-SfLive 1127) @{ GraceSeconds = 8 }
+$g3 = & $SfStop @(New-SfLive $sfGonePid) @{ GraceSeconds = 8 }
 $g4 = & $SfStop @(New-SfLive $PID) @{ GraceSeconds = 8 }
 $script:ChatGraceSleepSeam = $null
 $gl3New = @([System.IO.File]::ReadAllLines($sfLog, $utf8) | Select-Object -Skip $gl3)
 Check 'with a grace: a process gone with its file before the first look left by itself (ended, said so); one running with no file is kept' (
     $g3.OldProcess -eq 'ended' -and $g4.OldProcess -eq 'kept' -and -not $script:SfStops.Count -and
-    @($gl3New | Where-Object { $_ -like '*show: idle chat process 1127 (5f5f5f5f) left by itself' }).Count -eq 1) "$($g3.OldProcess) $($g4.OldProcess) $($gl3New -join ' | ')"
+    @($gl3New | Where-Object { $_ -like "*show: idle chat process $sfGonePid (5f5f5f5f) left by itself" }).Count -eq 1) "$($g3.OldProcess) $($g4.OldProcess) $($gl3New -join ' | ')"
 $script:SfStops.Clear()
 $script:ChatParentSeam = { param($e) if ($e.Pid -eq 1124) { @{ Pid = 5353; Name = 'Code'; StartTime = [datetime]::MinValue } } else { @{ Pid = 4242; Name = 'Code'; StartTime = [datetime]::MinValue } } }
 Set-SfSession 1123
