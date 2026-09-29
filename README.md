@@ -107,7 +107,7 @@ scripts there are another version than itself.
 | `chatfind "text"` | find chats by title or message; emits objects |
 | `chatrm <id>` / `chatrm "title"` | delete a chat, permanently |
 | `chatrm ... -Archive` / `chatrestore [<title>]` | put a chat away / list the archive, bring one back |
-| `chatclean` | delete ghost chats left behind by the VS Code list |
+| `chatclean` | delete ghost chats left behind by the VS Code list; list again chats Claude Code hid |
 | `chatq <title\|id> [-Prompt s]` | queue a prompt for that chat; without `-Prompt` an editor tab opens |
 | `chatq <title> -Continue` | queue *"Continue from where you left off."* for a chat the limit cut off |
 | `chatq -AutoContinue ask\|on\|off` | once the limit is over, ask to continue what it cut off (the default); [continue each by itself](#auto-continue); or only mark them |
@@ -1694,10 +1694,13 @@ type Claude Code's loaders pass over, as Claude Code's own rename adds a
 line there. The file keeps its write time. Not while a process is busy or
 waiting in the chat, as its entry in `~/.claude/sessions/` says; nor where
 the line cannot be written. Either way the window says so rather than open
-a blank tab. A chat whose first records say an SDK started it - every one
-**+ New chat** made, or your own `claude -p` - can never be listed;
-instead of a blank tab, the window offers it in a terminal,
-`claude --resume <id>`, once it checks nothing else runs the chat by then.
+a blank tab. A chat hidden before 0.8.1, or by a watcher that died
+mid-run, and neither run into nor opened since: `chatclean` lists it
+again, and every other such Claude chat with it. A chat whose first
+records say an SDK started it - every one **+ New chat** made, or your
+own `claude -p` - can never be listed; instead of a blank tab, the window
+offers it in a terminal, `claude --resume <id>`, once it checks nothing
+else runs the chat by then.
 
 **Chat Manager: Open chat...** in the command palette does what the chip
 does, without the overlay. It lists this window's Claude chats - the
