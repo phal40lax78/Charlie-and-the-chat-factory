@@ -17,6 +17,9 @@ $script:ChatqPidPath = Join-Path $script:ChatqData 'watcher.pid'
 $script:ChatqWakePath = Join-Path $script:ChatqData 'wake'
 $script:ChatqStopPath = Join-Path $script:ChatqData 'stop'
 $script:ChatqBoardPath = Join-Path $script:ChatqData 'queue.md'
+# held while a new job takes its number and id (New-ChatqJobSlot): a
+# shell, the overlay and the watcher all make jobs
+$script:ChatqSeqLockPath = Join-Path $script:ChatqData 'job-numbers.lock'
 # one file per cut-off the reset ask answered or announced (Get-ChatqResetAsk)
 $script:ChatqAutoDir = Join-Path $script:ChatqData 'auto'
 # written by chatinstall: a running watcher hands over to the new code
