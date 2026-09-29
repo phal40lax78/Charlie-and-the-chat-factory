@@ -307,8 +307,17 @@ function Get-ChatqAutoState {
         $e = if ($Eta) { [string]$Eta[[string]$job.id] } else { '' }
         $at = ($e -replace '\s*\([^)]*\)$', '').Trim()
         $note = if ($e -match '\(([^)]*)\)$') { $Matches[1] } else { '' }
-        # never before its own reset, whatever the queue says
-        if ($reset -and $reset -gt $Now -and ($at -in '', 'next' -or $at -like 'after *')) { $at = Format-ChatqAutoTime $reset.AddMinutes(1) $Now }
+        # never before its own reset, whatever the queue says - but after a
+        # job that itself waits for a time is the truth: one limit's cut-offs
+        # all go at its reset, one at a time (Get-ChatqEta)
+        $root = $at
+        for ($k = 0; $k -lt 50 -and $root -match '^after #(\d+)'; $k++) {
+            $n = [int]$Matches[1]
+            $before = @($Jobs | Where-Object { $_ -and [int]$_.seq -eq $n -and [string]$_.state -eq 'queued' }) | Select-Object -First 1
+            $root = if ($before -and $Eta) { ([string]$Eta[[string]$before.id] -replace '\s*\([^)]*\)$', '').Trim() } else { '' }
+        }
+        $behindWait = $at -like 'after *' -and $root -match '^\d|^[A-Z][a-z]{2} '
+        if ($reset -and $reset -gt $Now -and ($at -in '', 'next' -or ($at -like 'after *' -and -not $behindWait))) { $at = Format-ChatqAutoTime $reset.AddMinutes(1) $Now }
         if (-not $at) { $at = 'next' }
         $state = if ($reset -and $reset -gt $Now) { 'armed' } else { 'due' }
         $why = "the limit cut it off$(if ($CutOff.At) { ' at ' + (Format-ChatqAutoTime $CutOff.At $Now) }), and auto-continue sends ""continue"" $(if ($at -match '^\d|^[A-Z][a-z]{2} ') { "at $at" } else { $at })$(if ($note) { " - $note" })"
@@ -1017,7 +1026,9 @@ function Show-ChatOverlayAutoQueued {
         $at = $null
         $s = if ($H.Ctx.AutoStates) { $H.Ctx.AutoStates[[string]$j.sessionId] } else { $null }
         if ($s -and $s.At) { $at = $s.At }
-        Show-ChatOverlayBalloon $H "$(Format-ChatqAutoTitle $j.title) will be continued$(if ($at) { " at $at" }). Rest on its row for ""don't continue""." -Ms 8000
+        # a time, or "after #11" - behind another continue, one at a time
+        $when = if (-not $at) { '' } elseif ($at -match '^\d|^[A-Z][a-z]{2} ') { " at $at" } else { " $at" }
+        Show-ChatOverlayBalloon $H "$(Format-ChatqAutoTitle $j.title) will be continued$when. Rest on its row for ""don't continue""." -Ms 8000
         $null = Update-ChatqAutoState { param($v) $v.Told = $true }
     }
     catch { Write-ChatOverlayLog "auto-continue: $($_.Exception.Message)" }

@@ -341,6 +341,9 @@ A Copilot chat is found but refused: no CLI can resume one.
   plant it, and an error after it, in your chat.
 - **One job at a time, in queue order** — oldest first, `-First` jumps the line.
   A Claude job never waits behind a Codex limit, nor one account behind another.
+  Jobs are never run side by side: the chats one limit cut off, continued at its
+  reset, go one after another, each once the one before it has ended - the first
+  says `sends 13:01`, each of the rest `after #n`.
 - **In the permission mode the chat last used**, `-Mode` overriding it for one
   job, and on the chat's own model, `-Model` overriding that. Anything that would
   ask a question is denied, since nobody is there to answer.
@@ -398,7 +401,8 @@ and one prompt offers all of them:
   menu.
 
 **Continue** queues *"Continue from where you left off."* for each chat,
-the job `chatq <title> -Continue` makes, and starts the watcher. **Leave
+the job `chatq <title> -Continue` makes, and starts the watcher, which
+continues them one at a time, in queue order. **Leave
 them** leaves them as they are: their rows stay orange, and **Continue
 all** in the console, or `chatq <title> -Continue`, still continues one.
 Either way that cut-off is not asked about again; the same chat cut off by
@@ -538,11 +542,11 @@ one again.
 
 ### The watcher
 
-One per machine, a hidden PowerShell that exits when the queue is empty and is
-started again by the next shell after a reboot. While a job is due within 6
-hours it keeps the machine from sleeping (the display still turns off, and a
-closed lid still sleeps a laptop). `chatqrun -Foreground` runs it in the console
-to watch.
+One per machine, a hidden PowerShell that runs one job at a time, exits when
+the queue is empty, and is started again by the next shell after a reboot.
+While a job is due within 6 hours it keeps the machine from sleeping (the
+display still turns off, and a closed lid still sleeps a laptop).
+`chatqrun -Foreground` runs it in the console to watch.
 
 ## Alerts
 
@@ -1027,7 +1031,7 @@ Three alerts under one event, `chatq · usage`:
 | kind | when | says |
 |---|---|---|
 | threshold | a 5-hour or weekly window, Claude's or Codex's, reaches `-UsageAt` (90%) | `Claude 5h at 91% · resets 13:00 · 3 queued` |
-| soon | a limit resets in 10 minutes with prompts queued in it | `Claude resets 13:00 · 3 queued · they go then` - with **Send now** |
+| soon | a limit resets in 10 minutes with prompts queued in it | `Claude resets 13:00 · 3 queued · they go then, one at a time` - with **Send now** |
 | reset | a limit reset with two or more prompts queued | `Claude limit reset · 3 queued · sending #12 now` |
 
 - **Threshold** comes from [the overlay](#the-overlay), which already asks
@@ -1500,7 +1504,8 @@ as the panel draws its rows - the state's dot, where it runs, project and
 title, what it is doing, the unread dot - on one line, the one picked with an
 accent bar at its left:
 - **Cut off** - the chats the limit or a 529 stopped, each with **Continue**,
-  and **Continue all** for every one of them. While the overlay asks about
+  and **Continue all** for every one of them - queued in turn, whatever
+  **When** says, and continued one at a time. While the overlay asks about
   them, the header says so - `Cut off (4) · limit over at 13:00 - 3 can
   continue` - and **Leave them** sits beside **Continue all**. Continue
   there answers the ask for the chats that got a job, so the banner and
@@ -1526,15 +1531,18 @@ it queued. Type, or paste
 anything; **drop files** on the box, or **paste a screenshot** or files copied
 in Explorer with **Ctrl+V** - each becomes a chip you can × out, copied into
 `data/console/draft/` straight away, so the original can move. Then:
-- **When** - **Now** puts it at the front and sends it within seconds; **In
-  turn** behind what is queued; **At** 13:00 or **In** 2h.
+- **When** - **Now** puts it at the front, so it goes next: within seconds,
+  or once a job already running ends - the watcher runs one job at a time,
+  so nothing goes beside another. **In turn** behind what is queued; **At**
+  13:00 or **In** 2h. When is for Send alone: **Continue** and **Continue
+  all** queue in turn.
 - **Mode** and **Model** - as the chat last ran, or one of chatq's modes and
   opus, sonnet, haiku for this one prompt. The line under them says what the
   mode means with nobody there to answer.
-- A line saying what **Send** will do - within seconds; after the limit resets
-  at 13:00; once that chat is idle, if it is working in VS Code (looked at
-  every 30 s); that the VS Code window shows the reply once it is shown
-  fresh.
+- A line saying what **Send** will do - within seconds; once the job running
+  now ends; after the limit resets at 13:00; once that chat is idle, if it is
+  working in VS Code (looked at every 30 s); that the VS Code window shows the
+  reply once it is shown fresh.
 - **Send now** or **Queue**, or **Ctrl+Enter**.
 
 Send makes the same job `chatq` makes, and the watcher runs it the same way:
@@ -1551,8 +1559,8 @@ Until its first run has made it, the console says so rather than sending
 to it.
 
 **Below, the queue** - the jobs still to go and those that ended in the last
-day, each saying where it stands (`sends 13:01`, `running since 12:04`,
-`needs you - Edit denied`, `done 12:10`). Pick one for its outcome, the reply,
+day, each saying where it stands (`sends 13:01`, `after #9`, `running since
+12:04`, `needs you - Edit denied`, `done 12:10`). Pick one for its outcome, the reply,
 its last states, and what can be done to it now:
 - waiting - **Try now** (stop waiting for a reset), **First**, **Remove**
   (twice, to be sure), and its prompt, editable until it sends;

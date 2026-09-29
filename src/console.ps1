@@ -26,9 +26,11 @@ $script:ChatConsoleModels = @('opus', 'sonnet', 'haiku')
 
 function ConvertFrom-ChatConsoleWhen {
     <#
-    The When choice to what a job holds. now: the front of the queue, and a
+    The When choice to what a job holds. now: the front of the queue - next,
+    not beside a run in progress: the watcher runs one job at a time - and a
     chat busy in VS Code looked at every 30 s. turn: behind what is queued.
-    at / in: -Value, as chatq -At 13:00 or -In 2h reads it. Pure.
+    at / in: -Value, as chatq -At 13:00 or -In 2h reads it. Send's alone:
+    Continue and Continue all queue in turn. Pure.
     #>
     param([string]$When, [string]$Value)
     $ok = { param($nb, $first, $now) [pscustomobject]@{ Error = $null; NotBefore = $nb; First = $first; SendNow = $now } }
@@ -64,9 +66,11 @@ function Get-ChatConsoleSendPreview {
     What Send will do, said before it is pressed. -Target: @{ Kind = chat |
     new; Live = busy | waiting | idle, or $null when no window has it }.
     -Plan: ConvertFrom-ChatConsoleWhen's answer. -Block: its provider's
-    limit, @{ Until; Type }. -Ahead: jobs queued in front of it. Pure.
+    limit, @{ Until; Type }. -Ahead: jobs queued in front of it. -Running:
+    the number of the job running now, 0 for none - the watcher runs one at
+    a time, so even Now waits for it to end. Pure.
     #>
-    param($Target, $Plan, $Block, [int]$Ahead, [bool]$Watcher, [datetime]$Now = (Get-Date))
+    param($Target, $Plan, $Block, [int]$Ahead, [bool]$Watcher, [datetime]$Now = (Get-Date), [int]$Running = 0)
     if (-not $Target) { return 'pick a chat on the left, or + New chat' }
     if ($Plan.Error) { return $Plan.Error }
     $inv = [System.Globalization.CultureInfo]::InvariantCulture
@@ -82,6 +86,7 @@ function Get-ChatConsoleSendPreview {
     elseif ($Block -and $Block.Type -eq 'probe failed' -and $Block.Until) { $bits += "the limit could not be checked - looked at again $($Block.Until.ToString('HH:mm', $inv))" }
     elseif ($Block -and $Block.Until -and $Block.Until -gt $Now) { $bits += "limited until $($Block.Until.ToString('HH:mm', $inv)) - sends $($Block.Until.AddMinutes(1).ToString('HH:mm', $inv))" }
     elseif (-not $Plan.First -and $Ahead -gt 0) { $bits += "after the $Ahead queued ahead of it" }
+    elseif ($Running) { $bits += "sends once #$Running, running now, ends - one job runs at a time" }
     else { $bits += 'sends within a few seconds' }
     if ($Target.Kind -eq 'new') { $bits += 'a new chat - a VS Code window on that folder is offered a reload to pick it up' }
     elseif ($Target.Live -in 'busy', 'waiting') { $bits += "that chat is working in VS Code - it goes once the chat is idle$(if ($Plan.SendNow) { ', looked at every 30 s' })" }
@@ -950,7 +955,7 @@ function Update-ChatConsoleChats {
         foreach ($i in $items) { [void]$C.Chats.Children.Add((New-ChatConsoleChatItem $H $i)) }
     }
     $cutButtons = {
-        $all = New-ChatConsoleButton 'Continue all' { Invoke-ChatConsoleContinue $script:ChatOverlayHost @($script:ChatOverlayHost.Con.ChatItems | Where-Object { $_.Kind -eq 'cutoff' }) } -Small -Tip 'Queue "Continue from where you left off." for each of them'
+        $all = New-ChatConsoleButton 'Continue all' { Invoke-ChatConsoleContinue $script:ChatOverlayHost @($script:ChatOverlayHost.Con.ChatItems | Where-Object { $_.Kind -eq 'cutoff' }) } -Small -Tip 'Queue "Continue from where you left off." for each of them - the watcher runs one job at a time, so they go one after another, in the queue''s order. When, under the prompt, is for Send only'
         if (-not $ask) { return $all }
         # the ask's own keys, as drawn: the answer is for the chats it said
         $leave = New-ChatConsoleButton 'Leave them' { param($s, $e) $e.Handled = $true; Invoke-ChatOverlayAskAnswer $script:ChatOverlayHost 'leave' @($s.Tag) } -Small -Tag @($ask.Keys) -Tip 'Leave them as they are - their rows stay orange; Continue all in the console still continues them'
@@ -1206,7 +1211,8 @@ function Update-ChatConsolePreview {
     }
     $prov = if ($t) { $t.Provider } else { 'claude' }
     $ahead = @($C.Jobs | Where-Object { $_.state -eq 'queued' -and $_.provider -eq $prov }).Count
-    $text = Get-ChatConsoleSendPreview $t $plan (Get-ChatConsoleBlock $H $prov) $ahead ([bool]$H.Ctx.Watcher)
+    $run = @($C.Jobs | Where-Object { $_.state -eq 'running' })[0]
+    $text = Get-ChatConsoleSendPreview $t $plan (Get-ChatConsoleBlock $H $prov) $ahead ([bool]$H.Ctx.Watcher) -Running $(if ($run) { [int]$run.seq } else { 0 })
     $C.Preview.Text = $text
     $C.Preview.Foreground = Get-ChatOverlayBrush $(if ($plan.Error -or -not $t) { 'warn' } else { 'dim' })
     $C.SendBtn.Child.Text = if ($C.When -eq 'now') { 'Send now' } else { 'Queue' }
@@ -1483,7 +1489,7 @@ function Invoke-ChatConsoleContinue {
     $fails = @($r.Fails | Where-Object { $_ })
     if ($n) { $H.Con.Request = Request-ChatqWatcher -Wake poke }
     $answered = Save-ChatConsoleAskAnswer $H $r
-    $say = "queued $n continue$(if ($n -ne 1) { 's' }) - each goes when its limit is over$(if ($had) { "; $had had one already" })"
+    $say = Format-ChatqContinueSay $n $had
     Set-ChatConsoleStatus $H $(if ($fails) { "$say; $($fails -join '; ')" } else { $say }) $(if ($fails) { 'warn' } else { 'dim' })
     Update-ChatConsoleNow $H
     if ($answered) { Update-ChatOverlayAsk $H }
@@ -1541,11 +1547,12 @@ function Update-ChatConsoleQueue {
     param($H)
     $C = $H.Con
     if (-not $C.Queue) { return }
-    $eta = @{}
-    foreach ($r in @($H.Snap.rows)) { if ($r -and $r.job -and $r.job.eta) { $eta[[int]$r.job.seq] = [string]$r.job.eta } }
+    # every job's "sends", worked out here as the collector does - a chat's
+    # row carries only its first job, and the ones behind it said "queued"
+    $eta = try { Get-ChatqEta @($C.Jobs) $(if ($H.Ctx.Blocks) { $H.Ctx.Blocks } else { @{} }) } catch { @{} }
     $day = (Get-Date).AddDays(-1)
     $list = @($C.Jobs | Where-Object { $_.state -in 'queued', 'running', 'needs-input' -or ((ConvertTo-ChatqDate $_.endedAt) -gt $day) })
-    $key = (@($list | ForEach-Object { "$($_.id)=$($_.state)=$($eta[[int]$_.seq])" }) -join ';') + "|$($C.Sel)|$($C.ShowLog)|$(@($C.Confirm.Keys) -join ',')"
+    $key = (@($list | ForEach-Object { "$($_.id)=$($_.state)=$($eta[[string]$_.id])" }) -join ';') + "|$($C.Sel)|$($C.ShowLog)|$(@($C.Confirm.Keys) -join ',')"
     if ($key -eq $C.Sigs.Queue) { return }
     $C.Sigs.Queue = $key
     $C.Queue.Children.Clear()
@@ -1553,7 +1560,7 @@ function Update-ChatConsoleQueue {
     $open = @($list | Where-Object { $_.state -in 'queued', 'running', 'needs-input' })
     $shut = @($list | Where-Object { $_.state -notin 'queued', 'running', 'needs-input' } | Sort-Object { ConvertTo-ChatqDate $_.endedAt } -Descending)
     foreach ($j in @($open + $shut)) {
-        $st = Get-ChatConsoleJobStatus $j $eta[[int]$j.seq]
+        $st = Get-ChatConsoleJobStatus $j $eta[[string]$j.id]
         $b = [System.Windows.Controls.Border]::new()
         $b.CornerRadius = [System.Windows.CornerRadius]::new(4)
         $b.Padding = [System.Windows.Thickness]::new(6, 2, 6, 3)

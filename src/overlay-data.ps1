@@ -2129,7 +2129,7 @@ function Complete-ChatqResetAsk {
             $n = $res.Queued.Count
             $fails = @($res.Fails)
             if ($n -or $had.Count) {
-                $say = "queued $n continue$(if ($n -ne 1) { 's' }) - each goes when its limit is over$(if ($had.Count) { "; $($had.Count) had one already" })"
+                $say = Format-ChatqContinueSay $n $had.Count
                 if ($fails.Count) { $say += "; $($fails -join '; ')" }
             }
             else { $say = "could not continue: $($fails -join '; ')" }

@@ -13,6 +13,19 @@ $e1 = [pscustomobject]@{ id = 'a'; seq = 1; state = 'queued'; provider = 'claude
 $e2 = [pscustomobject]@{ id = 'b'; seq = 2; state = 'queued'; provider = 'claude'; home = $null; notBefore = $null; deferUntil = $null }
 $eta = Get-ChatqEta @($e1, $e2) @{}
 Check 'a free job is not shown "after" a waiting one' ($eta['b'] -eq 'next' -and $eta['a'] -notlike 'after*') "a=$($eta['a']) b=$($eta['b'])"
+# the watcher runs one job at a time: of the jobs one reset frees, only the
+# first sends then - a Codex job at the same minute too - and the rest each
+# after the one before it, a wait's reason kept; a later time is its own
+$tu = (Get-Date).AddMinutes(30)
+$tb = @{ claude = [pscustomobject]@{ Until = $tu; Type = 'five_hour' }; codex = [pscustomobject]@{ Until = $tu; Type = 'five_hour' } }
+$tj = { param([string]$Id, [int]$Seq, [string]$Prov = 'claude', $Nb = $null, $Du = $null) [pscustomobject]@{ id = $Id; seq = $Seq; state = 'queued'; provider = $Prov; home = $null
+        notBefore = $(if ($Nb) { ([datetime]$Nb).ToUniversalTime().ToString('o') }); deferUntil = $(if ($Du) { ([datetime]$Du).ToUniversalTime().ToString('o') }); retryAt = $null } }
+$te = Get-ChatqEta @((& $tj 't1' 9), (& $tj 't2' 10), (& $tj 't3' 11 'codex'), (& $tj 't4' 12 -Nb $tu.AddHours(2)), (& $tj 't5' 13 -Du $tu.AddMinutes(10)), (& $tj 't6' 14 -Du $tu.AddMinutes(10))) $tb
+Check 'one reset''s jobs: the first sends then, each of the rest after the one before it - one at a time' (
+    $te['t1'] -match '^(\w{3} )?\d\d:\d\d$' -and $te['t2'] -eq 'after #9' -and $te['t3'] -eq 'after #10' -and $te['t4'] -match '^(\w{3} )?\d\d:\d\d$' -and $te['t4'] -ne $te['t1'] -and
+    $te['t5'] -match '^(\w{3} )?\d\d:\d\d \(chat busy\)$' -and $te['t6'] -eq 'after #13 (chat busy)') (@('t1', 't2', 't3', 't4', 't5', 't6' | ForEach-Object { "$_=$($te[$_])" }) -join ' ')
+Check 'Continue says it queued them to go one at a time' ((Format-ChatqContinueSay 3 0) -eq 'queued 3 continues - one at a time, each when its limit is over' -and
+    (Format-ChatqContinueSay 1 2) -eq 'queued 1 continue - it goes when its limit is over; 2 had one already' -and (Format-ChatqContinueSay 0 1) -eq 'queued 0 continues; 1 had one already') (Format-ChatqContinueSay 3 0)
 Set-Location -LiteralPath $sb
 $r = Resolve-ChatqTarget 'zzqx nothing like it'
 Check 'no project here and no match: refuse to guess' ($r.Error -like '*not a project*') $r.Error

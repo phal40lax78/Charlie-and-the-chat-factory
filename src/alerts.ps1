@@ -502,12 +502,16 @@ function Get-ChatqEta {
     # "sends" per queued job, the way the watcher picks: a job with a wait of
     # its own sends when that wait ends; one free now waits only behind the
     # run in progress and the free jobs queued before it - never behind a job
-    # that is itself waiting, which the watcher skips
+    # that is itself waiting, which the watcher skips. The watcher runs one
+    # job at a time, so of the jobs whose waits end in the same minute - the
+    # chats one limit cut off, all free at its reset - only the first sends
+    # then, and each of the rest after the one before it
     param([object[]]$Jobs, [hashtable]$Blocks)
     $eta = @{}
     $now = Get-Date
     $running = @($Jobs | Where-Object { $_.state -eq 'running' }) | Select-Object -First 1
     $ahead = $running
+    $tied = @{}
     foreach ($j in @($Jobs | Where-Object { $_.state -in 'queued', 'running' })) {
         if ($j.state -eq 'running') { $eta[$j.id] = 'running'; continue }
         $lane = Get-ChatqLane $j
@@ -528,6 +532,9 @@ function Get-ChatqEta {
         elseif ($at) {
             $fmt = if ($at.Date -eq $now.Date) { 'HH:mm' } else { 'ddd HH:mm' }
             $s = $at.ToString($fmt, [System.Globalization.CultureInfo]::InvariantCulture)
+            $before = $tied[$s]
+            $tied[$s] = $j
+            if ($before) { $s = "after #$($before.seq)" }
             if ($why) { "$s ($why)" } else { $s }
         }
         elseif ($ahead) { "after #$($ahead.seq)" }

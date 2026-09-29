@@ -26,6 +26,19 @@
   **Opacity** slider and **Theme** chips: a change made there is the
   panel's when it comes back, kept in config.json, and the settings box
   shows it.
+- **Continued one at a time, and said so.** The watcher runs one job at a
+  time, so the chats one limit cut off are continued one after another,
+  never side by side - with **Now** or **In turn** alike, since **When**
+  is for Send alone and Continue always queues in turn. The queue said
+  `sends 16:51` on every one of them all the same. Now only the first
+  does; each of the rest says `after #9`, the job before it - in the
+  console, the panel, the phone's board and `chatqlist`, and on an
+  auto-continue's row. The console's queue gives the jobs behind a
+  chat's first their time too, where they said only `queued`. Continue
+  says `queued 4 continues - one at a time, each when its limit is
+  over`; **Continue all**'s tooltip says it, and that When is for Send;
+  Send's line says when **Now** waits for a job running, and the soon
+  alert `3 queued · they go then, one at a time`.
 
 ## 0.9.0 — the overlay and permissions on the phone, cut-off chats continued, updates that wait
 

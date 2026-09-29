@@ -374,6 +374,16 @@ function Invoke-ChatqContinueChats {
     return [pscustomobject]@{ Queued = $queued.ToArray(); Had = $had.ToArray(); Fails = $fails.ToArray() }
 }
 
+function Format-ChatqContinueSay {
+    # What a Continue said it did, in the console and for the reset ask: how
+    # many it queued, and that they go one at a time - the watcher runs one
+    # job, then the next, so chats one limit cut off are continued one after
+    # another, never side by side. Pure.
+    param([int]$Queued, [int]$Had)
+    $how = if ($Queued -gt 1) { ' - one at a time, each when its limit is over' } elseif ($Queued -eq 1) { ' - it goes when its limit is over' } else { '' }
+    return "queued $Queued continue$(if ($Queued -ne 1) { 's' })$how$(if ($Had) { "; $Had had one already" })"
+}
+
 function Remove-ChatqJob {
     # A job and everything it has: its file, prompt, log, and the copies of
     # its files - the originals were never touched. Not a running one.

@@ -1361,7 +1361,7 @@ function Get-ChatOverlayChipActions {
         $n = [int](Get-ChatField $Row 'count')
         $titles = @(Get-ChatField $Row 'titles') | Where-Object { $_ }
         return @(
-            [pscustomobject]@{ Id = 'ask-go'; Label = "continue $n"; Tip = "Queue ""Continue from where you left off."" for each of the $n chats the limit cut off: $(@($titles) -join ', ')" }
+            [pscustomobject]@{ Id = 'ask-go'; Label = "continue $n"; Tip = "Queue ""Continue from where you left off."" for each of the $n chats the limit cut off, to go one at a time: $(@($titles) -join ', ')" }
             [pscustomobject]@{ Id = 'ask-leave'; Label = 'leave them'; Tip = 'Leave them as they are - their rows stay orange; Continue all in the console still continues them' }
         )
     }

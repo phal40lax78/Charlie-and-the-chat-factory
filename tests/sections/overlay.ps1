@@ -648,9 +648,12 @@ $pv2 = Get-ChatConsoleSendPreview @{ Kind = 'chat'; Live = 'busy' } $pNow ([pscu
 $pv3 = Get-ChatConsoleSendPreview @{ Kind = 'new'; Live = $null } $pTurn $null 2 $true $tn
 $pv4 = Get-ChatConsoleSendPreview @{ Kind = 'chat'; Live = 'idle' } $pNow ([pscustomobject]@{ Until = $tn; Type = 'overloaded' }) 0 $true $tn
 $pv5 = Get-ChatConsoleSendPreview $null $pNow $null 0 $true $tn
-Check 'console preview: what Send will do - soon, a limit, a busy chat, behind others, a new chat, a 529, the watcher' (
+$pv6 = Get-ChatConsoleSendPreview @{ Kind = 'chat'; Live = $null } $pNow $null 0 $true $tn -Running 7
+$pv7 = Get-ChatConsoleSendPreview @{ Kind = 'chat'; Live = $null } $pTurn $null 0 $true $tn -Running 7
+Check 'console preview: what Send will do - soon, a limit, a busy chat, behind others, a new chat, a 529, the watcher, Now behind a run in progress' (
     $pv1 -eq 'sends within a few seconds' -and $pv2 -eq 'limited until 12:59 - sends 13:00 - that chat is working in VS Code - it goes once the chat is idle, looked at every 30 s - the watcher starts for it' -and
-    $pv3 -like 'after the 2 queued ahead of it - a new chat*' -and $pv4 -like 'Claude is overloaded*open in VS Code*' -and $pv5 -like 'pick a chat*') "$pv1 | $pv2 | $pv3 | $pv4"
+    $pv3 -like 'after the 2 queued ahead of it - a new chat*' -and $pv4 -like 'Claude is overloaded*open in VS Code*' -and $pv5 -like 'pick a chat*' -and
+    $pv6 -eq 'sends once #7, running now, ends - one job runs at a time' -and $pv7 -eq $pv6) "$pv1 | $pv2 | $pv3 | $pv4 | $pv6 | $pv7"
 # a refused login is no limit: it says what the CLI said, not "limited until"
 $pvL = Get-ChatConsoleSendPreview @{ Kind = 'chat'; Live = $null } $pNow ([pscustomobject]@{ Until = $tn.AddMinutes(15); Type = 'login needed'; Why = 'login refused: OAuth token has expired. (401)' }) 0 $true $tn
 $pvL2 = Get-ChatConsoleSendPreview @{ Kind = 'chat'; Live = $null } $pNow ([pscustomobject]@{ Until = $tn.AddMinutes(15); Type = 'login needed'; Why = 'probe' }) 0 $true $tn

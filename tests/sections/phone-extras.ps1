@@ -171,7 +171,7 @@ $s1 = & $xSoon (& $xBlock 9 120) (& $xQ 2)
 $s1j = if ($s1.Joins.Count) { & $xQuery $s1.Joins[0] } else { $null }
 $s1e = if ($s1j) { (Get-ChatqReplyState).alerts[$s1j.F['a']] } else { $null }
 Check 'soon: a lane blocked 2 h, the reset 9 min off, 2 queued - one usage alert, jobless with w=1, and the registry says soon' ($s1.Joins.Count -eq 1 -and
-    $s1j.Q['title'] -eq "chatq $([char]0xB7) usage" -and $s1j.Q['text'] -eq "Claude resets $(Format-ChatqClockTime $xNow.AddMinutes(9) $xNow) $([char]0xB7) 2 queued $([char]0xB7) they go then" -and
+    $s1j.Q['title'] -eq "chatq $([char]0xB7) usage" -and $s1j.Q['text'] -eq "Claude resets $(Format-ChatqClockTime $xNow.AddMinutes(9) $xNow) $([char]0xB7) 2 queued $([char]0xB7) they go then, one at a time" -and
     $s1j.F['x'] -eq '1' -and $s1j.F['w'] -eq '1' -and $s1j.F['e'] -eq 'usage' -and $s1e -and $s1e['usage'] -eq 'soon' -and $s1j.Q['priority'] -eq '0') "$($s1.Joins.Count) $($s1j.Url)"
 $xSoonAid = if ($s1j) { $s1j.F['a'] } else { $null }
 $s2 = & $xSoon (& $xBlock 9 120) (& $xQ 2)
