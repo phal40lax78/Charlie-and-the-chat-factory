@@ -997,19 +997,6 @@ other than the file's first bytes, or listed behind a switch - the VS Code
 webview hard-codes `includeProgrammaticSessions` off. Short of that, the
 first option with its switches, re-checked at every Claude Code update.
 
-## Chats hidden before 0.8.1 are mended only as they are used
-
-**Why deferred:** since 0.8.1 the watcher mends a chat as each run into it
-ends ([Repair-ChatListed](src/live-chats.ps1)), and the extension as it
-opens one ([ensureListed](extension/extension.js)). A chat hidden by an
-earlier copy's run, and neither run into nor opened since, stays out of
-Claude Code's side bar history in every window; so does one whose watcher
-died mid-run. Mending every such chat up front writes into transcripts
-nobody asked to touch.
-
-**To close:** mend them in `chatclean`, which already exists to put
-Claude Code's lists right, with [Repair-ChatListed](src/live-chats.ps1).
-
 ## The open chip clears the unread dot of a chat it cannot open
 
 **Why deferred:** the chip's child exits once the open request is written,

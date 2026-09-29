@@ -291,7 +291,7 @@ function chat {
     Write-Host '  chatfind "text"        find chats by title or message' -ForegroundColor Cyan
     Write-Host '  chatrm <id> | "title"  delete a chat, permanently' -ForegroundColor Cyan
     Write-Host '  chatrm ... -Archive    put it away instead; chatrestore brings it back' -ForegroundColor Cyan
-    Write-Host '  chatclean              delete ghost chats left by the VS Code list' -ForegroundColor Cyan
+    Write-Host '  chatclean              delete ghost chats, list hidden ones again' -ForegroundColor Cyan
     Write-Host '  chatproviders          which tools were found, and where' -ForegroundColor Cyan
     Write-Host '  chatindex              rebuild the tab-completion index' -ForegroundColor Cyan
     Write-Host ''

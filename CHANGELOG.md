@@ -11,6 +11,13 @@
   as the sender does, and drops it again before the loop, so the jobs it
   runs and your own alert command run under your policy. A watcher that
   fails to load says so in `data/logs/watcher.log`.
+- **chatclean lists hidden chats again.** Since 0.8.1 a chat Claude Code
+  left out of its lists is mended as a run into it ends, or as the window
+  opens it. One hidden before that, or by a watcher that died mid-run, and
+  neither run into nor opened since, stayed out of every window's history.
+  `chatclean` now lists every such Claude chat again first, with the same
+  one line at its end, and names each. A chat in use is left, and named;
+  `chatclean` again once it is idle. Side transcripts are left alone.
 
 ## 0.9.0 — the overlay and permissions on the phone, cut-off chats continued, updates that wait
 
