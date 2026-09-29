@@ -134,7 +134,7 @@ Check 'and with no chats, an empty list, not null' ($hwNone -eq '{"hostPid":999,
 $script:ChatqAliveSeam = $hwSeams.Alive
 $script:ChatProcessTableSeam = $hwSeams.Table
 $hwExe = (Get-Process -Id $PID).Path
-$hwLoader = Join-Path $sb 'tool\VS-code-chat-manager.ps1'
+$hwLoader = Join-Path $sb 'tool\claude-codex-chat-manager.ps1'
 $hwCmd = "`$env:CHATQ_OVERLAY='1'; . '$hwLoader'; Remove-Variable r -EA SilentlyContinue; `$r = Get-ChatHostWork -HostPid $PID -ConfigDir '$hwHome'; [Console]::Out.WriteLine((ConvertTo-ChatHostWorkJson `$r))"
 $hwSw = [System.Diagnostics.Stopwatch]::StartNew()
 $hwOut = @(& $hwExe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ([Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($hwCmd))) 2>&1 | ForEach-Object { "$_" })

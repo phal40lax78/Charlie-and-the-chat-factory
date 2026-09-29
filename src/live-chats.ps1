@@ -1,4 +1,4 @@
-# VS-code-chat-manager, src/live-chats.ps1: dot-sourced by VS-code-chat-manager.ps1
+# claude-codex-chat-manager, src/live-chats.ps1: dot-sourced by claude-codex-chat-manager.ps1
 # in its turn, never on its own - see the list there.
 
 #region live chats ------------------------------------------------------------
@@ -46,6 +46,8 @@ function Read-ChatqSessionRegistry {
     messagingSocketPath taken: only the fields below are.
     -Cache (a hashtable kept between calls) re-parses only a file whose length
     or write time moved, which is what lets the overlay list it every 2 s.
+    It also carries StatusUpdatedAt across a rewrite that left the status
+    where it was: Claude Code stamps that field on every write.
     #>
     param([string]$Dir, [hashtable]$Cache)
     if (-not $Dir -or -not (Test-Path -LiteralPath $Dir)) { return @() }
@@ -71,6 +73,15 @@ function Read-ChatqSessionRegistry {
             UpdatedAt = & $p 'updatedAt'; StatusUpdatedAt = & $p 'statusUpdatedAt'; PidDomain = [string](& $p 'pidDomain')
             # claude-vscode for a VS Code panel's process, something else for a terminal's
             Entrypoint = [string](& $p 'entrypoint')
+            # the CLI's own version: the question hook asks for one it was tried on (src/ask.ps1)
+            Version = [string](& $p 'version')
+        }
+        # statusUpdatedAt moves on every write of the file, not only when the
+        # status does - a limit reset rewrites them all at once, and every
+        # chat's "busy 40m" would read "busy 0m". The same session still in
+        # the same status keeps the time it was first seen in it.
+        if ($hit -and $hit.Entry -and $hit.Entry.StatusUpdatedAt -and $hit.Entry.SessionId -eq $e.SessionId -and $hit.Entry.Status -eq $e.Status) {
+            $e.StatusUpdatedAt = $hit.Entry.StatusUpdatedAt
         }
         if ($Cache) { $Cache[$f.FullName] = @{ Key = $key; Entry = $e } }
         $e
@@ -106,23 +117,98 @@ function Test-ChatqSessionAlive {
     return $true
 }
 
+# how long a queued run waits on a background shell alone before it goes in
+# beside it: a dev server never ends (Resolve-ChatqLiveAction)
+$script:ChatqShellWaitMinutes = 20
+
 function Resolve-ChatqLiveAction {
     <#
     run    nothing holds the chat - the next click on it loads the run from disk
     defer  busy or waiting: someone, or Claude's own auto-continue, is using it
+           - or background work its window's process started is still out,
+           which wakes the chat when it reports back and writes beside the run
     stop   idle: end that process first, so the next click has to re-load
     warn   idle: run anyway and say to reload the window before typing there
     The idle case is config liveIdle ('warn' until the panel is known to
-    recover cleanly from 'stop'); this is the one place it is decided.
+    recover cleanly from 'stop'); this is the one place it is decided, under
+    either setting.
+    Background work defers with Why 'background', Since (when the oldest of
+    it started) and Note (what it is, where known). An agent or a workflow
+    holds the chat for as long as it runs, as a busy chat does. A background
+    shell only while the process still has shells under it - one ended from
+    the task list leaves no mark - and 20 minutes from its start at most: a
+    dev server never ends. Where the shells cannot be counted (off Windows)
+    a shell holds nothing. A wait on shells alone is ShellOnly, which never
+    counts towards giving up, and past its 20 minutes the idle action comes
+    back with Beside 'background': the run goes in beside the chat with no
+    handover, since closing its tab would end the server.
     #>
-    param($Job, [object[]]$Live)
+    param($Job, [object[]]$Live, [datetime]$Now = (Get-Date))
     if ($Job.provider -ne 'claude') { return @{ Action = 'run' } }
     $hit = @($Live | Where-Object { $_.SessionId -eq $Job.sessionId })
     if (-not $hit) { return @{ Action = 'run' } }
     if (@($hit | Where-Object { $_.Status -in 'busy', 'waiting' })) { return @{ Action = 'defer'; Live = $hit } }
     $cfg = Get-ChatqConfig
     $idle = if ($cfg.liveIdle -in 'stop', 'warn') { $cfg.liveIdle } else { 'warn' }
-    return @{ Action = $idle; Live = $hit }
+    $bg = Get-ChatqLiveBackground $Job $hit
+    if (-not $bg) { return @{ Action = $idle; Live = $hit } }
+    $held = @(@($bg.Work) + @($bg.Shells))
+    $first = $null
+    foreach ($t in $held) { if ($t.At -and (-not $first -or $t.At -lt $first.At)) { $first = $t } }
+    if (-not $first) { $first = $held[0] }
+    $since = if ($first.At) { $first.At } else { $Now }
+    $note = $first.Note
+    if (-not $note) { foreach ($t in $held) { if ($t.Note) { $note = $t.Note; break } } }
+    $out = @{ Action = 'defer'; Live = $hit; Why = 'background'; Since = $since; Note = $note; ShellOnly = -not @($bg.Work).Count }
+    if ($out.ShellOnly -and $Now -ge $since.AddMinutes($script:ChatqShellWaitMinutes)) {
+        $out.Action = $idle
+        $out.Beside = 'background'
+    }
+    return $out
+}
+
+function Get-ChatqLiveBackground {
+    <#
+    Resolve-ChatqLiveAction's reading: what the chat's live interactive
+    processes (-Live, its own entries, none busy) started and still have out
+    - @{ Work; Shells }, starts as Step-ChatBackgroundLine keeps them - or
+    $null for none. Only starts since each process started: the work dies
+    with the process that ran it. None a print-mode run made: no job of
+    the chat runs yet, and claude -p stamps its entries sdk-*, whose work
+    died with it. Shells as many of the newest as run under that process
+    (Get-ChatShellChildCount), and none where that cannot be told.
+    #>
+    param($Job, [object[]]$Live)
+    $path = [string]$Job.path
+    if (-not $path -or -not (Test-Path -LiteralPath $path -PathType Leaf)) { return $null }
+    $mine = @($Live | Where-Object {
+            $k = [string](Get-ChatField $_ 'Kind')
+            (-not $k -or $k -eq 'interactive') -and [string](Get-ChatField $_ 'Entrypoint') -cnotin $script:ChatSdkEntrypoints
+        })
+    if (-not $mine.Count) { return $null }
+    $wrote = (Get-Item -LiteralPath $path).LastWriteTime
+    $open = $null
+    $dir = Get-ChatSessionDir $path
+    $work = [System.Collections.Generic.List[object]]::new()
+    $shells = [System.Collections.Generic.List[object]]::new()
+    $seen = @{}
+    foreach ($e in $mine) {
+        $since = Get-ChatqEntryStart $e
+        # untouched since this process started: it has started nothing
+        if ($wrote -lt $since) { continue }
+        if ($null -eq $open) { $open = Read-ChatBackgroundOpen $path }
+        if (-not $open -or -not $open.Count) { break }
+        $got = @(Select-ChatBackgroundOpen $open $since -SkipPrint -Shells -SessionDir $dir)
+        $sh = @($got | Where-Object { $_.Kind -eq 'shell' })
+        if ($sh.Count) {
+            $n = Get-ChatShellChildCount @([int](Get-ChatField $e 'Pid'))
+            $sh = if ($null -eq $n) { @() } elseif ($n -lt $sh.Count) { @($sh | Select-Object -Last $n) } else { $sh }
+        }
+        foreach ($t in @($got | Where-Object { $_.Kind -ne 'shell' })) { if (-not $seen[$t.Id]) { $seen[$t.Id] = $true; $work.Add($t) } }
+        foreach ($t in $sh) { if (-not $seen[$t.Id]) { $seen[$t.Id] = $true; $shells.Add($t) } }
+    }
+    if (-not $work.Count -and -not $shells.Count) { return $null }
+    return [pscustomobject]@{ Work = @($work); Shells = @($shells) }
 }
 
 function Get-ChatField {
@@ -141,6 +227,21 @@ function Get-ChatqEntryStart {
     $at = Get-ChatField $Entry 'StartedAt'
     if ($at) { try { return [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$at).LocalDateTime } catch {} }
     try { return (Get-Process -Id ([int](Get-ChatField $Entry 'Pid')) -EA Stop).StartTime } catch { return [datetime]::MinValue }
+}
+
+function Get-ChatqStillThere {
+    # Which of -Pids still hold the chat: a registry file naming it, whose
+    # process is still that session (Test-ChatqSessionAlive). One that left
+    # by itself took its file with it; one killed left the file behind and
+    # its pid dead. The registry alone: this is asked every 250 ms.
+    param([string]$ConfigDir, [string]$SessionId, [int[]]$Pids)
+    $want = @($Pids | Where-Object { $_ })
+    if (-not $want.Count) { return @() }
+    $reg = @(Read-ChatqSessionRegistry (Join-Path (Get-ChatqHomeDir 'claude' $ConfigDir) 'sessions'))
+    return @($want | Where-Object {
+            $p = $_
+            @($reg | Where-Object { $_.Pid -eq $p -and [string]$_.SessionId -eq $SessionId -and (Test-ChatqSessionAlive $_) }).Count
+        })
 }
 
 function Test-ChatVsCodeOwned {
@@ -189,8 +290,8 @@ function Stop-ChatIdleProcess {
              to be shown in VS Code as well - that would be a second writer
       live   -JudgeOnly: a window's idle process, left running
       ended  every window's process of it ended
-      kept   one could not be checked or ended (no registry file for it, off
-             Windows): left running
+      kept   one could not be checked or ended (no registry file for it while
+             it runs, off Windows): left running
     HostPids: the Code.exe each window's process runs under, taken before
     anything is ended - which window holds the chat. With -JudgeOnly they are
     taken for a held chat too, and a terminal's claude says other even while
@@ -198,20 +299,36 @@ function Stop-ChatIdleProcess {
     Background work is told apart by who started it, never by when: what a
     print-mode run started died with it, what the window's process started
     is its own (Get-ChatBackgroundTasks -SkipPrint).
+    Show it closes the chat's tab first and then asks this to end what is
+    left, so it narrows what counts: -HostPid, only processes of that
+    window (their parent is its extension host); -StartedBefore, only
+    those started before then - never the one a tab opened meanwhile
+    started; -GraceSeconds, a wait of up to that long for them to leave by
+    themselves, as a closed tab's process does within about 7 s. One that
+    left counts as ended, and nothing is taken down.
     #>
-    param([string]$SessionId, [string]$Transcript, [string]$ConfigDir, [object[]]$Live, [switch]$JudgeOnly)
+    param([string]$SessionId, [string]$Transcript, [string]$ConfigDir, [object[]]$Live, [switch]$JudgeOnly,
+        [int]$GraceSeconds = 0, [int]$HostPid = 0, $StartedBefore = $null)
     $res = [pscustomobject]@{ OldProcess = 'none'; Stopped = [int[]]@(); HostPids = [int[]]@(); Terminal = $false }
     if (-not $PSBoundParameters.ContainsKey('Live')) { $Live = @(Get-ChatqLiveSessions $ConfigDir) }
     # a print-mode claude writing into the chat now - someone's claude -p, or
     # a run not chatq's: a window shown the chat meanwhile would hold a copy
     # from part way through, and a second writer
     if (Test-ChatPrintLive $Live $SessionId) { $res.OldProcess = 'held'; return $res }
+    $before = ConvertTo-ChatqDate $StartedBefore
+    # off Windows no parent can be read, and nothing is ended anyway (kept)
+    $byHost = $HostPid -and ($script:ChatParentSeam -or $script:ChatqIsWindows)
     # interactive only: an ended print-mode run of the same chat holds nothing
     $mine = [System.Collections.Generic.List[object]]::new()
     foreach ($e in @($Live)) {
         if (-not $e -or [string](Get-ChatField $e 'SessionId') -ne $SessionId) { continue }
         $k = [string](Get-ChatField $e 'Kind')
         if ($k -and $k -ne 'interactive') { continue }
+        if ($before -and (Get-ChatqEntryStart $e) -ge $before) { continue }
+        if ($byHost) {
+            $par = Get-ChatParentProcess $e $null
+            if (-not $par -or [int](Get-ChatField $par 'Pid') -ne $HostPid) { continue }
+        }
         $mine.Add($e)
     }
     if (-not $mine.Count) { return $res }
@@ -273,10 +390,36 @@ function Stop-ChatIdleProcess {
     $kept = $false
     $stopped = [System.Collections.Generic.List[int]]::new()
     $short = $SessionId.Substring(0, [Math]::Min(8, $SessionId.Length))
+    # -GraceSeconds: those with a registry file to tell by, given the time
+    # to leave by themselves - counted in steps, so a test's seam stands in
+    # for the clock
+    $had = @()
+    if ($GraceSeconds -gt 0) {
+        $wait = @($ours | ForEach-Object { [int](Get-ChatField $_ 'Pid') })
+        $had = @(Get-ChatqStillThere $ConfigDir $SessionId $wait)
+        for ($ms = 0; $ms -lt $GraceSeconds * 1000; $ms += 250) {
+            if (-not @(Get-ChatqStillThere $ConfigDir $SessionId $had).Count) { break }
+            if ($script:ChatGraceSleepSeam) { & $script:ChatGraceSleepSeam 250 } else { Start-Sleep -Milliseconds 250 }
+        }
+    }
     foreach ($e in $ours) {
         $procId = [int](Get-ChatField $e 'Pid')
+        if ($procId -in $had -and -not @(Get-ChatqStillThere $ConfigDir $SessionId @($procId)).Count) {
+            $stopped.Add($procId)
+            Write-ChatqWatchLog "show: idle chat process $procId ($short) left by itself"
+            continue
+        }
         $re = @(Read-ChatqSessionRegistry $dir | Where-Object { $_.Pid -eq $procId }) | Select-Object -First 1
-        # no file to check it against: not ended on a guess
+        # With a grace, a file gone with its process is one that left as its
+        # tab closed - maybe before the grace's first look ($had), and so
+        # never waited for.
+        if (-not $re -and $GraceSeconds -gt 0 -and -not (Get-Process -Id $procId -EA SilentlyContinue)) {
+            $stopped.Add($procId)
+            Write-ChatqWatchLog "show: idle chat process $procId ($short) left by itself"
+            continue
+        }
+        # no file to check it against, its process still there: not ended on
+        # a guess
         if (-not $re) { $kept = $true; continue }
         # the pid is another chat's now: this one's process is gone
         if ($re.SessionId -and $re.SessionId -ne $SessionId) { continue }
@@ -493,31 +636,41 @@ function Show-ChatFresh {
     Show a chat up to date where it is open. One routine for all three ways
     in: a queued run into a chat a window still holds (-Via run), the
     overlay's open chip (-Via chip), and the extension's Show it button
-    (-Via button). For a run and Show it, the chat's old idle process goes
-    first (Stop-ChatIdleProcess), so the next look loads it from disk; then
-    the window is told, and the extension in extension/ does the rest.
-    After a run the process is ended only with nobody at the PC (-Away):
-    someone there may be reading the chat, and what a side bar does when the
-    chat on screen loses its process is unchecked (S30). Show it ends it.
-    The chip ends nothing and judges no busy: it only asks the window to
-    open the chat as a tab, or bring forward the tab already showing it.
-    Ending the process under a tab that still showed the chat had the
-    window resume it twice, and a second click then left both views with a
-    process that exited with code 1. A terminal's chat is still turned away,
-    and a queued run going into it still holds it.
-    Returns @{ Outcome; ExitCode; Busy; OldProcess; HostPids; Stopped }; the
-    chip's child exits with ExitCode, which picks the tray's words. An
-    outcome that judged nothing (bad, missing) says kept: nothing was
-    checked, which is as good as a process that could not be. Every call
-    past the id and folder check leaves one line in watcher.log, so a click
-    that went wrong can be traced afterwards.
+    (-Via button). Only Show it ends the chat's old idle process
+    (Stop-ChatIdleProcess), so the next look loads it from disk - and only
+    after the window has closed the chat's tab: the extension in extension/
+    judges first (-JudgeOnly), closes the tab, then asks again with
+    -GraceSeconds, -HostPid and -StartedBefore, so what is ended is what
+    outlived the close, in that window, and never a tab it opened since.
+    Ending the process under a tab that still showed the chat left that tab
+    dead ("process exited with code 1"): a run (-Via run) ends nothing any
+    more, away or not, and the window closes the tab first. The chip ends
+    nothing and judges no busy: it only asks the window to open the chat as
+    a tab, or bring forward the tab already showing it - or, with a queued
+    prompt going into the chat, that run's live view (watch). A terminal's
+    chat is still turned away, and a queued run going into it still holds
+    it.
+    Returns @{ Outcome; ExitCode; Busy; OldProcess; HostPids; Stopped;
+    JudgedOnly }; the chip's child exits with ExitCode, which picks the
+    tray's words. An outcome that judged nothing (bad, missing) says kept:
+    nothing was checked, which is as good as a process that could not be.
+    Every call past the id and folder check leaves one line in watcher.log,
+    so a click that went wrong can be traced afterwards.
     #>
     param([string]$SessionId, [string]$Cwd, [string]$Title, [string]$TitleB64, [string]$ConfigDir,
         [string]$Transcript, [ValidateSet('run', 'chip', 'button')][string]$Via = 'chip',
         [int]$Seconds = $script:ChatIdleSeconds, $Away = $null,
         # -Auto: the run was auto-continue's; the request says "auto": true
-        [switch]$Auto)
-    $codes = @{ ok = 0; held = 10; running = 15; other = 20; 'not-raised' = 25; missing = 30; 'no-code' = 40; 'code-failed' = 41; bad = 50 }
+        [switch]$Auto,
+        # -JudgeOnly: end nothing, whatever -Via; the verdict says judged only
+        [switch]$JudgeOnly,
+        # Stop-ChatIdleProcess's: wait for the process to leave by itself,
+        # end only this window's, and none started since
+        [int]$GraceSeconds = 0, [int]$HostPid = 0, $StartedBefore = $null,
+        # -Via run: the windows the run's handover asked, and its job, for
+        # the request (Write-ChatReloadRequest)
+        [int[]]$HandoverPids = @(), [string]$JobId)
+    $codes = @{ ok = 0; held = 10; running = 15; watch = 16; other = 20; 'not-raised' = 25; missing = 30; 'no-code' = 40; 'code-failed' = 41; bad = 50 }
     $logIt = $false
     $done = {
         param([string]$Outcome, $Busy = $null, $Judged = $null)
@@ -526,6 +679,7 @@ function Show-ChatFresh {
             OldProcess = $(if ($Judged) { [string]$Judged.OldProcess } else { 'kept' })
             HostPids = $(if ($Judged) { [int[]]@($Judged.HostPids | Where-Object { $_ }) } else { [int[]]@() })
             Stopped = $(if ($Judged) { [int[]]@($Judged.Stopped | Where-Object { $_ }) } else { [int[]]@() })
+            JudgedOnly = [bool]$JudgeOnly
         }
         if ($logIt) {
             # ASCII only: the id is checked, and no title goes in
@@ -550,14 +704,38 @@ function Show-ChatFresh {
     # beside the run, and cut off nothing less. Held, busy, and left alone;
     # the run's own request comes when it ends. After a run (-Via run) its
     # own process is gone and the next job has not started.
-    if ($Via -ne 'run' -and (@(Get-ChatqJobs | Where-Object { $_.state -eq 'running' -and [string]$_.sessionId -eq $SessionId }).Count -or
-            (Test-ChatPrintLive $live $SessionId))) {
+    $runJob = if ($Via -ne 'run') { @(Get-ChatqJobs | Where-Object { $_.state -eq 'running' -and [string]$_.sessionId -eq $SessionId }) | Select-Object -First 1 } else { $null }
+    if ($Via -ne 'run' -and ($runJob -or (Test-ChatPrintLive $live $SessionId))) {
+        # The chip on a chat a chatq job is going into: that run's live view
+        # instead, in the window its handover asked (data/run-state) - else
+        # the one on exactly its folder - brought forward as for an open.
+        # Someone's own claude -p has no live view: running, as before.
+        if ($Via -eq 'chip' -and $runJob) {
+            $rs = Read-ChatRunState
+            $hp = [int[]]@()
+            if ($rs -and [string](Get-ChatField $rs 'jobId') -eq [string]$runJob.id -and [string](Get-ChatField $rs 'phase') -in 'handover', 'running') {
+                $hp = [int[]]@(@(Get-ChatField $rs 'hostPids') | Where-Object { $_ })
+            }
+            $jobHome = if ($ConfigDir) { $ConfigDir } else { [string]$runJob.home }
+            $name = if ($Title) { $Title } else { [string]$runJob.title }
+            Write-ChatWatchRequest -SessionId $SessionId -Cwd $Cwd -Title $name -ConfigHome $jobHome -JobId ([string]$runJob.id) -Seq $runJob.seq -HostPids $hp
+            $outcome = 'watch'
+            if ($hp.Count -and -not (Test-ChatWindowExact $Cwd @(Get-ChatCodeWindowTitles) @(Get-ChatCodeProfileNames))) { $outcome = 'not-raised' }
+            else {
+                $c = Open-ChatCodeWindow $Cwd
+                if (-not $c.Ok) { $outcome = [string]$c.Code }
+            }
+            return (& $done $outcome $null ([pscustomobject]@{ OldProcess = 'held'; HostPids = $hp; Stopped = @() }))
+        }
         return (& $done 'running' $true ([pscustomobject]@{ OldProcess = 'held'; HostPids = @(); Stopped = @() }))
     }
-    # the chip ends nothing: the window opens the chat as a tab, or brings
-    # forward the one already showing it, on the process it has
-    $judgeOnly = $Via -eq 'chip' -or ($Via -eq 'run' -and $Away -ne $true)
-    $j = Stop-ChatIdleProcess -SessionId $SessionId -Transcript $Transcript -ConfigDir $ConfigDir -Live $live -JudgeOnly:$judgeOnly
+    # Only Show it ends a process, and only when it did not ask to judge:
+    # the chip opens the chat as a tab, or brings forward the one already
+    # showing it, on the process it has; after a run the window closes the
+    # tab first (the extension's Show it, or the run's handover).
+    $judged = $JudgeOnly -or $Via -ne 'button'
+    $stopArgs = @{ GraceSeconds = $GraceSeconds; HostPid = $HostPid; StartedBefore = $StartedBefore }
+    $j = Stop-ChatIdleProcess -SessionId $SessionId -Transcript $Transcript -ConfigDir $ConfigDir -Live $live -JudgeOnly:$judged @stopArgs
     # busy: the chat itself held, or another in the folder working - which
     # Reload Webviews would cut off as surely as a window reload. Not judged
     # for the chip: opening a tab cuts nothing off.
@@ -570,7 +748,8 @@ function Show-ChatFresh {
     $outcome = switch ($j.OldProcess) { 'held' { 'held' } 'other' { 'other' } default { 'ok' } }
     if ($Via -eq 'run') {
         Write-ChatReloadRequest -Title $Title -Cwd $Cwd -Kind 'ran' -Busy $busy -Away $Away -SessionId $SessionId `
-            -ConfigHome $ConfigDir -OldProcess $j.OldProcess -HostPids $j.HostPids -Transcript $Transcript -Auto:$Auto
+            -ConfigHome $ConfigDir -OldProcess $j.OldProcess -HostPids $j.HostPids -Transcript $Transcript -Auto:$Auto `
+            -HandoverPids $HandoverPids -JobId $JobId
     }
     elseif ($Via -eq 'chip' -and $j.OldProcess -ne 'other') {
         Write-ChatOpenRequest -SessionId $SessionId -Cwd $Cwd -Title $Title -ConfigHome $ConfigDir -Busy $busy `
@@ -590,14 +769,19 @@ function Show-ChatFresh {
 
 function ConvertTo-ChatFreshVerdict {
     # What the Show it button's child prints for the extension: one line of
-    # ASCII JSON, read by its parseVerdict. Pure.
+    # ASCII JSON, read by its parseVerdict. "judged":"only" when -JudgeOnly
+    # was asked for and so nothing was ended - a script from before it knew
+    # that switch ends the process all the same and says nothing, and the
+    # extension goes on as it did then. Pure.
     param($Result)
-    return ([ordered]@{
-            busy       = $Result.Busy
-            oldProcess = [string]$Result.OldProcess
-            outcome    = [string]$Result.Outcome
-            hostPids   = [int[]]@($Result.HostPids | Where-Object { $_ })
-        } | ConvertTo-Json -Compress)
+    $v = [ordered]@{
+        busy       = $Result.Busy
+        oldProcess = [string]$Result.OldProcess
+        outcome    = [string]$Result.Outcome
+        hostPids   = [int[]]@($Result.HostPids | Where-Object { $_ })
+    }
+    if (Get-ChatField $Result 'JudgedOnly') { $v.judged = 'only' }
+    return ($v | ConvertTo-Json -Compress)
 }
 
 function Test-ChatWindowExact {

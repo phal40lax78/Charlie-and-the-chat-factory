@@ -1,4 +1,4 @@
-# VS-code-chat-manager, src/commands.ps1: dot-sourced by VS-code-chat-manager.ps1
+# claude-codex-chat-manager, src/commands.ps1: dot-sourced by claude-codex-chat-manager.ps1
 # in its turn, never on its own - see the list there.
 
 #region commands --------------------------------------------------------------
@@ -183,7 +183,9 @@ function New-ChatqJobRecord {
         cutUuid = $null
         deferUntil = $null
         # why it waits till deferUntil: vscode, auto-continue's hold for a
-        # chat open in a VS Code panel; unset, a chat that was busy
+        # chat open in a VS Code panel; background, a command the chat's own
+        # process started (the watcher adds deferSince and deferNote); in-use,
+        # its tab in front of you at the handover; unset, a chat that was busy
         deferWhy = $null
         deferredSince = $null
         busyAlerted = $false
@@ -347,10 +349,12 @@ function Invoke-ChatqContinueChats {
 
 function Remove-ChatqJob {
     # A job and everything it has: its file, prompt, log, and the copies of
-    # its files - the originals were never touched. Not a running one.
+    # its files - the originals were never touched - and a run's own
+    # settings a watcher that died left (Invoke-ChatqRun). Not a running one.
     param($Job, [string]$By = 'chatqrm')
     if ($Job.state -eq 'running') { return $false }
-    foreach ($p in @((Join-Path $script:ChatqQueueDir "$($Job.id).json"), (Get-ChatqPromptPath $Job), (Join-Path $script:ChatqLogDir "$($Job.id).jsonl"))) {
+    foreach ($p in @((Join-Path $script:ChatqQueueDir "$($Job.id).json"), (Get-ChatqPromptPath $Job), (Join-Path $script:ChatqLogDir "$($Job.id).jsonl"),
+            (Join-Path $script:ChatqRunSettingsDir "$($Job.id).json"))) {
         if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Force -EA SilentlyContinue }
     }
     $ad = Get-ChatqAttachDir $Job
@@ -1038,6 +1042,13 @@ function chatnotify {
     phone may approve (default: Bash, PowerShell, Edit, Write, MultiEdit,
     NotebookEdit, WebFetch; mcp__server__* for an MCP server's tools).
 
+    A chat you run yourself that asks a question (AskUserQuestion) shows it
+    on the board and its needs input alert's page, every option with its
+    description. -Ask on lets the phone answer it too: chatq adds a small
+    Claude Code hook, as the plugin chatq-ask, that holds the question for
+    the phone -AskWait minutes (240) while the PC's dialog stays open - the
+    first answer counts. -Manual prints the hook for your settings instead.
+
     The page shows Claude's whole answer with done, needs input and failed
     (-FullText off leaves the alert's excerpt only), and opened from a
     bookmark it is the overlay on the phone - usage, every chat, the queue -
@@ -1077,6 +1088,8 @@ function chatnotify {
     chatnotify -Say 'needs input', failed
     .EXAMPLE
     chatnotify -Permit on -PermitWait 15
+    .EXAMPLE
+    chatnotify -Ask on
     #>
     param(
         [string]$ApiKey, [string]$Device, [switch]$Test, [switch]$Off,
@@ -1087,6 +1100,7 @@ function chatnotify {
         [ValidateSet('on', 'off')][string]$UsageAlerts, [string[]]$UsageAt, [ValidateSet('on', 'off')][string]$UsageReset,
         [string]$QuietHours, [string[]]$Urgent, [string[]]$Say, [string]$SayLanguage,
         [ValidateSet('on', 'off')][string]$Permit, [string]$PermitWait, [string[]]$PermitTools,
+        [ValidateSet('on', 'off')][string]$Ask, [string]$AskWait, [switch]$Manual,
         [ValidateSet('on', 'off')][string]$FullText, [ValidateSet('on', 'off')][string]$Compose, [ValidateSet('alerts', 'always')][string]$Listen, [string]$NewMode
     )
     Set-StrictMode -Off
@@ -1110,6 +1124,7 @@ function chatnotify {
         Write-Host '      chatnotify -LiveAlerts on|off / -ReplyPage <https URL>' -ForegroundColor Cyan
         Write-Host '      chatnotify -UsageAt 90 / -UsageReset on|off / -QuietHours 00:00-07:00 / -Say ''needs input''' -ForegroundColor Cyan
         Write-Host '      chatnotify -Permit on|off [-PermitWait <min>]                 approve tool calls from the phone' -ForegroundColor Cyan
+        Write-Host '      chatnotify -Ask on|off [-AskWait <min>] [-Manual]              answer Claude''s questions from the phone' -ForegroundColor Cyan
         Write-Host '      chatnotify -FullText on|off / -Compose on|off / -Listen alerts|always / -NewMode <mode>' -ForegroundColor Cyan
         return
     }
@@ -1147,6 +1162,9 @@ function chatnotify {
     if ($Permit) { $ch['Permit'] = $Permit }
     if ($PSBoundParameters.ContainsKey('PermitWait')) { $ch['PermitWait'] = $PermitWait }
     if ($PSBoundParameters.ContainsKey('PermitTools')) { $ch['PermitTools'] = $PermitTools }
+    # answering Claude's questions from the phone (src/ask.ps1)
+    if ($Ask) { $ch['Ask'] = $Ask; $ch['AskManual'] = [bool]$Manual }
+    if ($PSBoundParameters.ContainsKey('AskWait')) { $ch['AskWait'] = $AskWait }
     # the whole answer, the board and new chats, listening all the time
     if ($FullText) { $ch['FullText'] = $FullText }
     if ($Compose) { $ch['Compose'] = $Compose }
@@ -1205,6 +1223,7 @@ function chatnotify {
         $rcs = Get-ChatqReplyConfig $cfg
         if ($rcs.Wanted -and $rcs.MaxMode -ne 'acceptEdits') { Write-Host "    a reply runs a job in $($rcs.MaxMode) at most" -ForegroundColor DarkGray }
         Write-Host "  permissions from the phone: $(Get-ChatqPermitStatusText $cfg)" -ForegroundColor DarkGray
+        Write-Host "  questions from the phone: $(Get-ChatqAskStatusText $cfg)" -ForegroundColor DarkGray
         Write-ChatqBoardNotifyStatus $cfg
         if ($any) { Write-Host '  chatnotify -Test sends one' -ForegroundColor DarkGray }
         else {
@@ -1235,7 +1254,7 @@ function Write-ChatqCheatSheet {
     Write-Host '  -Attach a.png, spec.pdf / -Paste   send files, a screenshot or the clipboard with it' -ForegroundColor DarkGray
     Write-Host '  Tab fills in a title from any part of it, like chatrm: chatq card red<Tab>' -ForegroundColor DarkGray
     Write-Host '  chat = every command, find and delete included' -ForegroundColor DarkGray
-    Write-Host "  VS-code-chat-manager $script:ChatVersion $($script:ChatqDot) $script:ChatqScriptPath" -ForegroundColor DarkGray
+    Write-Host "  claude-codex-chat-manager $script:ChatVersion $($script:ChatqDot) $script:ChatqScriptPath" -ForegroundColor DarkGray
 }
 
 #endregion

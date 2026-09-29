@@ -188,8 +188,19 @@ Check 'the chip''s actions: the banner its two answers, with their tips; a Claud
     (@($caAsk | ForEach-Object { $_.Id }) -join ',') -eq 'ask-go,ask-leave' -and $caAsk[0].Label -eq 'continue 3' -and $caAsk[1].Label -eq 'leave them' -and
     $caAsk[0].Tip -eq 'Queue "Continue from where you left off." for each of the 3 chats the limit cut off: One, Two, Three' -and
     $caAsk[1].Tip -eq 'Leave them as they are - their rows stay orange; Continue all in the console still continues them' -and
-    (@($caOpen | ForEach-Object { $_.Id }) -join ',') -eq 'open' -and $caOpen[0].Label -eq 'open' -and (@($caCut | ForEach-Object { $_.Id }) -join ',') -eq 'open' -and
-    (@($caRecent | ForEach-Object { $_.Id }) -join ',') -eq 'open' -and $caJob.Count -eq 0 -and $caCodex.Count -eq 0 -and $caNone.Count -eq 0) "$(@($caAsk | ForEach-Object { "$($_.Id)=$($_.Label)" }) -join ',') $($caOpen.Count) $($caJob.Count) $($caCodex.Count)"
+    (@($caOpen | ForEach-Object { $_.Id }) -join ',') -eq 'open,delete' -and $caOpen[0].Label -eq 'open' -and (@($caCut | ForEach-Object { $_.Id }) -join ',') -eq 'open,delete' -and
+    (@($caRecent | ForEach-Object { $_.Id }) -join ',') -eq 'open,delete' -and $caJob.Count -eq 0 -and $caCodex.Count -eq 0 -and $caNone.Count -eq 0) "$(@($caAsk | ForEach-Object { "$($_.Id)=$($_.Label)" }) -join ',') $($caOpen.Count) $($caJob.Count) $($caCodex.Count)"
+# each: its ids, then whether delete is greyed
+$caSess = { param($st, $where) $a = @(Get-ChatOverlayChipActions ([pscustomobject]@{ key = "s:$idCard"; kind = 'session'; provider = 'claude'; sessionId = $idCard; cwd = $projA; status = $st; where = $where }))
+    "$((@($a | ForEach-Object Id)) -join ','):$(@($a | Where-Object { $_.Id -eq 'delete' })[0].Disabled)" }
+Check 'delete always beside open, so the chip keeps its width; greyed on a chat at work, waiting or in a terminal' (
+    (& $caSess 'idle' 'vscode') -eq 'open,delete:False' -and (& $caSess 'idle' '') -eq 'open,delete:False' -and (& $caSess 'cutoff' 'vscode') -eq 'open,delete:False' -and
+    (& $caSess 'idle' 'terminal') -eq 'open,delete:True' -and (& $caSess 'busy' 'vscode') -eq 'open,delete:True' -and (& $caSess 'waiting' 'vscode') -eq 'open,delete:True' -and
+    -not @($caRecent | Where-Object { $_.Disabled }).Count -and -not @($caCut | Where-Object { $_.Disabled }).Count) "$(& $caSess 'busy' 'vscode')"
+$daNow = Get-Date
+Check 'delete asks twice: a second click on the same row under 4 s deletes; another row, or later, asks again' (
+    (Test-ChatOverlayDeleteArmed 's:a' $daNow.AddSeconds(-1) 's:a' $daNow) -and -not (Test-ChatOverlayDeleteArmed 's:a' $daNow.AddSeconds(-5) 's:a' $daNow) -and
+    -not (Test-ChatOverlayDeleteArmed 's:a' $daNow.AddSeconds(-1) 's:b' $daNow) -and -not (Test-ChatOverlayDeleteArmed '' $null 's:a' $daNow)) ''
 
 # --- continuing them -----------------------------------------------------------------------
 $raC1 = 'a5a50001-0000-4000-8000-000000000001'
@@ -482,7 +493,7 @@ Check 'the console with overlay.cutOff off: the ask''s chats listed under Cut of
 $kWc = & $kOf $raWc
 $raWpf = @"
 `$env:CHATQ_OVERLAY = '1'
-. '$(Join-Path $sb 'tool\VS-code-chat-manager.ps1')'
+. '$(Join-Path $sb 'tool\claude-codex-chat-manager.ps1')'
 Set-StrictMode -Off
 `$script:RaErr = @()
 trap { `$script:RaErr += "`$(`$_.Exception.Message) @ `$(`$_.InvocationInfo.ScriptLineNumber)"; continue }
@@ -556,7 +567,7 @@ Set-ChatOverlayCollapsed `$H `$true
 `$one = @(`$H.Stack.Children[0].Children | Where-Object { `$_ -is [System.Windows.Controls.TextBlock] } | ForEach-Object { `$_.Text }) -join '/'
 Set-ChatOverlayCollapsed `$H `$false
 `$foldOk = `$one -eq ('5h 42% resets ' + (& `$hm `$r5) + ' ' + `$dot + ' week 50%/3 can continue ' + `$dot + ' 2 idle')
-# the chip on the banner: its two answers; on a Claude row: open alone
+# the chip on the banner: its two answers; on a Claude row: open and delete
 `$e = @(`$rects | Where-Object { `$_.Key -eq 'ask' })[0]
 Show-ChatOverlayChip `$H `$e
 `$cc = `$H.ChipWin.Content
@@ -567,7 +578,13 @@ Hide-ChatOverlayChip `$H
 `$H.ChipActions = @(Get-ChatOverlayChipActions ([pscustomobject]@{ key = 's:x'; kind = 'session'; provider = 'claude'; sessionId = '$idCard'; cwd = '$projA' }))
 New-ChatOverlayChipContent `$H
 `$cc = `$H.ChipWin.Content
-`$chipOpen = `$cc.Children.Count -eq 1 -and `$cc.Children[0].Tag -eq 'open' -and `$H.ChipText -eq `$cc.Children[0].Child -and `$H.ChipText.Text -eq 'open'
+`$chipOpen = (@(`$cc.Children | ForEach-Object { `$_.Tag }) -join ',') -eq 'open,delete' -and `$H.ChipText -eq `$cc.Children[0].Child -and `$H.ChipText.Text -eq 'open' -and
+    `$H.ChipDelText -eq `$cc.Children[1].Child -and `$H.ChipDelText.Foreground -eq (Get-ChatOverlayBrush 'text')
+# on a chat at work: delete greyed, and a reset leaves it grey
+`$H.ChipActions = @(Get-ChatOverlayChipActions ([pscustomobject]@{ key = 's:x'; kind = 'session'; provider = 'claude'; sessionId = '$idCard'; cwd = '$projA'; status = 'busy' }))
+New-ChatOverlayChipContent `$H
+Reset-ChatOverlayDeleteArm `$H
+`$chipOpen = `$chipOpen -and `$H.ChipDelText.Foreground -eq (Get-ChatOverlayBrush 'faint') -and `$H.ChipDelText.Text -eq 'delete'
 # the settings box's seventh row: Cut off, Ask or Leave
 Set-ChatOverlaySettingsOpen `$H `$true
 `$chipsOf = { param(`$t) @(`$H.Settings.Child.Children | Where-Object { `$_ -is [System.Windows.Controls.StackPanel] -and @(`$_.Children | ForEach-Object { `$_.Tag }) -contains `$t })[0] }
@@ -685,7 +702,7 @@ Check 'a week at its limit: its reset shown, not 5h''s, in the limit''s colour' 
 Check 'the banner: last in the header after the notes, in place of the ask''s note - tagged for the chip, its titles and those left as its tooltip, no row counted' ($ra.Count -gt 2 -and $ra[2] -eq 'True') $raSay
 Check 'collapsed: "N can continue" counted apart, and when 5h resets' ($ra.Count -gt 3 -and $ra[3] -eq 'True') $raSay
 Check 'the chip on the banner: continue N and leave them, each its own tip' ($ra.Count -gt 4 -and $ra[4] -eq 'True') $raSay
-Check 'the chip on a Claude row: open alone, still the text that says opening' ($ra.Count -gt 5 -and $ra[5] -eq 'True') $raSay
+Check 'the chip on a Claude row: open and delete, open still the text that says opening; delete greyed on a chat at work' ($ra.Count -gt 5 -and $ra[5] -eq 'True') $raSay
 Check 'the settings box''s seventh row: Cut off, Ask or Leave, the one in force filled; Leave saves off at config.json''s top level, and a fresh look follows' ($ra.Count -gt 6 -and $ra[6] -eq 'True') $raSay
 Check 'balloons go through Show-ChatOverlayBalloon: cut to 250, what a click means kept' ($ra.Count -gt 7 -and $ra[7] -eq 'True') $raSay
 Check 'a new ask is ballooned once - title, count, three titles and the rest counted - then what an answer did' ($ra.Count -gt 8 -and $ra[8] -eq 'True') $raSay

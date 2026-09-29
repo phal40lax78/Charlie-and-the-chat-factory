@@ -1,5 +1,222 @@
 # Changelog
 
+## 0.10.0 — a new name, queued runs you can watch, and Claude's questions on the phone
+
+- **A new name: Chat Manager for Claude Code & Codex**, was VS Code Chat
+  Manager, with a shorter Marketplace description, and a new ID:
+  `redaechan.claude-codex-chat-manager`. It is a new Marketplace
+  extension, so the old `redaechan.vs-code-chat-manager` never updates to
+  it: install the new one and uninstall the old - both installed would
+  act on every request twice. The notices, the settings section and the
+  log's output channel carry the new name; the settings keep their
+  `chatManager.*` keys. **Why:** search weights the name most, and "VS
+  Code" matched every extension while "Claude" and "Codex" were missing.
+- **The script, the folder and the repo renamed too:**
+  `claude-codex-chat-manager.ps1` in `~/Tools/claude-codex-chat-manager`,
+  from github.com/phal40lax78/claude-codex-chat-manager, and the phone's
+  reply page at phal40lax78.github.io/claude-codex-chat-manager. A
+  profile line naming the old `VS-code-chat-manager.ps1` is still
+  recognised, and `chatinstall` replaces it. Bookmark the reply page
+  again: GitHub Pages does not redirect a renamed repo.
+- **Delete a chat from the overlay.** The row's chip has **delete**
+  beside **open**. The first click turns it to **sure?** for 4 seconds; a
+  second deletes the chat and its leftovers as `chatrm` does, and the
+  window offers its reload. On a chat at work, waiting on you, or run by a
+  terminal `claude` it is greyed rather than gone, so the chip does not
+  change width as the chat's state does. A chat held by a queued prompt is
+  kept, and the tray says why. There is no undo; `chatrm -Archive` still
+  puts a chat away instead.
+- **Resize the overlay by its edges, as any window.** With the buttons up,
+  drag a side of the panel for its width, its top or bottom for its rows -
+  a row for each row's height of travel - or a corner for both; the side
+  across from the one dragged stays where it is. The pointer turns to that
+  edge's arrows, and a blue line marks the side it sizes. The top grows
+  the panel upward over its bottom, and by the screen's foot brings back
+  the rows the foot had cut. Collapsed, the sides and corners size the
+  width alone. Resting just outside the panel's edge brings the buttons
+  and edges too. The width slider and `chatoverlay -Width` still hold the
+  right edge.
+- **The resize handle is gone** from the row of buttons, seven now. It was
+  one spot to hold at the panel's top-right corner, and which way it sized
+  was not what it looked like: left widened, down added rows.
+- **A reply from the phone acts only on what the phone was shown.** An
+  alert, and a board's handle, keep the chat and the job as they showed
+  them. **Send**, **Continue**, **Retry** and **Allow edits & continue**
+  do nothing when the chat took a prompt since - at the PC, or another
+  job's - and those and **Skip** and **Stop** do nothing when the job was
+  queued, run or stopped again since; the watcher's own requeue after a
+  limit or a dropped network does not count, nor do the phone's own
+  prompts or a background task's notice. Only what was written to the
+  transcript after the alert is read, so a long turn or a compaction after
+  a prompt at the PC hides nothing. An alert's push says so,
+  `Radar viewer moved on at the PC since that alert`, with a link about the
+  chat as it is now; the board says `the list is out of date`, goes back to
+  a board asked for afresh, and keeps the text. A `needs input` job
+  whose chat was answered at the PC is closed as the overlay closes one,
+  with no overlay running too. **Why:** a text written for the old turn
+  answered a newer question it was never meant for; an old **Allow** raised
+  the mode for a stop nobody had seen; an old **Stop** ended a later run.
+- **A job's own mode no longer outranks the chat's.** A phone **Send**
+  after a job runs in that job's mode only while nothing went into the chat
+  after it; then in the chat's own mode as the PC left it, when lower -
+  `runs in plan, the chat's own at the PC`.
+- **Half an hour for a reply to arrive.** A reply the phone sealed more than
+  30 minutes before the PC reads it - 10 for **Status** and a whole answer
+  asked again - is refused as too old, as the board's changes already were;
+  it was `reply.hours` and 10 minutes. **Why:** replies left on ntfy.sh
+  while the watcher was down ran when it came back, hours after the chat
+  went on at the PC.
+- **A usage limit's reset no longer restarts every chat's timer.** The
+  overlay's and the phone's `working 40m` read `working 0m` on every chat
+  at once when the 5-hour limit reset. Claude Code rewrites each chat's
+  registry file then and stamps its status time anew, status changed or
+  not; a chat still in the same status now keeps the time it entered it.
+- **Work sent to the background shows on the overlay.** A chat whose turn
+  started a workflow, a background agent or a background command stays a
+  green row until the work ends, and says what runs and for how long:
+  `workflow 12m`, `2 agents 3m`, `shell 5m`. The phone's board lists it
+  under Working. It was `idle` - in every folder, not only another repo's -
+  since Claude calls the chat idle the moment that turn ends. A command
+  counts while one of Claude's own shells runs under the chat's process, so
+  one stopped from the task list goes idle at once, and a dev server reads
+  `shell` for as long as it runs.
+- **A killed workflow no longer holds a reload for good.** An interrupt of
+  the turn that started a workflow kills it without a `<task-notification>`,
+  and `TaskStop` ends a task without one, so the check before a reload - and
+  the wait before an update loads - took the work for still running until
+  the chat's process ended. The workflow's run record now ends it, as does
+  a `TaskStop`, and an agent whose own transcript finished its turn: eleven
+  agent runs here finished unannounced.
+- **A queued run takes the chat's tab's place, and you can watch it.** A
+  run into a chat open idle in a VS Code tab now asks that window first
+  (`data/run-state`, answered in `data/run-ack/`): the window opens the
+  run's live view in the tab's group and closes the chat's tab, and Claude
+  Code ends that process itself - nothing is killed. As the run ends,
+  whatever the outcome, the view turns back into the chat's tab, loaded
+  from disk - at once while the view is in front or you are away, else
+  with **Open chat**. The tab in front of you is never taken: the job
+  waits, `waits for you to leave its tab`, looking again after 1, 2, then
+  5 minutes, with **Hand over now** for that one job. A tab that cannot
+  be told apart is left, the view opens beside it, and the window says the
+  old view is stale until the run ends. A Cancel during the handover ends
+  the job there, and the next run into the chat waits 30 s while the
+  window puts it back. `chatManager.watchRuns` (on) and `"handover"` in
+  `data/config.json` (on) turn it off. **Why:** Claude
+  Code has no way to send a prompt into an open tab, so the run went in
+  beside it, hidden - nothing showed a job going, and a message typed in
+  the stale tab forked the chat.
+- **The live view.** An editor tab, `▶ #15 <title>`, that follows the
+  run's log as it is written: the prompt, Claude's text, each tool with
+  its argument and a running clock, results cut to 3 lines, subagents
+  indented, edits as `+2 -1`, errors coloured, the todo being done pinned
+  (`Now: run the tests (3/7)`), a permission waiting on the phone, and the
+  end. **Cancel** (asked first), **Log**, **Open chat** once it ends. It
+  takes the theme, survives a window reload, and keeps the last 5000 rows.
+  It opens from the handover, a status bar item in windows on the job's
+  folder (`chatq #15 running`), **Chat Manager: Watch the running queued
+  prompt**, the overlay's chip (which reads **watch** on that row), the
+  console's **Watch in VS Code**, and **Open chat...** on that chat - all
+  of which refused a running chat before.
+- **Show it closes the tab before it ends anything.** The check now only
+  judges; the chat's own tab is brought forward by its id and closed, and
+  a process that outlives the close by 8 seconds is ended then - only this
+  window's, started before the click. A tab it cannot be sure of is left
+  with its process, and a run's end no longer ends a process at all, away
+  or not. **Why:** Show it ended the idle process first, and the Claude
+  extension let go of the tab as the process died; the reopen made a
+  second tab and left the old one reading *Claude Code process exited
+  with code 1* (seen 2026-09-28, twice).
+- **A queued run's background work survives.** Claude runs get
+  `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` - commands run in the turn -
+  with the Bash tool's timeouts at an hour (`BASH_MAX_TIMEOUT_MS`) and 30
+  minutes (`BASH_DEFAULT_TIMEOUT_MS`), and print mode's wait for a
+  workflow or agent at an hour (`CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS`),
+  each only where the environment does not set it already. A run stopped
+  at the 4-hour deadline after a turn that ended well counts as done, with
+  a note. **Why:** `claude -p` kills a background shell 5 s after the turn
+  ends (2.1.283), and a queued run's test suite died with it.
+- **Never into a chat whose own work is out.** A run waits while the
+  chat's own process has an agent or workflow out, as for a busy chat, and
+  while it has a background command running - 20 minutes at most, then it
+  goes in beside the chat without closing its tab, which would end a
+  server; that wait never counts toward the 24-hour give-up. `chatqlist`,
+  the overlay, the console and the phone's board say `waits for a
+  background command (since 14:02)`.
+- **A queued run keeps the chat's Ultracode and session-only effort.**
+  Claude Code keeps both only in the chat's running process, so a run
+  started plain dropped them. A run into a chat that had Ultracode on
+  starts with it - `"ultracode": true` in the run's own settings, not
+  `--effort ultracode`, which would force xhigh - and one whose effort
+  was set for the session only - max always, or a level `/effort` set
+  `(this session only)` - with `--effort <level>`. Only on the chat's own
+  model: never with `-Model`, never a new chat's first run, never Codex;
+  and no level where `CLAUDE_CODE_EFFORT_LEVEL` is set, which outranks
+  it. The history, `watcher.log`, the console and the live view say
+  `with Ultracode, at effort max`. **Why:** every queued run dropped them.
+- **Ultracode only in a mode where a run can use it.** Claude Code asks
+  before each Workflow unless the mode is auto or bypassPermissions, and
+  a queued run has nobody to answer: every Workflow would be denied and
+  the job end `needs input`. In any other mode the run goes without
+  Ultracode, its level still carried, and its history says `Ultracode
+  left off (default mode asks before each Workflow)`.
+- **A tab chatq opens again holds `/effort ultracode`.** A tab closed and
+  opened again - Show it, the chat put back after a run - is a new
+  process, without Ultracode or a session-only level. Its input box now
+  holds `/effort ultracode`, or `/effort max`: press Enter there. With
+  both lost, the notice names the level to type next - typed, `/effort`
+  leaves Ultracode on, where the tab's effort menu would save a level
+  below max as every new session's default. It says `Ctrl+Enter`
+  (`Cmd+Enter` on a Mac) where `claudeCode.useCtrlEnterToSend` is on. A
+  chat whose tab is still there, or that a process holds again by the
+  time you click **Open chat**, gets no pre-fill. **Why:** a refreshed tab
+  dropped them without a word, and the effort menu offers Ultracode only
+  at max.
+- **How a chat's settings are read.** From its transcript, backwards, 16
+  MB at most: `/effort`'s answers, the notices Claude Code writes with a
+  prompt when Ultracode changed, and the level each turn a prompt of
+  yours started ran at - so a max picked in the tab's effort menu counts
+  as well. A compaction and a queued run's own notices are read as Claude
+  Code reads them, so a chat switched off after either reads off.
+- **A watcher started from a chat's terminal** no longer hands that
+  chat's VS Code settings to its runs:
+  `CLAUDE_CODE_SDK_READS_SESSION_STATE` (Claude Code 2.1.284) and
+  `MCP_CONNECTION_NONBLOCKING` join the variables dropped.
+- **A queued run's chat is marked as one.** Claude Code registers
+  `claude -p` as an SDK run (`sdk-cli`), which the overlay drew as a
+  terminal, `>_`; it is a play triangle now (`|>` in `chatoverlay
+  -Print`), the delete chip stays greyed, the phone says `a queued
+  prompt`, and the picker reads it as running.
+- **Claude's questions on the phone.** A chat you run yourself that asks
+  with `AskUserQuestion` shows the question on the board, `a question:
+  Stability log` in place of `input needed`, and on the page of its `needs
+  input` alert: every question, header and option, with each option's whole
+  description. A very long text is cut and says so; a preview is not shown.
+  The push says only `waiting on you: input needed (a question)`, and the
+  question travels only on the sealed down topic. No hook, no setting: it
+  is read from the chat's transcript, as the overlay reads it. **Why:** the
+  alert said `input needed` and nothing more, so you went to the PC to
+  find out what was asked.
+- **Answer them from the phone, off by default.** `chatnotify -Ask on`, or
+  **Answer Claude's questions from the phone** in the setup window (also
+  `-AskWait <min>`, 240; `-Manual`), adds a small Claude Code hook as the
+  plugin `chatq-ask`, through Claude Code's own CLI - your `settings.json`
+  is never written. The hook runs beside the VS Code dialog, holds the
+  question for the phone, and the first answer, the PC's or the phone's,
+  counts. The phone picks options or types one under **Other**; it is
+  text to Claude, never a deny, believed only on the phone's own sealed
+  message, and refused above `reply.maxMode`. The watcher then checks the
+  answer landed, and pushes `did not take the answer from the phone` or
+  `went on without your answer` when it did not. `chatuninstall -All`
+  removes the plugin first, and stops if it cannot. A question asked
+  before the hook was loaded in that chat, a terminal chat, and a queued
+  run's are shown, not answered. Each held question is a hidden Windows
+  PowerShell of about 130 MB, 5 at most (`ask.maxOpen`), 4-8 seconds to
+  start. **Why:** the question waits on you, and a phone that can show it
+  can as well take the answer. It rests on how Claude Code 2.1.283 treats
+  a hook on this tool, which its documentation does not describe, hence
+  the landed check and the default of off. docs/phone-ask-spec.md has the
+  design and what the spike saw.
+
 ## 0.9.0 — the overlay and permissions on the phone, cut-off chats continued, updates that wait
 
 Five pieces of work land together: the phone gets the overlay, Claude's
@@ -317,6 +534,11 @@ version of the extension waits for the window's chats before it reloads.
   0.9.0, before release, found that the restart never loaded the update,
   and that a Reload anyway could be clicked hours after a warning that
   named one chat, over another's workflow started since.
+- **chatrm waits for a safe reload by default.** What `-WaitForIdle` did
+  is now what every delete does while a VS Code window is up: it blocks
+  until the project's chats have been quiet for a minute, then says the
+  window is safe to reload. `-NoWait` says whether now is safe and
+  returns, as a delete did before; `-WaitForIdle` is still accepted.
 
 ## 0.8.1 — chatnotify, and hidden chats listed again
 

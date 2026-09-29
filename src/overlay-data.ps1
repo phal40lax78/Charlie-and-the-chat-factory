@@ -1,4 +1,4 @@
-# VS-code-chat-manager, src/overlay-data.ps1: dot-sourced by VS-code-chat-manager.ps1
+# claude-codex-chat-manager, src/overlay-data.ps1: dot-sourced by claude-codex-chat-manager.ps1
 # in its turn, never on its own - see the list there.
 
 #region overlay: configuration -------------------------------------------------
@@ -387,7 +387,7 @@ function Start-ChatqUsageFetch {
         $req = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Get, $script:ChatOverlayUsageUrl)
         [void]$req.Headers.TryAddWithoutValidation('Authorization', "Bearer $($tok.Token)")
         [void]$req.Headers.TryAddWithoutValidation('anthropic-beta', 'oauth-2025-04-20')
-        [void]$req.Headers.TryAddWithoutValidation('User-Agent', "VS-code-chat-manager/$script:ChatVersion")
+        [void]$req.Headers.TryAddWithoutValidation('User-Agent', "claude-codex-chat-manager/$script:ChatVersion")
         return @{ Client = $client; Request = $req; Task = $client.SendAsync($req) }
     }
     catch { return @{ Done = @{ Ok = $false; Status = 0; Why = $_.Exception.Message } } }
@@ -1010,6 +1010,215 @@ function Update-ChatOverlayText {
     }
 }
 
+function Update-ChatOverlayBackground {
+    <#
+    The workflows, background agents and background shells each open chat
+    started that are still at work, by session id. The turn that starts one
+    ends at once, so Claude's registry calls the chat idle while the work
+    goes on - in whatever folder the chat is. Judged as Test-ChatIdle and
+    the reload wait judge it (Get-ChatBackgroundTasks' reading), shells
+    added: only a chat whose every process is idle - busy or waiting says
+    enough - and only starts made since its first open process started,
+    since the work dies with the process that ran it. None a print-mode run
+    made once no such run of the chat is alive (Test-ChatPrintLive, over
+    -Alive: every live entry, print mode too). -Live: the pass's
+    interactive entries.
+    Shells count as many of the newest as there are shells running under
+    the chat's processes (Get-ChatShellChildCount) - one stopped from the
+    task list leaves nothing in the transcript - or all of them when that
+    cannot be told. The reload checks leave shells out, since a dev server
+    never ends; the overlay only shows, and says shell, so a server reads as
+    what it is.
+    Each transcript - the one Update-ChatOverlayText found - is read on from
+    where the last pass stopped (Update-ChatBackgroundScan, kept in -Cache
+    by path), and not at all while it is untouched since that process
+    started. One not yet read to its end counts as none until it is: an
+    end further on would take back what the part read says. Past -SliceMs
+    on -Watch, the pass's clock, a pass reads one transcript and no more:
+    the rest keep what their last reading said. -Whole reads each to its
+    end at once, for a caller no next pass follows - chatoverlay -Print,
+    the phone board's scan.
+    Returns session id -> @{ Count; Workflows; Agents; Shells; Since (epoch
+    ms of the oldest start, or $null) }, for Get-ChatOverlayRows.
+    #>
+    param([hashtable]$Cache, [object[]]$Live, [object[]]$Alive, [hashtable]$Texts, $Watch, [int]$SliceMs = $script:ChatOverlaySliceMs,
+        [switch]$Whole)
+    $out = @{}
+    if ($null -eq $Cache) { return $out }
+    if ($Whole) { $Watch = $null }
+    $bySid = [ordered]@{}
+    foreach ($e in @($Live)) {
+        if (-not $e -or -not $e.SessionId) { continue }
+        $sid = [string]$e.SessionId
+        if (-not $bySid.Contains($sid)) { $bySid[$sid] = [System.Collections.Generic.List[object]]::new() }
+        $bySid[$sid].Add($e)
+    }
+    $keep = @{}
+    $work = 0
+    foreach ($sid in @($bySid.Keys)) {
+        $es = @($bySid[$sid])
+        $t = if ($Texts) { $Texts[$sid] } else { $null }
+        $path = if ($t) { [string]$t.Path } else { '' }
+        if (-not $path) { continue }
+        $keep[$path] = $true
+        if (@($es | Where-Object { $_.Status -in 'busy', 'waiting' }).Count) { continue }
+        $since = [datetime]::MaxValue
+        foreach ($e in $es) { $s = Get-ChatqEntryStart $e; if ($s -lt $since) { $since = $s } }
+        $fi = [System.IO.FileInfo]::new($path)
+        # untouched since its first process started: that has started nothing
+        if (-not $fi.Exists -or $fi.LastWriteTime -lt $since) { continue }
+        $st = $Cache[$path]
+        # one reading a pass whatever the time, as the Recent list takes one:
+        # the transcripts before it can use the whole slice pass after pass
+        $late = $Watch -and $work -gt 0 -and $Watch.ElapsedMilliseconds -gt $SliceMs
+        if (-not $st) {
+            if ($late) { continue }
+            $st = @{}
+            $Cache[$path] = $st
+        }
+        if (-not $late -and ($fi.Length -ne $st.Offset -or -not $st.Done)) {
+            $work++
+            Update-ChatBackgroundScan $st $path
+            # -Whole: to its end now, a piece at a time - no next pass goes on
+            while ($Whole -and -not $st.Done) {
+                $was = $st.Offset
+                Update-ChatBackgroundScan $st $path
+                if ($st.Offset -eq $was) { break }
+            }
+        }
+        if (-not $st.Done) { continue }
+        $skip = -not (Test-ChatPrintLive $Alive $sid)
+        $open = @(Select-ChatBackgroundOpen $st.Open $since -SkipPrint:$skip -Shells -SessionDir (Get-ChatSessionDir $path))
+        $shells = @($open | Where-Object { $_.Kind -eq 'shell' })
+        if ($shells.Count) {
+            # every process of the chat, a print-mode run's too: its shells
+            # are under it. As many of the newest as there are shells there -
+            # one stopped from the task list leaves no mark in the transcript
+            $pids = @(@($es) + @(@($Alive) | Where-Object { $_ -and [string]$_.SessionId -eq $sid }) |
+                ForEach-Object { [int](Get-ChatField $_ 'Pid') } | Where-Object { $_ -gt 0 } | Select-Object -Unique)
+            $n = Get-ChatShellChildCount $pids
+            if ($null -ne $n -and $n -lt $shells.Count) {
+                $gone = @($shells | Select-Object -First ($shells.Count - $n) | ForEach-Object { $_.Id })
+                $open = @($open | Where-Object { $_.Id -notin $gone })
+            }
+        }
+        if (-not $open.Count) { continue }
+        $first = $null
+        foreach ($o in $open) { if ($o.At -and (-not $first -or $o.At -lt $first)) { $first = $o.At } }
+        $out[$sid] = [pscustomobject]@{
+            Count     = $open.Count
+            Workflows = @($open | Where-Object { $_.Kind -eq 'workflow' }).Count
+            Agents    = @($open | Where-Object { $_.Kind -eq 'agent' }).Count
+            Shells    = @($open | Where-Object { $_.Kind -eq 'shell' }).Count
+            Since     = $(if ($first) { ConvertTo-ChatOverlayMs $first } else { $null })
+        }
+    }
+    foreach ($k in @($Cache.Keys)) { if (-not $keep[$k]) { $Cache.Remove($k) } }
+    return $out
+}
+
+# Windows' own process list, pid, parent and file name alone, in a
+# millisecond or two: Toolhelp32. A WMI query costs 0.4 s, far too much for
+# the thread the Windows panel draws on.
+$script:ChatProcSnapCode = @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+
+public static class ChatProcSnap {
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    struct Entry32 {
+        public uint dwSize; public uint cntUsage; public uint th32ProcessID; public IntPtr th32DefaultHeapID;
+        public uint th32ModuleID; public uint cntThreads; public uint th32ParentProcessID; public int pcPriClassBase;
+        public uint dwFlags; [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)] public string szExeFile;
+    }
+    [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr CreateToolhelp32Snapshot(uint flags, uint pid);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern bool Process32FirstW(IntPtr h, ref Entry32 e);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern bool Process32NextW(IntPtr h, ref Entry32 e);
+    [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
+    // "<parent pid>|<file name>" per process; null when Windows gives none
+    public static string[] Children() {
+        IntPtr h = CreateToolhelp32Snapshot(2, 0);
+        if (h == IntPtr.Zero || h == new IntPtr(-1)) { return null; }
+        List<string> found = new List<string>();
+        try {
+            Entry32 e = new Entry32();
+            e.dwSize = (uint)Marshal.SizeOf(typeof(Entry32));
+            if (Process32FirstW(h, ref e)) {
+                do { found.Add(e.th32ParentProcessID + "|" + e.szExeFile); } while (Process32NextW(h, ref e));
+            }
+        }
+        finally { CloseHandle(h); }
+        return found.ToArray();
+    }
+}
+'@
+# the last list taken, kept for ChatShellChildTtlSeconds: one serves every
+# chat of a pass
+$script:ChatShellChildList = $null
+$script:ChatShellChildTtlSeconds = 3
+# tests: stands in for the process list - given a pid, how many shells are
+# under it, or $null
+$script:ChatShellChildSeam = $null
+
+function Get-ChatShellChildCount {
+    <#
+    How many shells run straight under these chat processes (-Pids): Claude
+    Code's Bash tool starts one for each command, bash.exe on Windows, and a
+    background command is one of them for as long as it runs. A chat Claude
+    calls idle runs no other command there - but a background agent it
+    started runs its own, so the count is an upper bound, not a match.
+    Only a shell counts: the console host is always there, and MCP servers
+    are node, python, npx or cmd. $null when it cannot be told: off Windows,
+    or Windows gave no list.
+    #>
+    param([int[]]$Pids, [datetime]$Now = (Get-Date))
+    $want = @($Pids | Where-Object { $_ -gt 0 })
+    if (-not $want.Count) { return $null }
+    if ($script:ChatShellChildSeam) {
+        $n = 0
+        foreach ($p in $want) {
+            $c = & $script:ChatShellChildSeam $p
+            if ($null -eq $c) { return $null }
+            $n += [int]$c
+        }
+        return $n
+    }
+    if (-not $script:ChatqIsWindows) { return $null }
+    $l = $script:ChatShellChildList
+    if (-not $l -or $l.At -gt $Now -or ($Now - $l.At).TotalSeconds -ge $script:ChatShellChildTtlSeconds) {
+        $rows = $null
+        try {
+            if (-not ('ChatProcSnap' -as [type])) { Add-Type -TypeDefinition $script:ChatProcSnapCode }
+            $rows = [ChatProcSnap]::Children()
+        }
+        catch { $rows = $null }
+        $l = @{ At = $Now; Rows = $rows }
+        $script:ChatShellChildList = $l
+    }
+    if ($null -eq $l.Rows) { return $null }
+    $n = 0
+    foreach ($r in $l.Rows) {
+        $bar = $r.IndexOf('|')
+        if ($bar -lt 1 -or [int]$r.Substring(0, $bar) -notin $want) { continue }
+        if ($r.Substring($bar + 1) -match '^(bash|sh|zsh|dash|fish)(\.exe)?$') { $n++ }
+    }
+    return $n
+}
+
+function Format-ChatOverlayBackground {
+    # A row's words for the background work it has out (Update-ChatOverlayBackground):
+    # workflow, 2 workflows, agent, 3 agents, shell, 2 shells - or
+    # background, for a mix or a start of none of these kinds. Pure.
+    param($Info)
+    $n = [int](Get-ChatField $Info 'Count')
+    if ($n -le 0) { return '' }
+    foreach ($k in @(@('Workflows', 'workflow'), @('Agents', 'agent'), @('Shells', 'shell'))) {
+        if ([int](Get-ChatField $Info $k[0]) -eq $n) { if ($n -eq 1) { return $k[1] } else { return "$n $($k[1])s" } }
+    }
+    return 'background'
+}
+
 function Get-ChatTypedAt {
     # when the newest thing typed into a chat was sent - a prompt or a slash
     # command - from Find-ChatTailRecords' answer, as epoch ms; $null for none
@@ -1484,14 +1693,53 @@ function Get-ChatOverlayResetWindow {
     return $null
 }
 
+function Get-ChatOverlayWhere {
+    # A registry entry's entrypoint as a row's where: vscode for a VS Code
+    # panel; run for a print-mode run (Claude Code's SDK entrypoints, which
+    # claude -p stamps - chatq's queued prompts among them), which no one
+    # types in, so it is no terminal; terminal for any other; '' for none.
+    # Pure.
+    param([string]$Entrypoint)
+    if (-not $Entrypoint) { return '' }
+    if ($Entrypoint -eq 'claude-vscode') { return 'vscode' }
+    if ($Entrypoint -cin $script:ChatSdkEntrypoints) { return 'run' }
+    return 'terminal'
+}
+
+function Format-ChatOverlayDeferral {
+    # What a queued job waits on when the watcher held it back for a reason
+    # of its own (Invoke-ChatqJob): a background command its chat started -
+    # since the oldest one's start - or you, in the chat's tab. The words
+    # every reader shares: the panel's rows, the console, the phone. $null
+    # for any other wait, which the ETA says, and once the hold has run out:
+    # the reason stays on the job after it, and would be read as a later
+    # hold's. Pure.
+    param($Job, [datetime]$Now = (Get-Date))
+    if (-not $Job -or [string](Get-ChatField $Job 'state') -ne 'queued') { return $null }
+    $du = ConvertTo-ChatqDate (Get-ChatField $Job 'deferUntil')
+    if (-not $du -or $du -le $Now) { return $null }
+    switch ([string](Get-ChatField $Job 'deferWhy')) {
+        'background' {
+            $since = ConvertTo-ChatqDate (Get-ChatField $Job 'deferSince')
+            if (-not $since) { return 'waits for a background command' }
+            return "waits for a background command (since $(Format-ChatOverlayWhen $since $Now))"
+        }
+        'in-use' { return 'waits for you to leave its tab' }
+    }
+    return $null
+}
+
 function Get-ChatOverlayStateText {
     # the words at the right of a row: what it is doing, a queued prompt it
-    # carries, and for how long
+    # carries, and for how long. A prompt the watcher holds back for a
+    # reason of its own says that reason (Format-ChatOverlayDeferral, the
+    # job's wait) where its send time would be.
     param($Row, [datetime]$Now = (Get-Date))
     $what = switch ([string]$Row.status) {
         'waiting' { if ($Row.detail) { [string]$Row.detail } else { 'needs you' } }
         'needs-input' { 'needs you' }
-        'busy' { 'working' }
+        # a chat's own background work says what it is (Get-ChatOverlayRows)
+        'busy' { if ($Row.detail) { [string]$Row.detail } else { 'working' } }
         'running' { 'running' }
         'idle' { 'idle' }
         # the reset, or what it waits on, is what it says - not how long ago
@@ -1503,7 +1751,8 @@ function Get-ChatOverlayStateText {
         $j = $Row.job
         $jt = switch ([string]$j.state) {
             'queued' {
-                if (-not $j.eta) { 'queued' }
+                if (Get-ChatField $j 'wait') { [string]$j.wait }
+                elseif (-not $j.eta) { 'queued' }
                 elseif ([string]$j.eta -match '^(\d|[A-Z][a-z]{2} \d)') { "sends $($j.eta)" }
                 else { [string]$j.eta }
             }
@@ -1536,8 +1785,9 @@ function Get-ChatOverlayRows {
     -CutOff: Get-ChatqCutOffChats' rows. An open, idle chat among them takes
     the cut-off state; one not open gets a row of its own; one a job is
     queued or running for leaves it to the job.
-    A session row's where: vscode or terminal, from its registry entry's
-    entrypoint, empty when it has none; job and cut-off rows run nowhere.
+    A session row's where: vscode, run or terminal, from its registry
+    entry's entrypoint (Get-ChatOverlayWhere), empty when it has none; job
+    and cut-off rows run nowhere.
     -Unread: session ids that finished a turn while you were elsewhere,
     since you last opened them from the overlay (Update-ChatOverlayUnread);
     their rows carry unread, the rest not.
@@ -1547,9 +1797,14 @@ function Get-ChatOverlayRows {
     auto-continue queued stays on its chat's cut-off row, orange, instead
     of taking the row away as a job you queued does: it gets no row of its
     own. Running, it is any job's.
+    -Background: Update-ChatOverlayBackground's answer. A chat Claude calls
+    idle with a workflow, a background agent or a background shell still at
+    work reads as working - busy, with those words (workflow, 2 agents,
+    shell) where working would be, its time the oldest one's, and
+    background - count, workflows, agents, shells - on its row.
     #>
     param([object[]]$Sessions, [hashtable]$Texts, [object[]]$Jobs, [hashtable]$Eta, [datetime]$Now = (Get-Date), [object[]]$CutOff, [hashtable]$Unread,
-        [hashtable]$Auto)
+        [hashtable]$Auto, [hashtable]$Background)
     $rankOf = @{ 'waiting' = 0; 'needs-input' = 0; 'cutoff' = 0.5; 'busy' = 1; 'running' = 2; 'idle' = 3; 'queued' = 4 }
     $ms = { param($v) ConvertTo-ChatOverlayMs $v }
     $nowMs = ConvertTo-ChatOverlayMs $Now
@@ -1561,13 +1816,16 @@ function Get-ChatOverlayRows {
         foreach ($v in @($s.StatusUpdatedAt, $s.UpdatedAt, $s.StartedAt)) { if ($v) { $since = & $ms $v; break } }
         $wf = $s.WaitingFor
         $detail = if ($st -ne 'waiting' -or -not $wf) { $null } elseif ($wf -is [string]) { $wf } else { 'needs you' }
-        # where it runs: a VS Code panel, or a terminal - any other entrypoint
-        $ep = [string](Get-ChatField $s 'Entrypoint')
-        $where = if (-not $ep) { '' } elseif ($ep -eq 'claude-vscode') { 'vscode' } else { 'terminal' }
+        # where it runs: a VS Code panel; a print-mode run - chatq's queued
+        # prompt, or someone's claude -p - which no one types in; or a
+        # terminal, any other entrypoint
+        $where = Get-ChatOverlayWhere ([string](Get-ChatField $s 'Entrypoint'))
         $row = $bySid[$s.SessionId]
         if ($row) {
             $row.pids = @($row.pids) + @($s.Pid)
-            if (-not $row.where) { $row.where = $where }
+            # a run going in beside a window's copy is what the chat is
+            # doing now, so it wins the mark
+            if (-not $row.where -or $where -eq 'run') { $row.where = $where }
             if ($rankOf[$st] -lt $row.rank) { $row.status = $st; $row.chat = $st; $row.rank = $rankOf[$st]; $row.detail = $detail; $row.since = $since }
             continue
         }
@@ -1591,6 +1849,24 @@ function Get-ChatOverlayRows {
             project = $leaf; title = (Format-ChatTitle $title 80); prompt = $prompt; promptKind = $kind
             detail = $detail; since = $since; sessionId = $s.SessionId; pids = @($s.Pid); cwd = [string]$s.Cwd; job = $null; order = 0; stateText = ''
             where = $where; unread = [bool]($Unread -and $Unread[[string]$s.SessionId])
+        }
+    }
+    # Idle to Claude, but a workflow, a background agent or a background
+    # shell it started is still at work (Update-ChatOverlayBackground):
+    # working, in its words, for as long as the oldest has run. Never a chat
+    # busy or waiting already.
+    if ($Background) {
+        foreach ($r in $bySid.Values) {
+            $bg = $Background[[string]$r.sessionId]
+            if (-not $bg -or $r.status -ne 'idle' -or [int](Get-ChatField $bg 'Count') -le 0) { continue }
+            $r.status = 'busy'; $r.chat = 'busy'; $r.rank = $rankOf['busy']
+            $r.detail = Format-ChatOverlayBackground $bg
+            $bs = Get-ChatField $bg 'Since'
+            if ($bs) { $r.since = [int64]$bs }
+            Set-ChatqProp $r 'background' ([pscustomobject]@{
+                    count = [int](Get-ChatField $bg 'Count'); workflows = [int](Get-ChatField $bg 'Workflows'); agents = [int](Get-ChatField $bg 'Agents')
+                    shells = [int](Get-ChatField $bg 'Shells')
+                })
         }
     }
     $rows = [System.Collections.Generic.List[object]]::new()
@@ -1620,8 +1896,11 @@ function Get-ChatOverlayRows {
         $ji = if ($aj) { [pscustomobject]@{ seq = [int]$aj.seq; state = 'queued'; eta = $(if ($Eta) { $Eta[$aj.id] } else { $null }) } } else { $null }
         $open = $bySid[[string]$c.Id]
         if ($open) {
-            # an open chat that is working again has moved on
-            if ($open.status -eq 'idle') {
+            # an open chat that is working again has moved on - but not one
+            # working only by background work it still has out, a dev server
+            # say: the limit cut its turn off all the same, and that is what
+            # waits on you
+            if ($open.status -eq 'idle' -or ($open.status -eq 'busy' -and (Get-ChatField $open 'background'))) {
                 $open.status = 'cutoff'; $open.chat = 'cutoff'; $open.rank = $rankOf['cutoff']; $open.detail = $words
                 Set-ChatqProp $open 'auto' $ai
                 if ($aj) { $open.job = $ji; $onCut[[string]$aj.id] = $true }
@@ -1645,7 +1924,7 @@ function Get-ChatOverlayRows {
         $j = $jw.Job
         $state = [string]$j.state
         if ($null -eq $rankOf[$state]) { continue }
-        $info = [pscustomobject]@{ seq = [int]$j.seq; state = $state; eta = $(if ($Eta) { $Eta[$j.id] } else { $null }) }
+        $info = [pscustomobject]@{ seq = [int]$j.seq; state = $state; eta = $(if ($Eta) { $Eta[$j.id] } else { $null }); wait = (Format-ChatOverlayDeferral $j $Now) }
         $hit = if ($j.provider -eq 'claude' -and $j.sessionId) { $bySid[[string]$j.sessionId] } else { $null }
         if ($hit) {
             if (-not $hit.job -or $rankOf[$state] -lt $rankOf[$hit.job.state]) { $hit.job = $info }
@@ -1711,6 +1990,9 @@ function New-ChatOverlayContext {
         ClaudeHome = $ClaudeHome; Config = (Get-ChatOverlayConfig); Cycle = 0; Verbs = @()
         Registry = @{}; Alive = @{}; PidSig = $null; AliveAt = $never
         Text = @{}; Missing = @{}
+        # each open chat's transcript as far as its background work has been
+        # read, by path (Update-ChatOverlayBackground)
+        Background = @{}
         Jobs = @(); JobsSig = $null; Blocks = @{}; BlocksAt = $never; Answered = @{}
         Watcher = $false; WatcherAt = $never
         Fetch = $null; Live = $null; LiveWhy = $null; LiveFails = 0; LiveTriedAt = $null; HoldUntil = $never; HoldKind = $null; AuthStamp = $null; Refresh = $null
@@ -1830,6 +2112,15 @@ function Invoke-ChatOverlayCycle {
         try { Update-ChatOverlayText $Ctx $e } catch { $err = "transcript: $($_.Exception.Message)" }
     }
     foreach ($k in @($Ctx.Text.Keys)) { if (-not $open[$k]) { $Ctx.Text.Remove($k) } }
+
+    # the workflows, background agents and shells an idle chat still has at
+    # work, read on from where the last pass stopped
+    $bg = @{}
+    try {
+        $bg = Update-ChatOverlayBackground $Ctx.Background $live @($entries | Where-Object { $_.SessionId -and $Ctx.Alive[(& $pk $_)] }) $Ctx.Text $sw `
+            -Whole:([bool]$Ctx.RecentWhole)
+    }
+    catch { $err = "background: $($_.Exception.Message)" }
 
     # the queue, read again only when a job file changed
     $sig = ''
@@ -1990,7 +2281,7 @@ function Invoke-ChatOverlayCycle {
     # usage heads-ups from the figures above, and quiet hours' summary (src/phone-extras.ps1)
     if ($Ctx.WantPhone) { try { Update-ChatqPhoneExtras $Ctx $usage $jobs $now } catch { } }
     $rows = @(Get-ChatOverlayRows -Sessions $live -Texts $Ctx.Text -Jobs $Ctx.Jobs -Eta $eta -Now $now -CutOff $Ctx.CutOff -Unread $Ctx.Unread `
-            -Auto $Ctx.AutoStates)
+            -Auto $Ctx.AutoStates -Background $bg)
     # the newest chats not open, less any with a row of its own already -
     # not for the macOS panel, which draws none (Start-ChatOverlayMacHost);
     # chatoverlay -Print lists them there too, from a context of its own
@@ -2331,8 +2622,9 @@ function Write-ChatOverlayPrint {
         $au = Get-ChatField $r 'auto'
         if ($au -and $au.long) { $right = [string]$au.long }
         $proj = if ($r.project) { "$($r.project)  " } else { '' }
-        # a chat in a terminal is marked; one in VS Code is what most are
-        $term = if ([string](Get-ChatField $r 'where') -eq 'terminal') { '>_ ' } else { '' }
+        # a chat in a terminal is marked, and one a print-mode run - a
+        # queued prompt - is going into; one in VS Code is what most are
+        $term = switch ([string](Get-ChatField $r 'where')) { 'terminal' { '>_ ' } 'run' { '|> ' } default { '' } }
         $room = $width - 6 - (Get-ChatCells $right) - (Get-ChatCells $proj) - $term.Length
         Write-Host ('  ' + $(if ($r.status -eq 'queued') { 'o' } else { '*' }) + ' ') -NoNewline -ForegroundColor $color[[string]$r.status]
         if ($term) { Write-Host $term -NoNewline -ForegroundColor DarkGray }

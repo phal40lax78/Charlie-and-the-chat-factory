@@ -1,4 +1,4 @@
-# VS-code-chat-manager, src/console.ps1: dot-sourced by VS-code-chat-manager.ps1
+# claude-codex-chat-manager, src/console.ps1: dot-sourced by claude-codex-chat-manager.ps1
 # in its turn, never on its own - see the list there.
 
 #region console: chatq in a window ---------------------------------------------
@@ -100,15 +100,32 @@ function Get-ChatConsoleJobStatus {
             $t = if (-not $Eta) { 'queued' } elseif ($Eta -match '^(\d|[A-Z][a-z]{2} \d)') { "sends $Eta" } else { $Eta }
             # the continue auto-continue queued says so (src/auto-continue.ps1)
             if (Get-ChatField $Job 'auto') { $t = "auto-continues $(if ($Eta) { $Eta } else { 'after the reset' })" }
+            # held back by the watcher for a reason of its own: that reason,
+            # in the panel's words - the details pane has no ETA to go by
+            $wait = Format-ChatOverlayDeferral $Job $Now
+            if ($wait) { $t = $wait }
             return [pscustomobject]@{ Text = $t; Tone = 'queued' }
         }
-        'running' { return [pscustomobject]@{ Text = "running since $(& $at $Job.startedAt)"; Tone = 'running' } }
+        'running' {
+            # started with Ultracode, or at a session-only level, as the chat
+            # had them (Format-ChatqRunCarry)
+            $c = Format-ChatqRunCarry $Job
+            $uc = if ($c) { ", $c" } else { '' }
+            return [pscustomobject]@{ Text = "running since $(& $at $Job.startedAt)$uc"; Tone = 'running' }
+        }
         'needs-input' { return [pscustomobject]@{ Text = "needs you$why"; Tone = 'waiting' } }
         'done' { return [pscustomobject]@{ Text = "done $(& $at $Job.endedAt)"; Tone = 'busy' } }
         'failed' { return [pscustomobject]@{ Text = "failed$why"; Tone = 'error' } }
         'skipped' { return [pscustomobject]@{ Text = "skipped$why"; Tone = 'faint' } }
     }
     return [pscustomobject]@{ Text = [string]$Job.state; Tone = 'dim' }
+}
+
+function Get-ChatConsoleJobRow {
+    # a job as the one row of its chat the chip opens from
+    # (Start-ChatShowFreshProcess): provider, session, folder and title. Pure.
+    param($Job)
+    return [pscustomobject]@{ kind = 'session'; provider = [string]$Job.provider; sessionId = [string]$Job.sessionId; cwd = [string]$Job.cwd; title = [string]$Job.title }
 }
 
 function Get-ChatConsolePlacement {
@@ -1444,7 +1461,7 @@ function Update-ChatConsoleQueue {
     foreach ($r in @($H.Snap.rows)) { if ($r -and $r.job -and $r.job.eta) { $eta[[int]$r.job.seq] = [string]$r.job.eta } }
     $day = (Get-Date).AddDays(-1)
     $list = @($C.Jobs | Where-Object { $_.state -in 'queued', 'running', 'needs-input' -or ((ConvertTo-ChatqDate $_.endedAt) -gt $day) })
-    $key = (@($list | ForEach-Object { "$($_.id)=$($_.state)=$($eta[[int]$_.seq])" }) -join ';') + "|$($C.Sel)|$($C.ShowLog)|$(@($C.Confirm.Keys) -join ',')"
+    $key = (@($list | ForEach-Object { "$($_.id)=$($_.state)=$($eta[[int]$_.seq])=$(Format-ChatOverlayDeferral $_)" }) -join ';') + "|$($C.Sel)|$($C.ShowLog)|$(@($C.Confirm.Keys) -join ',')"
     if ($key -eq $C.Sigs.Queue) { return }
     $C.Sigs.Queue = $key
     $C.Queue.Children.Clear()
@@ -1511,6 +1528,10 @@ function Show-ChatConsoleDetails {
     # the continue auto-continue queued: when the limit cut the chat off, and the reset
     $autoNote = Get-ChatqAutoJobNote $j
     if ($autoNote) { $an = New-ChatOverlayText $autoNote 'dim' 11; $an.TextWrapping = [System.Windows.TextWrapping]::Wrap; & $add $an }
+    # the background command it waits for, when the watcher knew it
+    if ((Format-ChatOverlayDeferral $j) -and [string](Get-ChatField $j 'deferWhy') -eq 'background' -and (Get-ChatField $j 'deferNote')) {
+        & $add (New-ChatOverlayText "the command: $(Get-ChatField $j 'deferNote')" 'dim' 11 -Trim)
+    }
     $acts = [System.Windows.Controls.WrapPanel]::new()
     $acts.Margin = [System.Windows.Thickness]::new(0, 6, 0, 6)
     $act = { param($label, $what, $tip) [void]$acts.Children.Add((New-ChatConsoleButton $label { param($s, $e) Invoke-ChatConsoleJobAction $script:ChatOverlayHost ([string]$s.Tag.Id) ([string]$s.Tag.Act) } -Small -Tag @{ Id = $j.id; Act = $what } -Tip $tip)) }
@@ -1523,7 +1544,11 @@ function Show-ChatConsoleDetails {
             if (Get-ChatField $j 'auto') { & $act "Don't continue" 'dont' 'Not after this reset - its cut-off is not queued again; Continue in the Cut off list queues one' }
             else { & $act $(if ($C.Confirm[$j.id]) { 'Remove - sure?' } else { 'Remove' }) 'remove' 'Drop it, its prompt and its files' }
         }
-        'running' { & $act 'Cancel' 'cancel' 'Stop the run - it is marked failed' }
+        'running' {
+            & $act 'Cancel' 'cancel' 'Stop the run - it is marked failed'
+            # a Claude chat's run, as the panel's watch chip has it
+            if (Test-ChatOverlayRowOpenable (Get-ChatConsoleJobRow $j)) { & $act 'Watch in VS Code' 'watch' 'Watch the run live in its VS Code window' }
+        }
         default {
             & $act 'Requeue' 'requeue' 'Send it again - as "continue" if its prompt already reached the chat'
             & $act $(if ($C.Confirm[$j.id]) { 'Remove - sure?' } else { 'Remove' }) 'remove' 'Drop it, its prompt and its files'
@@ -1610,6 +1635,15 @@ function Invoke-ChatConsoleJobAction {
             if (Remove-ChatqJob $j 'the console') { $say = "removed #$($j.seq)"; $C.Sel = $null } else { $say = "#$($j.seq) is running - cancel it first" }
         }
         'dont' { Invoke-ChatConsoleDontContinue $H $j.id $j.sessionId; return }
+        'watch' {
+            # The chip's own open (Invoke-ChatOverlayOpen), which
+            # Show-ChatFresh turns into the run's live view while it runs;
+            # one at a time, and the tray says how it went.
+            if ($j.state -ne 'running') { $say = "#$($j.seq) is $($j.state) - no run to watch"; break }
+            if ($H.OpenProc) { $say = 'an open is still going - try again in a moment'; break }
+            Invoke-ChatOverlayOpen $H (Get-ChatConsoleJobRow $j)
+            $say = if ($H.OpenProc) { "#$($j.seq): its live view opens in VS Code" } else { "#$($j.seq) could not be shown - data/logs/overlay.log says why" }
+        }
         'cancel' {
             $say = switch (Stop-ChatqJobRun $j) {
                 'cancelling' { "#$($j.seq) cancelling - stopped within a few seconds" }

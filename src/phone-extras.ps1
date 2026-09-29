@@ -1,4 +1,4 @@
-# VS-code-chat-manager, src/phone-extras.ps1: dot-sourced by VS-code-chat-manager.ps1
+# claude-codex-chat-manager, src/phone-extras.ps1: dot-sourced by claude-codex-chat-manager.ps1
 # in its turn, never on its own - see the list there.
 
 #region phone extras: shared ---------------------------------------------------

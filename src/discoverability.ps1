@@ -1,4 +1,4 @@
-# VS-code-chat-manager, src/discoverability.ps1: dot-sourced by VS-code-chat-manager.ps1
+# claude-codex-chat-manager, src/discoverability.ps1: dot-sourced by claude-codex-chat-manager.ps1
 # in its turn, never on its own - see the list there.
 
 #region discoverability -------------------------------------------------------
@@ -17,7 +17,7 @@ function Compare-ChatVersion {
 
 # Any profile line that loads this file under a name it has had, or loads one
 # of the two tools it replaced - chatrm and chatq define the same commands.
-$script:ChatProfilePattern = '(chatrm|deleteLocalChat|chatq|VS-code-chat-manager)\.ps1'
+$script:ChatProfilePattern = '(chatrm|deleteLocalChat|chatq|VS-code-chat-manager|claude-codex-chat-manager)\.ps1'
 
 function chatinstall {
     <#
@@ -37,7 +37,7 @@ function chatinstall {
     extension installs into each PowerShell's profile in turn, and restarts
     them once, after the last.
     .EXAMPLE
-    . C:\tools\VS-code-chat-manager\VS-code-chat-manager.ps1
+    . C:\tools\claude-codex-chat-manager\claude-codex-chat-manager.ps1
     chatinstall
     #>
     [CmdletBinding()]
@@ -47,7 +47,7 @@ function chatinstall {
     $me = $script:ChatScriptPath
     if (-not $me) {
         Write-Host '  cannot tell where this file is' -ForegroundColor Yellow
-        Write-Host '  dot-source it by path first:  . C:\path\to\VS-code-chat-manager.ps1' -ForegroundColor DarkGray
+        Write-Host '  dot-source it by path first:  . C:\path\to\claude-codex-chat-manager.ps1' -ForegroundColor DarkGray
         return
     }
     # only Windows marks downloads; elsewhere the cmdlet does not exist at all.
@@ -148,10 +148,10 @@ function chatinstall {
     }
     if (-not $NoRestart) { Restart-ChatBackground }
 
-    # The extension defaults to ~/Tools/VS-code-chat-manager. Anywhere else
+    # The extension defaults to ~/Tools/claude-codex-chat-manager. Anywhere else
     # needs the setting, and without it its prompts simply never appear - a
     # silence that looks like the extension being broken.
-    $defaultRoot = Join-Path (Join-Path $HOME 'Tools') 'VS-code-chat-manager'
+    $defaultRoot = Join-Path (Join-Path $HOME 'Tools') 'claude-codex-chat-manager'
     if ($script:ChatRoot -ne $defaultRoot) {
         Write-Host '    using the VS Code extension? set chatManager.folder to' -ForegroundColor DarkGray
         Write-Host "      $($script:ChatRoot)" -ForegroundColor DarkGray
@@ -229,6 +229,26 @@ function chatuninstall {
         Write-Host '  chatrestore brings them back; chatuninstall -All -Force deletes them with the rest' -ForegroundColor DarkGray
         return
     }
+    # the question hook (src/ask.ps1) runs a file in this folder from every
+    # Claude Code chat: removed before the folder can go, and -All stops
+    # when it cannot be - never a launcher deleted from under a live plugin
+    $ask = Get-ChatqAskConfig
+    # the plugin's folder stays until the plugin is gone, whatever ask.on says:
+    # an -Ask off whose uninstall failed leaves it, and the plugin with it
+    $plugged = Test-Path -LiteralPath (Get-ChatqAskPluginDir)
+    if (($ask.On -or $plugged) -and $All) {
+        if ($ask.Manual -and $ask.On) {
+            Write-Host '  take the PermissionRequest hook naming ask-hook.ps1 out of your Claude settings first - it runs a file in this folder' -ForegroundColor Yellow
+            return
+        }
+        $un = Uninstall-ChatqAskHook
+        if (-not $un.Ok) {
+            Write-Host "  the question hook could not be removed ($($un.Say)) - nothing deleted; chatnotify -Ask off, then chatuninstall -All again" -ForegroundColor Yellow
+            return
+        }
+        Write-Host '  removed the question hook (the Claude Code plugin chatq-ask)' -ForegroundColor DarkGray
+    }
+    elseif ($ask.On) { Write-Host '  the question hook stays - chatnotify -Ask off removes it' -ForegroundColor DarkGray }
 
     # a live watcher outlasts the file it was started for, so stop it first -
     # the ghost watch in this shell, and chatq's background one
@@ -319,7 +339,7 @@ function chat {
     Write-Host '  -Provider claude|copilot|codex   -Deep   -All   -AllProjects   -Force'
     Write-Host '  Get-Help chatfind -Full           full help, examples and notes'
     Write-Host ''
-    Write-Host "  VS-code-chat-manager $script:ChatVersion" -ForegroundColor DarkGray
+    Write-Host "  claude-codex-chat-manager $script:ChatVersion" -ForegroundColor DarkGray
     Write-Host "  $script:ChatScriptPath" -ForegroundColor DarkGray
     Write-Host ''
 }

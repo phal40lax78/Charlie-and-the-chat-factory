@@ -1,4 +1,4 @@
-# VS-code-chat-manager, src/core.ps1: dot-sourced by VS-code-chat-manager.ps1
+# claude-codex-chat-manager, src/core.ps1: dot-sourced by claude-codex-chat-manager.ps1
 # in its turn, never on its own - see the list there.
 
 $script:ChatPreview = 3
@@ -36,6 +36,24 @@ $script:ChatOpenPath = Join-Path (Join-Path $script:ChatRoot 'data') 'open-reque
 # window shows it (Get-ChatShowHold): the extension acts on one by itself for
 # 20 s (its timing.judgedMaxAge), and polls every 2
 $script:ChatShowHoldSeconds = 30
+# the queued run going on now, for the extension: one slot, since the watcher
+# runs one job at a time (Write-ChatRunState). Each window a handover asks
+# answers in run-ack/<its ext host pid>.json (Wait-ChatHandoverAnswer).
+$script:ChatRunStatePath = Join-Path (Join-Path $script:ChatRoot 'data') 'run-state'
+$script:ChatRunAckDir = Join-Path (Join-Path $script:ChatRoot 'data') 'run-ack'
+# The handover's waits (Invoke-ChatqHandover): for the windows to answer, and
+# for a chat whose tab is closing to let go of its process - Claude Code ends
+# it about 7 s after the tab closes. The tests shorten them, and turn the
+# handover off (ChatHandoverOff) everywhere but their own section.
+$script:ChatHandoverAckSeconds = 3
+$script:ChatHandoverLeaveSeconds = 15
+$script:ChatHandoverPollMs = 250
+$script:ChatHandoverOff = $false
+# tests: called with each run-state as it is written - the extension's part
+$script:ChatRunStateSeam = $null
+# tests: stands in for Show-ChatFresh -GraceSeconds' sleep, given the
+# milliseconds; the seam can take the process away as a closed tab would
+$script:ChatGraceSleepSeam = $null
 
 # Caches and flags read before anything sets them. This file is dot-sourced
 # into whatever session the user already has, and under Set-StrictMode

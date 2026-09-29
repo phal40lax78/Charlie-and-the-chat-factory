@@ -1,4 +1,4 @@
-# VS-code-chat-manager, src/overlay-windows.ps1: dot-sourced by VS-code-chat-manager.ps1
+# claude-codex-chat-manager, src/overlay-windows.ps1: dot-sourced by claude-codex-chat-manager.ps1
 # in its turn, never on its own - see the list there.
 
 #region overlay: Windows window ------------------------------------------------
@@ -264,6 +264,7 @@ function New-ChatOverlayWindow {
     $H.Hwnd = [System.Windows.Interop.WindowInteropHelper]::new($w).EnsureHandle()
     [ChatOverlayNative]::ApplyExStyle($H.Hwnd, $H.Locked)
     New-ChatOverlayControlsWindow $H
+    New-ChatOverlayEdgesWindow $H
     New-ChatOverlayChipWindow $H
 }
 
@@ -305,6 +306,171 @@ function New-ChatOverlayControlsWindow {
     [ChatOverlayNative]::ApplyExStyle($H.CtlHwnd, $false)
     # the box opening or closing changes its size; the edge by the panel stays
     $c.add_SizeChanged({ param($s, $e) Set-ChatOverlayControlsPlacement $script:ChatOverlayHost $e.NewSize })
+}
+
+# The panel's edges, in WPF units: how far the band to size it by reaches
+# outside the panel and over it, and how far a corner reaches along each
+# side - 7 deep in all, about what Windows gives a window of its own.
+$script:ChatOverlayEdgeOut = 4
+$script:ChatOverlayEdgeIn = 3
+$script:ChatOverlayEdgeCorner = 12
+
+function New-ChatOverlayEdgesWindow {
+    <#
+    The panel's edges, to size it by as any window is: a window of their
+    own over the panel's rect and 4 units round it, shown and hidden with
+    the buttons. The panel lets clicks through and has no frame, so there
+    is no border for Windows to size it by. Here each side is a strip
+    reaching 4 units out and 3 in, and each corner a 12-unit square, all
+    painted at an alpha of 1 in 255: the least a layered window still takes
+    the mouse on, and too faint to see. The middle is not painted, so
+    clicks there go through to the panel and what is under it. Pointed at,
+    an edge shows its cursor and an accent line along the panel's side.
+    The controls window's styles: it never takes focus, and is in neither
+    Alt+Tab nor the taskbar.
+    #>
+    param($H)
+    $ew = [System.Windows.Window]::new()
+    $ew.Title = 'chatoverlay edges'
+    $ew.WindowStyle = [System.Windows.WindowStyle]::None
+    $ew.AllowsTransparency = $true
+    $ew.Background = [System.Windows.Media.Brushes]::Transparent
+    $ew.ResizeMode = [System.Windows.ResizeMode]::NoResize
+    $ew.Topmost = $true
+    $ew.ShowActivated = $false
+    # true for the same reason as the panel's: false means a hidden owner
+    # that is not topmost
+    $ew.ShowInTaskbar = $true
+    $ew.WindowStartupLocation = [System.Windows.WindowStartupLocation]::Manual
+    $ew.Left = -32000
+    $ew.Top = -32000
+    $g = [System.Windows.Controls.Grid]::new()
+    $out = $script:ChatOverlayEdgeOut
+    $deep = $out + $script:ChatOverlayEdgeIn
+    $corner = $script:ChatOverlayEdgeCorner
+    # the line along the panel's side, under the strips and never hit
+    $hint = [System.Windows.Controls.Border]::new()
+    $hint.Margin = [System.Windows.Thickness]::new($out)
+    $hint.CornerRadius = $H.Frame.CornerRadius
+    $hint.IsHitTestVisible = $false
+    $hint.Visibility = 'Hidden'
+    [void]$g.Children.Add($hint)
+    $parts = @{}
+    foreach ($side in 'n', 's', 'w', 'e', 'nw', 'ne', 'sw', 'se') {
+        $b = [System.Windows.Controls.Border]::new()
+        $b.Background = Get-ChatOverlayBrush '#01000000'
+        $b.Tag = $side
+        $b.HorizontalAlignment = if ($side -match 'w') { 'Left' } elseif ($side -match 'e') { 'Right' } else { 'Stretch' }
+        $b.VerticalAlignment = if ($side -match 'n') { 'Top' } elseif ($side -match 's') { 'Bottom' } else { 'Stretch' }
+        if ($side.Length -eq 2) { $b.Width = $corner; $b.Height = $corner }
+        elseif ($side -in 'n', 's') { $b.Height = $deep; $b.Margin = [System.Windows.Thickness]::new($corner, 0, $corner, 0) }
+        else { $b.Width = $deep; $b.Margin = [System.Windows.Thickness]::new(0, $corner, 0, $corner) }
+        $b.add_MouseEnter({ param($s, $e) Show-ChatOverlayEdgeHint $script:ChatOverlayHost ([string]$s.Tag) })
+        $b.add_MouseLeave({ param($s, $e) if (-not $script:ChatOverlayHost.SizeDrag) { Show-ChatOverlayEdgeHint $script:ChatOverlayHost '' } })
+        $b.add_MouseLeftButtonDown({ param($s, $e) $e.Handled = $true; Start-ChatOverlaySizeDrag $s $null ([string]$s.Tag) })
+        $b.add_MouseMove({ param($s, $e) Move-ChatOverlaySizeDrag })
+        $b.add_MouseLeftButtonUp({ param($s, $e) Stop-ChatOverlaySizeDrag $s })
+        $b.add_LostMouseCapture({ param($s, $e) Stop-ChatOverlaySizeDrag $s })
+        [void]$g.Children.Add($b)
+        $parts[$side] = $b
+    }
+    $ew.Content = $g
+    $H.EdgesWin = $ew
+    $H.EdgesHint = $hint
+    $H.EdgeParts = $parts
+    $H.EdgesHwnd = [System.Windows.Interop.WindowInteropHelper]::new($ew).EnsureHandle()
+    [ChatOverlayNative]::ApplyExStyle($H.EdgesHwnd, $false)
+    Update-ChatOverlayEdges $H
+}
+
+function Get-ChatOverlayEdgeCursor {
+    # an edge's cursor, by its compass name: up and down for the top and
+    # bottom, sideways for the sides, a diagonal for a corner - and
+    # sideways for every corner while the panel is one line, as only its
+    # width changes then. Pure, for the tests.
+    param([string]$Edge, [bool]$Collapsed)
+    if ($Edge -in 'n', 's') { return 'SizeNS' }
+    if ($Edge -in 'w', 'e' -or $Collapsed) { return 'SizeWE' }
+    if ($Edge -in 'ne', 'sw') { return 'SizeNESW' }
+    return 'SizeNWSE'
+}
+
+function Update-ChatOverlayEdges {
+    # the edges for the fold: one line has no rows to add, so no top or
+    # bottom to drag, and its corners size the width alone
+    param($H)
+    if (-not $H.EdgeParts) { return }
+    foreach ($side in @($H.EdgeParts.Keys)) {
+        $b = $H.EdgeParts[$side]
+        $name = Get-ChatOverlayEdgeCursor $side ([bool]$H.Collapsed)
+        $b.Cursor = [System.Windows.Input.Cursors]::$name
+        $b.Visibility = if ($H.Collapsed -and $side -in 'n', 's') { 'Collapsed' } else { 'Visible' }
+    }
+}
+
+function Show-ChatOverlayEdgeHint {
+    # the accent line along the sides an edge sizes - two for a corner,
+    # the width's alone while folded - or none for ''
+    param($H, [string]$Edge)
+    if (-not $H -or -not $H.EdgesHint) { return }
+    $hint = $H.EdgesHint
+    if (-not $Edge) { $hint.Visibility = 'Hidden'; return }
+    $rows = -not $H.Collapsed
+    $t = { param($on) if ($on) { 2 } else { 0 } }
+    $hint.BorderThickness = [System.Windows.Thickness]::new((& $t ($Edge -match 'w')), (& $t ($rows -and $Edge -match 'n')), (& $t ($Edge -match 'e')), (& $t ($rows -and $Edge -match 's')))
+    $hint.BorderBrush = Get-ChatOverlayBrush 'accent'
+    $hint.Visibility = 'Visible'
+}
+
+function Get-ChatOverlayEdgesRect {
+    # the edges' window: the panel's rect (-Panel, x y width height, screen
+    # pixels) and -Out pixels more on every side. Pure, for the tests.
+    param([int[]]$Panel, [int]$Out)
+    if (-not $Panel -or $Panel.Count -lt 4) { return $null }
+    return @(($Panel[0] - $Out), ($Panel[1] - $Out), ($Panel[2] + 2 * $Out), ($Panel[3] + 2 * $Out))
+}
+
+function Get-ChatOverlayEdgesZone {
+    # the edges' window's rect for the panel's rect -Rect, on the panel's
+    # screen: in its pixels, by WPF's own scale for it, as the scale from
+    # the rect is behind mid-drag (Get-ChatOverlayScale)
+    param($H, [int[]]$Rect)
+    if (-not $Rect) { return $null }
+    $px = Get-ChatOverlayScale $H $Rect -Device
+    return Get-ChatOverlayEdgesRect $Rect ([int][Math]::Round($script:ChatOverlayEdgeOut * $px))
+}
+
+function Set-ChatOverlayEdgesPlacement {
+    # the edges over the panel's rim, wherever and however big the panel
+    # is now - moved only when that changed
+    param($H)
+    if (-not $H -or -not $H.EdgesWin -or $H.EdgesHwnd -eq [IntPtr]::Zero -or $H.Hwnd -eq [IntPtr]::Zero) { return }
+    $t = Get-ChatOverlayEdgesZone $H ([ChatOverlayNative]::GetRect($H.Hwnd))
+    if (-not $t) { return }
+    $now = [ChatOverlayNative]::GetRect($H.EdgesHwnd)
+    if ($now -and ($now -join ',') -eq ($t -join ',')) { return }
+    [ChatOverlayNative]::Place($H.EdgesHwnd, $t[0], $t[1], $t[2], $t[3])
+}
+
+function Show-ChatOverlayEdges {
+    # The edges come and go with the buttons, set for the fold and placed
+    # before they show - and again after, as WPF sizes a window of its own
+    # accord as it first shows it.
+    param($H, [bool]$Show)
+    if (-not $H.EdgesWin) { return }
+    if ($Show) {
+        Update-ChatOverlayEdges $H
+        Set-ChatOverlayEdgesPlacement $H
+        $H.EdgesWin.Show()
+        # WPF sets WS_EX_APPWINDOW again as it shows a window
+        [ChatOverlayNative]::ApplyExStyle($H.EdgesHwnd, $false)
+        [ChatOverlayNative]::KeepTopmost($H.EdgesHwnd)
+        Set-ChatOverlayEdgesPlacement $H
+    }
+    else {
+        Show-ChatOverlayEdgeHint $H ''
+        $H.EdgesWin.Hide()
+    }
 }
 
 function Select-ChatOverlayPalette {
@@ -367,12 +533,14 @@ function New-ChatOverlayIcon {
 
 function New-ChatOverlayControls {
     <#
-    The controls window's content: a row of buttons - drag grip, resize
-    handle, collapse, refresh usage, the console, settings, hide to the
-    tray, close, left to right, so close sits at the corner as it does on
-    any window - and the settings box on the far side of them from the
-    panel. Made anew when the look changes or the panel folds; the box
-    stays open or shut as it was.
+    The controls window's content: a row of buttons - drag grip, collapse,
+    refresh usage, the console, settings, hide to the tray, close, left to
+    right, so close sits at the corner as it does on any window - and the
+    settings box on the far side of them from the panel. Made anew when
+    the look changes or the panel folds; the box stays open or shut as it
+    was. The panel is sized by its edges (New-ChatOverlayEdgesWindow): a
+    handle here, beside the grip, had been the one way, and a drag of it
+    read as neither edge the panel then moved by.
     #>
     param($H)
     $H.CtlStack.Children.Clear()
@@ -392,21 +560,13 @@ function New-ChatOverlayControls {
     # a speech bubble: the console, to write to a chat
     $bubble = & $geo 'M1,1 L10,1 L10,7 L4.5,7 L2,9.5 L2,7 L1,7 Z'
     $cross = & $geo 'M0.5,0.5 L8.5,8.5 M8.5,0.5 L0.5,8.5'
-    # two arrows on one diagonal, out to the corners: the resize handle
-    $corners = & $geo 'M1,9 L9,1 M5,1 L9,1 L9,5 M1,5 L1,9 L5,9'
 
-    $grip = New-ChatOverlayIcon 'Drag to move' $dots -Fill
+    $grip = New-ChatOverlayIcon 'Drag to move - drag an edge or corner of the panel to resize it' $dots -Fill
     $grip.Cursor = [System.Windows.Input.Cursors]::SizeAll
     $grip.add_MouseLeftButtonDown({ param($s, $e) $e.Handled = $true; Start-ChatOverlayGripDrag $s })
     $grip.add_MouseMove({ param($s, $e) Move-ChatOverlayGripDrag })
     $grip.add_MouseLeftButtonUp({ param($s, $e) Stop-ChatOverlayGripDrag $s })
     $grip.add_LostMouseCapture({ param($s, $e) Stop-ChatOverlayGripDrag $s })
-    $sizeB = New-ChatOverlayIcon 'Drag to resize - sideways for width, up and down for rows' $corners -Stroke
-    $sizeB.Cursor = [System.Windows.Input.Cursors]::SizeNESW
-    $sizeB.add_MouseLeftButtonDown({ param($s, $e) $e.Handled = $true; Start-ChatOverlaySizeDrag $s })
-    $sizeB.add_MouseMove({ param($s, $e) Move-ChatOverlaySizeDrag })
-    $sizeB.add_MouseLeftButtonUp({ param($s, $e) Stop-ChatOverlaySizeDrag $s })
-    $sizeB.add_LostMouseCapture({ param($s, $e) Stop-ChatOverlaySizeDrag $s })
     $foldB = New-ChatOverlayIcon $(if ($H.Collapsed) { 'Expand' } else { 'Collapse to one line' }) $fold -Stroke
     $foldB.add_MouseLeftButtonUp({ param($s, $e) $e.Handled = $true; Invoke-ChatOverlayVerb $(if ($script:ChatOverlayHost.Collapsed) { 'expand' } else { 'collapse' }) })
     $againB = New-ChatOverlayIcon 'Ask Claude for usage now - Codex''s moves only when Codex runs' $again -Stroke
@@ -427,10 +587,6 @@ function New-ChatOverlayControls {
     $line.Orientation = [System.Windows.Controls.Orientation]::Horizontal
     $H.CtlButtons = @($grip, $foldB, $againB, $conB, $gear, $trayB, $close)
     foreach ($b in $H.CtlButtons) { [void]$line.Children.Add($b) }
-    # the handle beside the grip, since both are dragged rather than
-    # clicked; CtlButtons keeps its places, the collapse button second
-    $line.Children.Insert(1, $sizeB)
-    $H.CtlSize = $sizeB
     $H.CtlLine = $line
     $bar = [System.Windows.Controls.Border]::new()
     $bar.Background = Get-ChatOverlayBrush 'panel'
@@ -574,7 +730,7 @@ function New-ChatOverlaySettings {
 }
 
 function Sync-ChatOverlaySettings {
-    # The sliders to what the panel has now: a drag of the resize handle or
+    # The sliders to what the panel has now: a drag of one of its edges or
     # a reload may have moved it while the box was shut, and a slider still
     # on the old value made the panel jump when next nudged. Their handlers
     # are kept out of it, or setting one would count as a move.
@@ -635,10 +791,12 @@ function Set-ChatOverlaySettingsOpen {
 
 function Show-ChatOverlayControls {
     # the controls window comes with the pointer and goes with it, closing
-    # the box; placed before it shows, so it never flashes where it last was
+    # the box; placed before it shows, so it never flashes where it last was.
+    # The edges come and go with it, shown first so the buttons are on top.
     param($H, [bool]$Show)
     $H.ControlsShown = $Show
     if (-not $H.CtlWin) { return }
+    Show-ChatOverlayEdges $H $Show
     if ($Show) {
         Set-ChatOverlayControlsPlacement $H
         $H.CtlWin.Show()
@@ -734,9 +892,11 @@ function Get-ChatOverlayControlsTarget {
 }
 
 function Set-ChatOverlayControlsPlacement {
-    # the controls window on the panel's top edge, wherever the panel is
-    # now; -Dip the size it is about to take, in WPF's units
+    # the controls window on the panel's top edge, and the edges over its
+    # rim, wherever the panel is now; -Dip the size the controls window is
+    # about to take, in WPF's units
     param($H, $Dip)
+    Set-ChatOverlayEdgesPlacement $H
     $t = Get-ChatOverlayControlsTarget $H $Dip
     if (-not $t) { return }
     if ($t.Side -ne $H.CtlSide) { Set-ChatOverlayControlsSide $H $t.Side }
@@ -805,32 +965,39 @@ function Stop-ChatOverlayGripDrag {
 
 function Get-ChatOverlayResize {
     <#
-    What a drag of the resize handle comes to, from where it started: the
-    panel's -Width (WPF units) and -Rows then, the pointer's travel since
-    (-Dx, -Dy, screen pixels), one row's height (-RowHeight, screen pixels),
-    -Scale screen pixels to a WPF unit, and the panel's -Right edge. The
-    buttons sit at the panel's top-right, so that edge stays where it is:
-    left widens, right narrows, and Left is where the panel's left edge
-    goes. Down adds a row for each row's height of travel, up takes one
-    away; Steps says how many, 0 while the pointer is still within the
-    first. Width 260 to 800, rows 1 to 30. -Collapsed: one line, so width
-    only. A row height not known (0) is taken as 36 units, a row with its
-    prompt line. -Kept: the row count saved when the drag started, where
-    -Rows is the rows drawn - fewer, with fewer chats open. Then no travel
-    is Kept, and travel down never comes to less than Kept: counted from
-    the rows drawn, one row down had saved 4 over 8 with 3 chats open.
-    Pure, for the tests.
+    What a drag of one of the panel's edges comes to, from where it
+    started: the panel's -Width (WPF units) and -Rows then, the pointer's
+    travel since (-Dx, -Dy, screen pixels), one row's height (-RowHeight,
+    screen pixels), -Scale screen pixels to a WPF unit, and the panel's
+    -Right and -Left edges. -Edge is which, by the compass - n s w e, or
+    a corner, nw ne sw se - and the side across from it stays where it
+    is. The left side (w) moves out as the pointer goes left, the right
+    (e) as it goes right; Left is where the panel's left edge goes. The
+    bottom (s) adds a row for each row's height of travel down, the top
+    (n) for each up, and back the other way takes them away; Steps says
+    how many, 0 while the pointer is still within the first. Width 260 to
+    800, rows 1 to 30. -Collapsed: one line, so width only. A row height
+    not known (0) is taken as 36 units, a row with its prompt line.
+    -Kept: the row count saved when the drag started, where -Rows is the
+    rows drawn - fewer, with fewer chats open. Then no travel is Kept,
+    and travel outward never comes to less than Kept: counted from the
+    rows drawn, one row down had saved 4 over 8 with 3 chats open. Pure,
+    for the tests.
     #>
-    param([double]$Width, [int]$Rows, [double]$Dx, [double]$Dy, [double]$RowHeight, [double]$Scale = 1, [int]$Right = 0, [switch]$Collapsed, [int]$Kept = 0)
+    param([double]$Width, [int]$Rows, [double]$Dx, [double]$Dy, [double]$RowHeight, [double]$Scale = 1, [int]$Right = 0, [switch]$Collapsed, [int]$Kept = 0,
+        [string]$Edge = 'sw', [int]$Left = 0)
     if ($Scale -le 0) { $Scale = 1 }
-    $w = [int][Math]::Max(260, [Math]::Min(800, [Math]::Round($Width - $Dx / $Scale)))
+    $out = if ($Edge -match 'w') { -$Dx } elseif ($Edge -match 'e') { $Dx } else { 0 }
+    $w = [int][Math]::Max(260, [Math]::Min(800, [Math]::Round($Width + $out / $Scale)))
     $rh = if ($RowHeight -gt 0) { $RowHeight } else { 36 * $Scale }
-    $steps = if ($Collapsed) { 0 } else { [int][Math]::Truncate($Dy / $rh) }
+    $down = if ($Edge -match 's') { $Dy } elseif ($Edge -match 'n') { -$Dy } else { 0 }
+    $steps = if ($Collapsed) { 0 } else { [int][Math]::Truncate($down / $rh) }
     $n = [int][Math]::Max(1, [Math]::Min(30, $Rows + $steps))
     if ($Kept -gt 0) {
         if ($steps -eq 0) { $n = $Kept } elseif ($steps -gt 0) { $n = [Math]::Max($Kept, $n) }
     }
-    return [pscustomobject]@{ Width = $w; Rows = $n; Steps = $steps; Left = [int]($Right - [Math]::Round($w * $Scale)) }
+    $x = if ($Edge -match 'e') { $Left } else { [int]($Right - [Math]::Round($w * $Scale)) }
+    return [pscustomobject]@{ Width = $w; Rows = $n; Steps = $steps; Left = [int]$x }
 }
 
 function Get-ChatOverlayScale {
@@ -888,11 +1055,14 @@ function Get-ChatOverlayHeightCap {
     half way down the screen run off its foot, the rows under the edge
     never counted on the "+N more" line. Never under -Floor, about one row:
     a panel dragged to the screen's foot, or below it, still draws a row -
-    clipped, where the screen is shorter still. Pure, for the tests.
+    clipped, where the screen is shorter still. -Bottom, screen pixels:
+    the panel's top edge is being dragged, its bottom held there, so the
+    room is from there up to the area's top instead. Pure, for the tests.
     #>
-    param([int]$Top, $Area, [double]$Scale = 1, [double]$Floor = 0)
+    param([int]$Top, $Area, [double]$Scale = 1, [double]$Floor = 0, $Bottom = $null)
     if ($Scale -le 0) { $Scale = 1 }
-    $room = [Math]::Floor(([double]$Area.Y + [double]$Area.Height - $Top) / $Scale)
+    $room = if ($null -ne $Bottom) { [Math]::Floor(([double]$Bottom - [double]$Area.Y) / $Scale) }
+    else { [Math]::Floor(([double]$Area.Y + [double]$Area.Height - $Top) / $Scale) }
     return [double][Math]::Max([Math]::Ceiling($Floor), $room)
 }
 
@@ -903,7 +1073,15 @@ function Update-ChatOverlayMaxHeight {
     # says how many more there are. The scale is WPF's own (-Device): this
     # runs mid-drag, just after Width is set. The floor is one row as last
     # drawn - 36 units, a row with its prompt line, before any is - with the
-    # frame's padding and edge.
+    # frame's padding and edge. While the top edge is dragged the bottom is
+    # held and the top goes up as rows come, so the room is from the bottom
+    # up - capped from the top, a panel at the screen's foot had no room for
+    # the first row asked for - and within that, the cap it started under
+    # and a row's height more for each row's travel up
+    # (Move-ChatOverlaySizeDrag's Want): rows the foot had cut come back a
+    # row at a time, where the room from the bottom alone would bring all
+    # of them, and the Recent lines, at the first touch. Never under the cap
+    # it started with, which what it drew then fits.
     param($H)
     # the console's mode is sized by hand: no cap on it
     if (-not $H.Win -or $H.Hwnd -eq [IntPtr]::Zero -or $H.Mode -eq 'console') { return }
@@ -915,7 +1093,10 @@ function Update-ChatOverlayMaxHeight {
     if ($row -le 0) { $row = 36 }
     $f = $H.Frame
     $chrome = if ($f) { $f.Padding.Top + $f.Padding.Bottom + $f.BorderThickness.Top + $f.BorderThickness.Bottom } else { 0 }
-    $max = Get-ChatOverlayHeightCap $r[1] $a (Get-ChatOverlayScale $H $r -Device) ($row + $chrome)
+    $d = if ($H.SizeDrag -and $H.SizeDrag.Top) { $H.SizeDrag } else { $null }
+    $held = if ($d) { $d.Bottom } else { $null }
+    $max = Get-ChatOverlayHeightCap $r[1] $a (Get-ChatOverlayScale $H $r -Device) ($row + $chrome) $held
+    if ($d) { $max = [Math]::Max($d.Cap, [Math]::Min($max, $(if ($null -ne $d.Want) { $d.Want } else { $d.Cap }))) }
     if ($max -gt 0 -and $H.Win.MaxHeight -ne $max) { $H.Win.MaxHeight = $max }
 }
 
@@ -942,10 +1123,13 @@ function Set-ChatOverlayWidth {
     it is - or at -Right, screen pixels - since the buttons sit at its
     top-right, and the settings box above them. Its left edge never goes
     past the left of its screen's working area: held there, it grows to the
-    right instead. Where it ends up is not saved: the caller says when
-    (Stop-ChatOverlaySizeDrag, the slider once it rests, a reload).
+    right instead. -Left, screen pixels: its left edge held there instead,
+    as its right edge is dragged, and the right edge never past the right
+    of the working area - held there, it grows to the left. Where it ends
+    up is not saved: the caller says when (Stop-ChatOverlaySizeDrag, the
+    slider once it rests, a reload).
     #>
-    param($H, [double]$Width, $Right = $null)
+    param($H, [double]$Width, $Right = $null, $Left = $null)
     if (-not $H -or -not $H.Win) { return }
     $v = [int][Math]::Max(260, [Math]::Min(800, [Math]::Round($Width)))
     if ($H.Win.Width -eq $v) { return }
@@ -961,7 +1145,8 @@ function Set-ChatOverlayWidth {
     $top = if ($now) { $now[1] } else { $r[1] }
     $a = if ($script:ChatOverlayWorkAreaSeam) { & $script:ChatOverlayWorkAreaSeam $r }
     else { [System.Windows.Forms.Screen]::FromRectangle([System.Drawing.Rectangle]::new($r[0], $r[1], [Math]::Max(1, $r[2]), [Math]::Max(1, $r[3]))).WorkingArea }
-    [ChatOverlayNative]::MoveTo($H.Hwnd, [Math]::Max([int]$a.X, $edge - $wide), $top)
+    $x = if ($null -ne $Left) { [Math]::Min([int]$Left, [int]($a.X + $a.Width) - $wide) } else { [Math]::Max([int]$a.X, $edge - $wide) }
+    [ChatOverlayNative]::MoveTo($H.Hwnd, $x, $top)
 }
 
 function Save-ChatOverlayPlace {
@@ -1007,11 +1192,13 @@ function Set-ChatOverlayRowsChoice {
 }
 
 function Start-ChatOverlaySizeDrag {
-    # A press on the resize handle: the panel's width and rows follow the
-    # pointer until it is let go (Get-ChatOverlayResize). The pointer is
-    # only read - or -At, for the tests; the window resized is the overlay's
-    # own. The pass waits meanwhile, as for the grip, and the chip too.
-    param($Handle, $At = $null)
+    # A press on an edge of the panel - -Edge by the compass, a corner
+    # two letters: the panel's width and rows follow the pointer until it
+    # is let go (Get-ChatOverlayResize), the side across from it held. The
+    # pointer is only read - or -At, for the tests; the window resized is
+    # the overlay's own. The pass waits meanwhile, as for the grip, and the
+    # chip too; the edge's line stays lit.
+    param($Handle, $At = $null, [string]$Edge = 'sw')
     $H = $script:ChatOverlayHost
     if (-not $H -or $H.GripDrag) { return }
     $r = [ChatOverlayNative]::GetRect($H.Hwnd)
@@ -1020,14 +1207,23 @@ function Start-ChatOverlaySizeDrag {
     $px = Get-ChatOverlayScale $H $r
     $rows = [int]$H.Ctx.Config.maxRows
     # From the rows drawn when there are fewer than that - fewer chats, or
-    # the screen's height - so the first row's travel up takes one away
+    # the screen's height - so the first row's travel back takes one away
     # rather than going on rows nobody sees.
     $drawn = Get-ChatOverlayDrawnRows $H
     $from = if ($drawn -gt 0 -and $drawn -lt $rows) { $drawn } else { $rows }
-    $H.SizeDrag = @{ Mx = $m.X; My = $m.Y; Right = $r[0] + $r[2]; Width = [double]$H.Win.Width; Rows = $from; Kept = $rows
-        WasWidth = [int]$H.Ctx.Config.width; RowPx = (Get-ChatOverlayRowHeight $H) * $px; Px = $px }
+    $rowDip = Get-ChatOverlayRowHeight $H
+    # Top: the top edge moves and the bottom is held - not while folded,
+    # when a corner up there sizes the width alone. The height cap it
+    # started under, a row's height (36 units before any is drawn) and the
+    # working area, for the cap the travel asks for (Update-ChatOverlayMaxHeight).
+    $a = Get-ChatOverlayWorkArea $r
+    $H.SizeDrag = @{ Mx = $m.X; My = $m.Y; Right = $r[0] + $r[2]; Left = $r[0]; Bottom = $r[1] + $r[3]; Width = [double]$H.Win.Width; Rows = $from; Kept = $rows
+        WasWidth = [int]$H.Ctx.Config.width; RowPx = $rowDip * $px; Px = $px
+        Edge = $Edge; Top = ($Edge -match 'n' -and -not $H.Collapsed); Cap = [double]$H.Win.MaxHeight; RowDip = $(if ($rowDip -gt 0) { $rowDip } else { 36 })
+        Want = $null; AreaY = [int]$a.Y; AreaBottom = [int]($a.Y + $a.Height) }
     $H.Dragging = $true
     Hide-ChatOverlayChip $H
+    Show-ChatOverlayEdgeHint $H $Edge
     if ($Handle) { [void]$Handle.CaptureMouse() }
 }
 
@@ -1038,16 +1234,41 @@ function Move-ChatOverlaySizeDrag {
     $d = $H.SizeDrag
     $m = if ($At) { $At } else { [System.Windows.Forms.Control]::MousePosition }
     # back within the first row's travel, the count it had, not the one the
-    # drag started from; down, never fewer than that
-    $z = Get-ChatOverlayResize $d.Width $d.Rows ($m.X - $d.Mx) ($m.Y - $d.My) $d.RowPx $d.Px $d.Right -Collapsed:([bool]$H.Collapsed) -Kept $d.Kept
-    Set-ChatOverlayWidth $H $z.Width $d.Right
+    # drag started from; outward, never fewer than that
+    $z = Get-ChatOverlayResize $d.Width $d.Rows ($m.X - $d.Mx) ($m.Y - $d.My) $d.RowPx $d.Px $d.Right -Collapsed:([bool]$H.Collapsed) -Kept $d.Kept -Edge $d.Edge -Left $d.Left
+    if ($d.Edge -match 'e') { Set-ChatOverlayWidth $H $z.Width -Left $d.Left } else { Set-ChatOverlayWidth $H $z.Width $d.Right }
+    # the top edge: the cap it started under and a row more for each row's
+    # travel up, which the count only redraws for when it changed
+    if ($d.Top) { $d.Want = $d.Cap + $z.Steps * $d.RowDip }
     Set-ChatOverlayRowCount $H $z.Rows
+    if ($d.Top -and $H.Snap) { Update-ChatOverlayView $H $H.Snap }
+    # laid out now, not at the dispatcher's next turn: the top edge goes
+    # where the new height puts it over the held bottom, and the edges and
+    # buttons follow the size it has, not the one it had
+    $H.Win.UpdateLayout()
+    if ($d.Top) {
+        $now = [ChatOverlayNative]::GetRect($H.Hwnd)
+        if ($now) {
+            # the rect, unless WPF has not sized the window to its layout yet
+            $tall = [int][Math]::Round($H.Win.ActualHeight * $d.Px)
+            if ([Math]::Abs($now[3] - $tall) -le 1) { $tall = $now[3] }
+            # Five units clear of the working area's foot. Let go, the cap
+            # goes by the top edge again, rounded down to whole units, and
+            # has to hold what is drawn with the 18 units
+            # Limit-ChatOverlayRows keeps for a "+N more" line about 15
+            # tall: any closer, and a row can go as it is let go.
+            $y = [Math]::Min($d.Bottom - $tall, $d.AreaBottom - [int][Math]::Ceiling(($H.Win.ActualHeight + 5) * $d.Px))
+            $y = [Math]::Max($d.AreaY, $y)
+            if ($y -ne $now[1]) { [ChatOverlayNative]::MoveTo($H.Hwnd, $now[0], $y) }
+        }
+    }
     Set-ChatOverlayControlsPlacement $H
 }
 
 function Stop-ChatOverlaySizeDrag {
     # let go - or the capture lost some other way: the size is kept in
-    # config.json, where the panel is in overlay-state.json
+    # config.json, where the panel is in overlay-state.json. A top edge
+    # dragged moved the panel's top, which its height cap goes by.
     param($Handle)
     $H = $script:ChatOverlayHost
     if (-not $H -or -not $H.SizeDrag) { return }
@@ -1055,11 +1276,13 @@ function Stop-ChatOverlaySizeDrag {
     $H.SizeDrag = $null
     $H.Dragging = $false
     if ($Handle -and $Handle.IsMouseCaptured) { $Handle.ReleaseMouseCapture() }
+    if (-not ($Handle -and $Handle.IsMouseOver)) { Show-ChatOverlayEdgeHint $H '' }
     $set = @{}
     if ([int]$H.Win.Width -ne $d.WasWidth) { $set.width = [int]$H.Win.Width }
     if ([int]$H.Ctx.Config.maxRows -ne $d.Kept) { $set.maxRows = [int]$H.Ctx.Config.maxRows }
     if ($set.Count) { Save-ChatOverlaySetting $H $set }
     Save-ChatOverlayPlace $H
+    if ($d.Top) { Sync-ChatOverlayHeightCap $H }
     # an open settings box's sliders to what was dragged to; a shut one's
     # as it opens
     if ($H.SettingsOpen) { Sync-ChatOverlaySettings $H }
@@ -1076,8 +1299,9 @@ function Set-ChatOverlayCollapsed {
     Save-ChatOverlayState $H.State
     $H.ViewKey = $null
     if ($H.Snap) { Update-ChatOverlayView $H $H.Snap }
-    # the chevron turns
+    # the chevron turns, and the edges lose or get back their top and bottom
     if ($H.CtlWin) { New-ChatOverlayControls $H }
+    Update-ChatOverlayEdges $H
     Update-ChatOverlayMenu $H
 }
 
@@ -1271,9 +1495,10 @@ function Get-ChatOverlayControlsShown {
     buttons can be pointed at straight away, and come up under the pointer.
     Never while a mouse button is held: a tab or a file dragged across that
     corner in the app below would be dropped on them. Once up they stay
-    while the pointer is on the panel or on them, while a mouse button is
-    held (a slider dragged off the box), mid-drag, and 700 ms after it
-    leaves. Pure, for the tests.
+    while the pointer is on the panel - its edges' band just outside it
+    counts as on it - or on them, while a mouse button is held (a slider
+    dragged off the box), mid-drag, and 700 ms after it leaves. Pure, for
+    the tests.
     #>
     param([bool]$Shown, [bool]$OnPanel, [bool]$OnControls, [bool]$Dragging, [bool]$Down, [double]$RestedMs, [double]$SinceOverMs)
     if ($Dragging) { return $true }
@@ -1290,12 +1515,13 @@ function Test-ChatOverlayPointerIn {
 function Update-ChatOverlayHover {
     <#
     Every 120 ms: where the pointer is - read, never moved - against the
-    panel and the controls' zone: their window and the gap to the panel, or
-    while hidden the spot they would take. Resting on either brings the
-    controls, which stay a moment after it leaves; while a button is held
+    panel with the band round it that its edges are dragged from, and the
+    controls' zone: their window and the gap to the panel, or while hidden
+    the spot they would take. Resting on either brings the controls and
+    the edges, which stay a moment after it leaves; while a button is held
     they stay, so a slider dragged off the box keeps going. The controls
-    follow a panel moved some other way, and what the settings box's
-    sliders settled on is saved here too.
+    and edges follow a panel moved some other way, and what the settings
+    box's sliders settled on is saved here too.
     #>
     $H = $script:ChatOverlayHost
     # the console's mode has neither the buttons nor the chip
@@ -1303,17 +1529,21 @@ function Update-ChatOverlayHover {
     try {
         $m = [System.Windows.Forms.Control]::MousePosition
         $down = [System.Windows.Forms.Control]::MouseButtons -ne [System.Windows.Forms.MouseButtons]::None
-        $onPanel = Test-ChatOverlayPointerIn $m ([ChatOverlayNative]::GetRect($H.Hwnd))
+        $pr = [ChatOverlayNative]::GetRect($H.Hwnd)
+        $onPanel = Test-ChatOverlayPointerIn $m $pr
+        # the panel and the band just outside it: resting there brings the
+        # edges too, and the pointer on an edge's outer part keeps them
+        $onRim = Test-ChatOverlayPointerIn $m (Get-ChatOverlayEdgesZone $H $pr)
         $onCtl = Test-ChatOverlayPointerIn $m (Get-ChatOverlayControlsHoverZone $H)
         $now = Get-Date
         # a rest with a button held is a drag in the app below; it starts over
         # once the button is let go
-        if (-not ($onPanel -or $onCtl) -or ($down -and -not $H.ControlsShown)) { $H.EnterAt = $null }
+        if (-not ($onRim -or $onCtl) -or ($down -and -not $H.ControlsShown)) { $H.EnterAt = $null }
         elseif (-not $H.EnterAt) { $H.EnterAt = $now }
-        if ($onPanel -or $onCtl) { $H.OverAt = $now }
+        if ($onRim -or $onCtl) { $H.OverAt = $now }
         $rested = if ($H.EnterAt) { ($now - $H.EnterAt).TotalMilliseconds } else { 0 }
         $since = if ($H.OverAt) { ($now - $H.OverAt).TotalMilliseconds } else { [double]::MaxValue }
-        $show = Get-ChatOverlayControlsShown ([bool]$H.ControlsShown) $onPanel $onCtl ([bool]$H.Dragging) $down $rested $since
+        $show = Get-ChatOverlayControlsShown ([bool]$H.ControlsShown) $onRim $onCtl ([bool]$H.Dragging) $down $rested $since
         if ($show -ne [bool]$H.ControlsShown) { Show-ChatOverlayControls $H $show }
         # the grip's own drag places them as it goes; the unlocked panel's
         # DragMove does not
@@ -1351,7 +1581,8 @@ function Get-ChatOverlayChipActions {
     src/auto-continue.ps1) - don't continue on a continue that waits,
     continue on a cut-off nothing will continue, none on one running, held
     by a terminal or cut off by a 529 - then open, where the row can be
-    opened. A cut-off row with no folder still gets its auto chip. Anything
+    opened: watch while a job of the chat runs, the same open under another
+    word. A cut-off row with no folder still gets its auto chip. Anything
     else nothing, and gets no chip. The auto chips' tooltips carry what the
     row says in full, since the chips may cover it. Pure.
     #>
@@ -1381,9 +1612,85 @@ function Get-ChatOverlayChipActions {
         }
     }
     if (Test-ChatOverlayRowOpenable $Row) {
-        $out += [pscustomobject]@{ Id = 'open'; Label = 'open'; Tip = 'Open this chat as a tab in its VS Code window - or bring forward the tab already showing it.' }
+        # A job of the chat's running: the same open, which Show-ChatFresh
+        # turns into the run's live view in VS Code - so it says watch
+        $j = Get-ChatField $Row 'job'
+        $out += if ($j -and [string](Get-ChatField $j 'state') -eq 'running') {
+            [pscustomobject]@{ Id = 'open'; Label = 'watch'; Tip = 'A queued prompt is running in this chat - watch it live in its VS Code window.' }
+        }
+        else {
+            [pscustomobject]@{ Id = 'open'; Label = 'open'; Tip = 'Open this chat as a tab in its VS Code window - or bring forward the tab already showing it.' }
+        }
+        # always beside open, so the chip keeps one width as the chat's
+        # state changes; greyed, taking no click, where it cannot delete
+        $out += if (Test-ChatOverlayRowDeletable $Row) {
+            [pscustomobject]@{ Id = 'delete'; Label = 'delete'; Disabled = $false; Tip = 'Delete this chat for good, as chatrm does - click once more to be sure.' }
+        }
+        else {
+            [pscustomobject]@{ Id = 'delete'; Label = 'delete'; Disabled = $true; Tip = 'Not while this chat works or waits on you, or while a terminal or a queued prompt has it open.' }
+        }
     }
     return $out
+}
+
+function Test-ChatOverlayRowDeletable {
+    # whether a row's delete chip takes a click: not on a chat at work or
+    # waiting on you - cutting its transcript from under a turn loses the
+    # turn - nor on one a terminal's claude holds, or a print-mode run (a
+    # queued prompt), either of which writes it straight back.
+    # Remove-ChatSessionById asks the registry again as it acts. Pure.
+    param($Row)
+    if ([string](Get-ChatField $Row 'kind') -ne 'session') { return $true }
+    return ([string](Get-ChatField $Row 'status') -notin 'busy', 'waiting' -and
+        [string](Get-ChatField $Row 'where') -notin 'terminal', 'run')
+}
+
+function Test-ChatOverlayDeleteArmed {
+    # whether a click on delete is the second one it asks for: the first,
+    # on the same row, under -Ms ago. Pure.
+    param([string]$ArmedKey, $ArmedAt, [string]$Key, [datetime]$Now, [int]$Ms = 4000)
+    return ([bool]$ArmedKey -and $ArmedKey -eq $Key -and $ArmedAt -and ($Now - [datetime]$ArmedAt).TotalMilliseconds -lt $Ms)
+}
+
+function Reset-ChatOverlayDeleteArm {
+    # the delete chip back to its first click's face - only when it asked:
+    # a greyed one keeps its grey
+    param($H)
+    if (-not $H) { return }
+    if ($H.DelArmKey -and $H.ChipDelText) { $H.ChipDelText.Text = 'delete'; $H.ChipDelText.Foreground = Get-ChatOverlayBrush 'text' }
+    $H.DelArmKey = $null
+    $H.DelArmAt = $null
+}
+
+function Invoke-ChatOverlayDeleteChip {
+    # delete clicked: the first click only asks - the chip reads "sure?"
+    # for 4 s - and a second one on the same row deletes. The tray says how
+    # it went. Never throws into the window's thread.
+    param($H, $Row)
+    if (-not $H -or -not $Row) { return }
+    try {
+        $key = [string](Get-ChatField $Row 'key')
+        if (-not (Test-ChatOverlayDeleteArmed $H.DelArmKey $H.DelArmAt $key (Get-Date))) {
+            $H.DelArmKey = $key
+            $H.DelArmAt = Get-Date
+            if ($H.ChipDelText) { $H.ChipDelText.Text = 'sure?'; $H.ChipDelText.Foreground = Get-ChatOverlayBrush 'error' }
+            return
+        }
+        Reset-ChatOverlayDeleteArm $H
+        $sid = [string](Get-ChatField $Row 'sessionId')
+        $home0 = if ($H.Ctx -and $H.Ctx.ClaudeHome) { [string]$H.Ctx.ClaudeHome } else { $script:ChatClaudeHome }
+        $live = @(Get-ChatqLiveSessions $home0 -RegistryOnly)
+        $r = Remove-ChatSessionById -SessionId $sid -Cwd ([string](Get-ChatField $Row 'cwd')) -Title ([string](Get-ChatField $Row 'title')) -ConfigDir $home0 -Live $live
+        Write-ChatOverlayLog "delete: $($sid.Substring(0, [Math]::Min(8, $sid.Length))) $(if ($r.Done) { 'deleted' } else { 'kept' })" -Always
+        Hide-ChatOverlayChip $H
+        if ($r.Done -and $H.Ctx) {
+            if ($H.Ctx.Unread) { $H.Ctx.Unread.Remove($sid) }
+            # the recent list read again at the next tick, without it
+            $H.Ctx.RecentAt = [datetime]::MinValue
+        }
+        if ($r.Say) { Show-ChatOverlayBalloon $H $r.Say }
+    }
+    catch { Write-ChatOverlayLog "delete chip: $($_.Exception.Message)" }
 }
 
 function Get-ChatOverlayChipSig {
@@ -1396,7 +1703,8 @@ function Get-ChatOverlayChipSig {
 function Invoke-ChatOverlayChipRelease {
     # A release on chip -On after a press on -Pressed: acts only when they
     # are the same chip, so a press dragged from one onto another does
-    # nothing. open goes as before; the banner's two answers through
+    # nothing. open goes as before; delete through Invoke-ChatOverlayDeleteChip,
+    # which asks twice; the banner's two answers through
     # Invoke-ChatOverlayAskAnswer, about the keys its row carries;
     # auto-continue's two through Invoke-ChatOverlayAutoChip, which never
     # takes the unread dot away (only an open does).
@@ -1404,6 +1712,7 @@ function Invoke-ChatOverlayChipRelease {
     if (-not $Pressed -or $Pressed -ne $On) { return }
     switch ($On) {
         'open' { Invoke-ChatOverlayOpen $H $H.ChipRow }
+        'delete' { if (Test-ChatOverlayRowDeletable $H.ChipRow) { Invoke-ChatOverlayDeleteChip $H $H.ChipRow } }
         'ask-go' { Invoke-ChatOverlayAskAnswer $H 'continue' @(Get-ChatField $H.ChipRow 'keys') }
         'ask-leave' { Invoke-ChatOverlayAskAnswer $H 'leave' @(Get-ChatField $H.ChipRow 'keys') }
         { $_ -in 'dont', 'continue' } { Invoke-ChatOverlayAutoChip $H $H.ChipRow $On }
@@ -1550,6 +1859,9 @@ function New-ChatOverlayChipContent {
     $row = [System.Windows.Controls.StackPanel]::new()
     $row.Orientation = [System.Windows.Controls.Orientation]::Horizontal
     $H.ChipText = $null
+    $H.ChipDelText = $null
+    $H.DelArmKey = $null
+    $H.DelArmAt = $null
     $first = $true
     foreach ($a in @($H.ChipActions | Where-Object { $_ })) {
         $b = [System.Windows.Controls.Border]::new()
@@ -1564,11 +1876,19 @@ function New-ChatOverlayChipContent {
         $b.Tag = [string]$a.Id
         # an open still running says so on its chip
         $busy = $a.Id -eq 'open' -and [bool]$H.OpenProc
-        $t = New-ChatOverlayText $(if ($busy) { 'opening' } else { [string]$a.Label }) $(if ($busy) { 'dim' } else { 'text' }) 11
+        # a greyed chip: faint, no hover; its release acts on nothing
+        # (Invoke-ChatOverlayChipRelease)
+        $off = [bool](Get-ChatField $a 'Disabled')
+        $t = New-ChatOverlayText $(if ($busy) { 'opening' } else { [string]$a.Label }) $(if ($off) { 'faint' } elseif ($busy) { 'dim' } else { 'text' }) 11
         $b.Child = $t
-        if ($a.Id -eq 'open') { $H.ChipText = $t }
-        $b.add_MouseEnter({ param($s, $e) $s.Background = Get-ChatOverlayBrush 'hover' })
-        $b.add_MouseLeave({ param($s, $e) $s.Background = Get-ChatOverlayBrush 'panel' })
+        # open's word kept, to come back to once an open ends: watch, on a
+        # chat a job runs in
+        if ($a.Id -eq 'open') { $H.ChipText = $t; $H.ChipOpenLabel = [string]$a.Label }
+        if ($a.Id -eq 'delete') { $H.ChipDelText = $t }
+        if (-not $off) {
+            $b.add_MouseEnter({ param($s, $e) $s.Background = Get-ChatOverlayBrush 'hover' })
+            $b.add_MouseLeave({ param($s, $e) $s.Background = Get-ChatOverlayBrush 'panel' })
+        }
         # A press counts only once the chip is armed (Step-ChatOverlayChipState),
         # and only on the chip it was let go on: pressed on one and let go on
         # another, nothing happens.
@@ -1632,6 +1952,7 @@ function Show-ChatOverlayChip {
     $H.ChipSpent = $H.ChipKey
     $H.ChipPressed = $false
     $H.ChipPressedId = $null
+    Reset-ChatOverlayDeleteArm $H
     $acts = @(Get-ChatOverlayChipActions $Entry.Row)
     if ((Get-ChatOverlayChipSig $acts) -ne (Get-ChatOverlayChipSig @($H.ChipActions)) -or -not $H.ChipWin.Content) {
         $H.ChipActions = $acts
@@ -1655,6 +1976,7 @@ function Hide-ChatOverlayChip {
     $H.ChipArmed = $false
     $H.ChipPressed = $false
     $H.ChipPressedId = $null
+    Reset-ChatOverlayDeleteArm $H
 }
 
 function Update-ChatOverlayChip {
@@ -1665,6 +1987,8 @@ function Update-ChatOverlayChip {
     # read.
     param($H, $At, [bool]$Down, [datetime]$Now, [bool]$OnPanel)
     if (-not $H.ChipWin) { return }
+    # a "sure?" not clicked in time goes back to delete
+    if ($H.DelArmKey -and -not (Test-ChatOverlayDeleteArmed $H.DelArmKey $H.DelArmAt $H.DelArmKey $Now)) { Reset-ChatOverlayDeleteArm $H }
     $blocked = [bool]($H.Collapsed -or $H.Dragging -or $H.GripDrag)
     $onChip = [bool]$H.ChipKey -and (Test-ChatOverlayPointerIn $At ([ChatOverlayNative]::GetRect($H.ChipHwnd)))
     $entry = $null
@@ -1749,6 +2073,7 @@ function Get-ChatOverlayOpenBalloon {
     param([int]$Code)
     switch ($Code) {
         15 { return 'A queued prompt is running in that chat - open it once it finishes.' }
+        16 { return 'A queued prompt is running in that chat - its live view opens in VS Code.' }
         20 { return 'That chat is open in a terminal - not opened in VS Code as well.' }
         25 { return 'Shown in its window, which also has other folders open - bring it forward yourself.' }
         30 { return 'That chat has not started yet.' }
@@ -1767,8 +2092,12 @@ function Update-ChatOverlayOpen {
     # folders (25), or asked of its window with code not found (40) or
     # failing (41) - the window still takes the request, only not brought
     # forward. Not on held (10): a chat at work, which the extension may yet
-    # refuse to open. Turned away, failed before the request, or no answer,
-    # its turn is still unseen, and the dot stays.
+    # refuse to open. Nor on a queued prompt's live view asked for (16): it
+    # shows the run from its start, not the turn that finished unseen before
+    # it - though code not found or failing on the way (40, 41) comes back
+    # in 16's place, as in 0's, and takes the dot as for an open. Turned
+    # away, failed before the request, or no answer, its turn is still
+    # unseen, and the dot stays.
     param($H)
     $p = $H.OpenProc
     if (-not $p) { return }
@@ -1785,7 +2114,7 @@ function Update-ChatOverlayOpen {
     $H.OpenProc = $null
     $H.OpenSid = $null
     $H.OpenSessionId = $null
-    if ($H.ChipText) { $H.ChipText.Text = 'open'; $H.ChipText.Foreground = Get-ChatOverlayBrush 'text' }
+    if ($H.ChipText) { $H.ChipText.Text = $(if ($H.ChipOpenLabel) { [string]$H.ChipOpenLabel } else { 'open' }); $H.ChipText.Foreground = Get-ChatOverlayBrush 'text' }
     Hide-ChatOverlayChip $H
 }
 
@@ -1903,14 +2232,17 @@ function Add-ChatOverlayUsageLine {
 
 function New-ChatOverlayWhereGlyph {
     # Where a chat runs, drawn small after its dot: a window's outline for a
-    # VS Code panel, >_ for a terminal; $null for anything else. Bare - the
-    # panel lets clicks through, so nothing to point at - and in the dim
-    # colour, so it reads as a mark, not a state.
+    # VS Code panel, >_ for a terminal, a play triangle for a print-mode run
+    # (a queued prompt going in); $null for anything else. Bare - the panel
+    # lets clicks through, so nothing to point at - and in the dim colour, so
+    # it reads as a mark, not a state.
     param([string]$Where)
     $d = switch ($Where) {
         # the frame and its title bar
         'vscode' { 'M0.5,0.5 L9.5,0.5 L9.5,8.5 L0.5,8.5 Z M0.5,2.8 L9.5,2.8' }
         'terminal' { 'M0.5,1.5 L3.5,4.5 L0.5,7.5 M5,8 L9.5,8' }
+        # outlined, as the others are: a filled one would read as a state
+        'run' { 'M2,0.8 L8.5,4.5 L2,8.2 Z' }
     }
     if (-not $d) { return $null }
     $p = [System.Windows.Shapes.Path]::new()
@@ -2705,7 +3037,7 @@ function New-ChatOverlayTrayIcon {
     $H.Menu.Auto.add_Click({ Invoke-ChatOverlayVerb $(if ($script:ChatOverlayHost.Menu.Auto.Checked) { 'auto-ask' } else { 'auto-on' }) })
     $menu.add_Opening({ Update-ChatOverlayMenu $script:ChatOverlayHost })
     [void]$menu.Items.Add([System.Windows.Forms.ToolStripSeparator]::new())
-    $head = $menu.Items.Add("VS-code-chat-manager $script:ChatVersion")
+    $head = $menu.Items.Add("claude-codex-chat-manager $script:ChatVersion")
     $head.Enabled = $false
     $H.Menu.Hotkey = $menu.Items.Add('hotkey')
     $H.Menu.Hotkey.Enabled = $false
@@ -2936,6 +3268,8 @@ function Invoke-ChatOverlayTick {
         # put it: a screen change is looked at once it goes back to the panel.
         if ($H.Tick % 5 -eq 0 -and -not $H.Hidden -and $H.Mode -ne 'console') {
             [ChatOverlayNative]::KeepTopmost($H.Hwnd)
+            # the edges over the panel, and the buttons over the edges
+            if ($H.ControlsShown -and $H.EdgesHwnd -ne [IntPtr]::Zero) { [ChatOverlayNative]::KeepTopmost($H.EdgesHwnd) }
             if ($H.ControlsShown) { [ChatOverlayNative]::KeepTopmost($H.CtlHwnd) }
             # the chip after the panel, so it stays over its row
             if ($H.ChipKey -and $H.ChipHwnd -ne [IntPtr]::Zero) { [ChatOverlayNative]::KeepTopmost($H.ChipHwnd) }
@@ -2982,6 +3316,7 @@ function Close-ChatOverlayWindow {
     try { if ($H.Tray) { $H.Tray.Visible = $false; $H.Tray.Dispose(); $H.Tray = $null } } catch {}
     try { if ($H.IconHandle -ne [IntPtr]::Zero) { [void][ChatOverlayNative]::DestroyIcon($H.IconHandle); $H.IconHandle = [IntPtr]::Zero } } catch {}
     try { if ($H.CtlWin) { $H.CtlWin.Close() } } catch {}
+    try { if ($H.EdgesWin) { $H.EdgesWin.Close() } } catch {}
     try { if ($H.ChipWin) { $H.ChipWin.Close() } } catch {}
     try { if ($H.Win) { $H.Win.Close() } } catch {}
 }
@@ -2994,9 +3329,12 @@ function New-ChatOverlayHostState {
         Placed = $false; EnterAt = $null
         Controls = $null; Settings = $null; ControlsShown = $false; SettingsOpen = $false; OverAt = $null
         HoverTimer = $null; PendingOpacity = $null; PendingAt = $null; OpacityText = $null; ThemeName = $null; HideTold = $false
-        # the resize handle's drag, and the width and rows sliders moved but
-        # not yet saved (Get-ChatOverlayPending)
-        CtlSize = $null; SizeDrag = $null; PendingWidth = $null; PendingRows = $null; WidthText = $null; RowsText = $null
+        # the edges' window, its accent line, and its eight parts by the
+        # compass (New-ChatOverlayEdgesWindow)
+        EdgesWin = $null; EdgesHwnd = [IntPtr]::Zero; EdgesHint = $null; EdgeParts = $null
+        # an edge's drag, and the width and rows sliders moved but not yet
+        # saved (Get-ChatOverlayPending)
+        SizeDrag = $null; PendingWidth = $null; PendingRows = $null; WidthText = $null; RowsText = $null
         # the box's sliders, and true while Sync-ChatOverlaySettings sets them
         OpacitySlider = $null; WidthSlider = $null; RowsSlider = $null; SettingsSync = $false
         Tray = $null; IconHandle = [IntPtr]::Zero; IconColor = $null; Hotkey = $null; HotkeyText = $null

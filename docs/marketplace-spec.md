@@ -293,7 +293,18 @@ The decision is a pure function, so it can be tested:
    under the publisher the owner made, whose ID is not the GitHub name
    `phal40lax78` the spec first assumed; an upload whose manifest names
    another publisher is refused - and display name "VS Code Chat Manager".
-   Both passed M2.
+   Both passed M2. **Renamed 2026-09-28** to "Chat Manager for Claude Code
+   & Codex", ID `redaechan.claude-codex-chat-manager`: the name is the
+   field Marketplace search weights most, and "VS Code" matched every
+   extension while "Claude" and "Codex" were missing. A Marketplace query
+   found neither in use. A new ID is a new extension that old installs
+   never update to; three days after the first publish the owner was its
+   only user, so no handover was built - the old one is uninstalled by
+   hand, and the old-extension guard still knows only the reload one.
+   The repo, the loader and the default tool folder were renamed the same
+   day to `claude-codex-chat-manager`. The federated credential in M1
+   step 2 names the repo, so its subject became
+   `repo:phal40lax78@199534513/claude-codex-chat-manager@1380880732:environment:marketplace`.
 2. **The profile line:** asked once, as above, rather than only through
    the command.
 3. **Publishing:** by hand for 0.7.0, and from CI once M1 passes.

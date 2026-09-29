@@ -204,7 +204,7 @@
     "git.openRepositoryInParentFolders": "never",
     "git.autoRepositoryDetection": false,
     "git.fetchOnPull": false,
-    "git.autofetch": false,
+    "git.autofetch": true,
     "git.confirmSync": true,
     
     // 19. 디버깅 보안 설정

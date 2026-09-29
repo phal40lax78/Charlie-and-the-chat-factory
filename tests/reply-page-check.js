@@ -439,8 +439,10 @@ const randomAid = () => Array.from(nodeCrypto.randomBytes(10), (b) => 'abcdefghi
             dont.confirm === 'Tap again - it will not continue' && lim.placeholder === 'Next prompt - goes after the continue' &&
             P.buttonsFor('limited', 'claude', false, 'live').more.map((x) => x.act).join() === 'status' &&
             P.buttonsFor('limited', 'claude', false, 'running').more.map((x) => x.act).join() === 'status', JSON.stringify(lim));
+        // answer goes from a question's card (docs/phone-ask-spec.md), not
+        // from a button buttonsFor offers
         const ACTS = ['prompt', 'retry', 'allow', 'skip', 'stop', 'status', 'ping', 'wake',
-            'permit', 'refuse'];
+            'permit', 'refuse', 'answer'];
         const offered = new Set();
         for (const e of ['done', 'needs input', 'failed', 'started', 'test', 'limited', 'overloaded', 'waiting', 'reply', 'usage', 'summary', '']) {
             for (const p of ['claude', 'codex', '']) {
@@ -458,7 +460,8 @@ const randomAid = () => Array.from(nodeCrypto.randomBytes(10), (b) => 'abcdefghi
             [b.send].concat(b.more).forEach((y) => offered.add(y.act));
         }
         check('every act a button sends is one the watcher knows, and every one is offered somewhere',
-            [...offered].every((a) => ACTS.includes(a)) && ACTS.every((a) => offered.has(a)) && P.ACTS.join() === ACTS.join(), [...offered].join());
+            [...offered].every((a) => ACTS.includes(a)) && ACTS.every((a) => a === 'answer' || offered.has(a)) && !offered.has('answer') && P.ACTS.join() === ACTS.join(),
+            [...offered].join());
 
         // --- usage alerts, and text from outside the page (phone-extras-spec) ---
         const wl = P.parseFragment(alertLink({ e: 'usage', n: '', c: '', p: '', j: '', x: '1', w: '1' }));
@@ -522,6 +525,9 @@ const randomAid = () => Array.from(nodeCrypto.randomBytes(10), (b) => 'abcdefghi
     // --- a permission request's card and answer (docs/phone-permit-spec.md) ----
     await checkPermitLogic();
 
+    // --- an answer to a question the chat waits on (docs/phone-ask-spec.md) ---
+    await checkAnswerCrypto();
+
     // --- the whole page, against a fake DOM ------------------------------------
     await driveThePage();
 
@@ -560,7 +566,7 @@ const randomAid = () => Array.from(nodeCrypto.randomBytes(10), (b) => 'abcdefghi
     // the watcher's own list
     const boardActs = ['read', 'board', 'list', 'send', 'new', 'continue', 'now'];
     check('every act written in the page is one the watcher knows', named.length > 0 &&
-        named.every((a) => ['prompt', 'retry', 'allow', 'skip', 'stop', 'status', 'ping', 'wake', 'permit', 'refuse'].concat(boardActs).includes(a)), named.join());
+        named.every((a) => ['prompt', 'retry', 'allow', 'skip', 'stop', 'status', 'ping', 'wake', 'permit', 'refuse', 'answer'].concat(boardActs).includes(a)), named.join());
     check('the key is kept in IndexedDB chatq / phone, imported as a key that will not export; localStorage chatq-phone only without it',
         /var DB = 'chatq', DB_STORE = 'phone'/.test(html) && /indexedDB\.open\(DB, 1\)/.test(html) &&
         /importKey\('raw', d, \{ name: 'HMAC', hash: 'SHA-256' \}, false, \['sign'\]\)/.test(html) && !/importKey\('raw'[^)]*\btrue\b/.test(html) &&
@@ -591,7 +597,7 @@ const randomAid = () => Array.from(nodeCrypto.randomBytes(10), (b) => 'abcdefghi
             if (c === '{') { opens.push(i); continue; }
             if (c === '}') { opens.pop(); continue; }
             if (/[\w$.]/.test(js[i - 1] || '')) continue;
-            const m = /^(?:C\.)?(press|deliver|seal)\(/.exec(js.slice(i, i + 12));
+            const m = /^(?:C\.)?(press|deliver|sealAnswer|seal)\(/.exec(js.slice(i, i + 18));
             if (!m) continue;
             if (/function\s+$/.test(js.slice(Math.max(0, i - 20), i))) continue;
             calls.push({ name: m[1], at: i, stack: opens.slice() });
@@ -599,16 +605,21 @@ const randomAid = () => Array.from(nodeCrypto.randomBytes(10), (b) => 'abcdefghi
         }
         // askAlertRead seals act read - the whole answer sent again, which
         // changes nothing on the PC - and runs only as a panel button's
-        // click (drawPanel's ask): held to that just below
+        // click (drawPanel's ask); sendAnswer seals a question's answer and
+        // runs only as Send answer's second tap: both held to that just below
         const allowed = (pos) => {
             const head = js.slice(Math.max(0, pos - 160), pos);
             return /function press\s*\([^)]*\)\s*$/.test(head) || /addEventListener\('(click|keydown)',\s*function\s*\([^)]*\)\s*$/.test(head) ||
-                /async function askAlertRead\s*\(\)\s*$/.test(head);
+                /async function askAlertRead\s*\(\)\s*$/.test(head) || /async function sendAnswer\s*\(id\)\s*$/.test(head);
         };
         const bad = calls.filter((c) => !c.stack.some(allowed));
-        check('no auto-send: every press(, deliver( and seal( is inside a click or keydown handler, or press itself',
-            calls.length >= 6 && calls.some((c) => c.name === 'seal') && calls.some((c) => c.name === 'deliver') && bad.length === 0,
+        check('no auto-send: every press(, deliver(, seal( and sealAnswer( is inside a click or keydown handler, or press itself',
+            calls.length >= 6 && calls.some((c) => c.name === 'seal') && calls.some((c) => c.name === 'deliver') && calls.some((c) => c.name === 'sealAnswer') && bad.length === 0,
             calls.length + ' calls; outside: ' + bad.map((c) => c.name + ' @ ' + js.slice(c.at - 60, c.at + 20).replace(/\s+/g, ' ')).join(' | '));
+        const answerCalls = [...js.matchAll(/sendAnswer\(/g)].map((m) => js.slice(Math.max(0, m.index - 200), m.index));
+        check('sendAnswer is called only from Send answer\'s click, past its second tap',
+            answerCalls.length === 2 && answerCalls.some((h) => /async function $/.test(h)) &&
+            answerCalls.some((h) => /btn\.addEventListener\('click', function \(\) \{[^}]*if \(!armed\(st\.v\.send, btn\)\) return;\s*$/.test(h)), answerCalls.join(' | '));
         const readCalls = [...js.matchAll(/askAlertRead\(/g)].map((m) => js.slice(Math.max(0, m.index - 40), m.index));
         check('askAlertRead is called only from a panel button\'s click, as its ask',
             readCalls.length === 2 && readCalls.some((h) => /async function $/.test(h)) && readCalls.some((h) => /var ask = function \(\) \{ $/.test(h)) &&
@@ -717,6 +728,41 @@ async function checkPermitLogic() {
     check('a permission link: r read as the card, kept in the tab\'s fragment; anything else in r is dropped',
         withCard.ok && withCard.f.card === cv.sealed && P.parseFragment(P.alertFragment(withCard.f)).f.card === cv.sealed &&
         junk.ok && junk.f.card === '' && P.alertFragment(junk.f).indexOf('r=') < 0);
+}
+
+// The alert-bound answer (act answer on chatq1), held to
+// tests/fixtures/ask-vector.json - Node's own crypto - and opened as the
+// watcher opens a reply. The board-bound one is board-page-check.js's.
+async function checkAnswerCrypto() {
+    let av = null, text = '';
+    try { text = fs.readFileSync(path.join(__dirname, 'fixtures', 'ask-vector.json'), 'latin1'); av = JSON.parse(text); } catch (e) { }
+    check('the ask fixture is there, ASCII', !!av && /^[\x00-\x7f]*$/.test(text));
+    if (!av || !C || !P) return;
+    const master = unb64(av.master), iv = unb64(av.iv);
+    const k = alertKeyOf(master, av.aid);
+    const c = nodeCrypto.createCipheriv('aes-256-cbc', hmac(k, 'enc'), iv);
+    const head = 'chatq1.' + av.aid + '.' + b64url(iv) + '.' + b64url(Buffer.concat([c.update(Buffer.from(av.alertPayload, 'utf8')), c.final()]));
+    check('the ask fixture: its alert message is Node\'s seal of its payload under HMAC(D, "chatq-alert:" + aid)', av.kAlert === b64url(k) &&
+        av.alertMessage === head + '.' + b64url(hmac(hmac(k, 'mac'), head)) && (openMessage(av.alertMessage, k) || {}).text === av.alertPayload);
+    const x = { rid: av.rid, qh: av.qh, a: av.a, o: av.o };
+    const built = C.buildAnswerPayload(av.nonce, av.ts, x);
+    check('buildAnswerPayload: the fixture\'s payload byte for byte - buildPayload\'s layout, text empty, then rid, qh, a, o',
+        built === av.alertPayload && Object.keys(JSON.parse(built)).join() === 'v,act,text,nonce,ts,rid,qh,a,o' && built.indexOf('free text ' + HANGUL) > 0 &&
+        built === JSON.stringify({ v: 1, act: 'answer', text: '', nonce: av.nonce, ts: av.ts, rid: av.rid, qh: av.qh, a: av.a, o: av.o }), built);
+    check('and every other reply is as it was: the reply fixture\'s payload from buildPayload still', C.buildPayload('prompt', 'yes, commit it ' + HANGUL, 'AAAAAAAAAAAAAAAAAAAAAA', 1790000000000) === vec.payload);
+    const fixed = { iv: new Uint8Array(iv), nonce: av.nonce, ts: av.ts };
+    const s1 = await C.sealAnswer(await C.alertKey(new Uint8Array(master), av.aid), av.aid, x, fixed);
+    const s2 = await C.sealAnswer(await C.alertKey(await C.phoneKey(new Uint8Array(master)), av.aid), av.aid, x, fixed);
+    check('sealAnswer: the fixture\'s alert message byte for byte, from the raw D and from the kept key', s1.message === av.alertMessage && s2.message === av.alertMessage &&
+        s1.payload === av.alertPayload, s1.message);
+    const rk = new Uint8Array(nodeCrypto.randomBytes(32)), raid = randomAid();
+    const fresh = await C.sealAnswer(rk, raid, x);
+    const fo = openMessage(fresh.message, Buffer.from(rk));
+    check('a fresh one: a new nonce and the time now, and the watcher opens it to the same answer', !!fo && fo.aid === raid && fo.json.act === 'answer' && fo.json.text === '' &&
+        JSON.stringify(fo.json.a) === JSON.stringify(av.a) && JSON.stringify(fo.json.o) === JSON.stringify(av.o) && fo.json.nonce !== av.nonce &&
+        fresh.message !== (await C.sealAnswer(rk, raid, x)).message);
+    check('after it is sent: "Sent - the PC reads it within about 20 s."; answer is in ACTS', P.sentText({ act: 'answer', label: 'Send answer' }) === 'Sent - the PC reads it within about 20 s.' &&
+        P.ACTS.indexOf('answer') >= 0);
 }
 
 // An in-memory IndexedDB, as much of one as the page uses: open with an
@@ -903,7 +949,7 @@ async function driveThePage() {
         });
         doc.getElementById = (id) => doc.els[id] || null;
         doc.createElement = (tag) => el('', tag);
-        const loc = { hash, pathname: '/VS-code-chat-manager/reply.html', search: '' };
+        const loc = { hash, pathname: '/claude-codex-chat-manager/reply.html', search: '' };
         const hist = { replaceState: (s, t, url) => { loc.hash = url.indexOf('#') >= 0 ? url.slice(url.indexOf('#')) : ''; } };
         const winOn = {};
         const win = { crypto: webcrypto, TextEncoder, addEventListener(t, fn) { (winOn[t] = winOn[t] || []).push(fn); } };

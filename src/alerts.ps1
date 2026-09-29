@@ -1,4 +1,4 @@
-# VS-code-chat-manager, src/alerts.ps1: dot-sourced by VS-code-chat-manager.ps1
+# claude-codex-chat-manager, src/alerts.ps1: dot-sourced by claude-codex-chat-manager.ps1
 # in its turn, never on its own - see the list there.
 
 #region config and alerts -----------------------------------------------------
@@ -108,6 +108,9 @@ function Send-ChatqAlert {
                  registered; never through ntfy over http, which drops it
       -UsageKind a usage alert's kind (threshold, soon, reset), kept with it
                  in the registry: a soon one's link offers Send now
+      -SeenAt    when what the alert says was so, if before now (the outbox
+                 holds alerts a while): an answer to it is judged against
+                 that moment, not the push's (Get-ChatqMovedOn)
     Quiet hours (src/phone-extras.ps1) come after presence: in the window,
     the phone's alert is held for the summary unless urgent or -Loud, and
     what goes then is never read aloud. Held alerts waiting once the window
@@ -126,7 +129,7 @@ function Send-ChatqAlert {
     #>
     param([string]$Event, [string]$Text, [int]$Priority = 0, [switch]$Loud, $Job,
         [switch]$Quick, [switch]$NoReply, [string]$PairLink,
-        [string]$UsageKind, [string]$Card, $Permit, [string]$Tag, [string]$ToastText)
+        [string]$UsageKind, [string]$Card, $Permit, [string]$Tag, [string]$ToastText, $SeenAt)
     if (-not $Quick -and -not $script:ChatqSendingSummary -and (Test-ChatqHeldWaiting)) { $null = Send-ChatqHeldSummary }
     $title = "chatq $($script:ChatqDot) $Event"
     $script:ChatqAlertReport = [System.Collections.Generic.List[string]]::new()
@@ -174,7 +177,7 @@ function Send-ChatqAlert {
     elseif (-not $NoReply) {
         try {
             $rc = Get-ChatqReplyConfig $cfg
-            if ($rc.Links) { $reply = New-ChatqReplyAlert -Event $Event -Job $Job -Rc $rc -UsageKind $UsageKind -Permit $Permit -Card $Card }
+            if ($rc.Links) { $reply = New-ChatqReplyAlert -Event $Event -Job $Job -Rc $rc -UsageKind $UsageKind -Permit $Permit -Card $Card -SeenAt $SeenAt }
             # the whole answer to the down topic ahead of the push, and the
             # link made again to say so (src/phone-down.ps1)
             if ($reply) { Update-ChatqReplyFull $rc $reply $Event $Job -Quick:$Quick }
@@ -498,6 +501,26 @@ function Get-ChatqBlocks {
     return $out
 }
 
+function Format-ChatqDeferWhy {
+    # What a job put off waits for, where its next look's time says too
+    # little (Set-ChatqJobDeferred): a background command its chat's own
+    # process started - an agent, a workflow or a shell - since when; or you
+    # leaving the chat's tab, which the handover found in use. $null for the
+    # rest. Read by the lists, the overlay, the console and the phone through
+    # Get-ChatqEta. Pure.
+    param($Job, [datetime]$Now = (Get-Date))
+    switch ([string](Get-ChatField $Job 'deferWhy')) {
+        'background' {
+            $s = ConvertTo-ChatqDate (Get-ChatField $Job 'deferSince')
+            if (-not $s) { return 'waits for a background command' }
+            $fmt = if ($s.Date -eq $Now.Date) { 'HH:mm' } else { 'ddd HH:mm' }
+            return "waits for a background command (since $($s.ToString($fmt, [System.Globalization.CultureInfo]::InvariantCulture)))"
+        }
+        'in-use' { return 'waits for you to leave its tab' }
+    }
+    return $null
+}
+
 function Get-ChatqEta {
     # "sends" per queued job, the way the watcher picks: a job with a wait of
     # its own sends when that wait ends; one free now waits only behind the
@@ -519,12 +542,20 @@ function Get-ChatqEta {
         $nb = ConvertTo-ChatqDate $j.notBefore
         if ($nb) { $times += $nb }
         $du = ConvertTo-ChatqDate $j.deferUntil
-        # auto-continue's hold for a chat open in a VS Code panel is no busy chat
-        if ($du -and $du -gt $now) { $times += $du; if (-not $why) { $why = if ((Get-ChatField $j 'deferWhy') -eq 'vscode') { 'open in VS Code' } else { 'chat busy' } } }
+        # auto-continue's hold for a chat open in a VS Code panel is no busy
+        # chat, nor is a background command or a tab someone is in
+        # (Format-ChatqDeferWhy), whose words stand in for the next look's time
+        $words = $null
+        if ($du -and $du -gt $now) {
+            $times += $du
+            $words = Format-ChatqDeferWhy $j $now
+            if (-not $why) { $why = if ((Get-ChatField $j 'deferWhy') -eq 'vscode') { 'open in VS Code' } elseif ($words) { $words } else { 'chat busy' } }
+        }
         $ra = ConvertTo-ChatqDate $j.retryAt
         if ($ra -and $ra -gt $now) { $times += $ra; if (-not $why) { $why = 'retry' } }
         $at = $times | Where-Object { $_ -gt $now } | Sort-Object -Descending | Select-Object -First 1
         $eta[$j.id] = if ($why -eq 'overloaded') { 'when Claude is back' }
+        elseif ($words -and $why -eq $words -and $at -eq $du) { $words }
         elseif ($at) {
             $fmt = if ($at.Date -eq $now.Date) { 'HH:mm' } else { 'ddd HH:mm' }
             $s = $at.ToString($fmt, [System.Globalization.CultureInfo]::InvariantCulture)

@@ -1,5 +1,5 @@
-# VS-code-chat-manager, src/auto-continue.ps1: dot-sourced by
-# VS-code-chat-manager.ps1 in its turn, never on its own - see the list there.
+# claude-codex-chat-manager, src/auto-continue.ps1: dot-sourced by
+# claude-codex-chat-manager.ps1 in its turn, never on its own - see the list there.
 
 #region auto-continue: settings, markers, states -----------------------------
 # config autoContinue "on", the mode you choose: a chat the usage limit cut

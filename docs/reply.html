@@ -285,7 +285,41 @@ button:disabled { opacity: .45; cursor: default; }
 .astate { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; font-size: 14px; color: var(--muted); }
 .astate button { min-height: 36px; padding: 4px 12px; border-radius: 10px; border: 1px solid var(--accent); background: transparent; color: var(--accent); font: inherit; font-weight: 600; }
 .aone { display: none; width: 100%; min-height: 40px; padding: 8px 12px; border: 0; background: transparent; color: var(--fg); font: inherit; font-size: 14px; font-weight: 600; text-align: left; }
+/* the question the chat waits on (docs/phone-ask-spec.md): above the whole
+   answer and the box, since it is what the chat is stopped at */
+.ask {
+    display: flex; flex-direction: column; gap: 8px; flex: 0 0 auto; max-height: 55vh; overflow-y: auto;
+    padding: 10px 12px; border: 1px solid var(--line); border-left: 4px solid var(--amber); border-radius: 14px; background: var(--card);
+}
+.ask p { margin: 0; }
+.akick { font-size: 12px; font-weight: 750; letter-spacing: .07em; text-transform: uppercase; color: var(--amber); }
+.acard { display: flex; flex-direction: column; gap: 6px; }
+.acard + .acard { border-top: 1px solid var(--line); padding-top: 8px; }
+.atop { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+.aq { font-size: 16px; font-weight: 600; line-height: 1.4; white-space: pre-wrap; word-break: keep-all; overflow-wrap: anywhere; }
+.aopts { margin: 0; padding-left: 1.4em; display: flex; flex-direction: column; gap: 6px; }
+.aopts .ol { display: block; font-weight: 600; overflow-wrap: anywhere; }
+.aopts .od { display: block; font-size: 14px; color: var(--muted); white-space: pre-wrap; word-break: keep-all; overflow-wrap: anywhere; }
+.anote { font-size: 12px; color: var(--warn); }
+.afoot { font-size: 14px; color: var(--muted); font-weight: 600; }
+/* answerable from here: a radio each (a checkbox for a multiple choice),
+   the whole row the thing to tap, and Other with its own line of text */
+.apick { display: flex; flex-direction: column; gap: 4px; }
+.aopt { display: flex; align-items: flex-start; gap: 10px; padding: 6px 4px; border-radius: 10px; }
+.aopt input[type="radio"], .aopt input[type="checkbox"] { flex: 0 0 auto; width: 20px; height: 20px; margin: 1px 0 0; accent-color: var(--accent); }
+.aopt .aw { display: flex; flex-direction: column; min-width: 0; }
+.aopt .ol { font-weight: 600; overflow-wrap: anywhere; }
+.aopt .od { font-size: 14px; color: var(--muted); white-space: pre-wrap; word-break: keep-all; overflow-wrap: anywhere; }
+.aother { align-items: center; flex-wrap: wrap; }
+.aother .aol { display: flex; align-items: center; gap: 10px; }
+.atext {
+    flex: 1 1 10rem; min-width: 0; min-height: 40px; padding: 6px 10px; border-radius: 10px;
+    border: 1px solid var(--line); background: var(--card); color: var(--fg); font: inherit; font-size: 16px;
+}
+.acount { margin: 0; }
+.asend { min-height: 48px; font-size: 17px; }
 @media (max-height: 520px) {
+    .ask { max-height: 30vh; }
     .answer .ahead, .answer .abody, .answer .acut, .answer .astate { display: none; }
     .answer .aone { display: block; }
     .bhead .usage, .bfoot .blisten { display: none; }
@@ -307,6 +341,7 @@ button:disabled { opacity: .45; cursor: default; }
         <p id="permitBody" class="about"></p>
         <p id="permitFine" class="fine"></p>
     </section>
+    <div id="ask" class="ask" hidden></div>
     <div id="answer" class="answer" hidden></div>
     <div id="compose" class="compose">
         <label for="text" class="sr">Message to the chat</label>
@@ -372,6 +407,7 @@ button:disabled { opacity: .45; cursor: default; }
     <p id="cMeta" class="meta"></p>
     <div class="cline"><span id="cMode" class="mchip"></span><span id="cState"></span></div>
     <p id="cPrompt" class="cprompt" hidden></p>
+    <div id="cAsk" class="ask" hidden></div>
     <div id="cAnswer" class="answer" hidden></div>
     <label for="cSearch" class="sr">Search folders</label>
     <input id="cSearch" class="search" type="search" placeholder="Search folders" autocomplete="off" hidden>
@@ -515,6 +551,22 @@ var ChatqCrypto = (function () {
         var payload = buildPayload(act, text, nonce, ts, h);
         return { message: await sealPayload(k, aid, payload, iv), payload: payload, nonce: nonce, ts: ts };
     }
+    // An answer to a question the chat waits on (docs/phone-ask-spec.md):
+    // buildPayload's layout, act answer and text empty, then rid, qh, a and o
+    // last, in that order - as a permit's h goes last - so every other reply
+    // is byte for byte what it always was. x: { rid, qh, a, o }
+    function buildAnswerPayload(nonce, ts, x) {
+        return JSON.stringify({ v: 1, act: 'answer', text: '', nonce: nonce, ts: ts, rid: x.rid, qh: x.qh, a: x.a, o: x.o });
+    }
+    // seal()'s way, for an answer; fixed as seal() takes it
+    async function sealAnswer(k, aid, x, fixed) {
+        fixed = fixed || {};
+        var nonce = fixed.nonce !== undefined ? fixed.nonce : b64url(randomBytes(16));
+        var ts = fixed.ts !== undefined ? fixed.ts : Date.now();
+        var iv = fixed.iv !== undefined ? fixed.iv : randomBytes(16);
+        var payload = buildAnswerPayload(nonce, ts, x);
+        return { message: await sealPayload(k, aid, payload, iv), payload: payload, nonce: nonce, ts: ts };
+    }
     function buildPairPayload(d, label, ts) {
         return JSON.stringify({ v: 2, d: d, label: label, ts: ts });
     }
@@ -540,7 +592,7 @@ var ChatqCrypto = (function () {
         MAX_PAIR_PAYLOAD: MAX_PAIR_PAYLOAD,
         utf8: utf8, b64url: b64url, unb64url: unb64url, randomBytes: randomBytes, phoneKey: phoneKey, isKey: isKey, hmac: hmac,
         alertKey: alertKey, confirmCode: confirmCode, deriveKeys: deriveKeys, buildPayload: buildPayload, sealPayload: sealPayload, seal: seal,
-        buildPairPayload: buildPairPayload, sealPair: sealPair, pair: pair,
+        buildAnswerPayload: buildAnswerPayload, sealAnswer: sealAnswer, buildPairPayload: buildPairPayload, sealPair: sealPair, pair: pair,
         sameBytes: sameBytes, openCard: openCard
     };
 })();
@@ -558,7 +610,10 @@ var ChatqPage = (function () {
     var ACTS = ['prompt', 'retry', 'allow', 'skip', 'stop', 'status', 'ping',
         // Send now, on a usage alert about a reset coming; a permission
         // request's Allow once and Deny
-        'wake', 'permit', 'refuse'];
+        'wake', 'permit', 'refuse',
+        // the answer to a question the chat waits on, sent from its card
+        // (docs/phone-ask-spec.md), not from a button of buttonsFor's
+        'answer'];
     var LABEL_MAX = 40, HOST_MAX = 30;
     // text= from outside the page (a Tasker reply) longer than this is dropped
     var TEXT_MAX = 16000;
@@ -854,6 +909,8 @@ var ChatqPage = (function () {
     function sentText(b) {
         if (b.act === 'prompt') return 'Sent. The PC queues it and answers with a push.';
         if (b.act === 'permit' || b.act === 'refuse') return 'Sent - the PC reads it within about 5 s.';
+        // the watcher's poll while an alert is out is 15 s
+        if (b.act === 'answer') return 'Sent - the PC reads it within about 20 s.';
         if (b.act === 'ping') return 'Test reply sent. The PC answers with a push.';
         return 'Sent "' + b.label + '". The PC answers with a push.';
     }
@@ -1015,7 +1072,7 @@ var ChatqBoard = (function () {
     var MAX_INFLATE = 4194304, MAX_ATTACH = 2097152;
     // what the phone sends about no alert, and read - the one alert act
     // this block adds (the watcher's list is the judge of both)
-    var ACTS = ['board', 'list', 'status', 'read', 'send', 'new', 'continue', 'now', 'skip', 'stop', 'retry', 'allow'];
+    var ACTS = ['board', 'list', 'status', 'read', 'send', 'new', 'continue', 'now', 'skip', 'stop', 'retry', 'allow', 'answer'];
     var ALERT_ACTS = ['read'];
     // the whole answer comes with these, about a chat
     var FULL_EVENTS = ['done', 'needs input', 'failed'];
@@ -1046,6 +1103,7 @@ var ChatqBoard = (function () {
         if (act === 'new') return [['h', x.h], ['name', x.name || ''], ['text', x.text]];
         if (['now', 'skip', 'stop', 'retry', 'allow'].indexOf(act) >= 0) return [['h', x.h], ['n', x.n]];
         if (act === 'read' || act === 'continue') return [['h', x.h]];
+        if (act === 'answer') return [['h', x.h], ['id', x.id], ['rid', x.rid], ['qh', x.qh], ['a', x.a], ['o', x.o]];
         return [];
     }
     function buildComposePayload(act, fields, nonce, ts) {
@@ -1275,9 +1333,18 @@ var ChatqBoard = (function () {
             return { h: c.h, id8: c.id, t: c.t, f: c.f, w: c.w, p: c.p || 'claude', age: c.a, live: c.live || '', m: c.m, mc: !!c.mc, known: !!c.known, q: +c.q || 0, ni: +c.ni || 0 };
         });
     }
-    function whereText(w) { return w === 'vscode' ? 'VS Code' : w === 'terminal' ? 'terminal' : ''; }
+    // where a chat runs: a print-mode run - a queued prompt going in - is
+    // no terminal, though the PC used to say so
+    function whereText(w) { return w === 'vscode' ? 'VS Code' : w === 'terminal' ? 'terminal' : w === 'run' ? 'a queued prompt' : ''; }
+    // when a queued job sends: a time or a place in the queue after "sends";
+    // what the watcher holds it back for ("waits for a background command
+    // (since 14:02)", "waits for you to leave its tab") as it is
+    function sendsText(k, e) {
+        if (/^waits /.test(e || '')) return e;
+        return (k === 'continue' ? 'continues ' : 'sends ') + (e || 'next');
+    }
     function jobChip(j) {
-        var what = j.s === 'queued' ? (j.k === 'continue' ? 'continues ' : 'sends ') + (j.e || 'next') :
+        var what = j.s === 'queued' ? sendsText(j.k, j.e) :
             j.s === 'needs-input' ? 'needs you' : j.s === 'running' ? 'running' : j.s;
         return { text: '#' + j.n + ' ' + what, tone: j.s === 'needs-input' ? 'waiting' : j.s === 'running' ? 'working' : j.s === 'failed' ? 'bad' : 'queue' };
     }
@@ -1377,10 +1444,12 @@ var ChatqBoard = (function () {
         var ni = jobs.filter(function (j) { return j.s === 'needs-input'; })[0];
         var run = jobs.filter(function (j) { return j.s === 'running'; })[0];
         var q = jobs.filter(function (j) { return j.s === 'queued'; })[0];
-        var queued = q ? '#' + q.n + ' is queued - ' + (q.k === 'continue' ? 'continues ' : 'sends ') + (q.e || 'next') : '';
+        var queued = q ? '#' + q.n + ' is queued - ' + sendsText(q.k, q.e) : '';
         var also = queued ? '; ' + queued : '';
         if (ni) return '#' + ni.n + ' needs input - a message does not answer it; Continue or Allow does';
         if (run) return '#' + run.n + ' is running now - a message goes after it';
+        // a print-mode run no job of chatq's is (someone's claude -p)
+        if (type === 'open' && row.where === 'run') return 'a queued prompt is running in it - a message goes after it' + also;
         if (type === 'open' && row.state === 'waiting') return 'waits on you at the PC - a message goes once that is answered there' + also;
         if (type === 'open' && row.state === 'busy') return 'working now - a message goes when this turn ends' + also;
         if (q) return queued;
@@ -1452,6 +1521,140 @@ var ChatqBoard = (function () {
     };
     function answerHead(p) { return 'Claude\'s answer' + (p && p.at ? ' - ' + hhmm(p.at) : ''); }
     function cutText(n) { return n > 0 ? 'The first ' + Number(n).toLocaleString('en-US') + ' characters are left out.' : ''; }
+    // A word the PC put in a why line (a mode, a version): one line, short
+    function word(s) { return String(s || '').replace(/[\x00-\x1f\x7f]+/g, ' ').trim().slice(0, 40); }
+    // Why the phone cannot answer, in the page's words (docs/phone-ask-spec.md,
+    // 5.1): the line in place of the footer
+    function whyText(ask) {
+        var w = ask.why, cli = word(ask.cli), m = word(ask.mode), cap = word(ask.cap);
+        if (w === 'off') return 'Answer it at the PC. To answer from the phone: chatnotify -Ask on.';
+        if (w === 'hook') return 'Answer it at the PC - no chatq hook holds this question (it was asked before the hook was loaded in that chat, or the hook did not start).';
+        if (w === 'term') return 'Answer it in the terminal.';
+        if (w === 'cli') return 'Answer it at the PC - Claude Code ' + (cli ? cli + ' ' : '') + 'is too old for answers from the phone.';
+        if (w === 'mode') return 'Answer it at the PC - that chat runs in ' + (m || 'a mode') + ', above the phone\'s limit' + (cap ? ' (' + cap + ')' : '') + '.';
+        if (w === 'busy') return 'Answer it at the PC - too many questions wait on the phone right now.';
+        if (w === 'late') return lateText(ask.until);
+        return 'Answer it at the PC.';
+    }
+    function lateText(until) { return hhmm(until) ? 'Answer it at the PC - the phone could answer until ' + hhmm(until) + '.' : 'Answer it at the PC.'; }
+    // A question the chat waits on (docs/phone-ask-spec.md), as the PC sent
+    // it on a board row or with an alert's whole answer: a card for each
+    // question - n of m, its header, its text, every option with its
+    // description. null when there is none.
+    //   no can     Part A: shown, answered at the PC
+    //   can false  the same, its why in place of the footer
+    //   can true   answerable until `until`: open, each card a radio group
+    //              (a checkbox each for a multiple choice) and Other, and a
+    //              Send answer that asks for a second tap. Past until, or a
+    //              rid or qh not in its shape: read-only again
+    function askView(ask, nowMs) {
+        if (!ask || !Array.isArray(ask.q) || !ask.q.length) return null;
+        var n = ask.q.length, until = when(ask.until), now = nowMs || Date.now();
+        var can = ask.can === true && idOk(ask.rid) && /^[A-Za-z0-9_-]{22}$/.test(ask.qh || '');
+        var open = can && !!until && now < until.getTime();
+        var cards = ask.q.map(function (q, i) {
+            q = q || {};
+            return {
+                n: n > 1 ? (i + 1) + ' of ' + n : '', head: String(q.h || ''), text: String(q.t || ''), multi: !!q.m,
+                input: open ? (q.m ? 'checkbox' : 'radio') : '',
+                options: (Array.isArray(q.o) ? q.o : []).map(function (o) {
+                    o = o || {};
+                    return { label: String(o.l || ''), desc: String(o.d || ''), cut: !!o.x };
+                })
+            };
+        });
+        var notes = [];
+        if (+ask.more > 0) notes.push(ask.more === 1 ? 'One more option is shown only at the PC.' : ask.more + ' more options or questions are shown only at the PC.');
+        if (ask.cut) notes.push('Some of it is cut short - the whole text is at the PC.');
+        var foot = 'Answer it at the PC.';
+        if (open) foot = 'The PC\'s dialog stays open too - the first answer wins. Until ' + hhmm(ask.until) + '.';
+        else if (can) foot = lateText(ask.until);
+        else if (ask.can === false) foot = whyText(ask);
+        return {
+            kicker: n > 1 ? 'Claude asks ' + n + ' questions' : 'Claude asks', cards: cards, notes: notes, foot: foot, open: open,
+            rid: open ? ask.rid : '', qh: open ? ask.qh : '', until: open ? until.getTime() : 0,
+            send: open ? { act: 'answer', label: 'Send answer', confirm: 'Tap again to send' } : null
+        };
+    }
+    // --- an answer, as it is picked ------------------------------------------
+    // The choices so far, per question: pick (the options' indexes), other
+    // (Other chosen) and text (what Other says). Kept as the draft, and
+    // nothing else is: sessionStorage 'chatq-adraft:' + rid
+    function answerState(v, draft) {
+        var n = v.cards.length, s = { pick: [], other: [], text: [] };
+        for (var i = 0; i < n; i++) { s.pick.push([]); s.other.push(false); s.text.push(''); }
+        var d;
+        try { d = JSON.parse(draft || 'null'); } catch (e) { d = null; }
+        if (!d || !Array.isArray(d.pick) || !Array.isArray(d.other) || !Array.isArray(d.text) || d.pick.length !== n || d.other.length !== n || d.text.length !== n) return s;
+        for (var q = 0; q < n; q++) {
+            var c = v.cards[q], p = d.pick[q];
+            if (!Array.isArray(p) || typeof d.other[q] !== 'boolean' || typeof d.text[q] !== 'string') return answerState(v, null);
+            if (!p.every(function (x) { return x === (x | 0) && x >= 0 && x < c.options.length; })) return answerState(v, null);
+            if (!c.multi && (p.length > 1 || (p.length && d.other[q]))) return answerState(v, null);
+            s.pick[q] = p.slice();
+            s.other[q] = d.other[q];
+            s.text[q] = d.text[q].slice(0, 2000);
+        }
+        return s;
+    }
+    function answerDraft(s) { return JSON.stringify({ pick: s.pick, other: s.other, text: s.text }); }
+    // an option tapped: a single choice takes it alone (Other off); a
+    // multiple choice adds or drops it
+    function pickOption(s, v, q, i, on) {
+        if (!v.cards[q].multi) { s.pick[q] = [i]; s.other[q] = false; return; }
+        var p = s.pick[q].filter(function (x) { return x !== i; });
+        if (on) p.push(i);
+        s.pick[q] = p;
+    }
+    // Other tapped: for a single choice it is the one answer
+    function pickOther(s, v, q, on) {
+        s.other[q] = !!on;
+        if (on && !v.cards[q].multi) s.pick[q] = [];
+    }
+    // typing in Other chooses it, as in VS Code
+    function typeOther(s, v, q, text) {
+        s.text[q] = String(text || '');
+        if (s.text[q]) pickOther(s, v, q, true);
+    }
+    // The PC's own cleaning of Other (Test-ChatqAskAnswer, spec 5.4): control
+    // and format characters (\p{Cc}\p{Cf}) made spaces, then trimmed - done
+    // here first, so what the phone calls an answer is one the PC takes. A
+    // browser without \p{} in its regexes gets the Cf list spelled out
+    var UNSEEN = (function () {
+        try { return new RegExp('[\\u0000-\\u001f\\u007f-\\u009f]|\\p{Cf}', 'gu'); } catch (e) { }
+        return /[\u0000-\u001f\u007f-\u009f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]/g;
+    })();
+    function cleanOther(s) { return String(s || '').replace(UNSEEN, ' ').trim(); }
+    // What goes on the wire: a, one array per question of the chosen
+    // indexes, ascending, no repeats; o, one string per question, the Other
+    // text cleaned as the PC cleans it, '' for none. Never a label - the hook
+    // takes those from its own copy of the questions. done: every question
+    // has an answer
+    function answerWire(v, s) {
+        var a = [], o = [], done = true;
+        v.cards.forEach(function (c, q) {
+            var p = [];
+            (s.pick[q] || []).forEach(function (x) { if (p.indexOf(x) < 0) p.push(x); });
+            p.sort(function (x, y) { return x - y; });
+            var t = s.other[q] ? cleanOther(s.text[q]) : '';
+            if (!(c.multi ? p.length || t : p.length === 1 || t)) done = false;
+            a.push(p);
+            o.push(t);
+        });
+        return { a: a, o: o, done: done };
+    }
+    // The answer as it would go, and whether Send may: every question
+    // answered and the whole payload within max. wire 'alert' (chatq1, the
+    // alert's key) or 'compose' (chatq3c, ctx { h, id } from the board row);
+    // the nonce and time at their real widths
+    function answerForm(v, s, wire, ctx, max) {
+        var w = answerWire(v, s), x;
+        if (wire === 'compose') x = { h: ctx.h, id: ctx.id, rid: v.rid, qh: v.qh, a: w.a, o: w.o };
+        else x = { rid: v.rid, qh: v.qh, a: w.a, o: w.o };
+        var bytes = wire === 'compose' ? composeBytes('answer', x) : C.utf8(C.buildAnswerPayload('AAAAAAAAAAAAAAAAAAAAAA', 1790000000000, x)).length;
+        var over = bytes > max;
+        return { x: x, done: w.done, bytes: bytes, over: over, ok: w.done && !over, label: over ? (bytes - max) + ' bytes too long' : '' };
+    }
     return {
         ACTS: ACTS, ALERT_ACTS: ALERT_ACTS, FULL_EVENTS: FULL_EVENTS, MAX_INFLATE: MAX_INFLATE, MAX_ATTACH: MAX_ATTACH, PANEL: PANEL,
         idOk: idOk, handleOk: handleOk, newId: newId, downTopic: downTopic, subKey: subKey, fieldsFor: fieldsFor,
@@ -1460,7 +1663,9 @@ var ChatqBoard = (function () {
         attachmentCheck: attachmentCheck, inlineSpans: inlineSpans, mdBlocks: mdBlocks, answerModel: answerModel, answerText: answerText,
         hhmm: hhmm, ageText: ageText, sections: sections, olderRows: olderRows, rowView: rowView, whereText: whereText, norm: norm, filterRows: filterRows,
         chatOfJob: chatOfJob, chatActions: chatActions, stateLine: stateLine, modeText: modeText, listenText: listenText,
-        usageLines: usageLines, notices: notices, cardText: cardText, answerHead: answerHead, cutText: cutText
+        usageLines: usageLines, notices: notices, cardText: cardText, answerHead: answerHead, cutText: cutText, askView: askView,
+        whyText: whyText, answerState: answerState, answerDraft: answerDraft, pickOption: pickOption, pickOther: pickOther, typeOther: typeOther,
+        answerWire: answerWire, answerForm: answerForm, cleanOther: cleanOther
     };
 })();
 /* chatq-board-end */
@@ -1969,6 +2174,8 @@ var ChatqBoard = (function () {
         });
         $('app').setAttribute('aria-busy', on ? 'true' : 'false');
         refresh();
+        // the question's own Send, off while anything is out
+        if (asks.ask) askSync(asks.ask);
     }
 
     // Skip and Stop cannot be taken back: the first tap asks, the second
@@ -2050,6 +2257,7 @@ var ChatqBoard = (function () {
         } else {
             saveDraft();
         }
+        if (p.b.act === 'answer') askSent('ask', p.rid);
         log(p);
         show('ok', P.sentText(p.b), false);
         refresh();
@@ -2219,12 +2427,15 @@ var ChatqBoard = (function () {
     // ntfy.sh's 250 messages a day. Nothing opened is kept but here.
     var POLL_MS = 4000, WAIT_MS = 45000, REFRESH_MS = 30000, REFRESH_FOR_MS = 600000;
     var CDRAFT = 'chatq-cdraft:';
-    var bd = { b: null, asking: false, gen: 0, refresh: null, started: 0, paused: false, fromAlert: false, topic: null, stale: false, at: 0, waitVisible: false };
+    // said: a refusal that sent the chat view back here, shown with the notes
+    var bd = { b: null, asking: false, gen: 0, refresh: null, started: 0, paused: false, fromAlert: false, topic: null, stale: false, at: 0, waitVisible: false, said: '' };
     // the PC's list of chats (act list), asked for once by Older chats - the
     // board shows only the chats the overlay does - and kept for the load
     var older = { list: null, asking: false };
-    // the chat view: { type, row, chat, folder, gen, busy, pending }
-    var cv = null;
+    // the chat view: { type, row, chat, folder, gen, busy, pending }. gen is
+    // this view's own number, never another's: an answer to a message sent
+    // from a view left since lands nowhere, not in the view opened after it
+    var cv = null, cvSeq = 0;
 
     function views(which) {
         $('app').hidden = which !== 'app';
@@ -2353,6 +2564,7 @@ var ChatqBoard = (function () {
     }
     function drawNotes() {
         var n = bd.b ? B.notices(bd.b) : [];
+        if (bd.said) n.unshift(bd.said + '.');
         if (bd.paused) n.push('Paused - tap Refresh.');
         if (phone && phone.readable) n.push(P.READABLE);
         $('bNote').textContent = n.join(' ');
@@ -2466,8 +2678,9 @@ var ChatqBoard = (function () {
     function chatView(o) {
         if (cv) cv.gen++;
         stopPanel('cAnswer');
+        bd.said = '';
         cv = o;
-        cv.gen = (cv.gen || 0) + 1;
+        cv.gen = ++cvSeq;
         cv.busy = false;
         cv.pending = null;
         mode = 'chat';
@@ -2476,6 +2689,7 @@ var ChatqBoard = (function () {
         $('cStatus').hidden = true;
         $('cAnswer').hidden = true;
         $('cAnswer').textContent = '';
+        drawAsk('cAsk', null);
         $('cKicker').hidden = true;
         $('cPrompt').hidden = true;
         $('cSearch').hidden = true;
@@ -2510,6 +2724,8 @@ var ChatqBoard = (function () {
         $('cMode').textContent = B.modeText(b, false, type === 'older' ? row : null);
         $('cState').textContent = B.stateLine(type, row);
         if (type === 'open' && row.prompt) { $('cPrompt').textContent = row.prompt; $('cPrompt').hidden = false; }
+        // the question it waits on, every option with its description
+        if (type === 'open' && row.state === 'waiting') drawAsk('cAsk', row.ask);
         var acts = B.chatActions(type, row, b), box = $('cActs');
         acts.forEach(function (a) {
             var btn = el('button', '', a.label);
@@ -2604,6 +2820,7 @@ var ChatqBoard = (function () {
         cv.busy = on;
         Array.prototype.slice.call($('cActs').querySelectorAll('button')).forEach(function (b) { b.disabled = on; });
         refreshC();
+        if (asks.cAsk) askSync(asks.cAsk);
     }
     // an ack: said, green or red; a list out of date is asked for again;
     // no answer at all keeps the message for Try again
@@ -2624,9 +2841,22 @@ var ChatqBoard = (function () {
             if (what && what.text !== undefined) { var k = draftKeyC(); if (k) sdel(k); $('cText').value = ''; }
         } else {
             cShow('bad', p.say || 'The PC refused.', false);
-            if (/out of date/.test(p.say || '')) askBoard();
+            if (/out of date/.test(p.say || '')) return outOfDate(p.say);
         }
         refreshC();
+    }
+    // The chat or its job moved on at the PC since this view was drawn, or
+    // its handle did: its buttons are not what the PC has any more, and a
+    // second tap would act on what the phone never showed. Back to the
+    // board, asked for afresh - the older chats too, when they were listed -
+    // the refusal said there; the text waits in its draft for the chat.
+    function outOfDate(say) {
+        saveDraftC();
+        bd.stale = true;
+        backToBoard();
+        bd.said = say;
+        drawNotes();
+        if (older.list) { older.list = null; askOlder(); }
     }
     async function sendC() {
         if (!cv || cv.busy || cv.type === 'folders') return;
@@ -2757,12 +2987,245 @@ var ChatqBoard = (function () {
             } else fail();
         } catch (e) { fail(); }
     }
+    // The question the chat waits on, above its answer panel: #ask for the
+    // alert's #answer, #cAsk for the chat view's #cAnswer. createElement and
+    // textContent alone, as the answer is drawn.
+    function askBoxOf(id) { return id === 'cAnswer' ? 'cAsk' : 'ask'; }
+    // What each box's card holds while it can be answered: { ask, v, wire,
+    // ctx, s (the choices), inputs, texts, btn, count, sent, sealed and
+    // sealedKey (a board send to go again as it was), key, timer }. Only the choices go to sessionStorage, under ADRAFT + rid;
+    // the question itself lives here, as the board does.
+    var ADRAFT = 'chatq-adraft:', asks = {}, askSeq = 0;
+    // where an answer from this box goes: the alert's own key on its page,
+    // the row's handle in the board's chat view; null for neither
+    function askCtx(id) {
+        if (id === 'ask') return mode === 'alert' && f && phone ? { aid: f.aid } : null;
+        var chat = cv && cv.chat;
+        return mode === 'chat' && chat && chat.h && chat.id8 && bd.b && bd.b.compose ? { h: chat.h, id: chat.id8 } : null;
+    }
+    function drawAsk(id, ask) {
+        if (asks[id]) clearTimeout(asks[id].timer);
+        asks[id] = null;
+        var box = $(id), now = Date.now(), v = B.askView(ask, now);
+        // answerable, but with nowhere to send from here: shown as Part A
+        var ctx = v && v.open ? askCtx(id) : null;
+        if (v && v.open && !ctx) v = B.askView(Object.assign({}, ask, { can: undefined }), now);
+        // a failed answer waiting for Try again belongs to the question it
+        // was sealed for: a card for another one, or none, drops it
+        if (id === 'ask' && pending && pending.b.act === 'answer' && !(v && v.open && v.rid === pending.rid)) {
+            pending = null;
+            $('again').hidden = true;
+        }
+        box.textContent = '';
+        box.hidden = !v;
+        if (!v) return;
+        var st = v.open ? {
+            ask: ask, v: v, wire: id === 'cAsk' ? 'compose' : 'alert', ctx: ctx, s: B.answerState(v, sget(ADRAFT + v.rid)),
+            inputs: [], texts: [], sent: false, sealed: null, key: '', timer: null, name: 'aq' + (++askSeq) + '-'
+        } : null;
+        box.appendChild(el('p', 'akick', v.kicker));
+        v.cards.forEach(function (c, q) {
+            var card = el('div', 'acard');
+            var top = el('div', 'atop'), tops = 0;
+            if (c.head) { top.appendChild(el('span', 'mchip', c.head)); tops++; }
+            if (c.n) { top.appendChild(el('span', '', c.n)); tops++; }
+            if (c.multi) { top.appendChild(el('span', '', 'choose any')); tops++; }
+            if (tops) card.appendChild(top);
+            card.appendChild(el('p', 'aq', c.text));
+            if (st) {
+                card.appendChild(askChoices(id, st, c, q));
+            } else {
+                var list = el('ol', 'aopts');
+                c.options.forEach(function (o) {
+                    var li = el('li', '');
+                    li.appendChild(el('span', 'ol', o.label));
+                    if (o.desc) li.appendChild(el('span', 'od', o.desc));
+                    list.appendChild(li);
+                });
+                card.appendChild(list);
+            }
+            box.appendChild(card);
+        });
+        v.notes.forEach(function (s) { box.appendChild(el('p', 'anote', s)); });
+        if (st) {
+            st.count = el('p', 'count acount');
+            box.appendChild(st.count);
+            var btn = el('button', 'primary asend', v.send.label);
+            btn.type = 'button';
+            btn.setAttribute('data-act', v.send.act);
+            btn.setAttribute('data-label', v.send.label);
+            btn.addEventListener('click', function () {
+                if (asks[id] !== st || btn.disabled) return;
+                if (!armed(st.v.send, btn)) return;
+                sendAnswer(id);
+            });
+            st.btn = btn;
+            box.appendChild(btn);
+            asks[id] = st;
+            askSync(st);
+            askTick(id, st);
+        }
+        box.appendChild(el('p', 'afoot', v.foot));
+    }
+    // one question's choices: a radio each (a checkbox each for a multiple
+    // choice), then Other with its one line of text
+    function askChoices(id, st, c, q) {
+        var list = el('div', 'apick'), type = c.input;
+        var input = function (i) {
+            var inp = el('input', '');
+            inp.type = type;
+            inp.name = st.name + q;
+            inp.addEventListener('change', function () {
+                if (asks[id] !== st) return;
+                if (i < 0) B.pickOther(st.s, st.v, q, !!inp.checked);
+                else B.pickOption(st.s, st.v, q, i, !!inp.checked);
+                askChanged(st);
+            });
+            st.inputs.push({ q: q, i: i, el: inp });
+            return inp;
+        };
+        c.options.forEach(function (o, i) {
+            var lab = el('label', 'aopt');
+            lab.appendChild(input(i));
+            var words = el('span', 'aw');
+            words.appendChild(el('span', 'ol', o.label));
+            if (o.desc) words.appendChild(el('span', 'od', o.desc));
+            lab.appendChild(words);
+            list.appendChild(lab);
+        });
+        var row = el('div', 'aopt aother');
+        var lab = el('label', 'aol');
+        lab.appendChild(input(-1));
+        lab.appendChild(el('span', 'ol', 'Other'));
+        row.appendChild(lab);
+        var t = el('input', 'atext');
+        t.type = 'text';
+        t.setAttribute('maxlength', '500');
+        t.setAttribute('autocomplete', 'off');
+        t.setAttribute('aria-label', 'Other - your own answer');
+        t.placeholder = 'your own answer';
+        t.value = st.s.text[q] || '';
+        t.addEventListener('input', function () {
+            if (asks[id] !== st) return;
+            B.typeOther(st.s, st.v, q, t.value);
+            askChanged(st);
+        });
+        st.texts.push(t);
+        row.appendChild(t);
+        list.appendChild(row);
+        return list;
+    }
+    function askBusy(st) { return st.wire === 'alert' ? busy : !!(cv && cv.busy); }
+    // the alert page's failed answer is this very one - the same question
+    // (rid) and the same choices (key) - so Try again may send it as sealed
+    function answerPending(key, rid) { return !!pending && pending.b.act === 'answer' && pending.key === key && pending.rid === rid; }
+    // the inputs, the byte counter and Send, from the choices now
+    function askSync(st) {
+        var form = B.answerForm(st.v, st.s, st.wire, st.ctx, P.MAX_PAYLOAD), bz = askBusy(st), off = bz || st.sent;
+        st.key = JSON.stringify([form.x.a, form.x.o]);
+        st.inputs.forEach(function (x) {
+            x.el.checked = x.i < 0 ? !!st.s.other[x.q] : st.s.pick[x.q].indexOf(x.i) >= 0;
+            x.el.disabled = off;
+        });
+        st.texts.forEach(function (t) { t.disabled = off; });
+        st.count.textContent = form.label;
+        st.count.hidden = !form.label;
+        st.count.setAttribute('data-state', form.over ? 'over' : 'ok');
+        // a failed send of this very answer goes again as the same message
+        var again = st.wire === 'alert' ? answerPending(st.key, st.v.rid) : !!st.sealed && st.sealedKey === st.key;
+        var btn = st.btn;
+        btn.disabled = off || !form.ok;
+        if (btn.getAttribute('data-armed') !== '1') btn.textContent = bz ? 'Sending\u2026' : st.sent ? 'Sent' : again ? 'Try again' : st.v.send.label;
+    }
+    // a choice changed: kept as the draft, and a second tap asked for anew -
+    // the one armed was for the answer as it was
+    function askChanged(st) {
+        sset(ADRAFT + st.v.rid, B.answerDraft(st.s));
+        var btn = st.btn;
+        if (btn.getAttribute('data-armed') === '1') { clearTimeout(btn._disarm); btn.removeAttribute('data-armed'); }
+        askSync(st);
+        if (st.wire === 'alert' && pending && pending.b.act === 'answer' && !answerPending(st.key, st.v.rid)) { pending = null; $('again').hidden = true; }
+    }
+    // once a minute while it can be answered: past until, read-only
+    function askTick(id, st) {
+        st.timer = setTimeout(function () {
+            if (asks[id] !== st) return;
+            if (Date.now() >= st.v.until && !askBusy(st)) return drawAsk(id, st.ask);
+            askTick(id, st);
+        }, 60000);
+    }
+    // the answer went (alert: the POST; board: an ack ok): the draft goes,
+    // and Send says Sent
+    function askSent(id, rid) {
+        sdel(ADRAFT + rid);
+        var st = asks[id];
+        if (st && st.v.rid === rid) { st.sent = true; askSync(st); }
+    }
+    // Send answer's second tap. On an alert's page it goes the way the
+    // page's other acts go - sealed with the alert's key, the status and Try
+    // again below; in the board's chat view, as a compose act whose ack is
+    // said in the chat's status line
+    async function sendAnswer(id) {
+        var st = asks[id];
+        if (!st || st.sent || askBusy(st)) return;
+        if (Date.now() >= st.v.until) return drawAsk(id, st.ask);
+        var form = B.answerForm(st.v, st.s, st.wire, st.ctx, P.MAX_PAYLOAD);
+        if (!form.ok) return;
+        var key = JSON.stringify([form.x.a, form.x.o]), rid = st.v.rid;
+        if (st.wire === 'alert') {
+            if (mode !== 'alert' || !f || f.aid !== st.ctx.aid) return;
+            if (answerPending(key, rid)) {
+                pending.btn = st.btn;
+                return deliver();
+            }
+            setBusy(true, st.btn);
+            var sealed;
+            try {
+                sealed = await C.sealAnswer(await C.alertKey(phone.key, f.aid), f.aid, form.x);
+            } catch (e) {
+                setBusy(false);
+                show('bad', P.errorText({ kind: 'crypto' }, P.hostOf(phone.server)), false);
+                return settle();
+            }
+            pending = { message: sealed.message, b: st.v.send, btn: st.btn, text: '', key: key, rid: rid };
+            return deliver();
+        }
+        if (!cv) return;
+        var my = cv.gen, keep = st.sealed && st.sealedKey === key ? st.sealed : null;
+        setBusyC(true);
+        askSync(st);
+        // Try again is Send answer itself, which sends the same message again
+        var say = function (kind, text) { cShow(kind, text, false); };
+        var went = await sendAct('answer', form.x, say, function () { return cv && cv.gen === my; }, function (res, sealed, failed) {
+            if (!cv || cv.gen !== my) return;
+            var p = res && res.payload;
+            st.sealed = failed || !p ? sealed : null;
+            st.sealedKey = key;
+            if (p && p.ok) askSent(id, rid);
+            onAckC(res, sealed, failed, null);
+            if (asks[id] === st) askSync(st);
+        }, keep);
+        // nothing sealed (this browser's crypto): said already, and not busy
+        if (!went && cv && cv.gen === my) { setBusyC(false); askSync(st); }
+    }
     // what came of a look: the answer, a refusal the PC sent in its place,
-    // gone past 3 hours, no inflate here, or nothing yet
-    function settlePanel(id, res, ask, noneState) {
+    // gone past 3 hours, no inflate here, or nothing yet. A question the
+    // chat waits on comes with it; sent alone (whole answers off), the
+    // question is all there is to show. fresh: this reply is the PC's word
+    // now (an alert's explicit read), so a question it no longer sends -
+    // answered at the PC meanwhile - comes off the page
+    function settlePanel(id, res, ask, noneState, fresh) {
         var p = panel(id), pl = res && res.payload;
         if (res && res.nodecomp) return drawPanel(id, 'nodecomp');
-        if (pl && pl.kind === 'reply') { p.payload = pl; p.note = ''; return drawPanel(id, 'shown'); }
+        if (pl && pl.kind === 'reply') {
+            p.payload = pl;
+            p.note = '';
+            // a chat view drew its row's question already: an answer read
+            // without one leaves it be
+            if (pl.ask || fresh) drawAsk(askBoxOf(id), pl.ask || null);
+            if (pl.ask && !(pl.parts && pl.parts.length)) { $(id).hidden = true; $(id).textContent = ''; return; }
+            return drawPanel(id, 'shown');
+        }
         if (pl && pl.kind === 'ack') return drawPanel(id, 'none', { text: pl.say || B.PANEL.none, ask: ask });
         if (res && res.gone) return drawPanel(id, 'gone', { ask: ask });
         return drawPanel(id, noneState || 'noanswer', { ask: ask });
@@ -2776,6 +3239,7 @@ var ChatqBoard = (function () {
         p.full = false;
         p.note = '';
         $(id).hidden = true;
+        drawAsk('ask', null);
         if (!f || f.jobless || B.FULL_EVENTS.indexOf(f.event) < 0) return;
         if (!B.canInflate()) return drawPanel(id, 'nodecomp');
         var ask = function () { askAlertRead(); };
@@ -2801,7 +3265,7 @@ var ChatqBoard = (function () {
         var since = f.at ? Math.min(f.at - 120, Math.floor(sent / 1000) - 60) : Math.floor(sent / 1000) - 43200;
         // the one gone before is no answer to this ask
         waitDown(aid, since, 60000, ['reply'], POLL_MS, live, function (res) {
-            settlePanel(id, res && res.payload ? res : { nodecomp: res && res.nodecomp }, askAlertRead, 'noanswer');
+            settlePanel(id, res && res.payload ? res : { nodecomp: res && res.nodecomp }, askAlertRead, 'noanswer', true);
         });
     }
 
