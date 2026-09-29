@@ -337,6 +337,23 @@ version of the extension waits for the window's chats before it reloads.
   and that a Reload anyway could be clicked hours after a warning that
   named one chat, over another's workflow started since.
 
+### One number per job
+
+- **A job's number is its own.** A new job took one past the highest
+  number a saved job held, and `chatq` without `-Prompt` saves its job
+  only once its editor tab is closed: a job queued meanwhile - from the
+  console, the phone, auto-continue or another `chatq` - took the same
+  number, and for the same chat the same prompt file, over the text in the
+  open tab; removing either job then took the other's prompt, and
+  `chatqrm <n>` reached only one of them. A prompt file in `data/queue`
+  now holds its number from the moment the job takes it, and a number is
+  taken holding `data/job-numbers.lock`, so a shell, the overlay and the
+  watcher never take one between them.
+- **Nor two jobs one id.** Two processes queueing for one chat in the same
+  second could give both jobs the same id, and the second job's file
+  replaced the first's. The id is taken under the same lock, and held by
+  the job's folder until its file is saved.
+
 ## 0.8.1 — chatnotify, and hidden chats listed again
 
 - **chatqnotify is chatnotify.** It is no longer only about chatq's queue:
