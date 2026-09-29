@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.1 — Remove in the console, and the overlay's chips, say what they do
 
 - **Remove in the console works, and says what it did.** Its first click
   turned the button into **Remove - sure?** for good, while only a second

@@ -74,11 +74,12 @@ behind for poking at. It uses no Pester, no network and no model.
 - **Synthetic streams only** in `tests/fixtures/stream/`. The repo is public, so
   no real transcript goes in it.
 
-What it covers (at 0.10.0, 1279 checks in `run-tests.ps1` under 5.1 -
+What it covers (at 0.10.1, 1287 checks in `run-tests.ps1` under 5.1 -
 under pwsh 7 in CI alone, since the machine it was written on has none -
 371 in `extension-check.js`, 258 in `reply-page-check.js`, 133 in
-`board-page-check.js` and 36 in `overlay-mac-check.js`; at 0.9.0 it was
-1032 under 5.1 and 1033 under pwsh 7, 279, 250, 78 and 35):
+`board-page-check.js` and 36 in `overlay-mac-check.js`; at 0.10.0 it was
+1279, 371, 258, 133 and 36; at 0.9.0, 1032 under 5.1 and 1033 under
+pwsh 7, 279, 250, 78 and 35):
 
 | area | checks |
 |---|---|
