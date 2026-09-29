@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- **The watcher starts under any execution policy.** The setup window and
+  the outbox's sender, Windows PowerShell 5.1, start a watcher to listen
+  for the phone's replies. For someone who only ever set a policy in
+  PowerShell 7, 5.1's is still `Restricted`: that watcher could not load
+  the script, said nothing, and no reply was read until a shell started
+  one. It now starts with `-ExecutionPolicy Bypass` for the load alone,
+  as the sender does, and drops it again before the loop, so the jobs it
+  runs and your own alert command run under your policy. A watcher that
+  fails to load says so in `data/logs/watcher.log`.
+
 ## 0.9.0 — the overlay and permissions on the phone, cut-off chats continued, updates that wait
 
 Five pieces of work land together: the phone gets the overlay, Claude's

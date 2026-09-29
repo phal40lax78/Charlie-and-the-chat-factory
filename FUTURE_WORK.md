@@ -272,29 +272,6 @@ serve a copy from their own
    release says so, and [Get-ChatqPhoneStatusText](src/phone.ps1) says so
    while the phone was paired on the old site.
 
-## The watcher starts with no execution policy
-
-**Why deferred:** found in review, outside the phone work's scope.
-[Start-ChatqWatcherProcess](src/watcher.ps1) starts the watcher as
-`-NoProfile -NonInteractive -EncodedCommand` in the PowerShell it is called
-from, with no `-ExecutionPolicy`. Until 0.8.0 that was a shell of the
-user's, where scripts already ran. Now the setup window and the outbox's
-sender - Windows PowerShell 5.1, started with `-ExecutionPolicy Bypass` -
-start a watcher to listen for replies, and drop the Bypass from their
-environment first, so it does not reach the jobs that watcher runs
-([Get-ChatqOutboxLaunch](src/phone.ps1)). For someone who only ever set a
-policy in PowerShell 7, 5.1 is still `Restricted`: that watcher fails to
-load the script, says nothing, and no reply is read until a shell starts
-one.
-
-**To close:**
-1. In [Start-ChatqWatcherProcess](src/watcher.ps1), pass
-   `-ExecutionPolicy Bypass`, and have the encoded command remove
-   `env:PSExecutionPolicyPreference` right after the script has loaded, as
-   the sender's does - so jobs and your own command still run under your
-   policy.
-2. A check on the launch line, as `phone.ps1` has for the sender's.
-
 ## A pairing confirmed while the setup window saves
 
 **Why deferred:** needs two things in the same instant, and every writer of

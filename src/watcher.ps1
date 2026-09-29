@@ -1000,6 +1000,35 @@ function Start-ChatqWatcher {
     return (Test-ChatqWatcherAlive)
 }
 
+function Get-ChatqWatcherLaunch {
+    <#
+    How the watcher starts: @{ Exe; Args; Command }. The PowerShell this runs
+    in, no profile, -ExecutionPolicy Bypass for that process alone: the setup
+    window and the outbox's sender are Windows PowerShell 5.1, and for someone
+    who only ever set a policy in pwsh 7, 5.1's is still Restricted - the
+    dot-source below would fail, and no reply would be read. The policy goes
+    again once the script has loaded, as the sender's does: -ExecutionPolicy
+    lives on in the process's environment as PSExecutionPolicyPreference, and
+    the jobs this watcher runs for hours, and your own alert command, run
+    under your policy, not Bypass. A load that fails anyway lands in
+    data/logs/watcher.log.
+    #>
+    param([string]$Path = $script:ChatqScriptPath)
+    $q = { param($s) "'" + [System.Management.Automation.Language.CodeGeneration]::EscapeSingleQuotedStringContent([string]$s) + "'" }
+    $pre = '$env:CHATQ_WATCHER=''1''; '
+    foreach ($n in 'CHATQ_CLAUDE', 'CHATQ_CODEX') {
+        $v = [Environment]::GetEnvironmentVariable($n)
+        if ($v) { $pre += "`$env:$n=$(& $q $v); " }
+    }
+    $log = Join-Path $script:ChatqLogDir 'watcher.log'
+    $cmd = $pre + "try { . $(& $q $Path) } catch { try { [void][IO.Directory]::CreateDirectory($(& $q $script:ChatqLogDir)); " +
+    "[IO.File]::AppendAllText($(& $q $log), (Get-Date).ToString('o') + '  the watcher did not load: ' + `$_.Exception.Message + [char]10) } catch {}; exit 1 }; " +
+    "Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference' -EA SilentlyContinue; Invoke-ChatqWatchLoop"
+    $enc = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($cmd))
+    $argv = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $enc)
+    return [pscustomobject]@{ Exe = (Get-Process -Id $PID).Path; Args = $argv; Command = $cmd }
+}
+
 function Start-ChatqWatcherProcess {
     # just the launch: Start-ChatqWatcher decides whether one is needed, and a
     # watcher handing over to a newer copy of itself calls this directly
@@ -1009,22 +1038,14 @@ function Start-ChatqWatcherProcess {
         Write-Host '  cannot start the watcher: this shell does not know where VS-code-chat-manager.ps1 is' -ForegroundColor Yellow
         return $false
     }
-    $q = { param($s) "'" + [System.Management.Automation.Language.CodeGeneration]::EscapeSingleQuotedStringContent([string]$s) + "'" }
-    $pre = '$env:CHATQ_WATCHER=''1''; '
-    foreach ($n in 'CHATQ_CLAUDE', 'CHATQ_CODEX') {
-        $v = [Environment]::GetEnvironmentVariable($n)
-        if ($v) { $pre += "`$env:$n=$(& $q $v); " }
-    }
-    $cmd = "$pre. $(& $q $path); Invoke-ChatqWatchLoop"
-    $enc = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($cmd))
-    $exe = (Get-Process -Id $PID).Path
+    $l = Get-ChatqWatcherLaunch $path
     try {
         if ($script:ChatqIsWindows) {
-            Start-Process -FilePath $exe -WindowStyle Hidden -ArgumentList @('-NoProfile', '-NonInteractive', '-EncodedCommand', $enc) | Out-Null
+            Start-Process -FilePath $l.Exe -WindowStyle Hidden -ArgumentList $l.Args | Out-Null
         }
         else {
             New-ChatqDir $script:ChatqLogDir
-            Start-Process -FilePath 'nohup' -ArgumentList @($exe, '-NoProfile', '-NonInteractive', '-EncodedCommand', $enc) `
+            Start-Process -FilePath 'nohup' -ArgumentList (@($l.Exe) + $l.Args) `
                 -RedirectStandardOutput (Join-Path $script:ChatqLogDir 'watcher.out') `
                 -RedirectStandardError (Join-Path $script:ChatqLogDir 'watcher.err') | Out-Null
         }
