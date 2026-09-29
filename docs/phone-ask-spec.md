@@ -937,7 +937,7 @@ As built.
   - `askView` (the board block).
   - `drawAsk` and `askBoxOf`, and the `#ask` and `#cAsk` boxes.
   - `settlePanel` and `openChat` draw the card.
-- **claude-codex-chat-manager.ps1:** `$chatParts` gains `ask`.
+- **Charlie-and-the-chat-factory.ps1:** `$chatParts` gains `ask`.
 
 **Part B:**
 - **[src/ask.ps1](../src/ask.ps1):**

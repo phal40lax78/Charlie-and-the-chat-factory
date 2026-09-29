@@ -17,7 +17,7 @@ if ($PSVersionTable.PSEdition -eq 'Desktop') {
     $PSHOME + '\Modules;' + [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine')
 }
 try {
-    . (Join-Path (Split-Path -Parent $PSScriptRoot) 'claude-codex-chat-manager.ps1') *> $null
+    . (Join-Path (Split-Path -Parent $PSScriptRoot) 'Charlie-and-the-chat-factory.ps1') *> $null
     Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference', 'env:CHATQ_OVERLAY' -EA SilentlyContinue
     $null = Start-ChatqAskHook
 }

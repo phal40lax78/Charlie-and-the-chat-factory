@@ -1,4 +1,4 @@
-# claude-codex-chat-manager, src/overlay-windows.ps1: dot-sourced by claude-codex-chat-manager.ps1
+# Charlie-and-the-chat-factory, src/overlay-windows.ps1: dot-sourced by Charlie-and-the-chat-factory.ps1
 # in its turn, never on its own - see the list there.
 
 #region overlay: Windows window ------------------------------------------------
@@ -146,6 +146,9 @@ $script:ChatOverlayPalettes = @{
     }
 }
 $script:ChatOverlayColors = $script:ChatOverlayPalettes.dark
+# Charlie, decoded on first use (Get-ChatIconBitmap, Get-ChatIconSource)
+$script:ChatIconBitmap = $null
+$script:ChatIconSource = $null
 
 function Initialize-ChatOverlayNative {
     # In the one order that works: DPI awareness is process-wide and only the
@@ -206,7 +209,10 @@ function New-ChatOverlayWindow {
     $cfg = $H.Ctx.Config
     [void](Select-ChatOverlayPalette $H)
     $w = [System.Windows.Window]::new()
-    $w.Title = 'chatoverlay'
+    $w.Title = 'Charlie'
+    # the console's taskbar button and Alt+Tab show Charlie, not PowerShell
+    $face = Get-ChatIconSource
+    if ($face) { $w.Icon = $face }
     $w.WindowStyle = [System.Windows.WindowStyle]::None
     $w.AllowsTransparency = $true
     $w.Background = [System.Windows.Media.Brushes]::Transparent
@@ -485,7 +491,7 @@ function Select-ChatOverlayPalette {
 
 function Update-ChatOverlayTheme {
     # the look again, after the setting or Windows' own changed: the frame,
-    # the buttons and settings box made anew, the rows redrawn, the tray dot
+    # the buttons and settings box made anew, the rows redrawn, the tray icon
     param($H)
     if (-not (Select-ChatOverlayPalette $H)) { return }
     $H.Frame.Background = Get-ChatOverlayBrush 'frame'
@@ -579,7 +585,7 @@ function New-ChatOverlayControls {
     $conB.add_MouseLeftButtonUp({ param($s, $e) $e.Handled = $true; Invoke-ChatOverlayVerb 'console' })
     $gear = New-ChatOverlayIcon 'Settings - size, rows, opacity, theme, usage, compact rows, recent chats, cut-off chats' $sliders -Stroke -Fill
     $gear.add_MouseLeftButtonUp({ param($s, $e) $e.Handled = $true; Set-ChatOverlaySettingsOpen $script:ChatOverlayHost (-not $script:ChatOverlayHost.SettingsOpen) })
-    $trayB = New-ChatOverlayIcon 'Hide to the tray - click the tray dot to show it' $tray -Stroke
+    $trayB = New-ChatOverlayIcon 'Hide to the tray - click the tray icon to show it' $tray -Stroke
     $trayB.add_MouseLeftButtonUp({ param($s, $e) $e.Handled = $true; Hide-ChatOverlayByButton })
     $close = New-ChatOverlayIcon 'Close the overlay - it starts again with the next shell or VS Code window; chatoverlay -AutoStart off keeps it closed' $cross -Stroke
     $close.add_MouseLeftButtonUp({ param($s, $e) $e.Handled = $true; Invoke-ChatOverlayVerb 'stop' })
@@ -1458,7 +1464,7 @@ function Hide-ChatOverlayByButton {
     if ($H.Tray -and -not $H.HideTold) {
         $H.HideTold = $true
         $key = if ($H.Hotkey) { " or press $($H.HotkeyText)" } else { '' }
-        Show-ChatOverlayBalloon $H "Hidden. Click the tray dot$key to show it again."
+        Show-ChatOverlayBalloon $H "Hidden. Click the tray icon$key to show it again."
     }
 }
 
@@ -1470,7 +1476,7 @@ function Show-ChatOverlayBalloon {
     Windows cuts the text itself past 255 characters, so it is cut here
     first, with an ellipsis. The tests' seam takes it in the tray's place.
     #>
-    param($H, [string]$Text, [string]$Title = 'chatoverlay', [int]$Ms = 6000, [string]$Icon = 'None', [string]$Kind = '', [string[]]$Keys = @())
+    param($H, [string]$Text, [string]$Title = 'Charlie', [int]$Ms = 6000, [string]$Icon = 'None', [string]$Kind = '', [string[]]$Keys = @())
     if (-not $H -or -not $Text) { return }
     if ($Text.Length -gt 250) { $Text = $Text.Substring(0, 249) + $script:ChatqEllipsis }
     $ks = @($Keys | Where-Object { $_ })
@@ -2872,7 +2878,7 @@ function Enter-ChatOverlayConsoleMode {
     $w.Height = $at.H / $px
     $w.ResizeMode = [System.Windows.ResizeMode]::CanResizeWithGrip
     # the panel's opacity kept: one look for both, set from either
-    $w.Title = 'chatq console'
+    $w.Title = 'Charlie - console'
     $w.Topmost = $false
     # shown activated only for real: the seam's tests never take the keyboard
     $w.ShowActivated = $Activate -and -not $script:ChatConsoleFrontSeam
@@ -2961,17 +2967,75 @@ function Exit-ChatOverlayConsoleMode {
     Update-ChatOverlayMenu $H
 }
 
+function Get-ChatIconBitmap {
+    # Charlie (src/icon.ps1) as a GDI+ bitmap, decoded once. Copied out of
+    # the stream's image: a Bitmap read from a stream needs the stream
+    # open for as long as it lives. $null when it cannot be read.
+    if ($null -eq $script:ChatIconBitmap) {
+        $script:ChatIconBitmap = $false
+        try {
+            $ms = [System.IO.MemoryStream]::new([Convert]::FromBase64String($script:ChatIconPng))
+            try {
+                $img = [System.Drawing.Image]::FromStream($ms)
+                try { $script:ChatIconBitmap = [System.Drawing.Bitmap]::new($img) } finally { $img.Dispose() }
+            }
+            finally { $ms.Dispose() }
+        }
+        catch { Write-ChatOverlayLog "icon: $($_.Exception.Message)" }
+    }
+    if ($script:ChatIconBitmap) { return $script:ChatIconBitmap }
+    return $null
+}
+
+function Get-ChatIconSource {
+    # Charlie (src/icon.ps1) for a WPF window's Icon: the taskbar button and
+    # Alt+Tab. Frozen, so any window may share it. $null when it cannot be
+    # read - the window keeps PowerShell's icon then.
+    if ($null -eq $script:ChatIconSource) {
+        $script:ChatIconSource = $false
+        try {
+            $ms = [System.IO.MemoryStream]::new([Convert]::FromBase64String($script:ChatIconPng))
+            $f = [System.Windows.Media.Imaging.BitmapFrame]::Create($ms, [System.Windows.Media.Imaging.BitmapCreateOptions]::None, [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad)
+            $f.Freeze()
+            $script:ChatIconSource = $f
+        }
+        catch {}
+    }
+    if ($script:ChatIconSource) { return $script:ChatIconSource }
+    return $null
+}
+
 function Set-ChatOverlayTrayColor {
-    # the tray dot takes the most urgent state's colour; the old icon handle
-    # is destroyed, or every change would leak one
+    <#
+    The tray icon: Charlie, with a dot at her bottom right in the most
+    urgent state's colour, ringed in the icon's own dark frame so it reads
+    on her as on the taskbar. Drawn at the size Windows shows a small icon
+    at this screen's scale, not scaled up from 16. Without Charlie, the dot
+    alone, as it was. The old icon handle is destroyed, or every change
+    would leak one.
+    #>
     param($H, [string]$Hex)
     if (-not $H.Tray -or $H.IconColor -eq $Hex) { return }
-    $bmp = [System.Drawing.Bitmap]::new(32, 32)
+    $n = [Math]::Min(64, [Math]::Max(16, [System.Windows.Forms.SystemInformation]::SmallIconSize.Width))
+    $bmp = [System.Drawing.Bitmap]::new($n, $n)
     $g = [System.Drawing.Graphics]::FromImage($bmp)
     $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+    $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+    $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
     $g.Clear([System.Drawing.Color]::Transparent)
     $br = [System.Drawing.SolidBrush]::new([System.Drawing.ColorTranslator]::FromHtml($Hex))
-    $g.FillEllipse($br, 5, 5, 22, 22)
+    $art = Get-ChatIconBitmap
+    if ($art) {
+        $g.DrawImage($art, 0, 0, $n, $n)
+        # half the icon wide; the ring a sixteenth, at least a pixel
+        $d = [Math]::Round($n * 0.5)
+        $r = [Math]::Max(1, [Math]::Round($n / 16))
+        $ring = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(19, 10, 30))
+        $g.FillEllipse($ring, $n - $d, $n - $d, $d, $d)
+        $ring.Dispose()
+        $g.FillEllipse($br, $n - $d + $r, $n - $d + $r, $d - 2 * $r, $d - 2 * $r)
+    }
+    else { $g.FillEllipse($br, $n * 5 / 32, $n * 5 / 32, $n * 22 / 32, $n * 22 / 32) }
     $br.Dispose()
     $g.Dispose()
     $icon = $bmp.GetHicon()
@@ -2989,8 +3053,37 @@ function Update-ChatOverlayTray {
     $cut = if ($c -and $c.PSObject.Properties['cutOff']) { [int]$c.cutOff } else { 0 }
     $name = if ([int]$c.waiting + [int]$c.needsInput) { 'waiting' } elseif ($cut) { 'cutoff' } elseif ($c.busy) { 'busy' } elseif ($c.running) { 'running' } else { 'idle' }
     Set-ChatOverlayTrayColor $H $script:ChatOverlayColors[$name]
-    $tip = Format-ChatOverlayTooltip $Snap
-    if ($H.Tray.Text -ne $tip) { $H.Tray.Text = $tip }
+    Set-ChatOverlayTrayText $H.Tray (Format-ChatOverlayTooltip $Snap)
+}
+
+function Set-ChatOverlayTrayText {
+    <#
+    The tray icon's tooltip, up to the 127 characters Windows keeps.
+    .NET Framework's NotifyIcon.Text throws at 64 - a check of its own, not
+    Windows' - and "Charlie: " ahead of the counts left no room for 5h's
+    reset. So longer text goes past the check: into the field the setter
+    fills, then the icon updated as the setter does it. .NET's own (pwsh 7)
+    takes 127 as it is. Where neither works, cut to 63 as before.
+    #>
+    param($Tray, [string]$Text)
+    if ($Tray.Text -ceq $Text) { return }
+    if ($Text.Length -le 63) { $Tray.Text = $Text; return }
+    try { $Tray.Text = $Text; return } catch {}
+    try {
+        $f = [System.Reflection.BindingFlags]'NonPublic, Instance'
+        $t = [System.Windows.Forms.NotifyIcon]
+        $field = $t.GetField('text', $f)
+        $added = $t.GetField('added', $f)
+        $update = $t.GetMethod('UpdateIcon', $f, $null, [type[]]@([bool]), $null)
+        if ($field -and $added -and $update) {
+            $field.SetValue($Tray, $Text)
+            # not in the tray yet: showing it reads the field
+            if ($added.GetValue($Tray)) { [void]$update.Invoke($Tray, @($true)) }
+            return
+        }
+    }
+    catch { Write-ChatOverlayLog "tray text: $($_.Exception.Message)" }
+    $Tray.Text = $Text.Substring(0, 62) + $script:ChatqEllipsis
 }
 
 function Update-ChatOverlayMenu {
@@ -3041,7 +3134,7 @@ function Update-ChatOverlayAsk {
         $names = @(@($a.Items) | Select-Object -First 3 | ForEach-Object { Format-ChatTitle ([string]$_.Title) 40 })
         $list = $names -join ', '
         if ($n -gt 3) { $list += " and $($n - 3) more" }
-        $title = if ($at) { "chatq - limit over at $at" } else { 'chatq - limit over' }
+        $title = if ($at) { "Charlie - limit over at $at" } else { 'Charlie - limit over' }
         Show-ChatOverlayBalloon $H "$n chat$(if ($n -ne 1) { 's' }) it cut off can continue: $list. Click to see them." -Title $title -Ms 10000 -Kind ask -Keys @($a.Keys)
     }
     if ($H.Ctx.AskSaid) {
@@ -3106,7 +3199,7 @@ function Invoke-ChatOverlayAskAnswer {
 }
 
 function New-ChatOverlayTrayIcon {
-    # A dot in the notification area: left click shows or hides the panel,
+    # Charlie in the notification area: left click shows or hides the panel,
     # right click has the rest. It is the one way to reach a panel that clicks
     # go through.
     param($H)
@@ -3142,7 +3235,7 @@ function New-ChatOverlayTrayIcon {
     $H.Menu.Auto.add_Click({ Invoke-ChatOverlayVerb $(if ($script:ChatOverlayHost.Menu.Auto.Checked) { 'auto-ask' } else { 'auto-on' }) })
     $menu.add_Opening({ Update-ChatOverlayMenu $script:ChatOverlayHost })
     [void]$menu.Items.Add([System.Windows.Forms.ToolStripSeparator]::new())
-    $head = $menu.Items.Add("claude-codex-chat-manager $script:ChatVersion")
+    $head = $menu.Items.Add("Charlie-and-the-chat-factory $script:ChatVersion")
     $head.Enabled = $false
     $H.Menu.Hotkey = $menu.Items.Add('hotkey')
     $H.Menu.Hotkey.Enabled = $false
@@ -3182,7 +3275,7 @@ function New-ChatOverlayTrayIcon {
             $X = $script:ChatOverlayHost
             if ($X) { $X.BalloonKind = $null; $X.BalloonKeys = @() }
         })
-    $ni.Text = 'chatq'
+    $ni.Text = 'Charlie'
     $H.Tray = $ni
     Set-ChatOverlayTrayColor $H $script:ChatOverlayColors.idle
     $ni.Visible = $true

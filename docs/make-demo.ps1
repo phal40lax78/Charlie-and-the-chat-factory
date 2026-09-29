@@ -37,7 +37,7 @@ $claudeHome = Join-Path $sb 'claude'
 $codexHome = Join-Path $sb 'codex'
 $proj = Join-Path $sb 'work\parser'
 foreach ($d in $claudeHome, $codexHome, $proj, (Join-Path $sb 'tool'), (Join-Path $sb 'code-user')) { $null = New-Item -ItemType Directory -Path $d -Force }
-Copy-Item -LiteralPath (Join-Path $root 'claude-codex-chat-manager.ps1') -Destination (Join-Path $sb 'tool')
+Copy-Item -LiteralPath (Join-Path $root 'Charlie-and-the-chat-factory.ps1') -Destination (Join-Path $sb 'tool')
 Copy-Item -LiteralPath (Join-Path $root 'src') -Destination (Join-Path $sb 'tool') -Recurse
 $env:CLAUDE_CONFIG_DIR = $claudeHome
 $env:CODEX_HOME = $codexHome
@@ -79,7 +79,7 @@ New-DemoChat '1a2b3c4d-0000-4000-8000-000000000004' 'Flaky upload test' 30 'why 
         '{"kind":"session","percent":100,"resets_at":"' + $reset.ToString('o') + '","scope":null},' +
         '{"kind":"weekly_all","percent":46,"resets_at":"' + $now.AddDays(4).ToString('o') + '","scope":null}]}}}'), $utf8)
 
-. (Join-Path $sb 'tool\claude-codex-chat-manager.ps1')
+. (Join-Path $sb 'tool\Charlie-and-the-chat-factory.ps1')
 Set-Location -LiteralPath $proj
 $script:ChatqToastSeam = { param($t, $x) }
 $script:ChatqSpawn = { $true }

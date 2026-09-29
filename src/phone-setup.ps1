@@ -1,4 +1,4 @@
-# claude-codex-chat-manager, src/phone-setup.ps1: dot-sourced by claude-codex-chat-manager.ps1
+# Charlie-and-the-chat-factory, src/phone-setup.ps1: dot-sourced by Charlie-and-the-chat-factory.ps1
 # in its turn, never on its own - see the list there.
 
 #region phone setup: the dialog -----------------------------------------------
@@ -136,7 +136,7 @@ $r
 $script:ChatqPhoneSetupXaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="chatq - phone alerts" Width="460" SizeToContent="Height" ResizeMode="CanMinimize"
+        Title="Charlie - phone alerts" Width="460" SizeToContent="Height" ResizeMode="CanMinimize"
         WindowStartupLocation="CenterScreen" UseLayoutRounding="True" SnapsToDevicePixels="True"
         FontFamily="Segoe UI" FontSize="12.5" Background="@window@" Foreground="@text@">
   <Window.Resources>
@@ -499,8 +499,8 @@ function Start-ChatqPhoneSetup {
     }
     $path = $script:ChatqScriptPath
     if (-not $script:ChatqPhoneSetupSpawn -and (-not $path -or -not (Test-Path -LiteralPath $path))) {
-        if ($NoWait) { Write-ChatqPhoneSetupLog 'cannot open phone setup: this process does not know where claude-codex-chat-manager.ps1 is'; return $false }
-        Write-Host '  cannot open phone setup: this shell does not know where claude-codex-chat-manager.ps1 is' -ForegroundColor Yellow
+        if ($NoWait) { Write-ChatqPhoneSetupLog 'cannot open phone setup: this process does not know where Charlie-and-the-chat-factory.ps1 is'; return $false }
+        Write-Host '  cannot open phone setup: this shell does not know where Charlie-and-the-chat-factory.ps1 is' -ForegroundColor Yellow
         return
     }
     $log = Join-Path $script:ChatqLogDir 'phone-setup.log'
@@ -694,6 +694,9 @@ function New-ChatqPhoneSetupWindow {
     $xaml = $script:ChatqPhoneSetupXaml
     foreach ($k in $pal.Keys) { $xaml = $xaml.Replace("@$k@", $pal[$k]) }
     $w = [System.Windows.Markup.XamlReader]::Parse($xaml)
+    # Charlie on its taskbar button, as on the overlay's (src/overlay-windows.ps1)
+    $face = Get-ChatIconSource
+    if ($face) { $w.Icon = $face }
     $U = @{
         Win = $w; Dark = $dark; Pal = $pal; Brushes = @{}; Cfg = $null; Loading = $false; Pasting = $false; Closing = $false
         Baseline = ''; Fetch = $null; FetchedKey = ''; Want = ''; Timer = $null; Job = $null; WaitPair = $false; NextLook = [datetime]::MinValue
@@ -1415,7 +1418,7 @@ function Start-ChatqPhoneSetupJob {
     $note = switch ($Kind) { 'test' { $U.TestNote } 'ask' { $U.Status } default { $U.PairNote } }
     $path = $script:ChatqScriptPath
     if (-not $path -or -not (Test-Path -LiteralPath $path)) {
-        Set-ChatqPhoneSetupNote $U $note 'not sent: this window does not know where claude-codex-chat-manager.ps1 is' 'error'
+        Set-ChatqPhoneSetupNote $U $note 'not sent: this window does not know where Charlie-and-the-chat-factory.ps1 is' 'error'
         return $false
     }
     $text = if ($Kind -eq 'test') { "chatq reaches this device $($script:ChatqDot) $([Environment]::MachineName)" } else { $Arg }

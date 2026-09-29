@@ -1,4 +1,4 @@
-# claude-codex-chat-manager, src/overlay-data.ps1: dot-sourced by claude-codex-chat-manager.ps1
+# Charlie-and-the-chat-factory, src/overlay-data.ps1: dot-sourced by Charlie-and-the-chat-factory.ps1
 # in its turn, never on its own - see the list there.
 
 #region overlay: configuration -------------------------------------------------
@@ -387,7 +387,7 @@ function Start-ChatqUsageFetch {
         $req = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Get, $script:ChatOverlayUsageUrl)
         [void]$req.Headers.TryAddWithoutValidation('Authorization', "Bearer $($tok.Token)")
         [void]$req.Headers.TryAddWithoutValidation('anthropic-beta', 'oauth-2025-04-20')
-        [void]$req.Headers.TryAddWithoutValidation('User-Agent', "claude-codex-chat-manager/$script:ChatVersion")
+        [void]$req.Headers.TryAddWithoutValidation('User-Agent', "Charlie-and-the-chat-factory/$script:ChatVersion")
         return @{ Client = $client; Request = $req; Task = $client.SendAsync($req) }
     }
     catch { return @{ Done = @{ Ok = $false; Status = 0; Why = $_.Exception.Message } } }
@@ -2526,15 +2526,15 @@ function Format-ChatOverlayReset {
 }
 
 function Format-ChatOverlayTooltip {
-    # the tray icon's tooltip. .NET Framework's NotifyIcon throws at 64
-    # characters or more, so it is cut to 63 before it is ever assigned.
+    # the tray icon's tooltip, cut to the 127 characters Windows keeps;
+    # Set-ChatOverlayTrayText gets it past .NET Framework's own 63
     param($Snap, [datetime]$Now = (Get-Date))
     $c = $Snap.counts
     $bits = @()
     $need = [int]$c.waiting + [int]$c.needsInput
     if ($need) { $bits += "$need need you" }
     # finished a turn while you were elsewhere, since you last opened them
-    # from the overlay (Update-ChatOverlayUnread): 63 characters hold no more
+    # from the overlay (Update-ChatOverlayUnread): a tooltip holds no more
     # than "N new"
     if ($c -and $c.PSObject.Properties['unread'] -and [int]$c.unread) { $bits += "$($c.unread) new" }
     # the reset ask's chats, and cut off only for the rest, so none counts twice
@@ -2548,7 +2548,7 @@ function Format-ChatOverlayTooltip {
     if ($c.idle) { $bits += "$($c.idle) idle" }
     if ($c.queued) { $bits += "$($c.queued) queued" }
     if (-not $bits) { $bits += 'no chats open' }
-    $t = 'chatq: ' + ($bits -join ', ')
+    $t = 'Charlie: ' + ($bits -join ', ')
     $u = @($Snap.header.usage | Where-Object { $_ -and $_.provider -eq 'Claude' })[0]
     $w = if ($u) { @($u.windows | Where-Object { $_.label -eq '5h' })[0] } else { $null }
     if ($w) {
@@ -2559,7 +2559,7 @@ function Format-ChatOverlayTooltip {
             if ($at) { $t += ", resets $at" }
         }
     }
-    if ($t.Length -gt 63) { $t = $t.Substring(0, 62) + $script:ChatqEllipsis }
+    if ($t.Length -gt 127) { $t = $t.Substring(0, 126) + $script:ChatqEllipsis }
     return $t
 }
 

@@ -1,4 +1,4 @@
-# claude-codex-chat-manager, src/host-work.ps1: dot-sourced by claude-codex-chat-manager.ps1
+# Charlie-and-the-chat-factory, src/host-work.ps1: dot-sourced by Charlie-and-the-chat-factory.ps1
 # in its turn, never on its own - see the list there.
 
 #region the chats one VS Code window runs --------------------------------------

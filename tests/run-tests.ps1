@@ -1,5 +1,5 @@
 <#
-claude-codex-chat-manager self-test. No Pester, no network, no model: every claude/codex call goes
+Charlie-and-the-chat-factory self-test. No Pester, no network, no model: every claude/codex call goes
 to tests/fake-agent.ps1. The exit code is the number of failed checks.
 
     powershell -NoProfile -ExecutionPolicy Bypass -File tests\run-tests.ps1

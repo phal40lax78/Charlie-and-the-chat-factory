@@ -1,4 +1,4 @@
-# claude-codex-chat-manager, src/phone.ps1: dot-sourced by claude-codex-chat-manager.ps1
+# Charlie-and-the-chat-factory, src/phone.ps1: dot-sourced by Charlie-and-the-chat-factory.ps1
 # in its turn, never on its own - see the list there.
 
 #region phone: replies from the phone ------------------------------------------
@@ -36,9 +36,9 @@ $script:ChatqReplyLockPath = Join-Path $script:ChatqData 'replies.lock'
 # for the hidden process that sends them, which holds the lock while it runs
 $script:ChatqOutboxDir = Join-Path $script:ChatqData 'outbox'
 $script:ChatqOutboxLockPath = Join-Path $script:ChatqData 'outbox.lock'
-$script:ChatqReplyPage ='https://phal40lax78.github.io/claude-codex-chat-manager/reply.html'
+$script:ChatqReplyPage ='https://phal40lax78.github.io/Charlie-and-the-chat-factory/reply.html'
 $script:ChatqReplyServer = 'https://ntfy.sh'
-$script:ChatqJoinIcon = 'https://raw.githubusercontent.com/phal40lax78/claude-codex-chat-manager/main/extension/icon.png'
+$script:ChatqJoinIcon = 'https://raw.githubusercontent.com/phal40lax78/Charlie-and-the-chat-factory/main/extension/icon.png'
 # the events chatnotify -Events and the setup dialog can hold back from the
 # phone; 'test', 'reply' and 'pair' always go
 $script:ChatqPhoneEvents = @('started', 'needs input', 'done', 'failed', 'limited', 'overloaded', 'waiting')

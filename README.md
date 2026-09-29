@@ -1,4 +1,4 @@
-# claude-codex-chat-manager
+# Charlie and the Chat Factory
 
 Mission control for your AI chats. Every Claude Code chat sits on one
 always-on-top board — and on your phone — with its project, title and newest
@@ -7,10 +7,10 @@ limit is hit run at the reset, even with VS Code closed, and your phone says
 how they went. Find or delete any Claude Code, Codex or Copilot chat from
 PowerShell.
 
-[![marketplace](https://vsmarketplacebadges.dev/version-short/redaechan.claude-codex-chat-manager.svg)](https://marketplace.visualstudio.com/items?itemName=redaechan.claude-codex-chat-manager)
-[![release](https://img.shields.io/github/v/release/phal40lax78/claude-codex-chat-manager)](https://github.com/phal40lax78/claude-codex-chat-manager/releases)
-[![test](https://github.com/phal40lax78/claude-codex-chat-manager/actions/workflows/test.yml/badge.svg)](https://github.com/phal40lax78/claude-codex-chat-manager/actions/workflows/test.yml)
-[![licence](https://img.shields.io/github/license/phal40lax78/claude-codex-chat-manager)](LICENSE)
+[![marketplace](https://vsmarketplacebadges.dev/version-short/redaechan.charlie-and-the-chat-factory.svg)](https://marketplace.visualstudio.com/items?itemName=redaechan.charlie-and-the-chat-factory)
+[![release](https://img.shields.io/github/v/release/phal40lax78/Charlie-and-the-chat-factory)](https://github.com/phal40lax78/Charlie-and-the-chat-factory/releases)
+[![test](https://github.com/phal40lax78/Charlie-and-the-chat-factory/actions/workflows/test.yml/badge.svg)](https://github.com/phal40lax78/Charlie-and-the-chat-factory/actions/workflows/test.yml)
+[![licence](https://img.shields.io/github/license/phal40lax78/Charlie-and-the-chat-factory)](LICENSE)
 [![PowerShell 5.1 | 7](https://img.shields.io/badge/PowerShell-5.1%20%7C%207-5391FE?logo=powershell&logoColor=white)](#requirements)
 [![sponsor: coming soon](https://img.shields.io/badge/sponsor-coming%20soon-lightgrey?logo=githubsponsors)](FUTURE_WORK.md#sponsorship)
 
@@ -31,15 +31,15 @@ One script and the `src/` folder it loads, no modules, nothing to build. It was 
 
 ## Install
 
-**From VS Code:** install **Chat Manager for Claude Code & Codex** from the
-[Marketplace](https://marketplace.visualstudio.com/items?itemName=redaechan.claude-codex-chat-manager) -
+**From VS Code:** install **Charlie and the Chat Factory - Claude Code & Codex** from the
+[Marketplace](https://marketplace.visualstudio.com/items?itemName=redaechan.charlie-and-the-chat-factory) -
 search the Extensions view, or:
 
 ```powershell
-code --install-extension redaechan.claude-codex-chat-manager
+code --install-extension redaechan.charlie-and-the-chat-factory
 ```
 
-On its first start it puts the scripts in `~/Tools/claude-codex-chat-manager`,
+On its first start it puts the scripts in `~/Tools/Charlie-and-the-chat-factory`,
 asks once before adding the line that loads them to your PowerShell profile,
 and from then on VS Code's own extension updates keep the scripts up to date
 too. [What it does, step by step](extension/README.md). Then open a new
@@ -48,13 +48,13 @@ terminal and type `chat`.
 **Terminal only**, without the extension:
 
 ```powershell
-iex (irm https://raw.githubusercontent.com/phal40lax78/claude-codex-chat-manager/main/install.ps1)
+iex (irm https://raw.githubusercontent.com/phal40lax78/Charlie-and-the-chat-factory/main/install.ps1)
 ```
 
 Then type `chat`. The commands are live in the shell you ran that in, and the
 line the installer writes into `$PROFILE` brings them back in every new one. It
-downloads the repo as one zip and copies `claude-codex-chat-manager.ps1` and `src/`
-to `~/Tools/claude-codex-chat-manager`; set `$env:CHAT_MANAGER_DIR` first to put it
+downloads the repo as one zip and copies `Charlie-and-the-chat-factory.ps1` and `src/`
+to `~/Tools/Charlie-and-the-chat-factory`; set `$env:CHAT_MANAGER_DIR` first to put it
 somewhere else. The first install builds the search index, about 30 seconds.
 
 Already have the files? Load the script and install. It loads its parts from
@@ -62,7 +62,7 @@ Already have the files? Load the script and install. It loads its parts from
 missing and loads nothing.
 
 ```powershell
-. "$HOME\Tools\claude-codex-chat-manager\claude-codex-chat-manager.ps1"
+. "$HOME\Tools\Charlie-and-the-chat-factory\Charlie-and-the-chat-factory.ps1"
 chatinstall
 ```
 
@@ -433,7 +433,7 @@ Five minutes after the reset - room for Claude Code to continue a chat open
 in a VS Code panel itself, and for a fresh usage figure - it counts them,
 and one prompt offers all of them:
 
-- **a toast** on Windows, `chatq - limit over at 13:00`, naming the first
+- **a toast** on Windows, `Charlie - limit over at 13:00`, naming the first
   three. A click on it opens [the console](#the-console) with the chats
   listed; it never answers by itself, since a toast is often clicked just
   to be rid of it;
@@ -830,7 +830,7 @@ pairing, and nothing sent while it was off is ever run.
 to go nowhere.
 
 **The page** is `docs/reply.html`, one static file served by GitHub Pages at
-<https://phal40lax78.github.io/claude-codex-chat-manager/reply.html>: the
+<https://phal40lax78.github.io/Charlie-and-the-chat-factory/reply.html>: the
 repository's **Settings → Pages** has it deploy from the `main` branch,
 `/docs` folder. A fork that serves its own copy the same way points
 `chatnotify -ReplyPage` at it.
@@ -862,7 +862,7 @@ the setup window.
 #### The board: any chat, from the phone
 
 Open the reply page with no alert - a bookmark of
-<https://phal40lax78.github.io/claude-codex-chat-manager/reply.html>, or **Add
+<https://phal40lax78.github.io/Charlie-and-the-chat-factory/reply.html>, or **Add
 to Home screen** - on the paired phone, and it is the overlay, phone-sized:
 - usage, a line and a bar per window, the reset when limited and `as of`
   when the figure is an hour old;
@@ -1400,7 +1400,7 @@ A small panel in the top-right corner that stays above other windows:
 - **A blue dot for a turn you have not seen,** on Windows only. A chat
   that went from working or waiting to idle while you were elsewhere gets
   a small blue dot just before its state, and the collapsed line and the
-  tray dot's tooltip count them (`2 new`). A chat whose window was in
+  tray icon's tooltip count them (`2 new`). A chat whose window was in
   front as it finished gets none: any window of its VS Code counts, or for
   a terminal's `claude` any tab of the terminal that draws it. A console
   Windows handed off to Windows Terminal (its default-terminal setting)
@@ -1510,7 +1510,7 @@ The buttons, left to right, with × at the corner as on any window:
   right by the screen's left edge - and `config.json` gets it a moment
   after it rests. Opened, the sliders show the size the panel has now,
   whatever changed it;
-- **hide to tray** (an arrow onto a line): click the tray dot to show it again;
+- **hide to tray** (an arrow onto a line): click the tray icon to show it again;
 - **×**: closes the overlay. `chatoverlay` starts it again, and so does
   the next shell or VS Code window unless `-AutoStart off`.
 
@@ -1603,10 +1603,11 @@ allowed for), a chat not started yet, or no `code` command. What you pick
 in the settings box is kept in `config.json`, like a setting made with
 `chatoverlay`; a collapsed panel stays collapsed across restarts.
 
-**Ctrl+Alt+Shift+O** or the tray dot's menu unlocks the whole panel to drag:
+**Ctrl+Alt+Shift+O** or the tray icon's menu unlocks the whole panel to drag:
 it gets a blue edge, and it locks itself again two minutes after the pointer
-leaves. The tray dot takes the colour of the most urgent chat, and its
-tooltip counts the chats - those the overlay asks about as `2 can
+leaves. The tray icon is Charlie, with a dot at her bottom right in the
+colour of the most urgent chat; its tooltip, starting `Charlie:`, counts
+the chats - those the overlay asks about as `2 can
 continue`, apart from the rest `cut off` - and gives Claude's 5 h
 percent, with its reset when that is the window you wait on
 (`5h 43%, resets 13:00`).
@@ -1865,7 +1866,7 @@ transcript.
 
 Nothing outside VS Code can show a chat in a window: the window reload and
 the Claude Code extension's own command for opening a chat by its id run
-from inside an extension only. **Chat Manager for Claude Code & Codex**,
+from inside an extension only. **Charlie and the Chat Factory**,
 the Marketplace extension that also installs the scripts
 ([Install](#install)), is that extension; `extension/` is its source. It also starts
 [the overlay](#the-overlay) as a window opens. Without it the terminal
@@ -1974,7 +1975,9 @@ from before.
 always ask. `chatManager.watchRuns: false` turns the handover off in one
 window, and `"handover": false` at the top of `data/config.json` for every
 window ([below](#a-queued-run-takes-the-tabs-place)). A window opened after the run already shows it, and neither asks
-nor acts. The overlay's [open chip](#the-overlay) asks through a file of its
+nor acts. `chatManager.keepSessionSettings: false` stops Ultracode and a
+session-only level being carried into a chat chatq opens again, and puts
+the `/effort` to send in its input box instead. The overlay's [open chip](#the-overlay) asks through a file of its
 own, `data/open-request`, and never falls back to a reload, whatever
 `showFresh` says: it gets a tab, or the tab already showing the chat, and
 nothing for a chat working outside the tabs; with no Claude Code extension
@@ -2059,7 +2062,7 @@ its workspace folder — offers a **Reload** button, as before. If a chat in the
 ([what counts](#reloading-safely)), it warns instead: *A chat in this workspace
 is still working, and reloading now would cut it off*, with **Reload anyway**.
 `chatManager.folder` points it elsewhere if the script does not live in
-`~/Tools/claude-codex-chat-manager`; `chatManager.autoReload` skips the question
+`~/Tools/Charlie-and-the-chat-factory`; `chatManager.autoReload` skips the question
 after a delete — never while a chat is working, and never after a queued run
 or a new chat, which have rules of their own. The old extension's
 `chatManagerReload.*` settings are still read where the new ones are unset,
@@ -2092,7 +2095,7 @@ watches for the new one - VS Code's own event, and its list of installed
 extensions (`~/.vscode/extensions/extensions.json`) changing, which also
 tells the same version installed again - and says so once per install:
 
-- **Nothing working here:** *Chat Manager for Claude Code & Codex 0.9.0
+- **Nothing working here:** *Charlie and the Chat Factory 0.9.0
   is installed - reload the window to load it*, with **Reload the window** and
   **Later**. The chats are looked at again as you click, since the notice
   may have waited for hours; one working by then gets the question below.
@@ -2212,12 +2215,23 @@ Code**; **Chat Manager: Open chat...** on that chat; and **Show it** on a
 chat a run has gone into.
 
 **What could surprise you:**
-- **Ultracode and a session-only effort come back off.** Claude Code
+- **Ultracode and a session-only effort are carried over.** Claude Code
   keeps them only in the chat's process, so a tab chatq closes and opens
-  again - the chat put back after a run, or Show it - starts without
-  them. Where the chat had them, the new tab's input box holds `/effort
-  ultracode` or `/effort max` and the window says so: press Enter there
-  (Ctrl+Enter with `claudeCode.useCtrlEnterToSend`). With both lost, type
+  again - the chat put back after a run, Show it, or the live view's
+  **Open chat** - is a new process. chatq hands that process both as it
+  starts, so the tab comes up with them on, the effort chip saying so,
+  and nothing to type; the log says `carried`. Only what that tab's
+  process had comes along: Ultracode switched on before a VS Code restart
+  or a Claude Code update, and not since, is gone already and stays so.
+  Where they did not go in
+  within a minute - a tab only revealed, not started again (one here
+  whose process had exited), or a Claude Code that starts claude another
+  way - the window then names the `/effort ultracode` or `/effort max` to
+  type (Ctrl+Enter with `claudeCode.useCtrlEnterToSend`). A remote window
+  (WSL, SSH) starts claude on the other machine, out of chatq's reach, so
+  there nothing is carried and the new tab's input box holds that command
+  at once, as with `chatManager.keepSessionSettings: false`: press Enter
+  there; with both lost, type
   `/effort <level>` after it - typed, it leaves Ultracode on, where the
   tab's effort menu would save a level below max as every new session's
   default. A switch made in the tab's effort menu with no prompt since is

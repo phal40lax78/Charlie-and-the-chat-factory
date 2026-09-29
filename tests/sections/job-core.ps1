@@ -110,7 +110,7 @@ $raceOut = Join-Path $sb 'seq-race.out'
 $raceFile = Join-Path $sb 'seq-race.ps1'
 [System.IO.File]::WriteAllText($raceFile, @"
 `$ErrorActionPreference = 'Stop'
-. '$(Join-Path $sb 'tool\claude-codex-chat-manager.ps1')'
+. '$(Join-Path $sb 'tool\Charlie-and-the-chat-factory.ps1')'
 `$row = Get-ChatqRowById '$idCard' 'claude' '$($rowCard.Path)'
 [System.IO.File]::WriteAllText('$raceGo', 'go')
 `$got = foreach (`$i in 1..12) { (New-ChatqJob -Row `$row -Prompt "child `$i" -Rule 'picked').Job.seq }

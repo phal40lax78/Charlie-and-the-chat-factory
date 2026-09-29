@@ -10,7 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const cp = require('child_process');
 
-const LOADER = 'claude-codex-chat-manager.ps1';
+const LOADER = 'Charlie-and-the-chat-factory.ps1';
 const OLD_ID = 'phal40lax78.chat-manager-reload';
 // a lock older than this was left by a window that died holding it
 const COPY_STALE_MS = 2 * 60 * 1000;
@@ -273,19 +273,19 @@ async function allowScripts(exe, log) {
 }
 
 const texts = {
-    ask: 'Chat Manager for Claude Code & Codex: add chatrm, chatq and chatoverlay to your PowerShell profile, so every new terminal has them? The profile is backed up first.',
-    askPolicy: (p) => 'Chat Manager for Claude Code & Codex: add chatrm, chatq and chatoverlay to your PowerShell profile, so every new terminal has them? ' +
+    ask: 'Charlie and the Chat Factory: add chatrm, chatq and chatoverlay to your PowerShell profile, so every new terminal has them? The profile is backed up first.',
+    askPolicy: (p) => 'Charlie and the Chat Factory: add chatrm, chatq and chatoverlay to your PowerShell profile, so every new terminal has them? ' +
         'PowerShell\'s execution policy is ' + p + ', which would stop that line, so Add also allows local scripts for your user (RemoteSigned). The profile is backed up first.',
     policyHave: (p) => 'Your PowerShell profile loads the chat commands, but PowerShell\'s execution policy is ' + p +
         ', so it never runs. Allow local scripts for your user (RemoteSigned)?',
     policyStuck: 'The execution policy did not change - a group policy decides it on this machine - so the profile line was not added.',
-    installed: (v, folder) => 'Chat Manager for Claude Code & Codex ' + v + ' put its PowerShell commands in ' + folder + '.',
+    installed: (v, folder) => 'Charlie and the Chat Factory ' + v + ' put its PowerShell commands in ' + folder + '.',
     updated: (v) => 'Chat Manager\'s PowerShell commands are now ' + v + '. Terminals already open keep the old ones until reopened.',
     skew: (folder, disk, mine) => 'The scripts in ' + folder + ' are ' + disk + ' and this extension is ' + mine +
         '. It never writes into a git checkout - pull to match.',
     unknown: (folder) => 'The scripts in ' + folder + ' carry no version this extension can read, so it leaves them as they are.',
     foreign: (folder) => folder + ' holds other files and is not Chat Manager\'s folder, so nothing was put there. Set chatManager.folder to an empty or new folder.',
-    copyFailed: (folder, m) => 'Chat Manager for Claude Code & Codex could not put its PowerShell commands in ' + folder + ': ' + m + '. Chat Manager: Show log has the details.',
+    copyFailed: (folder, m) => 'Charlie and the Chat Factory could not put its PowerShell commands in ' + folder + ': ' + m + '. Chat Manager: Show log has the details.',
     added: 'Added. New terminals have the chat commands; type chat for the list.',
     addFailed: 'The chat commands could not be added to your PowerShell profile. Chat Manager: Show log has the details, and Chat Manager: Install terminal commands tries again.',
     present: 'Your PowerShell profile already loads the chat commands.',

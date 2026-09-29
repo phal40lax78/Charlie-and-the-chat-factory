@@ -1,18 +1,18 @@
 {
-    "name": "claude-codex-chat-manager",
-    "displayName": "Chat Manager for Claude Code & Codex",
+    "name": "charlie-and-the-chat-factory",
+    "displayName": "Charlie and the Chat Factory - Claude Code & Codex",
     "description": "Mission control for your AI chats: every Claude Code chat on one always-on-top board and your phone, prompts queued for the usage reset. Codex and Copilot too.",
-    "version": "0.10.1",
+    "version": "0.10.2",
     "publisher": "redaechan",
     "license": "MIT",
     "icon": "icon.png",
     "repository": {
         "type": "git",
-        "url": "https://github.com/phal40lax78/claude-codex-chat-manager"
+        "url": "https://github.com/phal40lax78/Charlie-and-the-chat-factory"
     },
-    "homepage": "https://github.com/phal40lax78/claude-codex-chat-manager#readme",
+    "homepage": "https://github.com/phal40lax78/Charlie-and-the-chat-factory#readme",
     "bugs": {
-        "url": "https://github.com/phal40lax78/claude-codex-chat-manager/issues"
+        "url": "https://github.com/phal40lax78/Charlie-and-the-chat-factory/issues"
     },
     "engines": {
         "vscode": "^1.75.0"
@@ -87,12 +87,12 @@
             }
         ],
         "configuration": {
-            "title": "Chat Manager for Claude Code & Codex",
+            "title": "Charlie and the Chat Factory - Claude Code & Codex",
             "properties": {
                 "chatManager.folder": {
                     "type": "string",
                     "default": "",
-                    "markdownDescription": "The tool folder: `claude-codex-chat-manager.ps1`, its `src/`, and `data/` beside them. Empty means `~/Tools/claude-codex-chat-manager`. The extension installs and updates the scripts there - never in a git checkout, never in a folder holding other files - and reads its requests from `data/`. A full path; `~` stands for your home folder. A change takes effect after a window reload. `chatinstall` prints the line to set when the script lives elsewhere."
+                    "markdownDescription": "The tool folder: `Charlie-and-the-chat-factory.ps1`, its `src/`, and `data/` beside them. Empty means `~/Tools/Charlie-and-the-chat-factory`. The extension installs and updates the scripts there - never in a git checkout, never in a folder holding other files - and reads its requests from `data/`. A full path; `~` stands for your home folder. A change takes effect after a window reload. `chatinstall` prints the line to set when the script lives elsewhere."
                 },
                 "chatManager.autoReload": {
                     "type": "boolean",
@@ -113,6 +113,11 @@
                     "type": "boolean",
                     "default": true,
                     "markdownDescription": "A queued prompt going into a chat open in a tab here takes the tab's place with its live view, and turns back into the chat when it ends. Not while the tab is in front of you: the prompt waits until you leave it, or until `Hand over now`. Off, the run goes in beside the tab, whose view is stale until the run ends."
+                },
+                "chatManager.keepSessionSettings": {
+                    "type": "boolean",
+                    "default": true,
+                    "markdownDescription": "Carry Ultracode, and an effort level set for the session only (`max`, or one `/effort` set \"this session only\"), into a chat chatq closes and opens again - Show it, a chat put back after a queued run, the live view's `Open chat`: the new tab's claude process starts with them, and nothing is to be typed. Where they did not go in within a minute - a tab only revealed, not started again, or a Claude Code that starts claude another way - you are told what to type. Off, or in a remote window (claude starts on the other machine, out of reach), the new tab's input box holds `/effort ultracode` or `/effort <level>` to send, as before."
                 }
             }
         }

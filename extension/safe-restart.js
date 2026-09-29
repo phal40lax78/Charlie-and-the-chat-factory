@@ -36,7 +36,7 @@ function vs() { return require('vscode'); }
 function ext() { return require('./extension'); }
 function log(s) { ext()._log(s); }
 
-const ID = 'redaechan.claude-codex-chat-manager';
+const ID = 'redaechan.charlie-and-the-chat-factory';
 const RESTART = 'workbench.action.reloadWindow';
 const CANCEL = 'chatManager.cancelRestart';
 
@@ -58,18 +58,18 @@ const AGAIN = 'Try again';
 const WHY = { turn: '', prompt: ' (waiting on you)', background: ' (background work running)', run: ' (a queued prompt running)', '': '' };
 
 const texts = {
-    short: v => 'Chat Manager for Claude Code & Codex ' + v + ' is installed - reload the window to load it.',
-    long: (v, n, names) => 'Chat Manager for Claude Code & Codex ' + v + ' is installed. Loading it reloads this window, which stops ' +
+    short: v => 'Charlie and the Chat Factory ' + v + ' is installed - reload the window to load it.',
+    long: (v, n, names) => 'Charlie and the Chat Factory ' + v + ' is installed. Loading it reloads this window, which stops ' +
         (n === 1 ? 'the chat' : 'the ' + n + ' chats') + ' working here: ' + names + '.',
-    unknown: v => 'Chat Manager for Claude Code & Codex ' + v + ' is installed. Loading it reloads this window, which stops any chat working here - and which chats work could not be checked.',
+    unknown: v => 'Charlie and the Chat Factory ' + v + ' is installed. Loading it reloads this window, which stops any chat working here - and which chats work could not be checked.',
     waiting: n => '$(debug-restart) Chat Manager: reloads when ' + (n === 1 ? '1 chat is' : n + ' chats are') + ' idle',
     checking: '$(sync~spin) Chat Manager: checking the chats here before the reload',
     settling: '$(debug-restart) Chat Manager: reloads once the chats here stay idle a minute',
     unchecked: '$(debug-restart) Chat Manager: reload waits - the chats here could not be checked',
     tooOld: '$(debug-restart) Chat Manager: reload waits - the scripts in the tool folder are too old to check the chats here',
-    waitTip: v => 'Chat Manager for Claude Code & Codex ' + v + ' loads when this window reloads. That waits until no chat here works. Click to cancel.',
-    cancelled: v => 'The reload is off. Chat Manager for Claude Code & Codex ' + v + ' loads the next time this window reloads.',
-    failed: v => 'Chat Manager for Claude Code & Codex ' + (v || '') + ' is installed, but this window could not be reloaded to load it. Try again, or reload it yourself (Developer: Reload Window).',
+    waitTip: v => 'Charlie and the Chat Factory ' + v + ' loads when this window reloads. That waits until no chat here works. Click to cancel.',
+    cancelled: v => 'The reload is off. Charlie and the Chat Factory ' + v + ' loads the next time this window reloads.',
+    failed: v => 'Charlie and the Chat Factory ' + (v || '') + ' is installed, but this window could not be reloaded to load it. Try again, or reload it yourself (Developer: Reload Window).',
     reloadBusy: (n, names) => 'Reloading this window now would stop ' + (n === 1 ? 'the chat' : 'the ' + n + ' chats') + ' working here: ' +
         names + '. Reload once ' + (n === 1 ? 'it finishes' : 'they finish') + '.',
     reloadUnchecked: 'This window was not reloaded by itself: whether a chat here is working could not be checked, and a reload would stop it.'

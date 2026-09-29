@@ -1,5 +1,5 @@
 <#
-claude-codex-chat-manager - find, delete and queue prompts for local AI chats.
+Charlie-and-the-chat-factory - find, delete and queue prompts for local AI chats.
 
 Two tools in one, sharing one index and one way of picking a chat:
   chatrm  - find and delete chat transcripts. Claude Code, Copilot Chat and
@@ -13,9 +13,9 @@ Two tools in one, sharing one index and one way of picking a chat:
             the end, and your phone is told how it went.
 
 INSTALL   one line
-    iex (irm https://raw.githubusercontent.com/phal40lax78/claude-codex-chat-manager/main/install.ps1)
+    iex (irm https://raw.githubusercontent.com/phal40lax78/Charlie-and-the-chat-factory/main/install.ps1)
   or two, with the files already on disk - and the path need not be typed
-    . "$HOME\Tools\claude-codex-chat-manager\claude-codex-chat-manager.ps1"
+    . "$HOME\Tools\Charlie-and-the-chat-factory\Charlie-and-the-chat-factory.ps1"
     chatinstall
 
   To get that first line right without typing a path at all: type a dot and a
@@ -47,7 +47,7 @@ INSTALL   one line
   Copy the two together: without a part it names what is missing and loads
   nothing. It runs from anywhere - only src/ and data/ sit beside it - but a
   folder of its own that no other tool owns is the one to pick, hence
-  ~/Tools/claude-codex-chat-manager above. Not .claude, .codex or .vscode: those
+  ~/Tools/Charlie-and-the-chat-factory above. Not .claude, .codex or .vscode: those
   belong to the tools named after them, which rewrite them on update and clear
   them on reinstall, and would take the index with them. Not a folder shared with
   other scripts either, where a second data/ would land on top of this one.
@@ -242,7 +242,7 @@ FILES   everything in data/ beside this script, nothing anywhere else
 # handing back what you already had. extension/package.json carries the same
 # version: the extension installs this copy by it, and extension/build.js
 # refuses to pack the two apart.
-$script:ChatVersion = '0.10.1'
+$script:ChatVersion = '0.10.2'
 
 # The tool's folder and this file, read here once and never inside a function:
 # data/ sits in that folder, and the profile line, the watcher and the overlay
@@ -257,16 +257,16 @@ $script:ChatScriptPath = $PSCommandPath
 # Dot-sourced into this file's own scope, so everything lands where a
 # dot-source of this file puts it.
 if (-not $PSScriptRoot) {
-    Write-Host '  claude-codex-chat-manager loads its parts from src/ beside it, so it has to' -ForegroundColor Yellow
-    Write-Host '  be loaded from its file:  . "C:\path\to\claude-codex-chat-manager.ps1"' -ForegroundColor DarkGray
+    Write-Host '  Charlie-and-the-chat-factory loads its parts from src/ beside it, so it has to' -ForegroundColor Yellow
+    Write-Host '  be loaded from its file:  . "C:\path\to\Charlie-and-the-chat-factory.ps1"' -ForegroundColor DarkGray
     return
 }
-$chatParts = 'core', 'providers', 'chatrm', 'discoverability', 'queue', 'live-chats', 'alerts', 'phone', 'phone-extras', 'permit', 'ask', 'phone-down', 'phone-board', 'watcher', 'commands', 'phone-setup', 'overlay-data', 'overlay-windows', 'console', 'overlay-mac', 'overlay', 'auto-continue', 'host-work'
+$chatParts = 'core', 'icon', 'providers', 'chatrm', 'discoverability', 'queue', 'live-chats', 'alerts', 'phone', 'phone-extras', 'permit', 'ask', 'phone-down', 'phone-board', 'watcher', 'commands', 'phone-setup', 'overlay-data', 'overlay-windows', 'console', 'overlay-mac', 'overlay', 'auto-continue', 'host-work'
 $chatMissing = @($chatParts | Where-Object { -not (Test-Path -LiteralPath (Join-Path (Join-Path $PSScriptRoot 'src') "$_.ps1")) })
 if ($chatMissing) {
     # before any part loads: half the commands would fail in ways that
     # point nowhere near a missing file
-    Write-Host "  claude-codex-chat-manager: missing from $(Join-Path $PSScriptRoot 'src'): $(@($chatMissing | ForEach-Object { "$_.ps1" }) -join ', ')" -ForegroundColor Yellow
+    Write-Host "  Charlie-and-the-chat-factory: missing from $(Join-Path $PSScriptRoot 'src'): $(@($chatMissing | ForEach-Object { "$_.ps1" }) -join ', ')" -ForegroundColor Yellow
     Write-Host '  the script is this file and the src folder beside it - copy both, or run the installer again' -ForegroundColor DarkGray
     Remove-Variable chatParts, chatMissing -EA SilentlyContinue
     return
@@ -299,7 +299,7 @@ if ($MyInvocation.InvocationName -ne '.') {
     # iex has no file behind it, so PSCommandPath is empty there - printing
     # . "" would be advice nobody can follow, and is how an empty dot-source
     # line ends up pasted into a profile in the first place
-    $shown = if ($PSCommandPath) { $PSCommandPath } else { 'C:\path\to\claude-codex-chat-manager.ps1' }
+    $shown = if ($PSCommandPath) { $PSCommandPath } else { 'C:\path\to\Charlie-and-the-chat-factory.ps1' }
     Write-Host "      . `"$shown`"" -ForegroundColor Cyan
     Write-Host '  then chatinstall, to have every new shell do it for you' -ForegroundColor DarkGray
     Write-Host ''

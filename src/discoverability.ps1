@@ -1,4 +1,4 @@
-# claude-codex-chat-manager, src/discoverability.ps1: dot-sourced by claude-codex-chat-manager.ps1
+# Charlie-and-the-chat-factory, src/discoverability.ps1: dot-sourced by Charlie-and-the-chat-factory.ps1
 # in its turn, never on its own - see the list there.
 
 #region discoverability -------------------------------------------------------
@@ -17,7 +17,7 @@ function Compare-ChatVersion {
 
 # Any profile line that loads this file under a name it has had, or loads one
 # of the two tools it replaced - chatrm and chatq define the same commands.
-$script:ChatProfilePattern = '(chatrm|deleteLocalChat|chatq|VS-code-chat-manager|claude-codex-chat-manager)\.ps1'
+$script:ChatProfilePattern = '(chatrm|deleteLocalChat|chatq|VS-code-chat-manager|claude-codex-chat-manager|Charlie-and-the-chat-factory)\.ps1'
 
 function chatinstall {
     <#
@@ -37,7 +37,7 @@ function chatinstall {
     extension installs into each PowerShell's profile in turn, and restarts
     them once, after the last.
     .EXAMPLE
-    . C:\tools\claude-codex-chat-manager\claude-codex-chat-manager.ps1
+    . C:\tools\Charlie-and-the-chat-factory\Charlie-and-the-chat-factory.ps1
     chatinstall
     #>
     [CmdletBinding()]
@@ -47,7 +47,7 @@ function chatinstall {
     $me = $script:ChatScriptPath
     if (-not $me) {
         Write-Host '  cannot tell where this file is' -ForegroundColor Yellow
-        Write-Host '  dot-source it by path first:  . C:\path\to\claude-codex-chat-manager.ps1' -ForegroundColor DarkGray
+        Write-Host '  dot-source it by path first:  . C:\path\to\Charlie-and-the-chat-factory.ps1' -ForegroundColor DarkGray
         return
     }
     # only Windows marks downloads; elsewhere the cmdlet does not exist at all.
@@ -148,10 +148,10 @@ function chatinstall {
     }
     if (-not $NoRestart) { Restart-ChatBackground }
 
-    # The extension defaults to ~/Tools/claude-codex-chat-manager. Anywhere else
+    # The extension defaults to ~/Tools/Charlie-and-the-chat-factory. Anywhere else
     # needs the setting, and without it its prompts simply never appear - a
     # silence that looks like the extension being broken.
-    $defaultRoot = Join-Path (Join-Path $HOME 'Tools') 'claude-codex-chat-manager'
+    $defaultRoot = Join-Path (Join-Path $HOME 'Tools') 'Charlie-and-the-chat-factory'
     if ($script:ChatRoot -ne $defaultRoot) {
         Write-Host '    using the VS Code extension? set chatManager.folder to' -ForegroundColor DarkGray
         Write-Host "      $($script:ChatRoot)" -ForegroundColor DarkGray
@@ -339,7 +339,7 @@ function chat {
     Write-Host '  -Provider claude|copilot|codex   -Deep   -All   -AllProjects   -Force'
     Write-Host '  Get-Help chatfind -Full           full help, examples and notes'
     Write-Host ''
-    Write-Host "  claude-codex-chat-manager $script:ChatVersion" -ForegroundColor DarkGray
+    Write-Host "  Charlie-and-the-chat-factory $script:ChatVersion" -ForegroundColor DarkGray
     Write-Host "  $script:ChatScriptPath" -ForegroundColor DarkGray
     Write-Host ''
 }

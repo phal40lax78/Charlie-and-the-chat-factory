@@ -37,6 +37,6 @@ $esc = [System.Management.Automation.Language.CodeGeneration]::EscapeSingleQuote
 Check 'completion quotes a typographic apostrophe' ($null -ne [scriptblock]::Create("'$esc'"))
 # a profile with StrictMode on: dot-source there, then only what a user types
 $exe = (Get-Process -Id $PID).Path
-$probe = "Set-StrictMode -Version Latest; `$ErrorActionPreference = 'Stop'; try { . '$(Join-Path $sb 'tool\claude-codex-chat-manager.ps1')'; Set-Location -LiteralPath '$projA'; chatq plugin -WhatIf *> `$null; chatqlist *> `$null; chatqlog 1 *> `$null; `$r = & `$script:ChatTitleCompleter 'chatq' 'Target' 'Pars' `$null @{}; 'ok' } catch { 'threw: ' + `$_.Exception.Message }"
+$probe = "Set-StrictMode -Version Latest; `$ErrorActionPreference = 'Stop'; try { . '$(Join-Path $sb 'tool\Charlie-and-the-chat-factory.ps1')'; Set-Location -LiteralPath '$projA'; chatq plugin -WhatIf *> `$null; chatqlist *> `$null; chatqlog 1 *> `$null; `$r = & `$script:ChatTitleCompleter 'chatq' 'Target' 'Pars' `$null @{}; 'ok' } catch { 'threw: ' + `$_.Exception.Message }"
 $strict = (& $exe -NoProfile -NonInteractive -Command $probe | Select-Object -Last 1)
 Check 'works from a StrictMode Latest session' ($strict -eq 'ok') $strict

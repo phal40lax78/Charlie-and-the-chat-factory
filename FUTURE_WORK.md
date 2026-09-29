@@ -271,7 +271,7 @@ app. Worth it only if the one tap turns out to be the part people skip.
 ## The reply page on an origin of its own by default
 
 **Why deferred:** the page is served from
-`https://phal40lax78.github.io/claude-codex-chat-manager/`, and every project
+`https://phal40lax78.github.io/Charlie-and-the-chat-factory/`, and every project
 page of that account is the same site to a browser: a script on another of
 them, opened in the phone's browser, could use the phone's key - not copy
 it, since it will not export, but post replies with it. An origin of its
@@ -872,37 +872,85 @@ window's process started, and say `stale` in the request.
 
 ## Ultracode and a session-only effort on a tab chatq opens again
 
-**Why deferred:** Claude Code (2.1.284) keeps Ultracode, and an effort
-level set for the session only, in the running process alone. A tab chatq
-closes and opens again - Show it, or the chat put back after a handover -
-starts a new process without them, so
-[lostByReopen](extension/extension.js) reads what the chat had and the
-open puts one `/effort` in the new tab's input box - Ultracode first, as
-`/effort` takes one setting at a time - for you to send. Left:
-- You still press Enter; nothing comes back by itself.
-- With both lost only Ultracode is pre-filled; the notice names the level
-  to type after.
-- Whether a typed `/effort <level>` below max stays session-only in a VS
-  Code tab is not settled: 2.1.284's `/effort` saves a level as the
-  default for some callers and not others, and which a tab is was not
-  read (TESTING, S48 item 6). So the notice promises only that typed, it
-  leaves Ultracode on.
+**Closed, in a local window:** Claude Code (2.1.284) keeps Ultracode, and
+an effort level set for the session only, in the running process alone,
+so a tab chatq closes and opens again - Show it, the chat put back after
+a handover, the live view's Open chat - starts a new process without
+them. [lostByReopen](extension/extension.js) reads what the chat had, and
+[armCarry](extension/extension.js) arms the chat right before chatq's own
+open: [installSpawnHook](extension/extension.js) has put a wrapper in
+`require('child_process').spawn`, and [carryArgs](extension/extension.js)
+adds `--settings {"ultracode":true}` and `--effort <level>` to the one
+launch that names the chat as `--resume=<id>`. Nothing goes into the input
+box. `chatManager.keepSessionSettings: false` brings back the pre-fill,
+one `/effort` in the new tab's input box to send. What was not carried
+within `timing.carryWait` (60 s) is said, to be typed
+([reportCarry](extension/extension.js)) - among them an open that only
+revealed a tab whose process had exited, which starts nothing. An arm a
+newer open of the chat took over says nothing: the newer open's word is
+the one ([armCarry](extension/extension.js)).
+
+What the chat had is what the process being replaced had. A transcript
+never says where a process began, so Ultracode switched on in a process
+a restart or a Claude Code update ended since read as on to its end -
+and was carried, on, into a chat that no longer had it (found with
+ac284315: entered under 2.1.283 on 09-28, reopened under 2.1.285 on
+09-30). The hook, in from activation, notes every `--resume` launch and
+what chatq put into it ([carryArgs](extension/extension.js)), and
+[sessionSettingsIn](extension/extension.js) stops at that launch -
+[processStart](extension/extension.js), else this extension host's
+start. A handover keeps that start in its record, so a reload before
+the chat is put back does not move it.
+
+**Why the rest is deferred:**
+- **A process whose start is not known is bounded by this window's
+  start.** A chat's process in another window, or ended before a reload
+  with no handover record to say when it began - the live view's Open
+  chat after a reload, a handover recorded by 0.10.2 before this - is
+  read from this extension host's start: what it had is not carried, as
+  before 0.10.2 it was not either. A carry missed costs a command to
+  type; a stale one turns on Ultracode that nobody wanted.
+- **A restart inside one window** that Claude Code makes without a
+  `--resume` launch - none is known - would not be seen.
+- **It rests on Claude Code's SDK internals.** Its launch looks up `spawn`
+  on the shared `child_process` module at each call, sets no
+  `spawnClaudeCodeProcess` of its own, and puts `--resume=<id>` on the
+  command line; the extension passes no `--settings` or `--effort` of its
+  own. A version that changes any of these carries nothing, and each
+  reopen falls back to the notice a minute later. Nothing tells chatq
+  sooner.
+- **Remote windows** (WSL, SSH, containers) start claude on the remote
+  host, where this extension host's hook never sees the launch. chatq
+  runs in the local host (`extensionKind` `ui`), so it plans no carry
+  where `vscode.env.remoteName` is set ([carryReaches](extension/extension.js)):
+  the pre-fill and the notice at once, as before. A Claude Code forced to
+  the local side there (`remote.extensionKind`) would be reachable, but
+  keeps the pre-fill too.
+- **A later respawn of the same tab** by Claude Code itself - a crash, a
+  restart it does of its own - starts without them: the arm is taken by
+  the first launch, on purpose, so a chat opened by hand later is never
+  given what chatq meant for its own reopen.
+- **A max from elsewhere is carried as if session-only.** A max seen only
+  as the level your last turn ran at may have come from
+  `CLAUDE_CODE_EFFORT_LEVEL`, an org default or a skill's own effort
+  ([sessionSettingsIn](extension/extension.js)); the new process then gets
+  `--effort max` it did not need, or more than that one skill wanted.
 - A switch made in the tab's effort menu writes nothing to the transcript
   until the next prompt, so a tab closed right after one reads as before
-  it: Ultracode switched off there comes back pre-filled.
-- A max seen only as the level your last turn ran at may have come from
-  `CLAUDE_CODE_EFFORT_LEVEL`, an org default or a skill's own effort
-  ([sessionSettingsIn](extension/extension.js)); putting it back is then
-  redundant, or more than that one skill wanted.
+  it: Ultracode switched off there comes back on.
+- Whether `/effort` can switch off an Ultracode that came from
+  `--settings` is not checked; `--effort` pins nothing - a later `/effort`
+  still sets another level.
+- On the fallback's pre-fill: whether a typed `/effort <level>` below max
+  stays session-only in a VS Code tab is not settled (TESTING, S48 item
+  6), so the notice promises only that typed, it leaves Ultracode on.
 
-**To close:** one of:
-- Claude Code keeping them across a reopen, or taking them with the open
-  (an effort beside the prompt its open command takes).
-- A `claudeCode.claudeProcessWrapper` that adds them at the spawn. Its
-  costs: Claude Code then resolves the permission mode itself and skips
-  its update check; every chat starts through the script, so a broken or
-  moved wrapper stops every chat; and a `.cmd` wrapper on Windows is
-  unproven.
+**To close:** Claude Code keeping them across a reopen, or taking them
+with the open (an effort beside the prompt its open command takes) -
+then the hook goes. A remote window would need the same from Claude
+Code, or a `claudeCode.claudeProcessWrapper` on the remote side, with its
+costs: Claude Code then resolves the permission mode itself and skips its
+update check, and a broken or moved wrapper stops every chat.
 
 ## A queued run's Ultracode and level are asked for, not confirmed
 

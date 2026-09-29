@@ -50,6 +50,17 @@ Module._load = function (req) {
     return load.apply(this, arguments);
 };
 const ext = require(path.join(__dirname, '..', 'extension', 'extension.js'));
+// The spawn hook that carries Ultracode and a level into a reopen goes into
+// a stand-in for child_process: a test never hooks the real one. spawned:
+// every launch's arguments, as the stand-in's own spawn got them
+const fakeCp = { spawned: [], spawn(...a) { fakeCp.spawned.push(a); return { args: a }; } };
+ext._carryIo.mod = fakeCp;
+// The transcripts written here are dated 2026, before this test began: the
+// extension host started at the epoch, and a launch is noted there too, so
+// every record is of the chat's current process unless a check says when
+// that one began
+ext._carryIo.hostStart = 0;
+ext._carryIo.now = () => 0;
 // Before any reload, and for a new install, the extension asks the script
 // which chats of its window work (safe-restart.js). A test never runs that
 // PowerShell - it would load the real tool folder's scripts - so the answer
@@ -58,6 +69,12 @@ const safe = require(path.join(__dirname, '..', 'extension', 'safe-restart.js'))
 const noWork = async () => ({ hostPid: process.pid, known: true, chats: [] });
 safe._hostWork = noWork;
 let failed = 0, total = 0;
+// A run that ends before its summary fails: an await on what never comes,
+// with nothing else holding the event loop, lets node exit 0 there, the
+// checks after it never run. The summary alone sets the code.
+let summed = false;
+process.exitCode = 1;
+process.on('exit', () => { if (!summed) console.log('  FAIL  the run ended before its summary, after ' + total + ' checks: an await nothing settled'); });
 const check = (name, ok, detail) => {
     total++;
     if (!ok) failed++;
@@ -99,7 +116,7 @@ check('a folder inside it', ext._isMine({ cwd: path.resolve('/work/projA/src') }
 check('not the sibling -Mobile folder', !ext._isMine({ cwd: path.resolve('/work/projA-Mobile') }));
 const files = ext._signalFiles();
 check('by default only this tool\'s own folder', files.length === 1 &&
-    files[0].endsWith(path.join('claude-codex-chat-manager', 'data', 'reload-request')));
+    files[0].endsWith(path.join('Charlie-and-the-chat-factory', 'data', 'reload-request')));
 
 // --- showing a chat fresh: the pure parts -------------------------------------
 const SID = '11111111-1111-4111-8111-111111111111';
@@ -348,7 +365,7 @@ check('watch page: a full batch - the page loaded again - built apart and put in
     JSON.stringify([pg1, pg2, pg3, pg4, pg.ids().slice(0, 5)]));
 
 const dec = (args) => Buffer.from(args[args.length - 1], 'base64').toString('utf16le');
-const [vExe, vArgs] = ext._verdictCommand('C:\\t\\claude-codex-chat-manager.ps1', { sessionId: SID, cwd: "D:\\it's here", home: 'D:\\h\u2019s' });
+const [vExe, vArgs] = ext._verdictCommand('C:\\t\\Charlie-and-the-chat-factory.ps1', { sessionId: SID, cwd: "D:\\it's here", home: 'D:\\h\u2019s' });
 const vText = dec(vArgs);
 check('Show it\'s check: marked as the overlay, every value quoted, curly ones too',
     vText.startsWith("$env:CHATQ_OVERLAY='1'") && vText.includes("-Cwd 'D:\\it''s here'") && vText.includes("-ConfigDir 'D:\\h\u2019\u2019s'") &&
@@ -368,7 +385,7 @@ check('bad JSON, or a field of the wrong type, is no verdict', ext._parseVerdict
     ext._parseVerdict('{"busy":false,"oldProcess":"gone","outcome":"ok","hostPids":[]}') === null &&
     ext._parseVerdict('{"busy":false,"oldProcess":"ended","outcome":"ok","hostPids":["1"]}') === null && ext._parseVerdict('') === null);
 const of = ext._openFiles();
-check('the open requests: data/open-request beside the reload one', of.length === 1 && of[0].endsWith(path.join('claude-codex-chat-manager', 'data', 'open-request')));
+check('the open requests: data/open-request beside the reload one', of.length === 1 && of[0].endsWith(path.join('Charlie-and-the-chat-factory', 'data', 'open-request')));
 cfgVals['chatManager.folder'] = path.resolve('/t/tool');
 check('both follow chatManager.folder', ext._signalFiles()[0] === path.resolve('/t/tool/data/reload-request') &&
     ext._openFiles()[0] === path.resolve('/t/tool/data/open-request'));
@@ -462,6 +479,9 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     const titles = { [SID]: 'T' };
     let fail = {};
     let makeLater = 0;
+    // onMake: called with the chat's id as an open makes its new tab - where
+    // the Claude extension would start the tab's claude process
+    let onMake = null;
     let revealMode = 'normal';
     // never: the command given never settles
     let never = '';
@@ -492,7 +512,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
             const have = tabs.concat(tabs2).find(t => t.sid === sid);
             if (revealMode === 'nothing') return;
             if (have) { slot(have.group).act.tab = have; return; }
-            const make = () => { const t = claudeTab(sid, titles[sid], makeIn); const s = slot(makeIn); s.list.push(t); s.act.tab = t; };
+            const make = () => { const t = claudeTab(sid, titles[sid], makeIn); const s = slot(makeIn); s.list.push(t); s.act.tab = t; if (onMake) onMake(sid); };
             if (makeLater) setTimeout(make, makeLater); else make();
         }
     };
@@ -1926,7 +1946,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         check('handover: Hand over now - only that job\'s wait cleared, while it still waits for its tab, and the watcher poked, through the tool folder\'s loader; the next handover of that job goes ahead in front of you',
             h4 === 'asked' && h4Ps.length === 1 && h4Ps[0].includes("$j = Find-ChatqJob '" + JOB + "' -Exact") && h4Ps[0].includes("$j.state -eq 'queued'") &&
             h4Ps[0].includes("(Get-ChatField $j 'deferWhy') -eq 'in-use'") && h4Ps[0].includes("Set-ChatqProp $j 'deferUntil' $null; Save-ChatqJob $j") &&
-            h4Ps[0].includes('Request-ChatqWatcher -Wake poke') && !/-Wake now/.test(h4Ps[0]) && h4Ps[0].endsWith(' @ ' + path.join(rt, 'claude-codex-chat-manager.ps1')) &&
+            h4Ps[0].includes('Request-ChatqWatcher -Wake poke') && !/-Wake now/.test(h4Ps[0]) && h4Ps[0].endsWith(' @ ' + path.join(rt, 'Charlie-and-the-chat-factory.ps1')) &&
             h4b.acted === 'closing' && ackOf().answer === 'closing' && calls.includes('close:T'),
             JSON.stringify([h4, h4b]) + ' ' + h4Ps.join(' | ') + ' ' + calls.join());
         // a notice left in the notification centre, clicked after its job
@@ -2547,7 +2567,14 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         const cb = (x) => jl(Object.assign({ type: 'system', subtype: 'compact_boundary', content: 'Conversation compacted', timestamp: new Date(hpAt += 20000).toISOString(),
             entrypoint: 'claude-vscode', isSidechain: false }, x));
         const at0 = '2026-09-29T08:00:00.000Z', ts0 = Date.parse(at0);
-        const lineOf = (l) => JSON.stringify(ext._effortLine(l) === undefined ? 'none' : ext._effortLine(l));
+        // ts: its time where it has one - at0, or 'other' for any other
+        const lineOf = (l) => {
+            const r = ext._effortLine(l);
+            if (r === undefined) return JSON.stringify('none');
+            if (!Number.isFinite(r.ts)) delete r.ts;
+            else if (r.ts !== ts0) r.ts = 'other';
+            return JSON.stringify(r);
+        };
         const lines = [lc(T.max), lc(T.max, 'sdk-cli'), lc(T.ucOn, 'sdk-py'), lc(T.max, 'claude-vscode', { commandRun: { command: 'model', args: 'max' } }), lc(T.invalid),
             at('max'), at('high', 'sdk-ts'), at('high', 'claude-vscode', { isSidechain: true }), ua(true, 'claude-vscode'), ua(false, 'cli'), ua(false, 'sdk-py'),
             '{"type":"attachment","attachment":{"type":"ultra_effort_x"}}', '{"type":"attachment","attachment":{"type":"ultra_effort_enter"',
@@ -2555,9 +2582,9 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
             user('[Request interrupted by user]', { entrypoint: 'claude-vscode' }), user([{ type: 'tool_result', tool_use_id: 't1', content: 'ultra_effort_enter' }], { entrypoint: 'claude-vscode' }),
             user('<command-name>/effort</command-name>', { entrypoint: 'claude-vscode', isMeta: true }), hp('the summary', { isCompactSummary: true }),
             hp('go', { entrypoint: 'sdk-cli' }), hp('go', { isSidechain: true }), cb({ entrypoint: 'sdk-cli', timestamp: at0 })].map(lineOf);
-        check('effort: a line\'s kind - /effort\'s answer, an assistant turn\'s level, an Ultracode notice, a prompt typed, another user record, a compaction; of a claude -p run\'s only its notices and compactions; none of a subagent\'s, another command\'s, a tool\'s result, a meta record - nor the words in a message',
-            lines.join() === ['{"k":"S","set":"max"}', '"none"', '"none"', '"none"', '"none"', '{"k":"A","effort":"max"}', '"none"', '"none"', '{"k":"N","on":true,"own":true}',
-                '{"k":"N","on":false,"own":true}', '{"k":"N","on":false,"own":false}', '"none"', '"none"', '{"k":"H","ts":' + ts0 + '}', '{"k":"F"}', '"none"', '"none"', '{"k":"F"}',
+        check('effort: a line\'s kind, and its time where it has one - /effort\'s answer, an assistant turn\'s level, an Ultracode notice, a prompt typed, another user record, a compaction; of a claude -p run\'s only its notices and compactions; none of a subagent\'s, another command\'s, a tool\'s result, a meta record - nor the words in a message',
+            lines.join() === ['{"k":"S","set":"max"}', '"none"', '"none"', '"none"', '"none"', '{"k":"A","effort":"max"}', '"none"', '"none"', '{"k":"N","on":true,"own":true,"ts":"other"}',
+                '{"k":"N","on":false,"own":true,"ts":"other"}', '{"k":"N","on":false,"own":false,"ts":"other"}', '"none"', '"none"', '{"k":"H","ts":' + ts0 + '}', '{"k":"F"}', '"none"', '"none"', '{"k":"F","ts":"other"}',
                 '"none"', '"none"', '{"k":"B","ts":' + ts0 + '}'].join(), lines.join());
         const U = {
             on: uf('on', uHead + ua(true, 'claude-vscode') + uFill(5)),
@@ -2634,7 +2661,33 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
             fs.statSync(U.far).size > 90000 && uCut === null && uNear === true && sCut.ultracode === null && sCut.effort === null,
             JSON.stringify(uSmall) + ' ' + JSON.stringify(sSmall) + ' ' + uCut + ' ' + uNear + ' ' + JSON.stringify(sCut));
 
-        // what a reopen loses, and what goes into the new panel's input box
+        // bounded by the launch of the chat's current process: a record from
+        // before it is an older process's, whose settings died with it
+        const tOld = Date.parse('2026-09-28T07:58:45.000Z'), tLaunch = Date.parse('2026-09-30T00:00:00.000Z');
+        const iso = (t) => ({ timestamp: new Date(t).toISOString() });
+        const enterAt = (t) => jl(Object.assign({ type: 'attachment', attachment: { type: 'ultra_effort_enter', reminderType: 'full' }, entrypoint: 'claude-vscode', sessionId: SID }, iso(t)));
+        const BT = {
+            // ac284315 as it went: Ultracode in a 2.1.283 process two days
+            // back, max set for the session in today's
+            stale: uf('bstale', hp('a', iso(tOld)) + enterAt(tOld) + at('xhigh', 'claude-vscode', iso(tOld + 3000)) + lc(T.max, 'claude-vscode', iso(tLaunch + 60000))),
+            // Ultracode on in today's process
+            fresh: uf('bfresh', hp('a', iso(tOld)) + at('high', 'claude-vscode', iso(tOld + 3000)) + hp('b', iso(tLaunch + 1000)) + enterAt(tLaunch + 1000) +
+                at('xhigh', 'claude-vscode', iso(tLaunch + 2000))),
+            // nothing of today's process yet
+            quiet: uf('bquiet', hp('a', iso(tOld)) + enterAt(tOld) + lc(T.max, 'claude-vscode', iso(tOld + 3000))),
+            // a turn of today's process at high
+            turned: uf('bturned', hp('a', iso(tOld)) + enterAt(tOld) + hp('b', iso(tLaunch + 1000)) + at('high', 'claude-vscode', iso(tLaunch + 2000)))
+        };
+        const bRead = async (f, start) => { const r = await ext._sessionSettingsIn(f, start); return [r.ultracode, r.effort]; };
+        const L0 = { at: tLaunch, ultracode: false, effort: null }, LUM = { at: tLaunch, ultracode: true, effort: 'max' };
+        const bAll = [await bRead(BT.stale), await bRead(BT.stale, L0), await bRead(BT.fresh, L0), await bRead(BT.quiet, L0), await bRead(BT.quiet, LUM),
+            await bRead(BT.turned, LUM), await bRead(BT.turned, { at: tLaunch, ultracode: false, effort: 'high' })];
+        check('effort: bounded by the launch of the chat\'s process - Ultracode entered in an older one, a level set before: gone, the level set since kept; on since: on; nothing since: what the launch was given; a level it was given, a turn since at another: changed since',
+            JSON.stringify(bAll) === JSON.stringify([[true, 'max'], [false, 'max'], [true, null], [false, null], [true, 'max'], [true, null], [false, 'high']]), JSON.stringify(bAll));
+
+        // what a reopen loses, and what goes into the new panel's input box:
+        // with chatManager.keepSessionSettings off, as before it was carried
+        cfgVals['chatManager.keepSessionSettings'] = false;
         const uChatDir = path.join(homeR, 'projects', ext._chatSlug(projA));
         fs.mkdirSync(uChatDir, { recursive: true });
         const uChat = path.join(uChatDir, SID + '.jsonl');
@@ -2767,6 +2820,25 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
             ur.join(' ') === [JSON.stringify([['new'], ['/effort ultracode'], [sayU]]), JSON.stringify([['new'], ['/effort ultracode'], [sayB]]), JSON.stringify([['new'], [null], []]),
                 JSON.stringify([['new'], [null], []]), JSON.stringify([['revealed'], [null], [typeM]])].join(' '),
             ur.join(' '));
+        // the handover's record keeps when the process its close ended began:
+        // a transcript all from before that - an older process's - puts
+        // nothing back; a host started since - a reload between - does not
+        // move it
+        const uBound = async (f, hostAtHandover, hostAtRestore) => {
+            ext._carryIo.hostStart = hostAtHandover;
+            try {
+                await handOver({ home: homeR });
+                uPut(f);
+                ext._carryIo.hostStart = hostAtRestore;
+                panels[0].active = true;
+                const e = await endIt({}, { home: homeR });
+                return JSON.stringify([e.restored, prompts(), noticed()]);
+            } finally { ext._carryIo.hostStart = 0; }
+        };
+        const tLater = Date.parse('2099-01-01T00:00:00.000Z');
+        const ub = [await uBound(S.real, tLater, 0), await uBound(S.real, 0, tLater)];
+        check('effort: the chat put back after a handover - bounded by the start its record kept: a transcript from before it puts nothing back; a reload since leaves it',
+            ub.join(' ') === [JSON.stringify([['new'], [null], []]), JSON.stringify([['new'], ['/effort ultracode'], [sayB]])].join(' '), ub.join(' '));
         // asked, and the answer late: the chat opened by hand meanwhile, a
         // process of it idle - Show it, nothing given or said; still closed -
         // the pre-fill, and said
@@ -2821,6 +2893,324 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
             uw.join(' ') === [JSON.stringify(['new', ['/effort ultracode'], [sayB], true]), JSON.stringify(['new', [null], [], true]), JSON.stringify(['new', [null], [], true]),
                 JSON.stringify(['revealed', [null], [typeB], true])].join(' '),
             uw.join(' '));
+
+        // --- Ultracode and the level carried into the new process ------------
+        // chatManager.keepSessionSettings on, as by default. The hook goes into
+        // stand-ins of child_process; a new tab's launch is made by hand
+        // (onMake), as the Claude extension's SDK makes it
+        {
+        delete cfgVals['chatManager.keepSessionSettings'];
+        ext._removeSpawnHook();
+        const fakeSpawn = fakeCp.spawn;
+        const launch = (argv, opts) => fakeCp.spawn('claude.exe', argv, opts || { cwd: projA });
+        const lastArgs = () => { const a = fakeCp.spawned[fakeCp.spawned.length - 1]; return a ? a[1] : null; };
+        const R = '--resume=' + SID;
+        const NONE = '{"ultracode":false,"effort":null}';
+        // an arm's promise, or 'late': its timer is unref'd, so an arm that
+        // never settles would otherwise end the run here
+        const within = (p) => Promise.race([p, new Promise(r => setTimeout(() => r('late'), 1000))]);
+        const modA = { spawn(...a) { return { self: this, a }; } };
+        const origA = modA.spawn;
+        const hIn = ext._installSpawnHook(modA);
+        const hWrapped = modA.spawn !== origA;
+        const hAgain = ext._installSpawnHook(modA);
+        const hThrough = modA.spawn('x', ['a', R], { cwd: 'c' });
+        const hOut = ext._removeSpawnHook();
+        const hBack = modA.spawn === origA;
+        ext._installSpawnHook(modA);
+        const ours = modA.spawn;
+        const theirs = function () { return ours.apply(this, arguments); };
+        modA.spawn = theirs;
+        const hCovered = ext._removeSpawnHook();
+        const hKept = modA.spawn === theirs;
+        const frozen = Object.freeze({ spawn() { } });
+        const hFrozen = ext._installSpawnHook(frozen);
+        check('carry: the spawn hook - in once, as the module\'s spawn; a launch with nothing armed through as it came, its this kept; out, the original back; another hook put over it later - left in place, theirs kept; a module that refuses it - not in',
+            hIn === true && hWrapped && hAgain === true && hThrough.self === modA && JSON.stringify(hThrough.a) === JSON.stringify(['x', ['a', R], { cwd: 'c' }]) &&
+            hOut === 'removed' && hBack && hCovered === 'covered' && hKept && hFrozen === false && ext._removeSpawnHook() === 'none',
+            JSON.stringify([hIn, hWrapped, hAgain, hOut, hBack, hCovered, hKept, hFrozen]));
+        // no hook to be had: the pre-fill as before, and an arm carries nothing
+        ext._carryIo.mod = frozen;
+        const noHook = await Promise.race([ext._armCarry(SID, { ultracode: true, effort: 'max' }), new Promise(r => setTimeout(() => r('late'), 50))]);
+        uPut(S.real);
+        const planNoHook = JSON.stringify(await ext._lostByReopen(reqU));
+        ext._carryIo.mod = fakeCp;
+        const planOn = JSON.stringify(await ext._lostByReopen(reqU));
+        cfgVals['chatManager.keepSessionSettings'] = false;
+        const planOff = JSON.stringify(await ext._lostByReopen(reqU));
+        delete cfgVals['chatManager.keepSessionSettings'];
+        check('carry: planned - the setting on and the hook in: both lost, nothing to pre-fill; off, or no hook to be had: the pre-fill as before; no hook - an arm carries nothing, at once',
+            planOn === JSON.stringify({ ultracode: true, effort: 'max', prefill: null }) && planOff === JSON.stringify(LB) && planNoHook === JSON.stringify(LB) &&
+            JSON.stringify(noHook) === NONE && fakeCp.spawn !== fakeSpawn, [planOn, planOff, planNoHook, JSON.stringify(noHook)].join(' '));
+        // a remote window: claude starts on the remote host, out of the
+        // hook's reach - the pre-fill and the word at once, as before, no arm
+        let planRemote, reachRemote, showRemote, armsRemote;
+        try {
+            stub.env = { remoteName: 'wsl' };
+            planRemote = JSON.stringify(await ext._lostByReopen(reqU));
+            reachRemote = ext._carryReaches();
+            showRemote = await uShow(S.real);
+            armsRemote = ext._carryArms.size;
+        } finally {
+            delete stub.env;
+        }
+        check('carry: a remote window - not planned: the pre-fill as before, Show it\'s reopen given it and said at once, nothing armed; a local one - reached',
+            planRemote === JSON.stringify(LB) && reachRemote === false && showRemote === JSON.stringify(['reopened', [null, '/effort ultracode'], [sayB]]) && armsRemote === 0 &&
+            ext._carryReaches() === true, JSON.stringify([planRemote, reachRemote, showRemote, armsRemote]));
+        // what a launch takes
+        fakeCp.spawned.length = 0;
+        logged.length = 0;
+        const o1 = { cwd: projA };
+        const c1 = ext._armCarry(SID, { ultracode: true, effort: 'max' });
+        launch(['--output-format', 'stream-json', R], o1);
+        const a1 = fakeCp.spawned[0];
+        const g1 = await within(c1);
+        launch(['--output-format', 'stream-json', R]);
+        const a2 = lastArgs();
+        const c3 = ext._armCarry(SID.toUpperCase(), { effort: 'max' });
+        launch(['--resume', SID, '--', 'x']);
+        const a3 = lastArgs();
+        const g3 = await within(c3);
+        check('carry: a launch of the armed chat - --resume=<id>, or --resume and the id - takes --settings {"ultracode":true} and --effort max, before a -- where there is one, its command and options as they were; once: its next launch as it came; logged',
+            JSON.stringify(a1[1]) === JSON.stringify(['--output-format', 'stream-json', R, '--settings', '{"ultracode":true}', '--effort', 'max']) && a1[0] === 'claude.exe' && a1[2] === o1 &&
+            JSON.stringify(g1) === '{"ultracode":true,"effort":"max"}' && JSON.stringify(a2) === JSON.stringify(['--output-format', 'stream-json', R]) &&
+            JSON.stringify(a3) === JSON.stringify(['--resume', SID, '--effort', 'max', '--', 'x']) && JSON.stringify(g3) === '{"ultracode":false,"effort":"max"}' &&
+            logged.includes('spawn 11111111: carried Ultracode, effort max') && logged.includes('spawn 11111111: carried effort max') && ext._carryArms.size === 0,
+            JSON.stringify([a1, g1, a2, a3, g3]) + ' ' + logged.join(' | '));
+        const SIDx = '44444444-4444-4444-8444-444444444444';
+        const c4 = ext._armCarry(SID, { ultracode: true, effort: 'max' });
+        fakeCp.spawned.length = 0;
+        for (const a of [['--resume=' + SIDx], ['--output-format', 'stream-json'], ['--resume']]) launch(a);
+        fakeCp.spawn('claude.exe', { cwd: projA });
+        const oSeen = JSON.stringify(fakeCp.spawned.map(a => a.slice(1)));
+        const pending = ext._carryArms.has(SID);
+        const c5 = ext._armCarry(SID, { ultracode: true });
+        const g4 = await within(c4);
+        launch([R]);
+        const g5 = await within(c5);
+        check('carry: another chat\'s launch, one of no chat, --resume with no id, a launch with no list of arguments - each as it came, the arm still there; a newer arm for the chat - the older settles null, taken over, the newer carries what it asked',
+            oSeen === JSON.stringify([[['--resume=' + SIDx], { cwd: projA }], [['--output-format', 'stream-json'], { cwd: projA }], [['--resume'], { cwd: projA }], [{ cwd: projA }]]) &&
+            pending && g4 === null && JSON.stringify(g5) === '{"ultracode":true,"effort":null}' &&
+            JSON.stringify(lastArgs()) === JSON.stringify([R, '--settings', '{"ultracode":true}']), oSeen + ' ' + JSON.stringify([g4, g5, lastArgs()]));
+        // every launch of a chat noted, armed or not, with what went in: the
+        // bound of what a later reopen carries (processStart)
+        ext._carryIo.now = () => 7;
+        launch(['--resume', SIDx.toUpperCase()]);
+        ext._carryIo.now = () => 0;
+        const pX = ext._processStart(SIDx), pS = ext._processStart(SID.toUpperCase());
+        const pNone = ext._processStart('55555555-5555-4555-8555-555555555555');
+        const vs = [ext._validStart({ at: 5, ultracode: true, effort: 'max' }), ext._validStart({ at: 5, ultracode: 'yes', effort: 'huge' }), ext._validStart({ at: 'x' }), ext._validStart(null)];
+        check('carry: every launch of a chat noted - one of no arm with nothing put in, the armed one with what went in; a chat never launched here - this extension host\'s start; a kept one read back, or null',
+            JSON.stringify(pX) === JSON.stringify({ at: 7, ultracode: false, effort: null }) && JSON.stringify(pS) === JSON.stringify({ at: 0, ultracode: true, effort: null }) &&
+            JSON.stringify(pNone) === JSON.stringify({ at: 0, ultracode: false, effort: null }) &&
+            JSON.stringify(vs) === JSON.stringify([{ at: 5, ultracode: true, effort: 'max' }, { at: 5, ultracode: false, effort: null }, null, null]),
+            JSON.stringify([pX, pS, pNone, vs]));
+        // a launch naming either flag itself
+        logged.length = 0;
+        const c6 = ext._armCarry(SID, { ultracode: true, effort: 'max' });
+        launch([R, '--settings', '{"model":"x"}']);
+        const a6 = lastArgs(), g6 = await within(c6);
+        const c7 = ext._armCarry(SID, { ultracode: true, effort: 'max' });
+        launch([R, '--effort=high']);
+        const a7 = lastArgs(), g7 = await within(c7);
+        const c8 = ext._armCarry(SID, { ultracode: true, effort: 'max' });
+        launch([R, '--settings=x.json', '--effort', 'low']);
+        const a8 = lastArgs(), g8 = await within(c8);
+        check('carry: a launch naming --settings or --effort of its own keeps it - nothing merged - and takes the other alone; both named - nothing added; what was not carried logged',
+            JSON.stringify(a6) === JSON.stringify([R, '--settings', '{"model":"x"}', '--effort', 'max']) && JSON.stringify(g6) === '{"ultracode":false,"effort":"max"}' &&
+            JSON.stringify(a7) === JSON.stringify([R, '--effort=high', '--settings', '{"ultracode":true}']) && JSON.stringify(g7) === '{"ultracode":true,"effort":null}' &&
+            JSON.stringify(a8) === JSON.stringify([R, '--settings=x.json', '--effort', 'low']) && JSON.stringify(g8) === NONE &&
+            logged.includes('spawn 11111111: carried effort max; not carried: Ultracode - the launch has --settings of its own') &&
+            logged.includes('spawn 11111111: nothing carried; not carried: Ultracode - the launch has --settings of its own; effort max - the launch has --effort of its own'),
+            JSON.stringify([a6, g6, a7, g7, a8, g8]) + ' ' + logged.join(' | '));
+        // the arm's end, and the hook failing
+        ext._timing.carryWait = 20;
+        logged.length = 0;
+        const g9 = await within(ext._armCarry(SID, { effort: 'max' }));
+        const expired = ext._carryArms.size === 0 && logged.some(l => /^open 11111111: no launch of it within \d+ s - nothing carried$/.test(l));
+        launch([R]);
+        const a9 = lastArgs();
+        ext._timing.carryWait = 60000;
+        const c10 = ext._armCarry(SID, { ultracode: true });
+        const bad = new Proxy([R], { get(t, k) { if (k === 'length') throw new Error('boom'); return t[k]; } });
+        let threwW = false, got10 = null;
+        try { got10 = fakeCp.spawn('claude.exe', bad, o1); } catch (e) { threwW = true; }
+        const passedBad = !threwW && !!got10 && got10.args[1] === bad && got10.args[2] === o1;
+        fakeCp.spawned.length = 0;
+        const still = ext._carryArms.has(SID);
+        launch([R]);
+        await within(c10);
+        check('carry: no launch within timing.carryWait - the arm gone, nothing carried, logged, a later launch as it came; anything failing in the hook - the launch through as it came, never thrown, the arm kept',
+            JSON.stringify(g9) === NONE && expired && JSON.stringify(a9) === JSON.stringify([R]) && passedBad && still,
+            JSON.stringify([g9, expired, a9, passedBad, still, threwW]));
+        // the reopens: armed before the open, the new tab's launch takes both -
+        // no prompt, nothing said, a line in the log
+        const RA = JSON.stringify(['--output-format', 'stream-json', R, '--settings', '{"ultracode":true}', '--effort', 'max']);
+        const carriedLine = 'reopened 11111111: Ultracode, effort max carried';
+        onMake = (sid) => launch(['--output-format', 'stream-json', '--resume=' + sid]);
+        const seen = () => [prompts(), noticed(), JSON.stringify(lastArgs()) === RA, logged.includes(carriedLine)];
+        const cShow = async () => {
+            await quiet();
+            uPut(S.real);
+            tabs.push(claudeTab(SID, 'T'));
+            active.tab = tabs[0];
+            ext._getVerdict = twoChecks(liveV(), endedV());
+            fakeCp.spawned.length = 0;
+            const r = await ext._showLive(reqU, file);
+            await settle();
+            return JSON.stringify([r].concat(seen()));
+        };
+        const cNew = async (run) => {
+            await quiet();
+            uPut(S.real);
+            ext._getVerdict = twoChecks(liveV(), endedV());
+            fakeCp.spawned.length = 0;
+            const r = await run();
+            await settle();
+            return JSON.stringify([r, asked.includes(ext._texts.sideBarStale(reqU))].concat(seen()));
+        };
+        const cRestore = async () => {
+            await handOver({ home: homeR });
+            uPut(S.real);
+            panels[0].active = true;
+            fakeCp.spawned.length = 0;
+            const e = await endIt({}, { home: homeR });
+            return JSON.stringify([e.restored].concat(seen()));
+        };
+        const cWatch = async () => {
+            await quiet();
+            uPut(S.real);
+            putJob({ state: 'done', home: homeR });
+            const w = ext._openWatch(JOB, {});
+            calls.length = 0;
+            openArgs.length = 0;
+            asked.length = 0;
+            fakeCp.spawned.length = 0;
+            const r = await ext._onWatchMessage(w, { type: 'open' });
+            await drain();
+            return JSON.stringify([r, w.disposed].concat(seen()));
+        };
+        const cs = [await cShow(), await cNew(() => ext._showLive(reqU, file)), await cNew(() => ext._perform('tab', Object.assign({}, reqU, { hostPids: [process.pid] }))),
+            await cNew(() => ext._perform('tab', Object.assign({}, reqU, { hostPids: [999991], oldProcess: 'ended' }))), await cRestore(), await cWatch()];
+        check('carry: Show it\'s reopen, its new tab beside the side bar\'s copy, a run\'s tab where this window held the chat or the check ended another\'s, the chat put back after a handover, the live view\'s Open chat - each launch takes Ultracode and max; no prompt, no word but the side bar\'s, "carried" in the log',
+            cs.join(' ') === [JSON.stringify(['reopened', [null, null], [], true, true]), JSON.stringify(['new', true, [null], [], true, true]),
+                JSON.stringify(['new', true, [null], [], true, true]), JSON.stringify(['new', false, [null], [], true, true]),
+                JSON.stringify([['new'], [null], [], true, true]), JSON.stringify(['new', true, [null], [], true, true])].join(' '),
+            cs.join(' '));
+        // a carry missed, or in part: said once the arm settles, what did not
+        // go in to be typed - nothing in the box - in the key that sends
+        ext._timing.carryWait = 30;
+        const cMiss = async (mk) => {
+            onMake = mk;
+            await quiet();
+            uPut(S.real);
+            tabs.push(claudeTab(SID, 'T'));
+            active.tab = tabs[0];
+            ext._getVerdict = twoChecks(liveV(), endedV());
+            const r = await ext._showLive(reqU, file);
+            const atOnce = noticed().length;
+            await new Promise(res => setTimeout(res, 120));
+            return JSON.stringify([r, prompts(), atOnce, noticed()]);
+        };
+        const cm = [await cMiss(null), await cMiss((sid) => launch(['--resume=' + sid, '--settings', '{}'])), await cMiss((sid) => launch(['--resume=' + sid, '--effort', 'high']))];
+        const platformNow = Object.getOwnPropertyDescriptor(process, 'platform');
+        let cmKey;
+        try {
+            cfgVals['claudeCode.useCtrlEnterToSend'] = true;
+            Object.defineProperty(process, 'platform', Object.assign({}, platformNow, { value: 'win32' }));
+            cmKey = await cMiss(null);
+        } finally {
+            Object.defineProperty(process, 'platform', platformNow);
+            delete cfgVals['claudeCode.useCtrlEnterToSend'];
+        }
+        check('carry: no launch of the reopened chat - nothing said until the arm goes, then both named to type; a launch with --settings of its own - Ultracode alone named, as it came; with --effort - the level alone; Ctrl+Enter where that sends',
+            cm.join(' ') === [JSON.stringify(['reopened', [null, null], 0, [typeB]]), JSON.stringify(['reopened', [null, null], 1, [typeU]]),
+                JSON.stringify(['reopened', [null, null], 1, [typeM]])].join(' ') &&
+            cmKey === JSON.stringify(['reopened', [null, null], 0, [typeB.split('Enter').join('Ctrl+Enter')]]),
+            cm.join(' ') + ' ' + cmKey);
+        // an open that only reveals a Claude tab reading as the chat: armed
+        // all the same - one not revived yet may start its process as it
+        // shows - so nothing said at once; no launch, and the commands named
+        // once the arm goes
+        onMake = null;
+        ext._timing.carryWait = 400;
+        const later = () => new Promise(res => setTimeout(res, 600));
+        const rvRestore = async () => {
+            await handOver({ home: homeR });
+            uPut(S.real);
+            tabs.push(claudeTab(SID, 'T'));
+            panels[0].active = true;
+            const e = await endIt({}, { home: homeR });
+            const atOnce = noticed().length;
+            await later();
+            return JSON.stringify([e.restored, prompts(), atOnce, noticed()]);
+        };
+        const rvWatch = async () => {
+            await quiet();
+            uPut(S.real);
+            putJob({ state: 'done', home: homeR });
+            tabs.push(claudeTab(SID, 'T'));
+            const w = ext._openWatch(JOB, {});
+            openArgs.length = 0;
+            asked.length = 0;
+            const r = await ext._onWatchMessage(w, { type: 'open' });
+            await drain();
+            const atOnce = noticed().length;
+            await later();
+            return JSON.stringify([r, prompts(), atOnce, noticed(), w.disposed]);
+        };
+        const rv = [await rvRestore(), await rvWatch()];
+        check('carry: the chat put back, or the live view\'s Open chat, where a Claude tab here reads as it - revealed, no prompt, nothing said at once; no launch - both named to type once the arm goes',
+            rv.join(' ') === [JSON.stringify([['revealed'], [null], 0, [typeB]]), JSON.stringify(['revealed', [null], 0, [typeB], true])].join(' '),
+            rv.join(' '));
+        // an arm a newer open took over says nothing: a revealed Open chat
+        // still waiting on its arm, then Show it's reopen of the chat - the
+        // newer launch takes both, and no word says the first one missed
+        ext._timing.carryWait = 60000;
+        onMake = (sid) => launch(['--output-format', 'stream-json', '--resume=' + sid]);
+        await quiet();
+        uPut(S.real);
+        putJob({ state: 'done', home: homeR });
+        tabs.push(claudeTab(SID, 'T'));
+        const wT = ext._openWatch(JOB, {});
+        openArgs.length = 0;
+        asked.length = 0;
+        const rT1 = await ext._onWatchMessage(wT, { type: 'open' });
+        await drain();
+        const tWaiting = ext._carryArms.has(SID);
+        tabs.length = 0;
+        tabs.push(claudeTab(SID, 'T'));
+        active.tab = tabs[0];
+        ext._getVerdict = twoChecks(liveV(), endedV());
+        fakeCp.spawned.length = 0;
+        openArgs.length = 0;
+        const rT2 = await ext._showLive(reqU, file);
+        await settle();
+        await drain();
+        const tSeen = JSON.stringify([rT1, tWaiting, rT2].concat(seen(), logged.includes('reopened 11111111: armed again by a newer open - its word, not this one')));
+        check('carry: a revealed Open chat still waiting, then Show it\'s reopen of the chat - the first arm taken over, said nothing; the reopen\'s launch takes both, "carried" in the log',
+            tSeen === JSON.stringify(['revealed', true, 'reopened', [null, null], [], true, true, true]), tSeen);
+        // the chat put back, and no launch of it yet: its open does not wait
+        // on the arm - the show queue goes on
+        ext._timing.carryWait = 60000;
+        onMake = null;
+        await handOver({ home: homeR });
+        uPut(S.real);
+        panels[0].active = true;
+        const tH = Date.now();
+        const eH = await endIt({}, { home: homeR });
+        const nextUp = await Promise.race([ext._enqueue(async () => 'next'), new Promise(r => setTimeout(() => r('held'), 1000))]);
+        const heldMs = Date.now() - tH;
+        check('carry: the chat put back, its launch not come yet - the open done and the show queue free at once, the arm waiting, nothing said yet',
+            JSON.stringify(eH.restored) === '["new"]' && nextUp === 'next' && heldMs < 5000 && ext._carryArms.has(SID) && noticed().length === 0,
+            JSON.stringify([eH.restored, nextUp, heldMs, ext._carryArms.has(SID), noticed()]));
+        // deactivate: the arms dropped unsaid, child_process.spawn as it was
+        ext.deactivate();
+        const pkS = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'extension', 'package.json'), 'utf8')).contributes.configuration.properties['chatManager.keepSessionSettings'];
+        check('carry: deactivate puts spawn back and drops every arm; chatManager.keepSessionSettings declared, a boolean, on by default',
+            fakeCp.spawn === fakeSpawn && ext._carryArms.size === 0 && !!pkS && pkS.type === 'boolean' && pkS.default === true && ext._keepSettings() === true,
+            JSON.stringify([fakeCp.spawn === fakeSpawn, ext._carryArms.size, pkS]));
+        }
         // opens that are not chatq's reopens: the chip's and the picker's
         await quiet();
         uPut(S.real);
@@ -2899,10 +3289,10 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     check('setup: the policies a profile line cannot run under', su._blocksProfile('Restricted') && su._blocksProfile('AllSigned') &&
         !su._blocksProfile('RemoteSigned') && !su._blocksProfile('Bypass') && !su._blocksProfile(null));
     check('setup: the last True or False a PowerShell printed, and none is no answer', su._lastBool('WARNING: x\r\nFalse\r\nTrue\r\n') === true && su._lastBool('noise') === null);
-    const pa = su._psArgs("C:\\it's\\claude-codex-chat-manager.ps1", 'Test-ChatProfileLine');
+    const pa = su._psArgs("C:\\it's\\Charlie-and-the-chat-factory.ps1", 'Test-ChatProfileLine');
     const pt = Buffer.from(pa[pa.length - 1], 'base64').toString('utf16le');
     check('setup: its PowerShell loads no profile, is marked as no interactive shell, and quotes the path',
-        pa.includes('-NoProfile') && pa.includes('Bypass') && pt === "$env:CHATQ_OVERLAY='1'; . 'C:\\it''s\\claude-codex-chat-manager.ps1'; Test-ChatProfileLine", pt);
+        pa.includes('-NoProfile') && pa.includes('Bypass') && pt === "$env:CHATQ_OVERLAY='1'; . 'C:\\it''s\\Charlie-and-the-chat-factory.ps1'; Test-ChatProfileLine", pt);
 
     // locks, folders and copies, in the sandbox
     const sbx = path.join(dir, 'ext-setup');
@@ -3110,7 +3500,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         bj._svgImages('![a](x/demo.svg) ![b](y.png) [c](z.svg) <img alt="w" src="w.SVG">').join() === 'x/demo.svg,w.SVG');
     const realLoader = fs.readFileSync(path.join(__dirname, '..', su.LOADER), 'latin1');
     const realParts = bj._partsOf(realLoader);
-    check('build: the real loader lists 23 parts, each one in src/', realParts.length === 23 &&
+    check('build: the real loader lists 24 parts, each one in src/', realParts.length === 24 &&
         realParts.every(p => fs.existsSync(path.join(__dirname, '..', 'src', p + '.ps1'))), realParts.join());
     const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'extension', 'package.json'), 'utf8'));
     check('build: the extension\'s version is the script\'s', pkg.version === su._readVersion(realLoader), pkg.version + ' / ' + su._readVersion(realLoader));
@@ -3133,7 +3523,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     cfgVals['chatManagerReload.signalFile'] = path.resolve('/c/Users/me/reload-request');
     const oddTo = ext._toolFolder();
     delete cfgVals['chatManagerReload.signalFile'];
-    const dflt = path.join(require('os').homedir(), 'Tools', 'claude-codex-chat-manager');
+    const dflt = path.join(require('os').homedir(), 'Tools', 'Charlie-and-the-chat-factory');
     check('the tool folder: a relative one, or a signalFile not in a data/ folder, falls back to the default - never C:\\ or C:\\Users',
         relTo === dflt && oddTo === dflt, relTo + ' | ' + oddTo);
 
@@ -3624,11 +4014,11 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         const sr = safe;
         const srDir = path.join(dir, 'ext-safe');
         const exts = path.join(srDir, 'exts');
-        const mineDir = path.join(exts, 'redaechan.claude-codex-chat-manager-0.8.1');
+        const mineDir = path.join(exts, 'redaechan.charlie-and-the-chat-factory-0.8.1');
         fs.mkdirSync(mineDir, { recursive: true });
         const list = (version, stamp) => fs.writeFileSync(path.join(exts, 'extensions.json'), JSON.stringify([
             { identifier: { id: 'anthropic.claude-code' }, version: '2.1.283', relativeLocation: 'anthropic.claude-code-2.1.283-win32-x64', metadata: { installedTimestamp: 5 } },
-            { identifier: { id: 'redaechan.claude-codex-chat-manager' }, version, relativeLocation: 'redaechan.claude-codex-chat-manager-' + version, metadata: { installedTimestamp: stamp, pinned: true, source: 'vsix' } }]));
+            { identifier: { id: 'redaechan.charlie-and-the-chat-factory' }, version, relativeLocation: 'redaechan.charlie-and-the-chat-factory-' + version, metadata: { installedTimestamp: stamp, pinned: true, source: 'vsix' } }]));
         list('0.8.1', 1000);
         const srCalls = [], srAsked = [], items = [], srWatched = [], srHeard = [];
         const srAnswer = { info: undefined, warn: undefined };
@@ -3664,7 +4054,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
             sr.ID === mf.publisher + '.' + mf.name, sr.ID + ' / ' + mf.publisher + '.' + mf.name);
         check('safe restart: this extension\'s entry in VS Code\'s list, by its id in any case, the newest where two',
             sr._entryOf([{ identifier: { id: 'x.y' }, version: '1' }, { identifier: { id: 'Redaechan.Claude-Codex-Chat-Manager' }, version: '2', metadata: { installedTimestamp: 1 } },
-                { identifier: { id: 'redaechan.claude-codex-chat-manager' }, version: '3', metadata: { installedTimestamp: 9 } }], 'redaechan.claude-codex-chat-manager').version === '3' &&
+                { identifier: { id: 'redaechan.charlie-and-the-chat-factory' }, version: '3', metadata: { installedTimestamp: 9 } }], 'redaechan.charlie-and-the-chat-factory').version === '3' &&
             sr._entryOf(null, 'a.b') === null);
         const hwGood = '{"hostPid":12,"known":true,"chats":[{"sessionId":"' + SA + '","pids":[7],"file":null,"why":"background","written":false}]}';
         check('safe restart: the script\'s verdict - the last JSON line, noise before it ignored; a field of the wrong kind is none',
@@ -3681,7 +4071,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
             sr._workingOf({ chats: [chat(SC, '')] }).length === 0);
 
         // activation: what runs, and both ways a new install is heard of
-        const ctxS = { subscriptions: [], extensionPath: mineDir, extension: { id: 'redaechan.claude-codex-chat-manager', packageJSON: { version: '0.8.1' } } };
+        const ctxS = { subscriptions: [], extensionPath: mineDir, extension: { id: 'redaechan.charlie-and-the-chat-factory', packageJSON: { version: '0.8.1' } } };
         sr.activate(ctxS);
         const run0 = sr._running();
         check('safe restart: at activation, the version it runs and its folder\'s install time; VS Code\'s event and its list on disk both listened to',
@@ -3698,7 +4088,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         srReset();
         const n1b = await sr._checkInstall();
         check('safe restart: a newer version, nothing working here - the short notice; Later reloads nothing, and that version is not said again',
-            n1 === 'later' && n1Said.length === 1 && n1Said[0].m === sr.texts.short('0.9.0') && n1Said[0].m === 'Chat Manager for Claude Code & Codex 0.9.0 is installed - reload the window to load it.' &&
+            n1 === 'later' && n1Said.length === 1 && n1Said[0].m === sr.texts.short('0.9.0') && n1Said[0].m === 'Charlie and the Chat Factory 0.9.0 is installed - reload the window to load it.' &&
             n1Said[0].b.join() === 'Reload the window,Later' && n1b === 'none' && srAsked.length === 0 && !srCalls.includes(sr.RESTART),
             n1 + ' ' + JSON.stringify(n1Said) + ' ' + n1b);
 
@@ -3710,7 +4100,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         const n2 = await sr._checkInstall();
         check('safe restart: installed again, two chats working - the long notice naming them, a background-only one too; Reload now reloads the window - never Restart Extension Host, which loads nothing new',
             n2 === 'restarted' && srAsked.length === 1 && srAsked[0].kind === 'warn' &&
-            srAsked[0].m === 'Chat Manager for Claude Code & Codex 0.8.1 is installed. Loading it reloads this window, which stops the 2 chats working here: "Refactor the parser" and a chat (fedcba98) (background work running).' &&
+            srAsked[0].m === 'Charlie and the Chat Factory 0.8.1 is installed. Loading it reloads this window, which stops the 2 chats working here: "Refactor the parser" and a chat (fedcba98) (background work running).' &&
             srAsked[0].b.join() === 'Reload when they\'re idle,Reload now,Later' && srCalls.join() === 'workbench.action.reloadWindow',
             n2 + ' ' + JSON.stringify(srAsked) + ' ' + srCalls.join());
         srReset();
@@ -4001,5 +4391,6 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     delete process.env.CLAUDE_CONFIG_DIR;
     console.log('');
     console.log('  ' + (total - failed) + ' passed, ' + failed + ' failed');
+    summed = true;
     process.exit(failed);
 })();

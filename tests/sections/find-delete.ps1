@@ -107,7 +107,7 @@ Check 'no ghost watch inside the background watcher' (-not (Test-ChatGhostWatch)
 
 # one profile line for both halves, and uninstall takes only that
 $PROFILE = Join-Path $sb 'profile.ps1'
-[System.IO.File]::WriteAllLines($PROFILE, [string[]]@('. "C:\x\chatrm\chatrm.ps1"', 'Set-Alias foo bar', '. "C:\x\chatq\chatq.ps1"', '. "C:\x\VS-code-chat-manager\VS-code-chat-manager.ps1"'))
+[System.IO.File]::WriteAllLines($PROFILE, [string[]]@('. "C:\x\chatrm\chatrm.ps1"', 'Set-Alias foo bar', '. "C:\x\chatq\chatq.ps1"', '. "C:\x\VS-code-chat-manager\VS-code-chat-manager.ps1"', '. "C:\x\claude-codex-chat-manager\claude-codex-chat-manager.ps1"'))
 $lineBefore = Test-ChatProfileLine
 # the watcher and overlay restart counted, not done: none runs here
 $rcWas = ${function:Restart-ChatBackground}
@@ -118,8 +118,8 @@ $lineAfter = Test-ChatProfileLine
 chatinstall -NoRestart *> $null
 ${function:Restart-ChatBackground} = $rcWas
 $pl = @(Get-Content -LiteralPath $PROFILE)
-$me = Join-Path $sb 'tool\claude-codex-chat-manager.ps1'
-Check 'one install line replaces chatrm''s, chatq''s and the loader''s under its old name' (@($pl | Where-Object { $_ -match $script:ChatProfilePattern }).Count -eq 1 -and
+$me = Join-Path $sb 'tool\Charlie-and-the-chat-factory.ps1'
+Check 'one install line replaces chatrm''s, chatq''s and the loader''s under both its old names' (@($pl | Where-Object { $_ -match $script:ChatProfilePattern }).Count -eq 1 -and
     ($pl -join "`n").Contains($me) -and $pl -contains 'Set-Alias foo bar') ($pl -join ' | ')
 Check 'chatinstall moves a running watcher and overlay to this copy; -NoRestart, for the extension, leaves them' ($script:RestartCalls -eq 1) $script:RestartCalls
 chatuninstall *> $null
@@ -131,21 +131,21 @@ Check 'Test-ChatProfileLine: only a line loading this copy counts, not an old to
 # queue at all yet, and a stop on the first error
 $sb2 = Join-Path $sb 'strict2'
 $null = New-Item -ItemType Directory -Path $sb2 -Force
-Copy-Item -LiteralPath (Join-Path $root 'claude-codex-chat-manager.ps1') -Destination $sb2
+Copy-Item -LiteralPath (Join-Path $root 'Charlie-and-the-chat-factory.ps1') -Destination $sb2
 Copy-Item -LiteralPath (Join-Path $root 'src') -Destination $sb2 -Recurse
 # the overlay starts with a shell by default now: off here, or this probe
 # would put a real panel on the screen - the shell-start path still runs
 $null = New-Item -ItemType Directory -Path (Join-Path $sb2 'data') -Force
 [System.IO.File]::WriteAllText((Join-Path $sb2 'data\config.json'), '{"overlay":{"autoStart":false}}', $utf8)
-$probe2 = "Remove-Item env:CHATQ_WATCHER -EA SilentlyContinue; Set-StrictMode -Version Latest; `$ErrorActionPreference = 'Stop'; try { . '$(Join-Path $sb2 'claude-codex-chat-manager.ps1')'; Set-Location -LiteralPath '$projA'; chatfind Doomed *> `$null; chatindex *> `$null; `$r = & `$script:ChatTitleCompleter 'chatrm' 'Target' 'Pars' `$null @{}; chatqlist *> `$null; chat *> `$null; chatoverlay -Print *> `$null; 'ok' } catch { 'threw: ' + `$_.Exception.Message + ' ' + `$_.InvocationInfo.PositionMessage }"
+$probe2 = "Remove-Item env:CHATQ_WATCHER -EA SilentlyContinue; Set-StrictMode -Version Latest; `$ErrorActionPreference = 'Stop'; try { . '$(Join-Path $sb2 'Charlie-and-the-chat-factory.ps1')'; Set-Location -LiteralPath '$projA'; chatfind Doomed *> `$null; chatindex *> `$null; `$r = & `$script:ChatTitleCompleter 'chatrm' 'Target' 'Pars' `$null @{}; chatqlist *> `$null; chat *> `$null; chatoverlay -Print *> `$null; 'ok' } catch { 'threw: ' + `$_.Exception.Message + ' ' + `$_.InvocationInfo.PositionMessage }"
 $strict2 = (& $exe -NoProfile -NonInteractive -Command $probe2 | Select-Object -Last 1)
 Check 'loads and runs under StrictMode as a normal shell does' ($strict2 -eq 'ok') $strict2
 # the script copied without its src/: it names what is missing and defines
 # nothing, rather than half the commands failing later
 $sb3 = Join-Path $sb 'nosrc'
 $null = New-Item -ItemType Directory -Path $sb3 -Force
-Copy-Item -LiteralPath (Join-Path $root 'claude-codex-chat-manager.ps1') -Destination $sb3
-$probe3 = "Remove-Item env:CHATQ_WATCHER -EA SilentlyContinue; Set-StrictMode -Version Latest; . '$(Join-Path $sb3 'claude-codex-chat-manager.ps1')'; 'defined: ' + [bool](Get-Command chatq -EA SilentlyContinue)"
+Copy-Item -LiteralPath (Join-Path $root 'Charlie-and-the-chat-factory.ps1') -Destination $sb3
+$probe3 = "Remove-Item env:CHATQ_WATCHER -EA SilentlyContinue; Set-StrictMode -Version Latest; . '$(Join-Path $sb3 'Charlie-and-the-chat-factory.ps1')'; 'defined: ' + [bool](Get-Command chatq -EA SilentlyContinue)"
 $nosrc = @(& $exe -NoProfile -NonInteractive -Command $probe3 *>&1 | ForEach-Object { "$_" })
 Check 'without src/ it names the missing parts and defines no command' (($nosrc -join ' ') -like '*missing from*core.ps1*overlay.ps1*' -and $nosrc[-1] -eq 'defined: False') ($nosrc -join ' | ')
 

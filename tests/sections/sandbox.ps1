@@ -8,7 +8,7 @@ $work = Join-Path $sb 'work'
 $projA = Join-Path $work 'projA'
 $projM = Join-Path $work 'projA-Mobile'
 foreach ($d in $claudeHome, $codexHome, $projA, $projM, (Join-Path $sb 'tool')) { $null = New-Item -ItemType Directory -Path $d -Force }
-Copy-Item -LiteralPath (Join-Path $root 'claude-codex-chat-manager.ps1') -Destination (Join-Path $sb 'tool\claude-codex-chat-manager.ps1')
+Copy-Item -LiteralPath (Join-Path $root 'Charlie-and-the-chat-factory.ps1') -Destination (Join-Path $sb 'tool\Charlie-and-the-chat-factory.ps1')
 Copy-Item -LiteralPath (Join-Path $root 'src') -Destination (Join-Path $sb 'tool') -Recurse
 
 $env:CLAUDE_CONFIG_DIR = $claudeHome
@@ -224,7 +224,7 @@ $hidLines = @(
 [System.IO.File]::WriteAllText((Join-Path (Join-Path (Join-Path $claudeHome 'projects') (Get-Slug $projA)) "$idHid.jsonl"), ($hidLines -join "`n") + "`n", $utf8)
 
 # --- load --------------------------------------------------------------------
-. (Join-Path $sb 'tool\claude-codex-chat-manager.ps1')
+. (Join-Path $sb 'tool\Charlie-and-the-chat-factory.ps1')
 Set-Location -LiteralPath $projA
 # nothing real leaves the sandbox: no desktop toast, no idle clock (as if
 # nobody were at the PC), no push service, no ghost-watch events

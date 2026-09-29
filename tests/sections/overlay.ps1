@@ -678,7 +678,7 @@ Check 'resting on the buttons'' spot brings them, straight from above, after the
 Check 'never with a mouse button held - a drag in the app below would drop onto them' (
     -not (& $sh $false $false $true $false $true 360 0) -and -not (& $sh $false $true $false $false $true 360 0))
 $bigSnap = [pscustomobject]@{ counts = [pscustomobject]@{ waiting = 12; needsInput = 3; busy = 40; running = 1; idle = 88; queued = 9 }; header = [pscustomobject]@{ usage = @() } }
-Check 'the tray tooltip never reaches the 64 characters that throw' ((Format-ChatOverlayTooltip $bigSnap).Length -le 63) (Format-ChatOverlayTooltip $bigSnap)
+Check 'the tray tooltip never goes past the 127 characters Windows keeps' ((Format-ChatOverlayTooltip $bigSnap).Length -le 127) (Format-ChatOverlayTooltip $bigSnap)
 
 # the console's pure parts
 $wNow = ConvertFrom-ChatConsoleWhen 'now' ''
@@ -1364,7 +1364,7 @@ Check 'unread: none off Windows - the pass skips it, nothing counted or marked' 
 # the Windows panel itself, built but never shown, in the STA process WPF needs
 $wpf = @"
 `$env:CHATQ_OVERLAY = '1'
-. '$(Join-Path $sb 'tool\claude-codex-chat-manager.ps1')'
+. '$(Join-Path $sb 'tool\Charlie-and-the-chat-factory.ps1')'
 Set-StrictMode -Off
 Initialize-ChatOverlayNative
 `$H = New-ChatOverlayHostState
@@ -1499,12 +1499,56 @@ Check 'the light theme redraws the frame and keeps the settings box open' ($wp[7
 Check 'the opacity slider sets the panel''s, and config.json gets it once it rests' ($wp[9] -eq 'True') "$wpfOut"
 Check 'collapsed: one line of counts and usage, and the chevron offers to expand' ($wp[11] -eq '1' -and $wp[12] -eq ('5h 42%/no chats open') -and $wp[13] -eq 'Expand') "$wpfOut"
 
+# the tray icon: Charlie with the state's dot, drawn into a NotifyIcon never
+# made visible; then the icon unreadable, the dot alone as before
+$wpfTray = @"
+`$env:CHATQ_OVERLAY = '1'
+. '$(Join-Path $sb 'tool\Charlie-and-the-chat-factory.ps1')'
+Set-StrictMode -Off
+Initialize-ChatOverlayNative
+`$H = New-ChatOverlayHostState
+`$H.Tray = [System.Windows.Forms.NotifyIcon]::new()
+`$px = { param(`$x, `$y) `$b = `$H.Tray.Icon.ToBitmap(); try { `$b.GetPixel(`$x, `$y) } finally { `$b.Dispose() } }
+Set-ChatOverlayTrayColor `$H '#FF0000'
+`$n = `$H.Tray.Icon.Width
+`$h1 = `$H.IconHandle
+`$dot = & `$px (`$n - [Math]::Round(`$n / 4)) (`$n - [Math]::Round(`$n / 4))
+`$top = & `$px ([int](`$n / 3)) ([int](`$n / 4))
+Set-ChatOverlayTrayColor `$H '#FF0000'
+`$same = `$H.IconHandle -eq `$h1
+Set-ChatOverlayTrayColor `$H '#00FF00'
+`$green = & `$px (`$n - [Math]::Round(`$n / 4)) (`$n - [Math]::Round(`$n / 4))
+`$face = Get-ChatIconSource
+`$script:ChatIconPng = 'not an image'
+`$script:ChatIconBitmap = `$null
+Set-ChatOverlayTrayColor `$H '#0000FF'
+`$mid = & `$px ([int](`$n / 2)) ([int](`$n / 2))
+`$corner = & `$px 0 0
+`$long = 'Charlie: ' + ('x' * 100)
+Set-ChatOverlayTrayText `$H.Tray `$long
+`$longOk = `$H.Tray.Text -ceq `$long
+Set-ChatOverlayTrayText `$H.Tray 'Charlie: 2 idle'
+`$longOk = `$longOk -and `$H.Tray.Text -ceq 'Charlie: 2 idle'
+'{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}' -f `$n, ([System.Windows.Forms.SystemInformation]::SmallIconSize.Width),
+    (`$dot.R -gt 200 -and `$dot.G -lt 60 -and `$dot.A -eq 255), (`$top.A -eq 255 -and -not (`$top.R -gt 200 -and `$top.G -lt 60)),
+    (`$same -and `$H.IconHandle -ne `$h1 -and `$green.G -gt 200 -and `$green.R -lt 60), (`$face -and `$face.PixelWidth -eq 48),
+    (`$mid.B -gt 200 -and `$mid.A -eq 255), (`$corner.A -eq 0), `$longOk
+`$H.Tray.Dispose()
+"@
+$trayOut = Invoke-Sta 'tray-icon-test' $wpfTray
+$tr = "$trayOut" -split '\|'
+Check 'the tray icon is Charlie, at the small-icon size, with the state''s colour in a dot at her bottom right' (
+    $tr.Count -ge 8 -and $tr[0] -eq ([Math]::Min(64, [Math]::Max(16, [int]$tr[1]))) -and $tr[2] -eq 'True' -and $tr[3] -eq 'True') "$trayOut"
+Check 'the same colour draws nothing again, another draws anew; the windows get Charlie at 48 px' ($tr[4] -eq 'True' -and $tr[5] -eq 'True') "$trayOut"
+Check 'with the icon unreadable, the tray is the dot alone, as it was' ($tr[6] -eq 'True' -and $tr[7] -eq 'True') "$trayOut"
+Check 'a tooltip past .NET Framework''s 63 characters is taken whole, and a short one after it' ($tr[8] -eq 'True') "$trayOut"
+
 # its size: the resize handle, the width and rows sliders, a screen too short
 # for the rows, and a reload - shown off every screen, the pointer never
 # read: the drag is handed where it is (-At). config.json put back after.
 $wpfSize = @"
 `$env:CHATQ_OVERLAY = '1'
-. '$(Join-Path $sb 'tool\claude-codex-chat-manager.ps1')'
+. '$(Join-Path $sb 'tool\Charlie-and-the-chat-factory.ps1')'
 Set-StrictMode -Off
 `$cfgWas = [IO.File]::ReadAllText(`$script:ChatqConfigPath)
 Set-ChatOverlayConfig @{ width = 380; maxRows = 8; hotkey = 'none'; consoleHotkey = 'none' }
@@ -1797,7 +1841,7 @@ Check 'where a chat runs, after its dot: a window for VS Code, >_ for a terminal
 # command line holds only so much of the one above
 $wpfRecent = @"
 `$env:CHATQ_OVERLAY = '1'
-. '$(Join-Path $sb 'tool\claude-codex-chat-manager.ps1')'
+. '$(Join-Path $sb 'tool\Charlie-and-the-chat-factory.ps1')'
 Set-StrictMode -Off
 `$cfgWas = [IO.File]::ReadAllText(`$script:ChatqConfigPath)
 Set-ChatOverlayConfig @{ width = 380; maxRows = 8; prompts = `$true; recent = 5; hotkey = 'none'; consoleHotkey = 'none' }
@@ -1913,7 +1957,7 @@ Check 'the height cap goes by the panel''s top edge, worked out again as a drag 
 # back to the panel by Esc, the back button, a close and the verbs
 $con = @"
 `$env:CHATQ_OVERLAY = '1'
-. '$(Join-Path $sb 'tool\claude-codex-chat-manager.ps1')'
+. '$(Join-Path $sb 'tool\Charlie-and-the-chat-factory.ps1')'
 Set-StrictMode -Off
 `$script:ChatqSpawn = { `$true }
 `$script:ChatConsoleNoSync = `$true
@@ -2280,7 +2324,7 @@ Check 'a Codex chat is offered no mode or model, and is sent none' ($cp[14] -eq 
 # Brought forward through the seam, so the test never takes the keyboard.
 $flow = @"
 `$env:CHATQ_OVERLAY = '1'
-. '$(Join-Path $sb 'tool\claude-codex-chat-manager.ps1')'
+. '$(Join-Path $sb 'tool\Charlie-and-the-chat-factory.ps1')'
 Set-StrictMode -Off
 `$script:ChatqSpawn = { `$true }
 `$script:ChatConsoleNoSync = `$true

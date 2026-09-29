@@ -949,7 +949,7 @@ async function driveThePage() {
         });
         doc.getElementById = (id) => doc.els[id] || null;
         doc.createElement = (tag) => el('', tag);
-        const loc = { hash, pathname: '/claude-codex-chat-manager/reply.html', search: '' };
+        const loc = { hash, pathname: '/Charlie-and-the-chat-factory/reply.html', search: '' };
         const hist = { replaceState: (s, t, url) => { loc.hash = url.indexOf('#') >= 0 ? url.slice(url.indexOf('#')) : ''; } };
         const winOn = {};
         const win = { crypto: webcrypto, TextEncoder, addEventListener(t, fn) { (winOn[t] = winOn[t] || []).push(fn); } };

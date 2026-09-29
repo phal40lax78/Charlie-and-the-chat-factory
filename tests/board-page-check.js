@@ -423,7 +423,7 @@ async function drive() {
         tags.forEach((m) => { doc.els[m[3]] = el(m[3], m[1]); doc.els[m[3]].hidden = /\shidden(\s|=|$)/.test(m[2] + ' ' + m[4]); });
         doc.getElementById = (id) => doc.els[id] || null;
         doc.createElement = (tag) => el('', tag);
-        const loc = { hash, pathname: '/claude-codex-chat-manager/reply.html', search: '' };
+        const loc = { hash, pathname: '/Charlie-and-the-chat-factory/reply.html', search: '' };
         const hist = { replaceState: (s, t, url) => { loc.hash = url.indexOf('#') >= 0 ? url.slice(url.indexOf('#')) : ''; } };
         const win = { crypto: webcrypto, TextEncoder, addEventListener() { } };
         const page = { doc, posts: [], gets: [], feed: new Map(), files: new Map(), timers: [] };

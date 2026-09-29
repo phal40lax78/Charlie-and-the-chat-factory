@@ -44,11 +44,14 @@ const GUID = /^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$/;
 //   restoreHold    a window just started puts no chat back for this long
 //                  where the watch panel of its run is not here yet: the
 //                  serializer may still bring it back
+//   carryWait      a chat chatq opens again takes Ultracode and its session's
+//                  level only into a launch of it within this (armCarry)
 const timing = {
     retry: 2500, tabSettle: 400, tabRecount: 1500, startupOpen: 2000,
     openMaxAge: 120000, judgedMaxAge: 20000, verdictTimeout: 20000,
     commandTimeout: 15000, pickBudget: 250, labelBudget: 1500, anywayFresh: 60000,
-    runPoll: 1000, runCheck: 5000, graceSeconds: 8, ackWindow: 2750, restoreHold: 4000
+    runPoll: 1000, runCheck: 5000, graceSeconds: 8, ackWindow: 2750, restoreHold: 4000,
+    carryWait: 60000
 };
 
 // chatManager.* first. For one release the old extension's chatManagerReload.*
@@ -62,7 +65,7 @@ function setting(key) {
     return now.get(key);
 }
 
-const DEFAULT_FOLDER = () => path.join(os.homedir(), 'Tools', 'claude-codex-chat-manager');
+const DEFAULT_FOLDER = () => path.join(os.homedir(), 'Tools', 'Charlie-and-the-chat-factory');
 function expandHome(p) { return path.normalize(String(p).replace(/^~(?=$|[\\/])/, os.homedir())); }
 
 // the old extension's signalFile, as it was set, else ''
@@ -74,7 +77,7 @@ function oldSignalFile() {
 // The tool folder: the scripts, and data/ beside them - and where setup.js
 // writes, so only a full path is taken. chatManager.folder; else the folder
 // whose data/reload-request the old signalFile named, and only a path of
-// that shape; else ~/Tools/claude-codex-chat-manager. What is set and refused is
+// that shape; else ~/Tools/Charlie-and-the-chat-factory. What is set and refused is
 // logged once.
 let refusedLogged = false;
 function toolFolder() {
@@ -96,7 +99,7 @@ function toolFolder() {
     return DEFAULT_FOLDER();
 }
 
-// claude-codex-chat-manager writes data/reload-request after chatrm deletes a chat,
+// Charlie-and-the-chat-factory writes data/reload-request after chatrm deletes a chat,
 // and after chatq runs a queued prompt into a chat this window still holds;
 // data/open-request when the overlay's open chip is clicked. A chat is shown
 // in an editor tab of its own where the Claude Code extension can do it - its
@@ -114,7 +117,7 @@ function openFiles() {
 let channel = null;
 function log(s) {
     try {
-        if (!channel && vscode.window.createOutputChannel) channel = vscode.window.createOutputChannel('Chat Manager for Claude Code & Codex');
+        if (!channel && vscode.window.createOutputChannel) channel = vscode.window.createOutputChannel('Charlie and the Chat Factory - Claude Code & Codex');
         if (channel) channel.appendLine(new Date().toISOString() + '  ' + s);
     } catch (e) { }
 }
@@ -248,7 +251,8 @@ Object.assign(texts, {
     // a chat chatq closed and opened again, and what the old process had
     // that the new one lacks (lostByReopen): Ultracode, a session-only
     // level, or both. prefilled: the new tab's input box holds lost.prefill
-    // - else, where no pre-fill could go, the commands are named to type.
+    // - else, where no pre-fill could go, or a carry into the new process
+    // (armCarry) missed, the commands are named to type.
     // /effort takes one setting at a time, so with both lost the level is
     // left for after, typed: typed, it leaves Ultracode on, where the tab's
     // effort menu would save a level up to xhigh as every new session's
@@ -667,13 +671,14 @@ async function showTab(req) {
     await bounded(vscode.window.tabGroups.close(t), 'closing the tab');
     await sleep(timing.tabSettle);
     // its tab closed, so this open makes a new panel: what the old process
-    // alone had goes into its input box
+    // alone had goes into its new process, or else its input box
     const lost = await lostByReopen(req);
-    await openOnce(req.sessionId, undefined, lost ? lost.prefill : undefined);
+    const carrying = carryFor(req, lost);
+    await openOnce(req.sessionId, undefined, (lost && lost.prefill) || undefined);
     // for the new tab to be there when its group is looked for
     await sleep(timing.tabSettle);
     await up('reopened');
-    sayLost(req, lost, true);
+    sayLost(req, lost, true, carrying);
     return 'reopened';
 }
 
@@ -931,13 +936,14 @@ function effortSaid(text, version) {
 }
 
 // A transcript line as the two walks take it (sessionSettingsIn), by its
-// kind - undefined for a line of none:
-//   H  a prompt the user typed or pasted, its origin human; ts its time
+// kind - undefined for a line of none - and ts its time, NaN where it has
+// none:
+//   H  a prompt the user typed or pasted, its origin human
 //   F  any other user record but a tool's result or a meta one: a task's
 //      notice, the interrupted marker, another session's prompt, a slash
 //      command, the summary a compaction starts with
 //   N  an Ultracode notice: on for an enter; own where no claude -p run's
-//   B  a compaction's boundary; ts its time
+//   B  a compaction's boundary
 //   S  an /effort answer that says something: effortSaid's ultracode, set
 //   A  an assistant record, and the level its turn ran at: effort
 // Nothing of a subagent's is any, and of a run's - an SDK's entrypoint -
@@ -947,21 +953,21 @@ function effortLine(line) {
     let o;
     try { o = JSON.parse(line); } catch (e) { return undefined; }
     if (!o || typeof o !== 'object' || o.isSidechain === true) return undefined;
-    const own = !SDK_ENTRYPOINTS.has(o.entrypoint);
-    if (o.type === 'attachment' && o.attachment && /^ultra_effort_(enter|exit)$/.test(o.attachment.type)) return { k: 'N', on: o.attachment.type === 'ultra_effort_enter', own };
-    if (o.type === 'system' && o.subtype === 'compact_boundary') return { k: 'B', ts: Date.parse(o.timestamp) };
+    const own = !SDK_ENTRYPOINTS.has(o.entrypoint), ts = Date.parse(o.timestamp);
+    if (o.type === 'attachment' && o.attachment && /^ultra_effort_(enter|exit)$/.test(o.attachment.type)) return { k: 'N', on: o.attachment.type === 'ultra_effort_enter', own, ts };
+    if (o.type === 'system' && o.subtype === 'compact_boundary') return { k: 'B', ts };
     if (!own) return undefined;
     if (o.type === 'system' && o.subtype === 'local_command' && typeof o.content === 'string') {
         if (o.commandRun && o.commandRun.command !== 'effort') return undefined;
         const m = /<local-command-stdout>([\s\S]*?)<\/local-command-stdout>/.exec(o.content);
         const s = m ? effortSaid(m[1], o.version) : {};
-        return 'ultracode' in s || 'set' in s ? Object.assign({ k: 'S' }, s) : undefined;
+        return 'ultracode' in s || 'set' in s ? Object.assign({ k: 'S', ts }, s) : undefined;
     }
-    if (o.type === 'assistant') return typeof o.effort === 'string' && o.effort ? { k: 'A', effort: o.effort } : undefined;
+    if (o.type === 'assistant') return typeof o.effort === 'string' && o.effort ? { k: 'A', effort: o.effort, ts } : undefined;
     if (o.type !== 'user') return undefined;
     const c = o.message && o.message.content;
     if (o.isMeta || (Array.isArray(c) && c.some(x => x && x.type === 'tool_result'))) return undefined;
-    return o.origin && o.origin.kind === 'human' && !o.isCompactSummary ? { k: 'H', ts: Date.parse(o.timestamp) } : { k: 'F' };
+    return o.origin && o.origin.kind === 'human' && !o.isCompactSummary ? { k: 'H', ts } : { k: 'F', ts };
 }
 
 // The chat's own session-only settings, by its transcript: { ultracode:
@@ -974,12 +980,33 @@ function effortLine(line) {
 // size changes nothing. A line that by now cannot matter - none of the
 // words of what is still wanted in it - is not parsed. Both null where
 // there is no file, or its read failed. Never throws.
-async function sessionSettingsIn(file) {
+//
+// start, where given - { at, ultracode, effort }, processStart's - is the
+// launch of the process whose settings are asked for: a record from before
+// it is an older process's, whose Ultracode and level died with it, and
+// the walks end there, with what that launch was given - nothing, but for
+// chatq's own carry. A transcript never says a process began: a chat run
+// on 2.1.283 with Ultracode, and opened again two days on, reads as on to
+// the end without it.
+async function sessionSettingsIn(file, start) {
     let ultracode, effort;              // undefined: not known yet
     let prompt = null, passed = false;  // the last prompt typed; a compaction passed over
     let level, turn;                    // the first level of the turn walked through; that of the latest turn a prompt started
+    const at = start && Number.isFinite(start.at) ? start.at : null;
+    // the walks at the launch: what it was given, where still not known.
+    // Its level as an /effort answer's would be: one a later turn ran at
+    // another level was changed since - by the menu, which says nothing
+    const began = () => {
+        if (ultracode === undefined) ultracode = start.ultracode === true;
+        if (effort === undefined) {
+            const set = start.effort || null;
+            effort = turn === undefined || set === turn ? set : null;
+        }
+        return true;
+    };
     // one record by both walks; true once both are known
     const take = (r) => {
+        if (at !== null && r.ts < at) return began();
         if (ultracode === undefined) {
             if (!prompt) {
                 if (r.k === 'N' && r.own) ultracode = r.on;
@@ -1036,7 +1063,10 @@ async function sessionSettingsIn(file) {
             }
             parts.push(b.subarray(0, end));
         }
-        if (!done && from === 0) judge(Buffer.concat(parts.reverse()));
+        if (!done && from === 0) done = judge(Buffer.concat(parts.reverse()));
+        // the whole file read, and nothing in it from before the launch: the
+        // chat's first process, or its records since began after it
+        if (!done && from === 0 && at !== null) began();
         return { ultracode: ultracode !== undefined ? ultracode : from === 0 && prompt ? false : null, effort: effort || null };
     } catch (e) {
         return { ultracode: null, effort: null };
@@ -1052,16 +1082,22 @@ async function ultracodeIn(file) { return (await sessionSettingsIn(file)).ultrac
 // input box can take it: { ultracode, effort, prefill } - prefill the one
 // /effort that puts the most back, as /effort takes one setting at a time:
 // Ultracode where it was on - the tab's effort menu offers it only at max,
-// so it is the one hard to reach - else the session-only level. null where
-// nothing is lost, or nothing is known. Never throws.
-async function lostByReopen(req) {
+// so it is the one hard to reach - else the session-only level. With
+// chatManager.keepSessionSettings on, a local window and the spawn hook in
+// place, prefill is null: both go into the new process instead (carryFor,
+// before the open), and nothing into its input box. null where nothing is
+// lost, or nothing is known. Only what the process the reopen replaces had
+// counts: start, where it is known better than processStart knows it - a
+// handover's, taken as it closed the tab. Never throws.
+async function lostByReopen(req, start) {
     let s = null;
     try {
         const file = await transcriptOf(req);
-        s = file ? await module.exports._sessionSettingsIn(file) : null;
+        s = file ? await module.exports._sessionSettingsIn(file, start || processStart(req.sessionId)) : null;
     } catch (e) { s = null; }
     if (!s || (s.ultracode !== true && !s.effort)) return null;
     const ultracode = s.ultracode === true, effort = s.effort || null;
+    if (keepSettings() && carryReaches() && installSpawnHook()) return { ultracode, effort, prefill: null };
     return { ultracode, effort, prefill: ultracode ? '/effort ultracode' : '/effort ' + effort };
 }
 
@@ -1071,9 +1107,12 @@ async function lostByReopen(req) {
 // lost.prefill into a new panel's input box. True when said. The key it
 // names is the one that sends: with claudeCode.useCtrlEnterToSend on, Enter
 // only breaks the line, and a later send would take the command along
-// with the next prompt.
-function sayLost(req, lost, prefilled) {
+// with the next prompt. carrying: carryFor's promise, where both were to
+// go into the new process - then nothing is said now, and the promise of
+// the word is returned (reportCarry).
+function sayLost(req, lost, prefilled, carrying) {
     if (!lost) return false;
+    if (carrying) return reportCarry(req, lost, carrying);
     let key = 'Enter';
     try {
         if (vscode.workspace.getConfiguration('claudeCode').get('useCtrlEnterToSend') === true) key = process.platform === 'darwin' ? 'Cmd+Enter' : 'Ctrl+Enter';
@@ -1082,6 +1121,233 @@ function sayLost(req, lost, prefilled) {
         'lost - said' + (prefilled ? ', ' + lost.prefill + ' in its input box' : ''));
     vscode.window.showInformationMessage(texts.settingsLost(req, lost, !!prefilled, key));
     return true;
+}
+
+// --- Ultracode and effort, carried into a reopen ----------------------------
+// Rather than leave you to type them, chatq hands the new process what the
+// old one alone had, as that process starts. Claude Code's SDK (2.1.284)
+// starts every chat's claude through require('child_process').spawn, the
+// module's property looked up as it calls, with no launcher of its own, and
+// names the chat on the command line as --resume=<id>. This extension runs
+// in the same extension host, so a spawn put in that module's place sees
+// the launch - and, for a chat chatq armed right before its own open, adds
+// --settings {"ultracode":true} and --effort <level>. Nothing else is
+// touched: a launch of no armed chat, or of none, goes through as it came,
+// and so does one where anything here fails. The settings go inline, so
+// nothing is written to disk for them. --effort pins nothing: an /effort
+// later still sets another level. A flag the launch names already is left
+// as it is - chatq does not merge its own over another's - and said.
+//
+// One launch takes an arm, and no more: a second launch of the chat - Claude
+// Code starting the tab's process again, or the chat opened by hand in the
+// side bar - is not chatq's reopen, and gets what it would have. An arm
+// goes, too, after timing.carryWait: an open that only revealed a panel
+// starts nothing, so without it the chat opened by hand an hour on would
+// take it; and a Claude Code that starts claude another way is never seen -
+// said once the arm goes, the commands to type. A remote window is never
+// armed: its claude starts on the remote host, where no hook here reaches,
+// so it keeps the pre-fill, at once, as before (carryReaches).
+//
+// What to carry is read from the transcript, which never says where a
+// process began: Ultracode turned on two days ago, in a process a VS Code
+// restart ended, reads as on. So the hook also notes when each chat's
+// process was launched here, armed or not, and what chatq put into it -
+// the walk stops there (processStart). The hook goes in as chatq starts,
+// in a local window with the setting on, so it sees the launches of the
+// tabs Claude Code brings back - or the first time a carry is planned,
+// where the setting came on later - and stays until deactivate, which
+// puts the original back only where the hook is still the module's spawn:
+// one another extension put over it later is not undone.
+const carryArms = new Map();    // session id -> { ultracode, effort, settle, timer }
+const launches = new Map();     // session id -> { at, ultracode, effort }: its latest launch here
+let spawnHook = null;           // { mod, original, wrapper } while in
+// the module the hook goes into; when this extension host started - every
+// process of a tab in this window began after it; the clock a launch is
+// noted by: the tests put their own here
+const carryIo = { mod: cp, hostStart: Date.now() - process.uptime() * 1000, now: () => Date.now() };
+
+// When the chat's current process began, and what chatq put into it - the
+// bound sessionSettingsIn's walks stop at: its launch as the hook saw it,
+// else this extension host's start. A chat's process held by another
+// window began who knows when: bound here all the same, as a carry
+// missed only leaves the old word, and a stale one turns Ultracode on
+// that nobody wanted. Never throws.
+function processStart(sessionId) {
+    const l = launches.get(String(sessionId || '').toLowerCase());
+    return l ? Object.assign({}, l) : { at: carryIo.hostStart, ultracode: false, effort: null };
+}
+
+// A processStart kept in a record - a handover's - read back: itself, or
+// null for one missing or malformed. Pure.
+function validStart(s) {
+    if (!s || typeof s !== 'object' || !Number.isFinite(s.at)) return null;
+    return { at: s.at, ultracode: s.ultracode === true, effort: EFFORT_LEVELS.includes(s.effort) ? s.effort : null };
+}
+
+// on unless turned off: unset reads as on
+function keepSettings() {
+    return setting('keepSessionSettings') !== false;
+}
+
+// A launch the hook can see: a local window's. In a remote one - WSL, SSH,
+// a container - chatq, a ui extension, runs here and Claude Code on the
+// remote host, which starts claude there: an arm would only leave the box
+// empty a minute before the word came. Never throws.
+function carryReaches() {
+    try { return !(vscode.env && vscode.env.remoteName); } catch (e) { return false; }
+}
+
+// The hook in mod (carryIo.mod when none is named). True where it is in:
+// the module's spawn is the wrapper once set - a frozen module refuses
+// it. Never throws.
+function installSpawnHook(mod) {
+    const m = mod || carryIo.mod;
+    if (spawnHook) return spawnHook.mod === m;
+    try {
+        const original = m && m.spawn;
+        if (typeof original !== 'function') { log('spawn hook: no spawn to hook - nothing carried into a reopen'); return false; }
+        const wrapper = function spawn() {
+            let a = arguments;
+            try { a = carryArgs(arguments) || arguments; } catch (e) { a = arguments; log('spawn hook: ' + (e && e.message) + ' - the launch left as it came'); }
+            return original.apply(this, a);
+        };
+        m.spawn = wrapper;
+        if (m.spawn !== wrapper) { log('spawn hook: child_process.spawn could not be replaced - nothing carried into a reopen'); return false; }
+        spawnHook = { mod: m, original, wrapper };
+        log('spawn hook in: Ultracode and a session-only level go into a chat chatq opens again');
+        return true;
+    } catch (e) {
+        log('spawn hook: ' + (e && e.message) + ' - nothing carried into a reopen');
+        return false;
+    }
+}
+
+// The hook out, every arm dropped unsaid: the window is closing. The
+// original put back only where the wrapper is still the module's spawn.
+function removeSpawnHook() {
+    for (const a of carryArms.values()) clearTimeout(a.timer);
+    carryArms.clear();
+    const h = spawnHook;
+    spawnHook = null;
+    if (!h) return 'none';
+    try {
+        if (h.mod.spawn !== h.wrapper) { log('spawn hook: another hook is over it - left in place, carrying nothing'); return 'covered'; }
+        h.mod.spawn = h.original;
+        log('spawn hook out');
+        return 'removed';
+    } catch (e) { return 'failed'; }
+}
+
+// A launch's arguments (spawn's own arguments object) with what is armed
+// for its chat added, taking the arm: a new list, or null for the launch
+// as it came. The chat by --resume=<id>, or --resume and <id>; the command
+// is not looked at, so a claudeProcessWrapper in front of claude gets the
+// flags too. Added before a -- where there is one, which ends the flags.
+// Every launch of a chat is noted in launches, with what went in.
+function carryArgs(a) {
+    const argv = a[1];
+    if (!Array.isArray(argv)) return null;
+    let sid = null;
+    for (let i = 0; i < argv.length && sid === null; i++) {
+        const s = argv[i];
+        if (typeof s !== 'string') continue;
+        if (s.startsWith('--resume=')) sid = s.slice('--resume='.length);
+        else if (s === '--resume' && typeof argv[i + 1] === 'string') sid = argv[i + 1];
+    }
+    const key = sid && sid.toLowerCase();
+    if (!key || !isGuid(key)) return null;
+    const noted = { at: carryIo.now(), ultracode: false, effort: null };
+    launches.delete(key);
+    launches.set(key, noted);
+    // the oldest let go past a few hundred: one a window never reopens
+    if (launches.size > 500) launches.delete(launches.keys().next().value);
+    const arm = carryArms.get(key);
+    if (!arm) return null;
+    const has = f => argv.some(s => typeof s === 'string' && (s === f || s.startsWith(f + '=')));
+    const add = [], got = { ultracode: false, effort: null }, left = [];
+    if (arm.ultracode) {
+        if (has('--settings')) left.push('Ultracode - the launch has --settings of its own');
+        else { add.push('--settings', '{"ultracode":true}'); got.ultracode = true; }
+    }
+    if (arm.effort) {
+        if (has('--effort')) left.push('effort ' + arm.effort + ' - the launch has --effort of its own');
+        else { add.push('--effort', arm.effort); got.effort = arm.effort; }
+    }
+    noted.ultracode = got.ultracode;
+    noted.effort = got.effort;
+    disarm(key, got);
+    log('spawn ' + key.slice(0, 8) + ': ' + (add.length ? 'carried ' + carriedText(got) : 'nothing carried') + (left.length ? '; not carried: ' + left.join('; ') : ''));
+    if (!add.length) return null;
+    const at = argv.indexOf('--');
+    const out = Array.prototype.slice.call(a);
+    out[1] = at < 0 ? argv.concat(add) : argv.slice(0, at).concat(add, argv.slice(at));
+    return out;
+}
+
+function carriedText(got) {
+    return [got.ultracode ? 'Ultracode' : '', got.effort ? 'effort ' + got.effort : ''].filter(Boolean).join(', ');
+}
+
+// the arm of a chat taken off, its promise settled with what went in
+function disarm(key, got) {
+    const a = carryArms.get(key);
+    if (!a) return;
+    carryArms.delete(key);
+    clearTimeout(a.timer);
+    a.settle(got);
+}
+
+// Armed for the chat's next launch: { ultracode, effort } to add. A
+// promise of what went in - { ultracode: true|false, effort: level|null } -
+// nothing where no launch came within timing.carryWait, or the hook is not
+// in. null where a newer arm for the chat took its place: that open - Show
+// it's after a handover's, say - owns the word, and a nothing here would
+// say the carry missed while the newer launch takes it.
+function armCarry(sessionId, what) {
+    const none = { ultracode: false, effort: null };
+    const key = String(sessionId || '').toLowerCase();
+    const ultracode = !!(what && what.ultracode), effort = (what && what.effort) || null;
+    if (!isGuid(key) || (!ultracode && !effort) || !installSpawnHook()) return Promise.resolve(none);
+    disarm(key, null);
+    return new Promise(settle => {
+        const arm = { ultracode, effort, settle, timer: null };
+        arm.timer = setTimeout(() => {
+            if (carryArms.get(key) !== arm) return;
+            carryArms.delete(key);
+            log('open ' + key.slice(0, 8) + ': no launch of it within ' + Math.round(timing.carryWait / 1000) + ' s - nothing carried');
+            settle(none);
+        }, timing.carryWait);
+        if (arm.timer && arm.timer.unref) arm.timer.unref();
+        carryArms.set(key, arm);
+    });
+}
+
+// Right before an open that may start the chat's new process: armCarry's
+// promise where lostByReopen planned the carry, else null - the pre-fill
+// and the word as before. An open that only reveals a tab arms as well: a
+// tab kept over a reload and not revived yet may start its process as it
+// is shown, and take the carry then; one whose process exited starts
+// none, and its word waits for the arm to go.
+function carryFor(req, lost) {
+    return lost && lost.prefill === null ? armCarry(req.sessionId, lost) : null;
+}
+
+// The word on a reopen whose carry was armed, once the launch took it or
+// the arm went: all of it in - a line in the log alone; else sayLost for
+// what did not go in, to be typed, as for a panel given no prompt. Holds
+// no caller: the launch may come seconds on, or never. An arm a newer open
+// took over says nothing: that open's word is the one. A promise of
+// whether anything was said.
+function reportCarry(req, lost, carrying) {
+    const sid = String(req.sessionId || '').slice(0, 8);
+    return Promise.resolve(carrying).then(got => {
+        if (got === null) { log('reopened ' + sid + ': armed again by a newer open - its word, not this one'); return false; }
+        got = got || {};
+        const left = { ultracode: !!lost.ultracode && got.ultracode !== true, effort: lost.effort && got.effort !== lost.effort ? lost.effort : null };
+        if (!left.ultracode && !left.effort) { log('reopened ' + sid + ': ' + carriedText(lost) + ' carried'); return false; }
+        left.prefill = left.ultracode ? '/effort ultracode' : '/effort ' + left.effort;
+        return sayLost(req, left, false);
+    }).catch(e => { log('reopened ' + sid + ': the word on what was carried failed: ' + (e && e.message)); return false; });
 }
 
 // Where a terminal's claude comes from: the Claude extension's own, which
@@ -1222,21 +1488,28 @@ async function perform(how, req) {
     log(req.kind + ' ' + (req.sessionId || '').slice(0, 8) + ': ' + how);
     switch (how) {
         case 'tab': {
+            // A new tab where a process of this window held the chat, or
+            // the check ended one, starts a new process: what the old one
+            // alone had is read, and armed to go into it, before the open.
+            // A reopen in showTab arms again for its own open
+            const held = hostPidsOf(req).includes(process.pid);
+            const lost = held || req.oldProcess === 'ended' ? await lostByReopen(req) : null;
+            const carrying = carryFor(req, lost);
             const r = await showTab(req);
             // A new tab for a chat a process of this window held: its view
             // here was outside the tabs, and the process under it has been
             // ended, so that view is dead. Said once, here.
-            if (r === 'new' && hostPidsOf(req).includes(process.pid)) {
+            if (r === 'new' && held) {
                 log(req.kind + ' ' + (req.sessionId || '').slice(0, 8) + ': its old view here was outside the tabs');
                 vscode.window.showInformationMessage(texts.sideBarStale(req));
                 // the new tab's process is not the one Ultracode or a
                 // session-only level was set in. Its open could not be
                 // sure of a new panel, so nothing went into its input box
-                sayLost(req, await lostByReopen(req), false);
+                sayLost(req, lost, false, carrying);
             } else if (r === 'new' && req.oldProcess === 'ended') {
                 // the process chatq's check ended was another window's:
                 // no view of it here, but a new process all the same
-                sayLost(req, await lostByReopen(req), false);
+                sayLost(req, lost, false, carrying);
             }
             return r;
         }
@@ -1303,7 +1576,7 @@ function parseVerdict(stdout) {
 // o: as verdictCommand takes it. A check given a grace gets it on top of
 // its own time.
 function getVerdict(req, file, o) {
-    const script = path.join(path.dirname(path.dirname(file)), 'claude-codex-chat-manager.ps1');
+    const script = path.join(path.dirname(path.dirname(file)), 'Charlie-and-the-chat-factory.ps1');
     let exe, args;
     try { [exe, args] = verdictCommand(script, req, o); } catch (e) { log(e.message); return Promise.resolve(null); }
     const ms = o && o.grace > 0 ? o.grace * 1000 + 20000 : timing.verdictTimeout;
@@ -1430,6 +1703,10 @@ async function showLive(req, file) {
         vscode.window.showInformationMessage((listed === 'held' ? texts.hiddenBusy : texts.unmended)(req));
         return listed;
     }
+    // a new tab from this open starts a new process beside the side bar's:
+    // what the old one alone had is read, and armed to go into it, first
+    const lostNew = await lostByReopen(req);
+    const carryNew = carryFor(req, lostNew);
     const startedBefore = new Date().toISOString();
     const before = allTabs().filter(isClaudeTab);
     const beforeActive = activeTab();
@@ -1484,9 +1761,10 @@ async function showLive(req, file) {
     if (how === 'new') {
         await unlockClaudeGroup(req.title, before, 'new');
         vscode.window.showInformationMessage(texts.sideBarStale(req));
-        // a new process too: what the old one alone had is not in it - and
-        // the first open might have revealed a panel, so no pre-fill
-        sayLost(req, await lostByReopen(req), false);
+        // a new process too: what the old one alone had is not in it, but
+        // where carried - and the first open might have revealed a panel,
+        // so no pre-fill
+        sayLost(req, lostNew, false, carryNew);
         return 'new';
     }
     if (!v2 || !['none', 'ended'].includes(v2.oldProcess)) {
@@ -1502,14 +1780,16 @@ async function showLive(req, file) {
     const run = liveRunFor(req.sessionId);
     if (run) { step('#' + run.seq + ' runs into it now - its live view instead'); openWatch(run.jobId, { viewColumn: col, title: run.title }); return 'watch'; }
     await sleep(timing.tabSettle);
-    // its tab closed and its process gone: a new panel, whose input box
-    // takes what the old process alone had
+    // its tab closed and its process gone: a new panel, whose process -
+    // or else its input box - takes what the old process alone had. Armed
+    // again, as the first open's arm may have gone by in the grace
     const lost = await lostByReopen(req);
-    await openOnce(req.sessionId, col, lost ? lost.prefill : undefined);
+    const carrying = carryFor(req, lost);
+    await openOnce(req.sessionId, col, (lost && lost.prefill) || undefined);
     await sleep(timing.tabSettle);
     await unlockClaudeGroup(req.title, before, 'reopened');
     step('opened again');
-    sayLost(req, lost, true);
+    sayLost(req, lost, true, carrying);
     return 'reopened';
 }
 
@@ -1827,9 +2107,12 @@ async function onHandover(context, rs) {
         if (made && made.fresh) made.panel.dispose();
         return late ? 'late' : 'kept';
     }
+    // start: when the process the close ends began - what it alone had is
+    // put back with the chat, and a reload before then forgets the launch
+    const start = processStart(rs.sessionId);
     await bounded(vscode.window.tabGroups.close(t), 'closing the tab');
     const rec = { sessionId: rs.sessionId, jobId: rs.jobId, seq: rs.seq, title: rs.title || '', cwd: rs.cwd || '', home: rs.home || null,
-        provider: rs.provider || 'claude', viewColumn: col, wasVisible: visible, at: new Date().toISOString() };
+        provider: rs.provider || 'claude', viewColumn: col, wasVisible: visible, at: new Date().toISOString(), start };
     await putHandovers(context, handovers(context).filter(r => r.jobId !== rs.jobId).concat([rec]));
     say('its tab closed' + (visible ? ', its live view in its place' : ' - a tab behind others, so no live view by itself'));
     if (!visible) {
@@ -2040,7 +2323,8 @@ async function restoreHandover(r) {
     // revived yet, or one whose process exited - which is only revealed,
     // and Claude Code applies no prompt to it: the commands are named
     // instead. Else the new panel's input box takes the /effort that puts
-    // it back
+    // it back - or, carried, its new process takes both, and the word on
+    // it waits for that launch without holding the chain
     const open = (col, why) => enqueue(async () => {
         if (liveRunFor(r.sessionId)) return 'running';
         if ((readRegistry(r.home || claudeHome(), Date.now()).get(r.sessionId) || []).length) {
@@ -2049,11 +2333,12 @@ async function restoreHandover(r) {
             return 'show it';
         }
         if (!hasClaude()) { vscode.window.showInformationMessage(texts.noClaude(req)); return 'no Claude'; }
-        const lost = await lostByReopen(req);
+        const lost = await lostByReopen(req, validStart(r.start));
         const before = allTabs().filter(isClaudeTab);
-        const prompt = lost && !oneTabOf(r.title, before) ? lost.prefill : undefined;
+        const prompt = lost && lost.prefill && !oneTabOf(r.title, before) ? lost.prefill : undefined;
+        const carrying = carryFor(req, lost);
         const how = await openCore(Object.assign({}, req, { kind: 'open', oldProcess: 'none', hostPids: [] }), before, why, col, prompt);
-        if (how === 'new' || how === 'revealed') sayLost(req, lost, how === 'new' && !!prompt);
+        if (how === 'new' || how === 'revealed') sayLost(req, lost, how === 'new' && !!prompt, carrying);
         return how;
     });
     if (view && !view.disposed) {
@@ -2297,14 +2582,16 @@ async function openFromWatch(v) {
         // exited - is only revealed, and Claude Code applies no prompt to it:
         // the commands are named instead. One running it, the open may only
         // reveal its panel: nothing given, nothing said. Read again here: the
-        // chain may have held this open a while
+        // chain may have held this open a while. Carried, the new process
+        // takes both instead, and nothing goes into the box
         const none = chatState(readRegistry(job.home || claudeHome(), Date.now()).get(job.sessionId)) === 'closed';
         const lost = none ? await lostByReopen(req) : null;
         const before = allTabs().filter(isClaudeTab);
-        const prompt = lost && !oneTabOf(job.title, before) ? lost.prefill : undefined;
+        const prompt = lost && lost.prefill && !oneTabOf(job.title, before) ? lost.prefill : undefined;
+        const carrying = carryFor(req, lost);
         const how = await openCore(req, before, '(Open chat, #' + job.seq + ')', col, prompt);
         if (how === 'new' || how === 'revealed') {
-            sayLost(req, lost, how === 'new' && !!prompt);
+            sayLost(req, lost, how === 'new' && !!prompt, carrying);
             v.panel.dispose();
         }
         return how;
@@ -3109,6 +3396,9 @@ function activate(context) {
         context.subscriptions.push(vscode.commands.registerCommand('chatManager.autoContinue', () => autoContinue()));
         context.subscriptions.push(vscode.commands.registerCommand('chatManager.watchRun', () => watchRun()));
     }
+    // the spawn hook in before Claude Code brings its tabs back, so it sees
+    // when each chat's process began (processStart)
+    if (keepSettings() && carryReaches()) installSpawnHook();
     // a watch panel open as the window reloaded comes back - whoever
     // handles the requests
     runClock.activatedAt = Date.now();
@@ -3156,7 +3446,8 @@ function activate(context) {
     context.subscriptions.push({ dispose: () => { fs.unwatchFile(rsFile); clearInterval(timer); watchRunJob(context, null); if (runItem) { runItem.dispose(); runItem = null; } } });
 }
 
-function deactivate() { }
+// child_process.spawn as it was, where chatq's hook is still in it
+function deactivate() { removeSpawnHook(); }
 
 // The underscored ones are exported so the path matching, the BOM strip, the
 // wording, the auto rules, the plan and the command sequences can be driven
@@ -3203,5 +3494,10 @@ Object.assign(module.exports, {
 // the tests
 Object.assign(module.exports, { _effortSaid: effortSaid, _effortLine: effortLine, _sessionSettingsIn: sessionSettingsIn, _ultracodeIn: ultracodeIn,
     _sessionIo: sessionIo, _lostByReopen: lostByReopen, _sayLost: sayLost });
+// and carried into one: _carryIo.mod is replaced by the tests, so the real
+// child_process is never hooked there
+Object.assign(module.exports, { _carryIo: carryIo, _installSpawnHook: installSpawnHook, _removeSpawnHook: removeSpawnHook,
+    _carryArgs: carryArgs, _armCarry: armCarry, _carryFor: carryFor, _reportCarry: reportCarry, _keepSettings: keepSettings,
+    _carryReaches: carryReaches, _carryArms: carryArms, _launches: launches, _processStart: processStart, _validStart: validStart });
 // what safe-restart.js uses of this file
 Object.assign(module.exports, { _log: log, _command: command, _reloadWindow: reloadWindow, _reloadAnyway: reloadAnyway, _safe: safe, _forgetPwsh: () => { pwshFound = undefined; } });

@@ -1,8 +1,8 @@
-# claude-codex-chat-manager one-line installer
+# Charlie-and-the-chat-factory one-line installer
 #
-#   iex (irm https://raw.githubusercontent.com/phal40lax78/claude-codex-chat-manager/main/install.ps1)
+#   iex (irm https://raw.githubusercontent.com/phal40lax78/Charlie-and-the-chat-factory/main/install.ps1)
 #
-# Downloads the tool - claude-codex-chat-manager.ps1 and the src/ folder it loads -
+# Downloads the tool - Charlie-and-the-chat-factory.ps1 and the src/ folder it loads -
 # to a real folder and dot-sources it from there. It has to reach disk first:
 # the script finds data/ and the line it writes into $PROFILE from its own file
 # path, and the background watcher it starts re-loads the file by that path -
@@ -19,11 +19,11 @@
 # cannot wrap itself in & { }, which would dot-source into a scope about to go.
 #
 # Set CHAT_MANAGER_DIR beforehand to install somewhere other than
-# ~/Tools/claude-codex-chat-manager.
+# ~/Tools/Charlie-and-the-chat-factory.
 
-$chatManagerUrl = 'https://github.com/phal40lax78/claude-codex-chat-manager/archive/refs/heads/main.zip'
-$chatManagerDir = if ($env:CHAT_MANAGER_DIR) { $env:CHAT_MANAGER_DIR } else { Join-Path (Join-Path $HOME 'Tools') 'claude-codex-chat-manager' }
-$chatManagerFile = Join-Path $chatManagerDir 'claude-codex-chat-manager.ps1'
+$chatManagerUrl = 'https://github.com/phal40lax78/Charlie-and-the-chat-factory/archive/refs/heads/main.zip'
+$chatManagerDir = if ($env:CHAT_MANAGER_DIR) { $env:CHAT_MANAGER_DIR } else { Join-Path (Join-Path $HOME 'Tools') 'Charlie-and-the-chat-factory' }
+$chatManagerFile = Join-Path $chatManagerDir 'Charlie-and-the-chat-factory.ps1'
 # in data/, like every file the tool writes, and gone once copied out
 $chatManagerTmp = Join-Path (Join-Path $chatManagerDir 'data') 'download'
 
@@ -36,15 +36,15 @@ if ([Net.ServicePointManager]::SecurityProtocol -notmatch 'Tls12') {
 
 if (Test-Path -LiteralPath $chatManagerTmp) { Remove-Item -LiteralPath $chatManagerTmp -Recurse -Force -ErrorAction Stop }
 New-Item -ItemType Directory -Path $chatManagerTmp -Force -ErrorAction Stop | Out-Null
-Write-Host "  downloading claude-codex-chat-manager -> $chatManagerDir" -ForegroundColor DarkGray
+Write-Host "  downloading Charlie-and-the-chat-factory -> $chatManagerDir" -ForegroundColor DarkGray
 Invoke-WebRequest $chatManagerUrl -OutFile (Join-Path $chatManagerTmp 'main.zip') -UseBasicParsing -ErrorAction Stop
 Expand-Archive -LiteralPath (Join-Path $chatManagerTmp 'main.zip') -DestinationPath $chatManagerTmp -Force -ErrorAction Stop
 # src/ before the file that loads it: stopped between the two, a copy from
 # before src/ existed still loads whole, since it reads nothing there
-$chatManagerFrom = Join-Path $chatManagerTmp 'claude-codex-chat-manager-main'
+$chatManagerFrom = Join-Path $chatManagerTmp 'Charlie-and-the-chat-factory-main'
 New-Item -ItemType Directory -Path (Join-Path $chatManagerDir 'src') -Force -ErrorAction Stop | Out-Null
 Copy-Item -Path (Join-Path (Join-Path $chatManagerFrom 'src') '*.ps1') -Destination (Join-Path $chatManagerDir 'src') -Force -ErrorAction Stop
-Copy-Item -LiteralPath (Join-Path $chatManagerFrom 'claude-codex-chat-manager.ps1') -Destination $chatManagerFile -Force -ErrorAction Stop
+Copy-Item -LiteralPath (Join-Path $chatManagerFrom 'Charlie-and-the-chat-factory.ps1') -Destination $chatManagerFile -Force -ErrorAction Stop
 Remove-Item -LiteralPath $chatManagerTmp -Recurse -Force -ErrorAction SilentlyContinue
 
 . $chatManagerFile

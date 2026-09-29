@@ -704,7 +704,7 @@ Check 'the chip on a chat whose window has a profile: the window brought forward
 # the chip itself, built and shown off every screen, in the STA process WPF needs
 $chipWpf = @"
 `$env:CHATQ_OVERLAY = '1'
-. '$(Join-Path $sb 'tool\claude-codex-chat-manager.ps1')'
+. '$(Join-Path $sb 'tool\Charlie-and-the-chat-factory.ps1')'
 Set-StrictMode -Off
 Initialize-ChatOverlayNative
 `$H = New-ChatOverlayHostState

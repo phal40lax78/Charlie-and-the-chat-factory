@@ -197,12 +197,12 @@ The decision is a pure function, so it can be tested:
       Single tenant, no redirect URI.
    2. **Certificates & secrets → Federated credentials → Add → GitHub
       Actions.** Organization `phal40lax78` (a personal account's
-      username), repository `claude-codex-chat-manager`, entity type
+      username), repository `Charlie-and-the-chat-factory`, entity type
       Environment, environment `marketplace`. The form fills in the
       numeric IDs, 199534513 and 1380880732. Leave the subject as it
-      builds it, `repo:phal40lax78@199534513/claude-codex-chat-manager@1380880732:environment:marketplace`:
+      builds it, `repo:phal40lax78@199534513/Charlie-and-the-chat-factory@1380880732:environment:marketplace`:
       this repo's tokens use that immutable form (`gh api
-      repos/phal40lax78/claude-codex-chat-manager/actions/oidc/customization/sub`).
+      repos/phal40lax78/Charlie-and-the-chat-factory/actions/oidc/customization/sub`).
       Immutable pins the IDs, not the name: renaming the repo changes
       the subject, and the login fails with AADSTS700213 until this
       credential names the new repo. The 0.10.0 publish, the first after
@@ -309,6 +309,18 @@ The decision is a pure function, so it can be tested:
    day to `claude-codex-chat-manager`. The federated credential in M1
    step 2 names the repo, so its subject became
    `repo:phal40lax78@199534513/claude-codex-chat-manager@1380880732:environment:marketplace`.
+   **Renamed again 2026-09-30,** for 0.10.2: display name "Charlie and
+   the Chat Factory - Claude Code & Codex", after the icon's Charlie and
+   the book's title - "Claude" and "Codex" stay in it for search - and
+   the ID `redaechan.charlie-and-the-chat-factory` (a manifest name is
+   lowercase), the repo, the loader and the default tool folder
+   `Charlie-and-the-chat-factory`. Notices say "Charlie and the Chat
+   Factory"; the commands keep their "Chat Manager:" category and the
+   settings their `chatManager.*` keys. Again a new extension, again no
+   handover: its two installs were the owner's. "Wonka" and
+   "Oompa-Loompa" are trademarks, so neither is in a name. The federated
+   credential's subject became
+   `repo:phal40lax78@199534513/Charlie-and-the-chat-factory@1380880732:environment:marketplace`.
 2. **The profile line:** asked once, as above, rather than only through
    the command.
 3. **Publishing:** by hand for 0.7.0, and from CI once M1 passes.

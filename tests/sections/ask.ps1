@@ -523,7 +523,7 @@ if ($script:ChatqIsWindows) {
     if (-not ($cfg.PSObject.Properties['ask'] -and $cfg.ask)) { Set-ChatqProp $cfg 'ask' ([pscustomobject]@{}) }
     Set-ChatqProp $cfg.ask 'on' $true
     Save-ChatqJson $script:ChatqConfigPath $cfg
-    $awTool = (Join-Path $sb 'tool\claude-codex-chat-manager.ps1').Replace("'", "''")
+    $awTool = (Join-Path $sb 'tool\Charlie-and-the-chat-factory.ps1').Replace("'", "''")
     $awOut = Invoke-Sta 'ask-window' ((@'
 $ErrorActionPreference = 'Stop'
 $env:CHATQ_OVERLAY = '1'; $env:CHATQ_WATCHER = '1'

@@ -1,4 +1,4 @@
-# claude-codex-chat-manager, src/overlay.ps1: dot-sourced by claude-codex-chat-manager.ps1
+# Charlie-and-the-chat-factory, src/overlay.ps1: dot-sourced by Charlie-and-the-chat-factory.ps1
 # in its turn, never on its own - see the list there.
 
 #region overlay: the command ---------------------------------------------------
@@ -114,7 +114,7 @@ function Start-ChatOverlayProcess {
     if (-not $script:ChatqIsWindows -and -not $script:ChatIsMac) { return $false }
     $path = $script:ChatqScriptPath
     if (-not $path -or -not (Test-Path -LiteralPath $path)) {
-        Write-Host '  cannot start the overlay: this shell does not know where claude-codex-chat-manager.ps1 is' -ForegroundColor Yellow
+        Write-Host '  cannot start the overlay: this shell does not know where Charlie-and-the-chat-factory.ps1 is' -ForegroundColor Yellow
         return $false
     }
     $l = Get-ChatOverlayLaunch $path -Open $Open
@@ -177,7 +177,7 @@ function chatoverlay {
     opacity, theme, usage as lines or bars, full or compact rows, how many
     recent chats, and whether chats the limit cut off are asked about or
     only marked), hide to the tray -
-    the tray dot shows it again - and close. The hotkey (Ctrl+Alt+Shift+O)
+    the tray icon shows it again - and close. The hotkey (Ctrl+Alt+Shift+O)
     or the tray menu unlocks the whole panel to drag; it locks again by
     itself two minutes after the pointer leaves. Windows and macOS
     (untested); elsewhere -Print shows the same in the console.

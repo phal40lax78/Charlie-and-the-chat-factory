@@ -558,7 +558,7 @@ if ($script:ChatqIsWindows) {
     $null = Set-ChatqNotifyConfig @{ QuietHours = 'off'; Say = @('needs input'); UsageAt = '90'; Events = 'all' }
     $xStaScript = @"
 `$env:CHATQ_OVERLAY = '1'
-. '$(Join-Path $sb 'tool\claude-codex-chat-manager.ps1')'
+. '$(Join-Path $sb 'tool\Charlie-and-the-chat-factory.ps1')'
 Set-StrictMode -Off
 `$w = New-ChatqPhoneSetupWindow -Theme dark
 `$U = `$w.Tag

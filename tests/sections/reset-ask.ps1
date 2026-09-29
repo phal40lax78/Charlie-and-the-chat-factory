@@ -174,9 +174,9 @@ $tp3 = Format-ChatOverlayTooltip (& $tipSnap 3 2 $tw) $fN
 $tp4 = Format-ChatOverlayTooltip (& $tipSnap 0 0 @((& $fw '5h' 43 180), (& $fw 'week' 100 3000 $true))) $fN
 $tpBig = Format-ChatOverlayTooltip ([pscustomobject]@{ counts = [pscustomobject]@{ waiting = 12; needsInput = 3; unread = 14; cutOff = 30; busy = 40; running = 1; idle = 88; queued = 9 }
         header = [pscustomobject]@{ ask = [pscustomobject]@{ count = 25 }; usage = @([pscustomobject]@{ provider = 'Claude'; windows = $tw }) } }) $fN
-Check 'the tray''s tooltip: "N can continue" first, cut off only for the rest; 5h''s reset when it is the one; never 64 characters' (
-    $tp1 -eq 'chatq: 2 can continue, 1 cut off, 2 idle - 5h 43%, resets 13:00' -and $tp2 -eq 'chatq: 3 cut off, 2 idle - 5h 43%, resets 13:00' -and
-    $tp3 -eq 'chatq: 3 can continue, 2 idle - 5h 43%, resets 13:00' -and $tp4 -eq 'chatq: 2 idle - 5h 43%' -and $tpBig.Length -le 63) "$tp1 | $tp2 | $tp3 | $tp4 | $tpBig"
+Check 'the tray''s tooltip: "N can continue" first, cut off only for the rest; 5h''s reset when it is the one; never past Windows'' 127 characters' (
+    $tp1 -eq 'Charlie: 2 can continue, 1 cut off, 2 idle - 5h 43%, resets 13:00' -and $tp2 -eq 'Charlie: 3 cut off, 2 idle - 5h 43%, resets 13:00' -and
+    $tp3 -eq 'Charlie: 3 can continue, 2 idle - 5h 43%, resets 13:00' -and $tp4 -eq 'Charlie: 2 idle - 5h 43%' -and $tpBig.Length -le 127) "$tp1 | $tp2 | $tp3 | $tp4 | $tpBig"
 $caAsk = @(Get-ChatOverlayChipActions ([pscustomobject]@{ key = 'ask'; kind = 'ask'; provider = ''; sessionId = ''; cwd = ''; count = 3; keys = @('a_1', 'b_2', 'c_3'); titles = @('One', 'Two', 'Three') }))
 $caOpen = @(Get-ChatOverlayChipActions ([pscustomobject]@{ key = "s:$idCard"; kind = 'session'; provider = 'claude'; sessionId = $idCard; cwd = $projA }))
 $caCut = @(Get-ChatOverlayChipActions ([pscustomobject]@{ key = "c:$idFw"; kind = 'cutoff'; provider = 'claude'; sessionId = $idFw; cwd = $projA }))
@@ -510,7 +510,7 @@ Check 'the console with overlay.cutOff off: the ask''s chats listed under Cut of
 $kWc = & $kOf $raWc
 $raWpf = @"
 `$env:CHATQ_OVERLAY = '1'
-. '$(Join-Path $sb 'tool\claude-codex-chat-manager.ps1')'
+. '$(Join-Path $sb 'tool\Charlie-and-the-chat-factory.ps1')'
 Set-StrictMode -Off
 `$script:RaErr = @()
 trap { `$script:RaErr += "`$(`$_.Exception.Message) @ `$(`$_.InvocationInfo.ScriptLineNumber)"; continue }
@@ -634,7 +634,7 @@ Show-ChatOverlayBalloon `$H ('x' * 300) -Title 'long' -Kind 'test' -Keys @('a5_1
 Update-ChatOverlayAsk `$H
 Update-ChatOverlayAsk `$H
 `$bn = `$script:RaBalloons[0]
-`$newsOk = `$script:RaBalloons.Count -eq 1 -and `$bn.Title -eq ('chatq - limit over at ' + (& `$hm `$askAt)) -and
+`$newsOk = `$script:RaBalloons.Count -eq 1 -and `$bn.Title -eq ('Charlie - limit over at ' + (& `$hm `$askAt)) -and
     `$bn.Text -eq '4 chats it cut off can continue: Alpha chat, Beta chat, Gamma chat and 1 more. Click to see them.' -and `$bn.Kind -eq 'ask' -and
     (@(`$bn.Keys) -join ',') -eq 'k_1,k_2,k_3,k_4' -and `$null -eq `$H.Ctx.AskNews
 `$H.Ctx.AskSaid = 'queued 1 continue - it goes when its limit is over'

@@ -1,5 +1,5 @@
-# claude-codex-chat-manager, src/auto-continue.ps1: dot-sourced by
-# claude-codex-chat-manager.ps1 in its turn, never on its own - see the list there.
+# Charlie-and-the-chat-factory, src/auto-continue.ps1: dot-sourced by
+# Charlie-and-the-chat-factory.ps1 in its turn, never on its own - see the list there.
 
 #region auto-continue: settings, markers, states -----------------------------
 # config autoContinue "on", the mode you choose: a chat the usage limit cut

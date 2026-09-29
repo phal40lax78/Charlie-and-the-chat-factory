@@ -57,7 +57,7 @@ jobs:
       - name: Extension package
         if: matrix.host == 'powershell'
         working-directory: extension
-        run: npx --yes @vscode/vsce@3 package --out claude-codex-chat-manager.vsix
+        run: npx --yes @vscode/vsce@3 package --out Charlie-and-the-chat-factory.vsix
 
       # the macOS overlay's JXA: compiled and its pure part driven under node;
       # only a Mac can run the rest (TESTING.md)

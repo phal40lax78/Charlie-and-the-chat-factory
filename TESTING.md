@@ -1,4 +1,4 @@
-# Testing claude-codex-chat-manager
+# Testing Charlie-and-the-chat-factory
 
 ## The self-test
 
@@ -74,11 +74,11 @@ behind for poking at. It uses no Pester, no network and no model.
 - **Synthetic streams only** in `tests/fixtures/stream/`. The repo is public, so
   no real transcript goes in it.
 
-What it covers (at 0.10.1, 1287 checks in `run-tests.ps1` under 5.1 -
+What it covers (at 0.10.2, 1291 checks in `run-tests.ps1` under 5.1 -
 under pwsh 7 in CI alone, since the machine it was written on has none -
-371 in `extension-check.js`, 258 in `reply-page-check.js`, 133 in
-`board-page-check.js` and 36 in `overlay-mac-check.js`; at 0.10.0 it was
-1279, 371, 258, 133 and 36; at 0.9.0, 1032 under 5.1 and 1033 under
+387 in `extension-check.js`, 258 in `reply-page-check.js`, 133 in
+`board-page-check.js` and 36 in `overlay-mac-check.js`; at 0.10.1 it was
+1287, 371, 258, 133 and 36; at 0.10.0, 1279, 371, 258, 133 and 36; at 0.9.0, 1032 under 5.1 and 1033 under
 pwsh 7, 279, 250, 78 and 35):
 
 | area | checks |
@@ -119,7 +119,7 @@ pwsh 7, 279, 250, 78 and 35):
 | extension: the chat picker | `tests/extension-check.js`, the Claude home a sandbox folder - `CLAUDE_CONFIG_DIR` an empty one for the whole run, so no check reads the real `~/.claude`: a folder's project named as `Get-ChatSlug` names it; noise and titles as `Test-ChatNoise` and `Format-ChatTitle` have them; every folder's `<GUID>.jsonl`, newest first - a project folder of another case found, nothing else and nothing deeper listed; a rename first, the newest, then the newest `ai-title`, then the first prompt typed past the noise; the sidecar's rename over an `ai-title`, a big file's `ai-title` from its tail and its prompt from its head; a side transcript, and a small one holding no message, left out; titles kept by path, size and write time, read again only once the file changes; what runs each chat - a panel idle is open, busy or waiting working, a terminal wins, nothing is closed, and a run nobody types in (a `kind` set and not `interactive`, as chatq's `claude -p`) running, never a terminal, while an interactive one still is; an entry naming no `entrypoint` no terminal - working or open, as the script's empty where has it; an entry whose pid is gone, whose `startedAt` is ahead, or from before the machine started, runs nothing; the age as `Get-ChatAge` gives it; listed newest first by title, a codicon for what runs it, the age and state beside it, the folder in a multi-root window; a `$(` in a title or a folder's name kept as typed, never drawn as a codicon - only a whole codicon pattern (`$(terminal)`, `$(sync~spin)`) escaped, as VS Code's `escapeIcons` does, one escaped already left alone, and `x $(a b)` or `echo $(git rev-parse HEAD)` as typed; accepted - open idle elsewhere asks with **Open here too** and **Cancel**, Cancel opening nothing and Open here too opening through the chip's core; open with its one tab here brought forward, nothing asked; a terminal's refused and said; a queued prompt going into it (a print-mode run) refused as running, in words of its own, not as a terminal - a `claude -p` registered as `interactive` with an SDK's `entrypoint`, as 2.1.283 does, too - while a chatq run going into it opens its live view, looked at before anything else; working refused and told to open it once it finishes, twin tabs too, its one tab here only brought forward; a label another chat of its folder has - the same title or the same first 24 characters, never itself, nor for no title, nor in a folder neither the window nor the chat is on - its one tab counted as none: working refused, open asked; every folder of a multi-root window looked in beside the chat's own, twins in two of them found; each folder's newest 200 read (200 of 205); a look not done within `labelBudget` taken as shared and logged, and 0 no limit; read again after the question, and again right before the open, which waits behind another show - working, or a terminal's, by then refused as it would have been at once; closed opened from disk and logged; titles slow to read listed at once by id and filled in as they come, the item under the cursor kept; the newest 200 only, listed before every title is read - the rest by id, each read made 5 ms slower and no wall-clock limit asserted - and then every title read |
 | extension: hidden chats | `tests/extension-check.js`, in a sandbox Claude home: the first `entrypoint` found as Claude Code finds it - the key without a space first, the last by place, escapes read, one cut off none; an SDK's first in the head hides a chat for good, with none in the head the tail's last decides, a window's listed; hidden by its tail - one `chatq-listed` line naming `claude-vscode`, no timestamp, added at the end, byte for byte the script's, listed again, its write time kept, and a second look adds none; a last line lacking its end gets the new one on a line of its own; a process idle in it - mended beside it; one busy in it, or a print-mode run - left, and a head that hides it, a listed chat, or no transcript found - nothing written, no file made; a request's transcript path taken where the slug finds nothing, but only a file named for the chat; the open chip on a chat hidden by its tail - the line written before the open is asked for, then a tab as any other; on one a run writes to - not opened, and said; on one hidden by its head no tab, a terminal offered - `claude --resume <id>` as the terminal's own process, in the chat's folder and Claude home - and "Not now" makes none; the offer taken once the chat runs somewhere - no terminal, and said - and a second offer while one is up - none; a chat whose line cannot be written - not opened, and said; Show it on one hidden by its head, and the picker on one hidden by either, the same; a new chat a run started - said, and no reload offered |
 | extension: the handover and the live view | `tests/extension-check.js`, the window's side of `data/run-state`, VS Code stood in for: `chatManager.watchRuns` off - answered `off` in `run-ack/<this pid>.json` by the handover's id, nothing closed or opened; no tab here reading as the chat, or two - `unsure`, the live view beside, the old view said stale, never `editor.open`; its tab in front of you in a focused window - `in-use`, nothing closed, said once with **Hand over now**, which clears only that job's wait, while it still waits for its tab, through the tool folder's loader and a poke of the watcher, and lets that job's next handover go ahead - clicked on a notice gone stale, nothing run and the rule kept; the tab shown but nobody at it - the live view in its group first, then the tab closed, the record kept, and away in front of you the same with the view taking the focus; a tab behind others - closed, no view over what is shown there, said with **Watch**; the chat working by the registry - `in-use`, nothing said; another window's handover or one whose job is not running - not answered; an answer come late - nothing written, no tab closed, no word that the job waits; a run beside its tab (a background command, unsure, timed out) - the tab left, the view beside, the old view said stale once a job; the end - the view in front: the chat opened in its place, loaded from disk, then the view closed, the record marked, the run's own request after it taken as seen, put back once; the view not in front, you here - it stays with **Open chat**, away - the chat in its place; the view closed already - asked; a watcher that died mid-run an end too; the end at the limit put back as any end; a process holding the chat again - Show it, nothing opened beside it; one unanswered question holding up no later job's put-back; after a window reload, nothing put back before its watch panel is back, and a run whose panel was closed before put back once that moment is over; the status bar - `chatq #15 running` in windows on the job's folders, a click watching it, the warning colour while the phone is asked, none for another folder, a dead watcher or an ended run; a job set running before run-state says so is the run going in, not with its watcher gone; the panel - its own `viewType`, scripts on, kept while hidden, no local files, titled by its mark, `#15` and the title, one per job, the log tailed a whole line at a time, a long log read from its last 2 MB and said, Cancel in a modal and then `Stop-ChatqJobRun`, Log opening the log, Open chat once it ended and the view closed, none for Codex, a continue headed as one, a prompt of megabytes read only from its first few KB and cut at 300 characters, brought back after a reload, one whose state names no job closed; `openCall` given the column; **Watch the running queued prompt** - none running said, one running its view; the chip's watch - its view, no Claude tab, one naming no job nothing, a window not exactly its folder leaving it; the chip's open and the picker - a chatq run going into the chat opens its view first; a watch panel keeps a group Claude's and is never a Claude tab; `watchItems` - init with the model, the mode and the version, text, tools with their argument, results cut to 3 lines and 300 characters with `+N lines`, errors marked, a subagent's rows indented, the heartbeat on its tool's row, `Edit +2 -1`, a denial, the limit's reset, the end's turns and time, thinking and an allowed rate event left out, the latest TodoWrite pinned, a running tool's own clock, a line over 256 KB never parsed, Codex as `Get-ChatqLogEntries` reads it, every text escaped, a line taken only once its newline has come, a retry's init closing what the cut-off attempt left open, the last 5000 rows kept; the header and its end states; the page - a nonce'd script and style and nothing else loaded, VS Code's theme colours, a full batch built apart and put in at once; `package.json` declaring the command, `chatManager.watchRuns` (on) and the panel's activation event, and `watch.js` carried |
-| extension: Ultracode and effort | `tests/extension-check.js`: every `/effort` answer in `tests/fixtures/session-vector.json` read as it says - Ultracode on, off or unsaid, by the version too, a level kept only where it is for the session, a refusal nothing - and every transcript there read as it says, at the reader's chunk and at 777 bytes alike, within a case's budget where it has one (`node tests/fixtures/make-session-vector.js` writes the file again); a line's kind - `/effort`'s answer, a turn's level, an Ultracode notice, a prompt typed, another user record, a compaction - a `claude -p` run's only its notices and compactions, and none of a subagent's, another command's, a tool's result or a meta record, nor the words in a message; Ultracode by the chat's own notice or `/effort` answer since the last prompt typed, else as that prompt found it - a queued run's notice before it counts, a compaction between is off; the level of the latest turn a prompt started where max, or set by the last `/effort` before it for the session only; read backwards in chunks, a line cut across two put together, past the budget unknown and nothing said; the pre-fill - `/effort ultracode` where Ultracode was on, with or without a level, else `/effort <level>`, none where nothing was lost or it is unknown; the word - the chat, what was lost, what its input box holds and that the send key applies it, the level to type after where both were lost, never the effort menu; that key Ctrl+Enter where the Claude extension sends with it, Cmd+Enter on a Mac, else Enter; the pre-fill given and said on Show it's close and reopen (a run's own exit since passed over), a stale tab reopened after the script ended its process, the chat put back after a handover, and the live view's Open chat with no process of the chat; the commands named and nothing in the box for a new tab for a chat a process of this window held outside the tabs, one another window's process the check ended, and a Claude tab here reading as the chat; a process holding it by a late Open chat - Show it, nothing opened beside it; the chip's and the picker's opens nothing, closing no tab of chatq's; the panel's header `Ultracode` and `effort max` where the job or run-state carries them, a level Claude Code does not know not shown, neither while queued |
+| extension: Ultracode and effort | `tests/extension-check.js`: every `/effort` answer in `tests/fixtures/session-vector.json` read as it says - Ultracode on, off or unsaid, by the version too, a level kept only where it is for the session, a refusal nothing - and every transcript there read as it says, at the reader's chunk and at 777 bytes alike, within a case's budget where it has one (`node tests/fixtures/make-session-vector.js` writes the file again); a line's kind - `/effort`'s answer, a turn's level, an Ultracode notice, a prompt typed, another user record, a compaction - a `claude -p` run's only its notices and compactions, and none of a subagent's, another command's, a tool's result or a meta record, nor the words in a message; Ultracode by the chat's own notice or `/effort` answer since the last prompt typed, else as that prompt found it - a queued run's notice before it counts, a compaction between is off; the level of the latest turn a prompt started where max, or set by the last `/effort` before it for the session only; read backwards in chunks, a line cut across two put together, past the budget unknown and nothing said; with `chatManager.keepSessionSettings` off, the pre-fill - `/effort ultracode` where Ultracode was on, with or without a level, else `/effort <level>`, none where nothing was lost or it is unknown; the word - the chat, what was lost, what its input box holds and that the send key applies it, the level to type after where both were lost, never the effort menu; that key Ctrl+Enter where the Claude extension sends with it, Cmd+Enter on a Mac, else Enter; the pre-fill given and said on Show it's close and reopen (a run's own exit since passed over), a stale tab reopened after the script ended its process, the chat put back after a handover, and the live view's Open chat with no process of the chat; the commands named and nothing in the box for a new tab for a chat a process of this window held outside the tabs, one another window's process the check ended, and a Claude tab here reading as the chat; a process holding it by a late Open chat - Show it, nothing opened beside it; the chip's and the picker's opens nothing, closing no tab of chatq's; the panel's header `Ultracode` and `effort max` where the job or run-state carries them, a level Claude Code does not know not shown, neither while queued; carried into the new process, with the setting on (the default) - the pre-fill planned as none, and as before with the setting off or no hook to be had; the hook on a stand-in `child_process`: in once, out with the original back, one another hook put over it later left in place, a module that refuses it not in; a launch naming the armed chat by `--resume=<id>` or `--resume <id>` given `--settings {"ultracode":true}` and `--effort max` before a `--`, its command and options as they were, once; another chat's launch, one of no chat, one with no list of arguments as it came; a newer arm settling the older as nothing; a launch naming `--settings` or `--effort` of its own keeping it, the other alone carried and what was not logged; an arm gone after `carryWait`; a hook that fails passing the launch through, never thrown; Show it's reopen, its new tab beside the side bar's copy, a run's tab, the chat put back and Open chat - no prompt, no word, `carried` logged; no launch - the commands to type once the arm goes, Ctrl+Enter where that sends, and in part only what did not go in; the chat put back not holding the show queue on its arm; `deactivate` putting `spawn` back; `chatManager.keepSessionSettings` declared (on) |
 | overlay: transcripts | the newest prompt and title of a 3 MB chat from its last 256 KB, counted in bytes read; read back past a 3 MB line when no record follows it; a budget stops the search and keeps the title found; a `last-prompt` that is machinery falls back to the real prompt; a Hangul prompt cut by a block edge put back together; a rename wins over the generated title; a transcript that grew read only from where it was; `/compact` the way it goes - while it runs, the dequeue with no record after it marked pending; once written, the command newer than the prompt before, not the compaction's summary; kept while only the old `last-prompt` is written again, 100 KB on; replaced by the same words as the prompt before, typed again (by its timestamp), and by the next prompt; a prompt after `/model opus[1m]` wins, the arguments read; a skill the model loads is no command; a working row on a pending command says so, an idle one does not; an open chat nothing has titled shows its first real prompt, past a noisy one (two user lines or more had been read as one, and none found) |
 | overlay: sessions | `sessions/<pid>.json` read and the `.key` beside it never opened (held locked, so a read would fail); a dead entry, a new chat tab with no transcript, and chatq's own `claude -p` runs get no row; one chat in two windows is one row at the more urgent state, and one window closing leaves the other; the watcher's fallback reads the same registry with `waitingFor`; against a real process: matching start → alive, `procStart` an hour off, a reused pid and another machine's entry → not, a macOS date `procStart` not held against it |
 | overlay: rows | waiting oldest first, then working, running, idle newest first, queued in queue order; a prompt queued for an open chat rides on its row; a job row carries its first line; the snapshot's counts match its rows |
@@ -161,12 +161,22 @@ with no section in `CHANGELOG.md`. That step was run locally against
 0.7.0. Run by hand on 2026-09-25, the workflow signed in and the publisher
 accepted it (S32 item 7); publishing itself waits for the first tag.
 
-`docs/make-icon.ps1` makes `extension/icon.png`, the Marketplace icon, from
-`docs/icon-source.jpg`: a 256 px square with the photo's left end cut and
-the shotgun whole at the right, and bands above and below that shade into
-the photo's edge rows with no line at the seam. Its corners are rounded
-and transparent; the straight edges are fully opaque. Checked by eye and
-by pixel on 2026-09-25.
+`docs/make-icon.py` makes `extension/icon.png`, the Marketplace icon, from
+`docs/icon-cutout.png`, which `docs/cut-icon.py` cuts out of
+`docs/icon-source.jpg`: a 256 px square, transparent inside, a 6 px dark
+rounded frame, and Charlie outlined in the same 6 px stroke, her head
+with its hair two thirds of the icon wide. Checked by eye and by pixel on
+2026-09-30, composited on white, #f3f3f3 and #1e1e1e, at 4x and at the
+Extensions view's 40 px: the outline as wide as the frame all round - it
+covers the drawing's own black edge line - and smooth, with no step of
+the cutout's edge showing past it; no dark fringe at its outer edge;
+nothing of the drawing outside the frame. It writes the same icon at 48 px
+into `src/icon.ps1` too, for the Windows tray and the overlay's windows;
+the overlay section draws the tray icon into a NotifyIcon never shown and
+reads its pixels back: Charlie at the small-icon size, the state's colour
+in the dot at her bottom right, and the dot alone when the icon cannot be
+read. Regenerated on 2026-09-30, `extension/icon.png` came out byte for
+byte the same.
 
 On pwsh 7 `Add-Type` builds libraries only, so the argument-quoting check builds
 its echo exe with .NET Framework's `csc.exe` instead. Where neither can, it says
@@ -312,7 +322,7 @@ Each step leaves lines in `data/logs/replies.log` and `watcher.log`; a live
 alert also in `overlay.log` and `outbox.log`.
 1. **The page is served.** The repository's **Settings → Pages**: deploy
    from a branch, `main`, `/docs`. On the phone,
-   <https://phal40lax78.github.io/claude-codex-chat-manager/reply.html> opens
+   <https://phal40lax78.github.io/Charlie-and-the-chat-factory/reply.html> opens
    and says the phone is not paired.
 2. **The window.** `chatnotify -Setup`, the tray's **Phone alerts...** and
    **Chat Manager: Phone alerts...** each open it, and a second ask says it
@@ -1220,14 +1230,18 @@ would not recognise it.
      and its time moves on refresh. Lines and Bars in the settings box switch
      at once; in bars the same few words sit under each name, and neither
      view has a row of notes about usage.
-  7. Hide to tray hides it, a balloon says the tray dot brings it back
-     (once), and the tray dot does - also after `chatoverlay -Stop` and a
+  7. Hide to tray hides it, a balloon says the tray icon brings it back
+     (once), and the tray icon does - also after `chatoverlay -Stop` and a
      start while hidden. × closes it, and `chatoverlay` starts it, shown.
   8. **Ctrl+Alt+Shift+O** unlocks it, a drag moves it (the buttons follow),
      and the key locks it again. Left unlocked, it locks itself two minutes
      after the pointer leaves.
-  9. The tray dot's left click hides and shows it, and its menu's Lock, Hide,
-     Collapse, Refresh usage, Move to top right and Quit work.
+  9. The tray icon's left click hides and shows it, and its menu's Lock, Hide,
+     Collapse, Refresh usage, Move to top right and Quit work. The icon is
+     Charlie, sharp at 100% and 150% scaling, with a dot at her bottom right
+     that turns amber as a chat needs you and green as one works; its
+     tooltip starts `Charlie:` and, past 63 characters, still ends in
+     5h's `resets 13:00` whole.
   10. Neither window is in Alt+Tab or on the taskbar.
   11. With a monitor unplugged, it moves onto the main one within 5 s.
   12. It survives closing a whole Windows Terminal window, and quitting VS
@@ -1694,7 +1708,7 @@ would not recognise it.
       over the next window you click. Then in by the tray's **Open
       console** and back by **← Panel**; in by Ctrl+Alt+Shift+Q and back
       by it again; in by `chatconsole` from a shell and back by Alt+F4 -
-      the overlay and its tray dot stay. The same with the panel collapsed,
+      the overlay and its tray icon stay. The same with the panel collapsed,
       unlocked (its blue edge), and hidden in the tray - opened from the
       tray's item, Esc puts it back in the tray. With no overlay running,
       `chatconsole` starts one straight into the console.
@@ -1704,7 +1718,7 @@ would not recognise it.
       chat's folder box: its path. The console does not jump over Explorer
       by itself, and the drop works where it shows.
   30. **The taskbar and Alt+Tab.** While it is the console, the taskbar has
-      a button for it and Alt+Tab lists it as `chatq console`; either
+      a button for it and Alt+Tab lists it as `Charlie - console`, with Charlie's icon; either
       brings it back from behind another window. Minimized from the
       taskbar and restored, the draft is there. Back to the panel: no
       taskbar button, nothing in Alt+Tab, and the panel never takes the
@@ -1738,7 +1752,7 @@ would not recognise it.
       and press Esc: the panel is back on its own monitor at its own place
       and width, its rows cut at that screen's foot, not left too tall.
   34. **Hide, collapse and quit from the console.** With the console open,
-      left-click the tray dot: the console goes and the panel is hidden in
+      left-click the tray icon: the console goes and the panel is hidden in
       the tray; click again: the panel, not the console. The tray's
       Collapse to one line: the panel, collapsed. Quit: the overlay closes,
       and `console-state.json` has the draft and the size, no `x`, `y` or
@@ -1828,7 +1842,7 @@ would not recognise it.
      red, the collapsed line and the tray tooltip say `resets 13:00`, and
      the orange rows are there. Nothing asks yet. The time goes from the
      line once the reset passes.
-  2. **Five minutes after it.** One toast, `chatq - limit over at 13:00`,
+  2. **Five minutes after it.** One toast, `Charlie - limit over at 13:00`,
      naming the two chats and not the terminal's. A banner at the foot of
      the header; its tooltip lists the two and names the terminal's as
      left to it. `overlay.log` reads `ask: 2 cut-off chats can continue
@@ -1948,7 +1962,8 @@ would not recognise it.
      The reopen notice has you type the level when Ultracode was lost
      too, and promises only that it leaves Ultracode on (FUTURE_WORK,
      "Ultracode and a session-only effort on a tab chatq opens again").
-  7. **The pre-fill.** A chat idle in a tab after `/effort ultracode` and
+  7. **The pre-fill**, with `chatManager.keepSessionSettings` off - on,
+     the default, S50 has it. A chat idle in a tab after `/effort ultracode` and
      `/effort max`, you away, a prompt queued into it: after the run the
      chat's new tab holds `/effort ultracode`, and the notice says so and
      names `/effort max` to type after; Enter there answers `Ultracode on`.
@@ -1971,5 +1986,50 @@ would not recognise it.
      workflow the prompt asks for runs, unasked. The same chat in default
      mode: `--effort max` still, no Ultracode, and the history's
      `Ultracode left off (default mode asks before each Workflow)`.
+- **S50, Ultracode and max carried into a reopen, in a real window**
+  (CHANGELOG, 0.10.2). `tests/extension-check.js` stands in a fake
+  `child_process` and makes each launch by hand; whether Claude Code's
+  own launch goes through the hook is only seen here. A local window,
+  Claude Code 2.1.284, `chatManager.keepSessionSettings` unset.
+  1. **Show it.** A chat idle in a tab after `/effort ultracode` and
+     `/effort max`, then a prompt queued into it beside the tab (the
+     handover off) and **Show it**: the new tab's input box is empty, no
+     notice comes, and its effort chip shows Ultracode and Max without a
+     click. **Chat Manager: Show log** has `spawn <id8>: carried
+     Ultracode, effort max` and `reopened <id8>: Ultracode, effort max
+     carried`. The chat's first turn after it writes `ultra_effort_enter`
+     and records `"effort":"max"`.
+  2. **The chat put back after a handover**, and the live view's **Open
+     chat**: the same.
+  3. **Another chat within the minute.** Right after 1, open a different
+     chat from Claude Code's own list: it starts as it would have - no
+     Ultracode, its own level - and the log has no `spawn` line for it.
+  4. **A later /effort.** In the reopened tab `/effort high`: `Set effort
+     level to high (this session only)`, the chip following. And whether
+     `/effort` can switch off an Ultracode that came from `--settings`
+     (FUTURE_WORK, "Ultracode and a session-only effort on a tab chatq
+     opens again").
+  5. **Setting off.** `chatManager.keepSessionSettings: false`, then 1
+     again: the input box holds `/effort ultracode` and the notice names
+     `/effort max` to type after, as S48 item 7.
+  6. **A remote window** (WSL or SSH), 1 again: nothing is carried and
+     nothing waits - the input box holds `/effort ultracode` and the
+     notice comes at once, as in 5; the log has no `spawn hook in` or
+     `spawn` line.
+  7. **Reload.** Reload the window after 1: the new window's log has
+     `spawn hook in` right after `activated` - the hook sees the launches
+     of the tabs Claude Code brings back - and 1 again carries as before.
+  8. **A tab only revealed.** The chat's tab kept over a reload and not
+     shown since, then a run into it and the chat put back: the open
+     reveals that tab. Whether Claude Code starts its process as it shows
+     is settled here - the log then has `spawn <id8>: carried` and no
+     notice comes; else, about a minute on, the notice names both
+     commands to type, and the log has `no launch of it within 60 s`.
+  9. **Stale Ultracode is not carried.** A chat whose Ultracode was
+     switched on before the window's last reload, or under an older
+     Claude Code, and not since: `/effort max` in it, then Show it. The
+     log has `spawn <id8>: carried effort max` - no Ultracode - and its
+     chip shows Max alone. Run on 2026-09-30 with ac284315 before the
+     fix, it carried Ultracode entered under 2.1.283 two days before.
 - **macOS and Linux** are untested; the Unix branches are written but have never
   run.

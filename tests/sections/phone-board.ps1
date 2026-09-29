@@ -673,7 +673,7 @@ $null = Set-ChatqNotifyConfig @{ NewMode = 'default' }
 if ($script:ChatqIsWindows) {
     $wpfBoard = @"
 `$env:CHATQ_OVERLAY = '1'
-. '$(Join-Path $sb 'tool\claude-codex-chat-manager.ps1')'
+. '$(Join-Path $sb 'tool\Charlie-and-the-chat-factory.ps1')'
 Set-StrictMode -Off
 `$null = Set-ChatqNotifyConfig @{ FullText = 'off'; Listen = 'alerts' }
 `$w = New-ChatqPhoneSetupWindow -Theme dark

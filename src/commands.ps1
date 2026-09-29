@@ -1,4 +1,4 @@
-# claude-codex-chat-manager, src/commands.ps1: dot-sourced by claude-codex-chat-manager.ps1
+# Charlie-and-the-chat-factory, src/commands.ps1: dot-sourced by Charlie-and-the-chat-factory.ps1
 # in its turn, never on its own - see the list there.
 
 #region commands --------------------------------------------------------------
@@ -1311,7 +1311,7 @@ function Write-ChatqCheatSheet {
     Write-Host '  -Attach a.png, spec.pdf / -Paste   send files, a screenshot or the clipboard with it' -ForegroundColor DarkGray
     Write-Host '  Tab fills in a title from any part of it, like chatrm: chatq card red<Tab>' -ForegroundColor DarkGray
     Write-Host '  chat = every command, find and delete included' -ForegroundColor DarkGray
-    Write-Host "  claude-codex-chat-manager $script:ChatVersion $($script:ChatqDot) $script:ChatqScriptPath" -ForegroundColor DarkGray
+    Write-Host "  Charlie-and-the-chat-factory $script:ChatVersion $($script:ChatqDot) $script:ChatqScriptPath" -ForegroundColor DarkGray
 }
 
 #endregion

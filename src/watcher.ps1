@@ -1,4 +1,4 @@
-# claude-codex-chat-manager, src/watcher.ps1: dot-sourced by claude-codex-chat-manager.ps1
+# Charlie-and-the-chat-factory, src/watcher.ps1: dot-sourced by Charlie-and-the-chat-factory.ps1
 # in its turn, never on its own - see the list there.
 
 #region the watcher -----------------------------------------------------------
@@ -1350,7 +1350,7 @@ function Start-ChatqWatcherProcess {
     if ($script:ChatqSpawn) { return (& $script:ChatqSpawn) }   # tests: no real process
     $path = $script:ChatqScriptPath
     if (-not $path -or -not (Test-Path -LiteralPath $path)) {
-        Write-Host '  cannot start the watcher: this shell does not know where claude-codex-chat-manager.ps1 is' -ForegroundColor Yellow
+        Write-Host '  cannot start the watcher: this shell does not know where Charlie-and-the-chat-factory.ps1 is' -ForegroundColor Yellow
         return $false
     }
     $l = Get-ChatqWatcherLaunch $path

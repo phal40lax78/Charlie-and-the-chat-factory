@@ -337,7 +337,7 @@ $raceCode = {
 }
 $race = @(foreach ($n in 1, 2) {
         $ps = [powershell]::Create()
-        [void]$ps.AddScript($raceCode.ToString()).AddArgument((Join-Path $sb 'tool\claude-codex-chat-manager.ps1')).AddArgument($go).AddArgument($idAR).AddArgument($n)
+        [void]$ps.AddScript($raceCode.ToString()).AddArgument((Join-Path $sb 'tool\Charlie-and-the-chat-factory.ps1')).AddArgument($go).AddArgument($idAR).AddArgument($n)
         @{ Ps = $ps; H = $ps.BeginInvoke() }
     })
 $t0 = Get-Date
@@ -741,7 +741,7 @@ Check 'no act turns auto-continue on or off from the phone' ($null -eq $nobody -
 if ($script:ChatqIsWindows) {
     $acWpf = @"
 `$env:CHATQ_OVERLAY = '1'
-. '$(Join-Path $sb 'tool\claude-codex-chat-manager.ps1')'
+. '$(Join-Path $sb 'tool\Charlie-and-the-chat-factory.ps1')'
 Set-StrictMode -Off
 `$script:ChatqSpawn = { `$true }
 `$cfgWas = [IO.File]::ReadAllText(`$script:ChatqConfigPath)

@@ -1,5 +1,65 @@
 # Changelog
 
+## 0.10.2 — Charlie and the Chat Factory, in the tray, and a reopened tab keeps Ultracode
+
+- **A new name: Charlie and the Chat Factory - Claude Code & Codex**,
+  was Chat Manager for Claude Code & Codex, after the Charlie on the
+  icon. The notices, the settings section and the log's output channel
+  carry it; the commands keep their **Chat Manager:** names and the
+  settings their `chatManager.*` keys. Every other name follows: the ID
+  `redaechan.charlie-and-the-chat-factory`,
+  `Charlie-and-the-chat-factory.ps1` in
+  `~/Tools/Charlie-and-the-chat-factory`, the repo
+  github.com/phal40lax78/Charlie-and-the-chat-factory, and the phone's
+  reply page at phal40lax78.github.io/Charlie-and-the-chat-factory. A
+  new ID is a new Marketplace extension, so
+  `redaechan.claude-codex-chat-manager` never updates to it: install this
+  one and uninstall that - both installed would act on every request
+  twice. A profile line naming the old loader is still recognised, and
+  `chatinstall` replaces it. The reply page's site is the same, so the
+  phone stays paired; bookmark it again, as GitHub Pages does not
+  redirect a renamed repo.
+- **Charlie in the Windows tray, and the tray says her name.** The tray
+  icon was a plain coloured dot; it is now the extension's icon, with
+  that dot at her bottom right in the most urgent chat's colour, drawn
+  at the size Windows shows small icons at the screen's scale. The
+  console and the phone alerts window carry her on their taskbar button
+  and in Alt+Tab. What was still called chatq there is Charlie now: the
+  tooltip (`Charlie: 2 new, 2 working`), the balloons (`Charlie - limit
+  over at 13:00`), and the windows (`Charlie - console`, `Charlie - phone
+  alerts`). The tooltip now runs to the 127 characters Windows keeps,
+  not the 63 .NET Framework allowed, so the longer name leaves 5h's reset
+  whole. The commands keep their names, and so do the phone alerts'
+  titles (`chatq · done`), which a Tasker profile may match. The icon
+  ships inside `src/icon.ps1`, a new part `docs/make-icon.py` writes,
+  since every install copies `src/*.ps1` and nothing else.
+- **The icon is transparent inside, and closer.** Charlie is cut out of
+  her dark purple background and outlined in the dark rounded frame's own
+  stroke, as a sticker is, on whatever colour the theme has; her head
+  fills two thirds of the icon's width, which reads at the Extensions
+  view's size. `docs/cut-icon.py` cuts her out and `docs/make-icon.py`,
+  which replaces `docs/make-icon.ps1`, frames and outlines her; both need
+  Python with OpenCV.
+- **A tab chatq opens again keeps Ultracode and its effort level.** Show
+  it, the chat put back after a queued run and the live view's **Open
+  chat** close a chat's tab and open it again, which starts a new claude
+  process - without Ultracode or a level set for the session only, so its
+  input box held `/effort ultracode` or `/effort max` to send. chatq now
+  hands both to that process as it starts: the tab comes up with them on,
+  the effort chip showing so, nothing in its input box and no notice;
+  the log says `carried`. Only what the process being replaced had counts:
+  Ultracode switched on two days ago, in a process a VS Code restart or a
+  Claude Code update ended since, is not brought back - chatq notes when
+  each chat's process started and reads the chat's history no further
+  back than that. Where they did not go in within a minute - a
+  tab only revealed, not started again, or a Claude Code that starts
+  claude another way - the notice then names what to type. A remote
+  window (WSL, SSH), where claude starts on the other machine, keeps the
+  pre-fill at once, as before. `chatManager.keepSessionSettings: false`
+  (on by default) turns it off, back to the pre-fill. **Why:** a chat
+  refreshed by chatq should be the chat you left, not one to set up
+  again.
+
 ## 0.10.1 — Remove in the console, and the overlay's chips, say what they do
 
 - **Remove in the console works, and says what it did.** Its first click

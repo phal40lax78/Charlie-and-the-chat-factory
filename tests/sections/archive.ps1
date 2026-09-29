@@ -33,5 +33,5 @@ chatrestore 'Codex gitignore thread' *> $null
 Check 'codex unarchive brings it back' ((Test-Path -LiteralPath $cxPath) -and -not (Test-Path -LiteralPath (Join-Path $script:ChatArchiveDir "codex\$cxId")))
 chatrm 'Archive me please' -Archive -Force -NoWait *> $null
 chatuninstall -All *> $null
-Check 'chatuninstall -All will not take the only copy of an archived chat' ((Test-Path -LiteralPath $man) -and (Test-Path -LiteralPath (Join-Path $sb 'tool\claude-codex-chat-manager.ps1')))
+Check 'chatuninstall -All will not take the only copy of an archived chat' ((Test-Path -LiteralPath $man) -and (Test-Path -LiteralPath (Join-Path $sb 'tool\Charlie-and-the-chat-factory.ps1')))
 chatrestore 'Archive me please' *> $null
