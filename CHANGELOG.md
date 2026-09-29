@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **The watcher starts under any execution policy.** The setup window and
+  the outbox's sender, Windows PowerShell 5.1, start a watcher to listen
+  for the phone's replies. For someone who only ever set a policy in
+  PowerShell 7, 5.1's is still `Restricted`: that watcher could not load
+  the script, said nothing, and no reply was read until a shell started
+  one. It now starts with `-ExecutionPolicy Bypass` for the load alone,
+  as the sender does, and drops it again before the loop, so the jobs it
+  runs and your own alert command run under your policy. A watcher that
+  fails to load says so in `data/logs/watcher.log`.
+- **chatclean lists hidden chats again.** Since 0.8.1 a chat Claude Code
+  left out of its lists is mended as a run into it ends, or as the window
+  opens it. One hidden before that, or by a watcher that died mid-run, and
+  neither run into nor opened since, stayed out of every window's history.
+  `chatclean` now lists every such Claude chat again first, with the same
+  one line at its end, and names each. A chat in use is left, and named;
+  `chatclean` again once it is idle. Side transcripts are left alone.
 - **The console moves from anywhere on its header.** A press on the
   header's padding, its grip or its counts drags the window; only its
   controls keep the press. Before, only the counts' own text took it.
@@ -328,6 +344,23 @@ version of the extension waits for the window's chats before it reloads.
   0.9.0, before release, found that the restart never loaded the update,
   and that a Reload anyway could be clicked hours after a warning that
   named one chat, over another's workflow started since.
+
+### One number per job
+
+- **A job's number is its own.** A new job took one past the highest
+  number a saved job held, and `chatq` without `-Prompt` saves its job
+  only once its editor tab is closed: a job queued meanwhile - from the
+  console, the phone, auto-continue or another `chatq` - took the same
+  number, and for the same chat the same prompt file, over the text in the
+  open tab; removing either job then took the other's prompt, and
+  `chatqrm <n>` reached only one of them. A prompt file in `data/queue`
+  now holds its number from the moment the job takes it, and a number is
+  taken holding `data/job-numbers.lock`, so a shell, the overlay and the
+  watcher never take one between them.
+- **Nor two jobs one id.** Two processes queueing for one chat in the same
+  second could give both jobs the same id, and the second job's file
+  replaced the first's. The id is taken under the same lock, and held by
+  the job's folder until its file is saved.
 
 ## 0.8.1 — chatnotify, and hidden chats listed again
 

@@ -140,3 +140,30 @@ Invoke-ChatqWatchLoop -Foreground *> $null
 Check 'a second watcher will not start' (((Get-Date) - $t0).TotalSeconds -lt 5)
 $lk.Dispose()
 Remove-Item env:FAKE_RECORD
+
+# the launch: its own -ExecutionPolicy Bypass loads the script where the
+# process's policy would refuse it - a 5.1 whose policy was only ever set in
+# pwsh 7 - and the policy goes again before the loop, so the jobs run under
+# yours. A stand-in script says what it saw, in a child handed Restricted as
+# a process policy is handed on; off Windows there is no policy to refuse.
+$wlStub = Join-Path $sb 'watcher-stub.ps1'
+[IO.File]::WriteAllText($wlStub, @'
+$global:WlLoad = [string]$env:PSExecutionPolicyPreference
+function Invoke-ChatqWatchLoop { [Console]::Out.WriteLine("load=$($global:WlLoad) after=$env:PSExecutionPolicyPreference watcher=$env:CHATQ_WATCHER") }
+'@, $utf8)
+$wlL = Get-ChatqWatcherLaunch $wlStub
+$wlDec = [System.Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($wlL.Args[-1]))
+$wlOut = New-Object System.Collections.Generic.List[string]
+$wlRun = Invoke-ChatqProcess -Exe $wlL.Exe -ArgList $wlL.Args -StdIn '' -SetEnv @{ PSExecutionPolicyPreference = 'Restricted' } -OnLine { param($l) $wlOut.Add($l) } -TimeoutSec 60
+$wlSaw = @($wlOut | Where-Object { $_ -like 'load=*' }) | Select-Object -Last 1
+Check 'the watcher''s launch: no profile, Bypass for the load alone, then the loop with the policy gone and CHATQ_WATCHER set' ($wlRun.ExitCode -eq 0 -and
+    $wlSaw -like '* after= watcher=1' -and (-not $script:ChatqIsWindows -or $wlSaw -like 'load=Bypass *') -and $wlDec -eq $wlL.Command -and
+    $wlDec -like "*CHATQ_WATCHER='1'*$wlStub*Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference'*Invoke-ChatqWatchLoop" -and
+    ($wlL.Args[0..4] -join ' ') -eq '-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand' -and $wlL.Exe -eq (Get-Process -Id $PID).Path) "exit $($wlRun.ExitCode): $($wlOut -join ' | ') $($wlRun.StdErr)"
+$wlBad = Join-Path $sb 'watcher-stub-bad.ps1'
+[IO.File]::WriteAllText($wlBad, "throw 'the stub will not load'`n", $utf8)
+$wlL = Get-ChatqWatcherLaunch $wlBad
+$wlRun = Invoke-ChatqProcess -Exe $wlL.Exe -ArgList $wlL.Args -StdIn '' -TimeoutSec 60
+$wlLog = @([IO.File]::ReadAllLines((Join-Path $script:ChatqLogDir 'watcher.log'), $utf8))[-1]
+Check 'a watcher that cannot load says so in watcher.log, and exits 1' ($wlRun.ExitCode -eq 1 -and $wlLog -like '*  the watcher did not load: the stub will not load') "exit $($wlRun.ExitCode): $wlLog"
+Remove-Item -LiteralPath $wlStub, $wlBad -Force -EA SilentlyContinue
