@@ -125,7 +125,10 @@ Remove-Item -LiteralPath $script:ChatOverlayPath -Force -EA SilentlyContinue
 $akD = New-ChatqRandomBytes 32
 $akKey = ConvertTo-ChatqB64Url $akD
 $cfg = Get-ChatqConfig
-Set-ChatqProp $cfg 'reply' ([pscustomobject]@{ on = $true; topic = [pscustomobject](Protect-ChatqSecret 'chatq-asktopicasktopicasktopic'); key = [pscustomobject](Protect-ChatqSecret $akKey); phone = 'Ask phone'; pairedAt = (Get-ChatqStamp) })
+# under a cap of acceptEdits, so the mode gate has one to decline by: there
+# is none by default (keep, tests/sections/phone.ps1)
+Set-ChatqProp $cfg 'reply' ([pscustomobject]@{ on = $true; topic = [pscustomobject](Protect-ChatqSecret 'chatq-asktopicasktopicasktopic'); key = [pscustomobject](Protect-ChatqSecret $akKey); phone = 'Ask phone'; pairedAt = (Get-ChatqStamp)
+        maxMode = 'acceptEdits' })
 foreach ($k in 'ntfy') { if ($cfg.PSObject.Properties[$k]) { $cfg.PSObject.Properties.Remove($k) } }
 Save-ChatqJson $script:ChatqConfigPath $cfg
 $null = Set-ChatqNotifyConfig @{ ApiKey = '0123456789abcdef0123456789abcdef'; Device = 'group.phone' }

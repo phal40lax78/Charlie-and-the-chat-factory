@@ -29,9 +29,15 @@ $script:ChatVersionPath = Join-Path (Join-Path $script:ChatRoot 'data') 'version
 # able to run reloadWindow - no CLI flag, URL or toast button can reach it
 $script:ChatReloadPath = Join-Path (Join-Path $script:ChatRoot 'data') 'reload-request'
 # the overlay's open chip asks the same extension to show one chat, in a file
-# of its own: one request per file, so a run's request and a click's never
-# overwrite each other
+# of its own, so a run's request and a click's never overwrite each other
 $script:ChatOpenPath = Join-Path (Join-Path $script:ChatRoot 'data') 'open-request'
+# each holds the newest request, and under earlier the few written just
+# before it - at most this many, none older than this (Save-ChatRequest):
+# the extension polls every 2 s, and two requests inside one poll left the
+# first unseen. signal.lock is held from the read to the write.
+$script:ChatSignalCarryMax = 3
+$script:ChatSignalCarrySeconds = 60
+$script:ChatSignalLockPath = Join-Path (Join-Path $script:ChatRoot 'data') 'signal.lock'
 # how long after either request the next run into its chat waits, while the
 # window shows it (Get-ChatShowHold): the extension acts on one by itself for
 # 20 s (its timing.judgedMaxAge), and polls every 2
@@ -41,6 +47,17 @@ $script:ChatShowHoldSeconds = 30
 # answers in run-ack/<its ext host pid>.json (Wait-ChatHandoverAnswer).
 $script:ChatRunStatePath = Join-Path (Join-Path $script:ChatRoot 'data') 'run-state'
 $script:ChatRunAckDir = Join-Path (Join-Path $script:ChatRoot 'data') 'run-ack'
+# The chats each VS Code window's idle process was ended for, by its ext
+# host's pid (Add-ChatIdleEnded): a view there may still show one with no
+# process of the window under it, and a reload of that window waits on a
+# claude -p going into it (Get-ChatHostWork).
+$script:ChatIdleEndedPath = Join-Path (Join-Path $script:ChatRoot 'data') 'idle-ended.json'
+# A reload a window asks about, unanswered: reload-pending/<its ext host
+# pid>.json, which the overlay shows as a banner (Read-ChatReloadPending);
+# its reload or later goes back in reload-answer/<pid>.json
+# (Write-ChatReloadAnswer).
+$script:ChatReloadPendingDir = Join-Path (Join-Path $script:ChatRoot 'data') 'reload-pending'
+$script:ChatReloadAnswerDir = Join-Path (Join-Path $script:ChatRoot 'data') 'reload-answer'
 # The handover's waits (Invoke-ChatqHandover): for the windows to answer, and
 # for a chat whose tab is closing to let go of its process - Claude Code ends
 # it about 7 s after the tab closes. The tests shorten them, and turn the

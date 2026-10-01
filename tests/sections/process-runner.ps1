@@ -60,9 +60,30 @@ if ($built) {
     $out = [System.Collections.Generic.List[string]]::new()
     $null = Invoke-ChatqProcess -Exe $echo -ArgList $argsIn -StdIn '' -OnLine { param($l) $out.Add($utf8.GetString([Convert]::FromBase64String($l))) } -TimeoutSec 30
     Check 'argument quoting round-trips' (($out -join '|') -eq ($argsIn -join '|')) ($out -join '|')
+    # the same exe behind a .cmd, as npm's claude.cmd is: cmd.exe reads the
+    # line again, and &|<>^() reach the exe only because they are quoted;
+    # a lone %, with no second one to make a %name%, goes as it is
+    $echoCmd = Join-Path $sb 'echo args.cmd'
+    [System.IO.File]::WriteAllText($echoCmd, "@`"%~dp0echoargs.exe`" %*`r`n", [System.Text.Encoding]::ASCII)
+    $cmdIn = @('plain', 'a&b', 'x|y', '<in>', 'up^caret', '(paren)', 'with space & more', 'trail\', 'D:\100% done', '--model', 'claude-sonnet-4-5')
+    $out = [System.Collections.Generic.List[string]]::new()
+    $null = Invoke-ChatqProcess -Exe $echoCmd -ArgList $cmdIn -StdIn '' -OnLine { param($l) $out.Add($utf8.GetString([Convert]::FromBase64String($l))) } -TimeoutSec 30
+    Check 'arguments holding &|<>^() or a lone % reach an exe behind a .cmd whole' (($out -join '|') -eq ($cmdIn -join '|')) ($out -join ' / ')
 }
 else {
     # said, never counted as a pass
     Write-Host '  skip  argument quoting round-trips - nothing here can build the echo exe' -ForegroundColor Yellow
 }
+# what cmd.exe cannot be handed at all - a quote, a %name%, a line break -
+# is refused for a .cmd or .bat, and only there; the refusal says which. A
+# lone % is no %name%, and goes.
+$refQ = try { ConvertTo-ChatqArgLine @('--model', 'a"b') -Exe 'C:\npm\claude.cmd'; $null } catch { $_.Exception.Message }
+$refP = Get-ChatqCmdArgRefusal 'C:\npm\codex.BAT' @('--add-dir', 'D:\%USERNAME%\data')
+$refN = Get-ChatqCmdArgRefusal 'C:\npm\claude.cmd' @("two`nlines")
+$lone = Get-ChatqCmdArgRefusal 'C:\npm\claude.cmd' @('D:\100% done', '50%')
+$exeOk = ConvertTo-ChatqArgLine @('a"b', '%PATH%', 'a&b') -Exe 'C:\bin\claude.exe'
+$cmdLine = ConvertTo-ChatqArgLine @('a&b', '(x)', 'plain') -Exe 'C:\npm\claude.cmd'
+Check 'a quote, %name% or line break for a .cmd is refused, and said; a lone % is not; an .exe takes them all, and only a .cmd has &|<>^() quoted' (
+    $refQ -like 'claude.cmd runs through cmd.exe, which cannot be handed a quote - not sent: *' -and $refP -like '*cannot be handed a %name% *' -and
+    $refN -like '*cannot be handed a line break*' -and -not $lone -and $exeOk -eq '"a\"b" %PATH% a&b' -and $cmdLine -eq '"a&b" "(x)" plain') "$refQ / $refP / $refN / $lone / $exeOk / $cmdLine"
 Remove-Item env:FAKE_RECORD

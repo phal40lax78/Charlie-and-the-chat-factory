@@ -161,10 +161,21 @@ Check '-Now reaches a running watcher intact' ((Get-Content -LiteralPath $script
 # past, and after it the watcher runs the queue (the limited job above too)
 # and exits
 $j = New-TestJob 'plugin' 'loop test'
+# an image pasted into a prompt tab that was cancelled two days ago: swept
+# as the loop starts (Clear-ChatqStrayFiles)
+$wlStray = Join-Path $script:ChatqQueueDir 'loop-stray-shot.png'
+[System.IO.File]::WriteAllBytes($wlStray, [byte[]]@(1, 2, 3))
+(Get-Item -LiteralPath $wlStray).CreationTime = (Get-Date).AddDays(-2)
+(Get-Item -LiteralPath $wlStray).LastWriteTime = (Get-Date).AddDays(-2)
+$wlLogP = Join-Path $script:ChatqLogDir 'watcher.log'
+$wlLog0 = if (Test-Path -LiteralPath $wlLogP) { @([System.IO.File]::ReadAllLines($wlLogP, $utf8)).Count } else { 0 }
 Send-ChatqWake 'now'
 Invoke-ChatqWatchLoop -Foreground *> $null
 $j = Find-ChatqJob $j.id
 Check 'watcher loop runs the queue and exits' ($j.state -eq 'done' -and -not (Test-ChatqWatcherAlive)) "$($j.state)"
+$wlSwept = @([System.IO.File]::ReadAllLines($wlLogP, $utf8) | Select-Object -Skip $wlLog0 | Where-Object { $_ -like '*stray file(s) and folder(s) from data/queue*' })
+Check 'and sweeps data/queue/ of a day-old file no prompt links to as it starts, once, saying so in watcher.log' (
+    -not (Test-Path -LiteralPath $wlStray) -and $wlSwept.Count -eq 1) "$(Test-Path -LiteralPath $wlStray) $($wlSwept -join ' | ')"
 $lk = [System.IO.File]::Open($script:ChatqLockPath, 'OpenOrCreate', 'ReadWrite', 'None')
 $t0 = Get-Date
 Invoke-ChatqWatchLoop -Foreground *> $null

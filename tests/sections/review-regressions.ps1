@@ -24,8 +24,8 @@ $te = Get-ChatqEta @((& $tj 't1' 9), (& $tj 't2' 10), (& $tj 't3' 11 'codex'), (
 Check 'one reset''s jobs: the first sends then, each of the rest after the one before it - one at a time' (
     $te['t1'] -match '^(\w{3} )?\d\d:\d\d$' -and $te['t2'] -eq 'after #9' -and $te['t3'] -eq 'after #10' -and $te['t4'] -match '^(\w{3} )?\d\d:\d\d$' -and $te['t4'] -ne $te['t1'] -and
     $te['t5'] -match '^(\w{3} )?\d\d:\d\d \(chat busy\)$' -and $te['t6'] -eq 'after #13 (chat busy)') (@('t1', 't2', 't3', 't4', 't5', 't6' | ForEach-Object { "$_=$($te[$_])" }) -join ' ')
-Check 'Continue says it queued them to go one at a time' ((Format-ChatqContinueSay 3 0) -eq 'queued 3 continues - one at a time, each when its limit is over' -and
-    (Format-ChatqContinueSay 1 2) -eq 'queued 1 continue - it goes when its limit is over; 2 had one already' -and (Format-ChatqContinueSay 0 1) -eq 'queued 0 continues; 1 had one already') (Format-ChatqContinueSay 3 0)
+Check 'Continue says it queued them to go one at a time' ((Format-ChatqContinueSay 3 0) -eq 'queued 3 continues ahead of the prompts waiting - one at a time, each when its limit is over' -and
+    (Format-ChatqContinueSay 1 2) -eq 'queued 1 continue ahead of the prompts waiting - it goes when its limit is over; 2 had one already' -and (Format-ChatqContinueSay 0 1) -eq 'queued 0 continues; 1 had one already') (Format-ChatqContinueSay 3 0)
 Set-Location -LiteralPath $sb
 $r = Resolve-ChatqTarget 'zzqx nothing like it'
 Check 'no project here and no match: refuse to guess' ($r.Error -like '*not a project*') $r.Error

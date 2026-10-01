@@ -71,6 +71,7 @@ COMMANDS
     chatq <title|id> [-Prompt s]   queue a prompt for that chat; no -Prompt
                                    opens an editor tab to write it in
     chatq <title> -Continue        queue "continue" for a chat the limit cut off
+    chatq -New <folder> [<name>]   queue a prompt for a new chat in that folder
     chatq <n>                      open queued prompt n in the editor
     chatqlist [-Board] [-All]      what is queued, when it sends, what ran
     chatqrm <n|id> [-Force]        drop a job (-Force cancels a running one)
@@ -78,7 +79,7 @@ COMMANDS
     chatqlog <n> [-Raw]            what a run did
     chatnotify -ApiKey k -Device d phone alerts through Join; -Test sends one
     chatoverlay [-Stop] [-Print]   every running chat, and usage, always on top
-    chatconsole                    chatq in a window: write, send now, queue,
+    chatconsole                    chatq in a window: write, send next, queue,
                                    continue, new chats (Windows)
     chatinstall / chatuninstall    add to, or drop from, your profile
     chat                           cheat sheet
@@ -242,7 +243,7 @@ FILES   everything in data/ beside this script, nothing anywhere else
 # handing back what you already had. extension/package.json carries the same
 # version: the extension installs this copy by it, and extension/build.js
 # refuses to pack the two apart.
-$script:ChatVersion = '0.10.2'
+$script:ChatVersion = '0.10.3'
 
 # The tool's folder and this file, read here once and never inside a function:
 # data/ sits in that folder, and the profile line, the watcher and the overlay

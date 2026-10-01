@@ -11,6 +11,8 @@ $script:ChatqData = Join-Path $script:ChatRoot 'data'
 $script:ChatqQueueDir = Join-Path $script:ChatqData 'queue'
 $script:ChatqLogDir = Join-Path $script:ChatqData 'logs'
 $script:ChatqConfigPath = Join-Path $script:ChatqData 'config.json'
+# held around every read-change-save of config.json (Lock-ChatqConfig)
+$script:ChatqConfigLockPath = Join-Path $script:ChatqData 'config.lock'
 $script:ChatqStatePath = Join-Path $script:ChatqData 'state.json'
 $script:ChatqLockPath = Join-Path $script:ChatqData 'watcher.lock'
 $script:ChatqPidPath = Join-Path $script:ChatqData 'watcher.pid'
@@ -611,12 +613,15 @@ function Set-ChatqAutoContinue {
     # returns the value - what to say about it is the caller's
     # (Get-ChatqAutoSwitchSay).
     param([Parameter(Mandatory)][ValidateSet('on', 'ask', 'off')][string]$Value)
-    $cfg = Get-ChatqConfig
-    # turned on now: only cut-offs from here on are continued (since)
-    if ($Value -eq 'on' -and (Get-ChatqAutoContinue $cfg) -ne 'on') { Reset-ChatqAutoSince }
-    Set-ChatqProp $cfg 'autoContinue' $Value
-    Save-ChatqJson $script:ChatqConfigPath $cfg
-    if (-not $script:ChatqIsWindows) { try { & chmod 600 $script:ChatqConfigPath } catch {} }
+    Lock-ChatqConfig
+    try {
+        $cfg = Get-ChatqConfig
+        # turned on now: only cut-offs from here on are continued (since)
+        if ($Value -eq 'on' -and (Get-ChatqAutoContinue $cfg) -ne 'on') { Reset-ChatqAutoSince }
+        Set-ChatqProp $cfg 'autoContinue' $Value
+        Save-ChatqConfig $cfg
+    }
+    finally { Unlock-ChatqConfig }
     return $Value
 }
 
@@ -721,20 +726,36 @@ function Get-ChatqResetAsk {
     continue them - a terminal - which go to Left instead, to be named.
     -Limited: a 5h or week window is at its limit with its reset ahead; the
     chats could not go yet, so nothing is asked until then.
+    A chat a window's restart cut off (Get-ChatRestartCutOffs, Why
+    restart) is in the same ask, with no reset to wait for: while its
+    cut-off is under 12 hours old, and not while at the limit - it could
+    not go either. -RestartOnly: those alone, for the automatic mode, which
+    queues the limit's by itself but never a restart's. Restart counts
+    them; ResetsAt is the latest reset, $null when only restarts are in.
     #>
-    param([object[]]$CutOff, [hashtable]$Held, [hashtable]$Asked, [object[]]$Jobs, [bool]$Limited, [datetime]$Now = (Get-Date))
+    param([object[]]$CutOff, [hashtable]$Held, [hashtable]$Asked, [object[]]$Jobs, [bool]$Limited, [datetime]$Now = (Get-Date), [switch]$RestartOnly)
     if ($Limited) { return $null }
     $busy = @{}
     foreach ($j in @($Jobs)) { if ($j -and $j.state -in 'queued', 'running' -and $j.sessionId) { $busy[[string]$j.sessionId] = $true } }
     $in = [System.Collections.Generic.List[object]]::new()
     $left = [System.Collections.Generic.List[object]]::new()
     foreach ($r in @($CutOff)) {
-        if (-not $r -or [string](Get-ChatField $r 'Why') -ne 'limit') { continue }
-        # old records carry no reset: never asked about, their orange row stays
-        $reset = Get-ChatField $r 'ResetsAt'
-        if ($reset -isnot [datetime]) { $reset = ConvertTo-ChatqDate $reset }
-        if (-not $reset) { continue }
-        if ($reset.AddMinutes($script:ChatqAskAfterMinutes) -gt $Now -or $reset -le $Now.AddHours(-12)) { continue }
+        if (-not $r) { continue }
+        $why = [string](Get-ChatField $r 'Why')
+        $reset = $null
+        if ($why -eq 'restart') {
+            $at = Get-ChatField $r 'At'
+            if ($at -isnot [datetime]) { $at = ConvertTo-ChatqDate $at }
+            if (-not $at -or $at -le $Now.AddHours(-12)) { continue }
+        }
+        elseif ($why -ne 'limit' -or $RestartOnly) { continue }
+        else {
+            # old records carry no reset: never asked about, their orange row stays
+            $reset = Get-ChatField $r 'ResetsAt'
+            if ($reset -isnot [datetime]) { $reset = ConvertTo-ChatqDate $reset }
+            if (-not $reset) { continue }
+            if ($reset.AddMinutes($script:ChatqAskAfterMinutes) -gt $Now -or $reset -le $Now.AddHours(-12)) { continue }
+        }
         $id = [string](Get-ChatField $r 'Id')
         if ($busy[$id]) { continue }
         $key = Get-ChatqCutKey $r
@@ -745,15 +766,102 @@ function Get-ChatqResetAsk {
     if (-not $in.Count) { return $null }
     $zero = [datetime]::MinValue
     $sorted = @($in | Sort-Object @{ Expression = { $a = Get-ChatField $_.Row 'At'; if ($a -isnot [datetime]) { $a = ConvertTo-ChatqDate $a }; if ($a) { $a } else { $zero } }; Descending = $true })
-    $latest = $zero
-    foreach ($x in $sorted) { if ($x.Reset -gt $latest) { $latest = $x.Reset } }
+    $latest = $null
+    foreach ($x in $sorted) { if ($x.Reset -and (-not $latest -or $x.Reset -gt $latest)) { $latest = $x.Reset } }
     return [pscustomobject]@{
         ResetsAt = $latest
         Items = @($sorted | ForEach-Object { $_.Row })
         Keys = @($sorted | ForEach-Object { $_.Key })
         Count = $sorted.Count
+        Restart = @($sorted | Where-Object { [string](Get-ChatField $_.Row 'Why') -eq 'restart' }).Count
         Left = $left.ToArray()
     }
+}
+
+function Format-ChatqAskHead {
+    <#
+    What the reset ask is about, first in its every wording - the banner,
+    the tray's balloon, the Mac's notice, the phone, the console: "limit
+    over at 13:00" for chats the limit cut off, "VS Code restarted" for
+    those a window's restart did, both joined when it is both. -Ask:
+    Get-ChatqResetAsk's answer or the snapshot's header.ask (count,
+    restart, resetsAt in ms). Pure.
+    #>
+    param($Ask, [datetime]$Now = (Get-Date))
+    $n = [int](Get-ChatField $Ask 'Count')
+    $r = [int](Get-ChatField $Ask 'Restart')
+    $at = Format-ChatOverlayAskAt (Get-ChatField $Ask 'ResetsAt') $Now
+    $limit = "limit over$(if ($at) { " at $at" })"
+    if ($r -le 0) { return $limit }
+    if ($r -ge $n) { return 'VS Code restarted' }
+    return "$limit, and VS Code restarted"
+}
+
+function Format-ChatqAskCount {
+    # "1 chat it cut off" / "3 chats they cut off" - the limit, the restart,
+    # or the two of them - for the ask's words after its head. Pure.
+    param($Ask)
+    $n = [int](Get-ChatField $Ask 'Count')
+    $r = [int](Get-ChatField $Ask 'Restart')
+    $who = if ($r -gt 0 -and $r -lt $n) { 'they' } else { 'it' }
+    return "$n chat$(if ($n -ne 1) { 's' }) $who cut off"
+}
+
+function Format-ChatqAskLeaveTip {
+    # What leaving them does, for the ask's Leave tooltip - the chip, the
+    # tray, the console. A chat the limit cut off keeps its orange row,
+    # which Continue all still reaches; one a VS Code restart cut off is
+    # not offered again and its row goes, since its note forgets it once
+    # answered (Get-ChatRestartCutOffs). -Ask: as Format-ChatqAskCount's.
+    # Pure.
+    param($Ask)
+    $n = [int](Get-ChatField $Ask 'Count')
+    $r = [int](Get-ChatField $Ask 'Restart')
+    if ($r -le 0) { return 'Leave them as they are - their rows stay orange; Continue all in the console still continues them' }
+    if ($r -ge $n) { return 'Leave them as they are - a chat a VS Code restart cut off is not offered again, and its row goes' }
+    return 'Leave them as they are - the limit''s keep their orange rows, which Continue all in the console still continues; those a VS Code restart cut off are not offered again, and their rows go'
+}
+
+function Format-ChatqContinueTip {
+    # What Continue queues, for the console's Continue and Continue all
+    # tooltips: Claude Code's own "Continue from where you left off." for a
+    # chat the limit or a 529 cut off, and for one a VS Code restart did, a
+    # prompt that first says what the restart ended (Get-ChatqRestartPrompt).
+    # -Count: the chats, -Restart: how many of them a restart cut off. Pure.
+    param([int]$Count, [int]$Restart)
+    if ($Restart -le 0) { return "Queue ""$($script:ChatqContinueText)"" for $(if ($Count -eq 1) { 'this chat' } else { 'each of them' })" }
+    $say = 'a prompt that says what the VS Code restart ended, then "' + $script:ChatqContinueText + '"'
+    if ($Count -eq 1) { return "Queue $say, for this chat" }
+    if ($Restart -ge $Count) { return "Queue, for each of them, $say" }
+    return "Queue ""$($script:ChatqContinueText)"" for each of them - for those a VS Code restart cut off, $say"
+}
+
+function Get-ChatqRestartPrompt {
+    <#
+    The prompt that continues a chat a window's restart cut off
+    (Get-ChatRestartCutOffs' row): what happened, what was lost, and the
+    words Claude Code's own continue uses. A background workflow or agent
+    is named - claude --resume brings the chat back, not the work it had
+    out, so Claude has to be told to start again what is still wanted.
+    Pure.
+    #>
+    param($Row)
+    $mid = [bool](Get-ChatField $Row 'Mid')
+    $say = "The VS Code window this chat ran in restarted while it worked, which ended its process$(if ($mid) { ' mid-turn' })."
+    $names = @(@(Get-ChatField $Row 'Tasks') | Where-Object { $_ } | ForEach-Object {
+            $k = [string](Get-ChatField $_ 'Kind')
+            if ($k -notin 'workflow', 'agent') { $k = 'task' }
+            $note = [string](Get-ChatField $_ 'Note')
+            if (-not $note) { $note = [string](Get-ChatField $_ 'Id') }
+            $note = ($note -replace '\s+', ' ').Trim()
+            if ($note.Length -gt 80) { $note = $note.Substring(0, 79).TrimEnd() + '...' }
+            "$k `"$note`""
+        })
+    if ($names.Count) {
+        $list = if ($names.Count -eq 1) { $names[0] } else { (($names[0..($names.Count - 2)]) -join ', ') + ' and ' + $names[-1] }
+        $say += " Your background $list did not finish: resuming the chat does not bring background work back, so start again whatever of it is still needed."
+    }
+    return "$say $($script:ChatqContinueText)"
 }
 
 #endregion
@@ -842,15 +950,22 @@ function Get-ChatqJobs {
         if ($j -and $j.id) { $j }
     }
     # The one queue order, which the watcher, the "sends" column, the list and
-    # the board all walk: jobs put first (the latest -First ahead), then oldest
-    # first. A lane that is waiting is skipped as a whole, so "first" means the
-    # front of its own lane.
+    # the board all walk: jobs put first (the latest -First ahead), then the
+    # continues, then the rest - each oldest first, and by number where two
+    # were made within the clock's tick. A continue picks up work the limit
+    # cut off, so it never waits behind prompts queued for other chats; the
+    # chats Continue all names keep the order it named them in. The continue
+    # of a chat a window's restart cut off (rule restart) is a prompt - it
+    # says what the restart took (Get-ChatqRestartPrompt) - and goes with
+    # the continues all the same. A lane that is waiting is skipped as a
+    # whole, so "first" means the front of its own lane.
     # Dates, not strings: pwsh 7 reads the stamps back as [datetime], whose
     # string form does not sort in time order.
     $zero = [datetime]::MinValue
-    return @($jobs | Sort-Object @{ Expression = { if ($_.PSObject.Properties['first'] -and $_.first) { 0 } else { 1 } } },
+    return @($jobs | Sort-Object @{ Expression = { if ($_.PSObject.Properties['first'] -and $_.first) { 0 } elseif ($_.kind -eq 'continue' -or [string](Get-ChatField $_ 'rule') -eq 'restart') { 1 } else { 2 } } },
         @{ Expression = { $d = if ($_.PSObject.Properties['first']) { ConvertTo-ChatqDate $_.first } else { $null }; if ($d) { $d } else { $zero } }; Descending = $true },
-        @{ Expression = { $d = ConvertTo-ChatqDate $_.createdAt; if ($d) { $d } else { $zero } } })
+        @{ Expression = { $d = ConvertTo-ChatqDate $_.createdAt; if ($d) { $d } else { $zero } } },
+        @{ Expression = { [int]$_.seq } })
 }
 
 function Save-ChatqJob {
@@ -1100,6 +1215,67 @@ function Sync-ChatqAttachments {
     return @($failed)
 }
 
+# How old a file in data/queue/ that no prompt links to must be before the
+# sweep takes it (Clear-ChatqStrayFiles)
+$script:ChatqStrayHours = 24
+
+function Clear-ChatqStrayFiles {
+    <#
+    Sweep the images VS Code saved into data/queue/ for a prompt tab that was
+    then cancelled: nothing moves them into a job's folder, and nothing else
+    ever would. Removing what appeared while that tab was open would also take
+    an image pasted at that moment into another shell's open tab, so it goes
+    by age instead: a file no prompt links to, a day old (-Hours) by the newer
+    of its creation and write times. A tab open a day with the link still
+    unsaved in it loses its image; a saved one keeps it.
+    Only what VS Code can have put there: a file at the root that is none of
+    the queue's own (a job, its prompt, a cancel, a write in flight), or one
+    in a folder that is no job's - a folder named as a job id is its job's,
+    whole, even before its .json is written (New-ChatqJobSlot makes it
+    first). Such a folder goes once empty and as old. Any prompt that cannot
+    be read stops the sweep: its links are unknown, and the file may be its.
+    The watcher runs it at its start and every six hours. Returns the paths
+    removed.
+    #>
+    param([double]$Hours = $script:ChatqStrayHours, $Now = $null)
+    $queue = $script:ChatqQueueDir
+    if (-not (Test-Path -LiteralPath $queue -PathType Container)) { return @() }
+    $cut = $(if ($Now) { ([datetime]$Now).ToUniversalTime() } else { [datetime]::UtcNow }).AddHours(-$Hours)
+    $old = { param($i) $t = $i.LastWriteTimeUtc; if ($i.CreationTimeUtc -gt $t) { $t = $i.CreationTimeUtc }; $t -lt $cut }
+    $linked = @{}
+    try {
+        foreach ($p in @(Get-ChildItem -LiteralPath $queue -Filter *.md -File -EA Stop)) {
+            $text = [System.IO.File]::ReadAllText($p.FullName, [System.Text.Encoding]::UTF8)
+            foreach ($l in @(Get-ChatqPromptLinks $text)) { $linked[$l.Path.ToLowerInvariant()] = $true }
+        }
+    }
+    catch { return @() }
+    $gone = [System.Collections.Generic.List[string]]::new()
+    $drop = {
+        param($i)
+        if ($linked[$i.FullName.ToLowerInvariant()] -or -not (& $old $i)) { return }
+        try { Remove-Item -LiteralPath $i.FullName -Force -ErrorAction Stop; $gone.Add($i.FullName) } catch {}
+    }
+    foreach ($i in @(Get-ChildItem -LiteralPath $queue -Force -EA SilentlyContinue)) {
+        if (-not $i.PSIsContainer) {
+            if ($i.Extension -notin '.md', '.json', '.cancel', '.tmp') { & $drop $i }
+            continue
+        }
+        if ($i.Name -match '^\d{8}-\d{6}-' -or (Test-Path -LiteralPath (Join-Path $queue "$($i.Name).json"))) { continue }
+        # a folder's age as it was before the sweep - taking a file out of it
+        # makes its write time now. Deepest first, so a folder emptied of
+        # folders goes too.
+        $dirs = @(@(Get-ChildItem -LiteralPath $i.FullName -Recurse -Directory -Force -EA SilentlyContinue | Sort-Object { $_.FullName.Length } -Descending) + @($i) |
+            Where-Object { & $old $_ })
+        foreach ($f in @(Get-ChildItem -LiteralPath $i.FullName -Recurse -File -Force -EA SilentlyContinue)) { & $drop $f }
+        foreach ($d in $dirs) {
+            if (@(Get-ChildItem -LiteralPath $d.FullName -Force -EA SilentlyContinue).Count) { continue }
+            try { Remove-Item -LiteralPath $d.FullName -Force -ErrorAction Stop; $gone.Add($d.FullName) } catch {}
+        }
+    }
+    return @($gone)
+}
+
 function Format-ChatqAttachFooter {
     # The wording both CLIs were seen to act on in spike S18: every file read,
     # the images looked at
@@ -1335,15 +1511,53 @@ function Get-ChatqCliVersion {
     return $v
 }
 
+function Test-ChatqCmdExe {
+    # an executable Windows runs through cmd.exe: a .cmd or .bat - npm's
+    # claude.cmd and codex.cmd among them. Pure.
+    param([string]$Exe)
+    return [bool]($Exe -match '\.(cmd|bat)$')
+}
+
+function Get-ChatqCmdArgRefusal {
+    <#
+    Why -ArgList cannot go to -Exe on a command line, or $null. Only a .cmd
+    or .bat is refused anything: cmd.exe reads its line again, and a " or a
+    %NAME% has no escape there at all - a quote ends the argument and hands
+    what follows, an & and all, to cmd as a command of its own, and %NAME%
+    is replaced by that variable, inside quotes too, whenever one of that
+    name is set. A lone %, with no second one after it, is left as it is,
+    so a folder named "100%" still goes. A line break ends the command.
+    Everything else cmd would take as its own, & | < > ^ ( ), is quoted
+    instead (ConvertTo-ChatqArgLine). Pure.
+    #>
+    param([string]$Exe, [string[]]$ArgList)
+    if (-not (Test-ChatqCmdExe $Exe)) { return $null }
+    foreach ($a in @($ArgList)) {
+        $a = [string]$a
+        if ($a -notmatch '["\r\n]|%[^%]+%') { continue }
+        $what = if ($a -match '"') { 'a quote' } elseif ($a -match '%[^%]+%') { 'a %name%' } else { 'a line break' }
+        $shown = if ($a.Length -gt 60) { $a.Substring(0, 60) + $script:ChatqEllipsis } else { $a }
+        return "$(Split-Path $Exe -Leaf) runs through cmd.exe, which cannot be handed $what - not sent: $($shown -replace '[\r\n]+', ' ')"
+    }
+    return $null
+}
+
 function ConvertTo-ChatqArgLine {
     # The Windows command-line rules (backslashes only special before a quote),
     # which is also what .NET applies to Arguments on macOS and Linux - so one
     # string works everywhere, and PS 5.1 has no ArgumentList to fall back on.
-    param([string[]]$ArgList)
+    # -Exe a .cmd or .bat: cmd.exe reads the line first, so an argument
+    # holding & | < > ^ ( ) is quoted too - inside quotes cmd takes them as
+    # they are - and one it cannot carry at all throws
+    # (Get-ChatqCmdArgRefusal).
+    param([string[]]$ArgList, [string]$Exe)
+    $no = Get-ChatqCmdArgRefusal $Exe $ArgList
+    if ($no) { throw $no }
+    $special = if (Test-ChatqCmdExe $Exe) { '[\s"&|<>^()]' } else { '[\s"]' }
     $parts = foreach ($a in $ArgList) {
         $a = [string]$a
         if ($a -eq '') { '""'; continue }
-        if ($a -notmatch '[\s"]') { $a; continue }
+        if ($a -notmatch $special) { $a; continue }
         $sb = [System.Text.StringBuilder]::new()
         [void]$sb.Append('"')
         $bs = 0
@@ -1391,7 +1605,7 @@ function Invoke-ChatqProcess {
     $utf8 = New-Object System.Text.UTF8Encoding $false
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $Exe
-    $psi.Arguments = ConvertTo-ChatqArgLine $ArgList
+    $psi.Arguments = ConvertTo-ChatqArgLine $ArgList -Exe $Exe
     if ($WorkDir) { $psi.WorkingDirectory = $WorkDir }
     $psi.UseShellExecute = $false
     $psi.CreateNoWindow = $true
@@ -2026,6 +2240,10 @@ function Invoke-ChatqProbe {
         $args2 = @('exec', '--ephemeral', '--skip-git-repo-check', '--json', '-s', 'read-only')
         if ($Job.runModel) { $args2 += @('-m', $Job.runModel) }
         $args2 += '-'
+        # a -Model cmd.exe cannot carry is this job's own failure, not its
+        # lane's: Refused, which Confirm-ChatqAllowed fails the job on
+        $no = Get-ChatqCmdArgRefusal $exe $args2
+        if ($no) { return [pscustomobject]@{ Allowed = $false; Limited = $false; Overloaded = $false; Auth = $false; Refused = $true; Error = $no; Until = $null; Type = $null; Detail = $null } }
         $proc = Invoke-ChatqProcess -Exe $exe -ArgList $args2 -WorkDir $dir -StdIn 'Reply with one word: ok' `
             -SetEnv @{ CODEX_HOME = $Job.home } -TimeoutSec 180 -OnLine { param($l) Update-ChatqCodexState $st $l }
         $out = Get-ChatqCodexOutcome $st $proc
@@ -2037,6 +2255,15 @@ function Invoke-ChatqProbe {
         $args2 = @('-p', '--no-session-persistence', '--safe-mode', '--tools', '', '--permission-mode', 'default',
             '--output-format', 'stream-json', '--verbose')
         if ($model -and -not $NoModel) { $args2 += @('--model', $model) }
+        # a model cmd.exe cannot carry: never thrown into the watcher. The
+        # chat's own is only ever named to the probe, so it is asked without
+        # one; a -Model the run would use is this job's own failure, not its
+        # lane's - Refused, which Confirm-ChatqAllowed fails the job on.
+        # New-ChatqJob and Set-ChatqJobRunAs refuse one as it is given, so
+        # only a job queued before them, or edited by hand, gets here.
+        $no = Get-ChatqCmdArgRefusal $exe $args2
+        if ($no -and $model -and -not $Job.runModel -and -not $NoModel) { return (Invoke-ChatqProbe $Provider $Job -NoModel) }
+        if ($no) { return [pscustomobject]@{ Allowed = $false; Limited = $false; Overloaded = $false; Auth = $false; Refused = $true; Error = $no; Until = $null; Type = $null; Detail = $null } }
         $proc = Invoke-ChatqProcess -Exe $exe -ArgList $args2 -WorkDir $dir -StdIn 'Reply with one word: ok' `
             -SetEnv @{ CLAUDE_CONFIG_DIR = $Job.home } -TimeoutSec 180 -OnLine { param($l) Update-ChatqClaudeState $st $l }
         $out = Get-ChatqClaudeOutcome $st $proc 'default'
@@ -2069,40 +2296,124 @@ function Get-ChatqRunModel {
     return [string]$Job.model
 }
 
+function Get-ChatqRunRules {
+    <#
+    What the settings a queued Claude run loads say beyond the flags chatq
+    gives it: the user's (settings.json in the job's config dir, the
+    CLAUDE_CONFIG_DIR the run is given - ~/.claude when the job names none),
+    the project's (.claude/settings.json in the job's folder) and the local
+    one (.claude/settings.local.json there). @{ Workflow = 'deny' | 'ask' |
+    'allow' | $null - the strongest rule any of them has for Workflow, as
+    Claude Code weighs them: a deny over an ask over an allow; WorkflowIn =
+    'user' | 'project' | 'local', the first file that has it; EffortEnv =
+    the first that sets CLAUDE_CODE_EFFORT_LEVEL in its env, or $null }.
+    An allow counts only for the whole tool (Workflow, Workflow(*)): one
+    for a named workflow leaves the rest asking. A deny or an ask counts
+    whatever it names - some workflow would be refused, and the model picks
+    which. A file missing or spoilt says nothing. The managed settings an
+    organisation deploys are not read.
+    #>
+    param($Job)
+    $r = [pscustomobject]@{ Workflow = $null; WorkflowIn = $null; EffortEnv = $null }
+    # the run's own: a job with no home runs with CLAUDE_CONFIG_DIR taken
+    # away (Invoke-ChatqRun), so ~/.claude, never the watcher's
+    $home0 = Get-ChatqHomeDir 'claude' ([string](Get-ChatField $Job 'home'))
+    $files = [ordered]@{ user = (Join-Path $home0 'settings.json') }
+    if ($Job.cwd) {
+        $files['project'] = Join-Path (Join-Path $Job.cwd '.claude') 'settings.json'
+        $files['local'] = Join-Path (Join-Path $Job.cwd '.claude') 'settings.local.json'
+    }
+    $rank = @{ allow = 1; ask = 2; deny = 3 }
+    foreach ($scope in $files.Keys) {
+        $s = $null
+        try { if (Test-Path -LiteralPath $files[$scope] -PathType Leaf) { $s = [System.IO.File]::ReadAllText($files[$scope], [System.Text.Encoding]::UTF8) | ConvertFrom-Json } }
+        catch { $s = $null }
+        if ($s -isnot [pscustomobject]) { continue }
+        $env0 = Get-ChatField $s 'env'
+        if (-not $r.EffortEnv -and $env0 -is [pscustomobject] -and [string](Get-ChatField $env0 'CLAUDE_CODE_EFFORT_LEVEL')) { $r.EffortEnv = $scope }
+        $perm = Get-ChatField $s 'permissions'
+        if ($perm -isnot [pscustomobject]) { continue }
+        foreach ($kind in 'deny', 'ask', 'allow') {
+            foreach ($rule in @(Get-ChatField $perm $kind)) {
+                if ($rule -isnot [string]) { continue }
+                $t = $rule.Trim()
+                $hit = if ($kind -eq 'allow') { $t -ceq 'Workflow' -or $t -ceq 'Workflow(*)' } else { $t -ceq 'Workflow' -or $t -clike 'Workflow(*)' }
+                if ($hit -and (-not $r.Workflow -or $rank[$kind] -gt $rank[$r.Workflow])) { $r.Workflow = $kind; $r.WorkflowIn = $scope }
+            }
+        }
+    }
+    return $r
+}
+
 function Get-ChatqRunCarry {
     <#
     What a queued Claude run carries of the chat's session-only settings
     (Get-ChatSessionSettings), which a new process for the chat - a run is
     one - would start without: @{ Ultracode = [bool]; Effort = a level
     --effort takes, or $null; UltracodeHeld = the run's mode when the chat
-    had Ultracode and the run goes without it, else $null }. Only into the
-    chat as it is, on its own model - never a new chat's first run, and
-    never on a -Model of the job's, which may not take them (Ultracode needs
-    a model that can do xhigh). Codex has neither. A level only where the
-    watcher's environment sets none: CLAUDE_CODE_EFFORT_LEVEL overrides
-    --effort, and is the user's own, left as it is.
-    Ultracode only in auto or bypassPermissions mode. Its standing
+    had Ultracode and the run goes without it, else $null; HeldBy = 'mode',
+    or 'deny' / 'ask' for a settings rule on Workflow, and RuleIn the file
+    with the rule (Get-ChatqRunRules) - the one that held Ultracode back,
+    or the allow it was carried by in a mode that would ask }. Only into
+    the chat as it is, on its own model - never a new chat's first run,
+    and never on a -Model of the job's, which may not take them (Ultracode
+    needs a model that can do xhigh). Codex has neither. A level only where
+    nothing sets one already: CLAUDE_CODE_EFFORT_LEVEL - in the watcher's
+    environment, or in a settings file's env, which the run loads -
+    overrides --effort, and is the user's own, left as it is.
+    Ultracode where nothing asks before a Workflow. Its standing
     instruction has the model run a workflow for every real task - likely
     the first - and Claude Code asks before each Workflow unless a rule
     allows it: auto mode's classifier lets one through, bypassPermissions
-    asks nothing, but in any other mode nobody can answer a run (with
+    asks nothing, and a Workflow allow rule in the settings lets it through
+    in any mode; but otherwise nobody can answer a run (with
     --permission-prompts none the ask is a denial, and the phone's bridge
     never approves a Workflow), so each call is denied and the job ends
-    needs input, 'denied Workflow', where it would have run without.
+    needs input, 'denied Workflow', where it would have run without. A
+    deny or an ask rule for Workflow holds it back in every mode, and plan
+    mode holds it back whatever allows it: a plan run is to change nothing,
+    and a workflow's agents would.
     #>
     param($Job)
-    $none = [pscustomobject]@{ Ultracode = $false; Effort = $null; UltracodeHeld = $null }
+    $none = [pscustomobject]@{ Ultracode = $false; Effort = $null; UltracodeHeld = $null; HeldBy = $null; RuleIn = $null }
     if ($Job.provider -ne 'claude' -or (Get-ChatField $Job 'runModel') -or (Test-ChatqFreshChat $Job) -or -not $Job.path) { return $none }
     $s = Get-ChatSessionSettings ([string]$Job.path)
+    $uc = $s.Ultracode -eq $true
     $lvl = $null
     if ($s.Effort -in $script:ChatEffortLevels -and -not [Environment]::GetEnvironmentVariable('CLAUDE_CODE_EFFORT_LEVEL')) { $lvl = [string]$s.Effort }
-    $uc = $s.Ultracode -eq $true
-    $held = $null
+    # the settings only for something to carry: most runs carry nothing
+    $rules = if ($uc -or $lvl) { Get-ChatqRunRules $Job } else { $null }
+    if ($lvl -and $rules.EffortEnv) { $lvl = $null }
+    $held = $null; $by = $null; $in = $null
     if ($uc) {
         $mode = Get-ChatqPermitMode $Job
-        if ($mode -notin 'auto', 'bypassPermissions') { $uc = $false; $held = $mode }
+        if ($rules.Workflow -in 'deny', 'ask') { $uc = $false; $held = $mode; $by = $rules.Workflow; $in = $rules.WorkflowIn }
+        elseif ($mode -eq 'plan') { $uc = $false; $held = $mode; $by = 'mode' }
+        elseif ($mode -notin 'auto', 'bypassPermissions') {
+            if ($rules.Workflow -eq 'allow') { $by = 'allow'; $in = $rules.WorkflowIn }
+            else { $uc = $false; $held = $mode; $by = 'mode' }
+        }
     }
-    return [pscustomobject]@{ Ultracode = $uc; Effort = $lvl; UltracodeHeld = $held }
+    return [pscustomobject]@{ Ultracode = $uc; Effort = $lvl; UltracodeHeld = $held; HeldBy = $by; RuleIn = $in }
+}
+
+function Format-ChatqUltracodeHeld {
+    # Why a run goes without the Ultracode its chat had, in words for its
+    # history (Get-ChatqRunCarry): '' when it did not. Plan mode's own: a
+    # Workflow allow rule may mean it asks nothing, but a plan run is to
+    # change nothing, and a workflow's agents would.
+    param($Carry)
+    $held = [string](Get-ChatField $Carry 'UltracodeHeld')
+    if (-not $held) { return '' }
+    $in = [string](Get-ChatField $Carry 'RuleIn')
+    switch ([string](Get-ChatField $Carry 'HeldBy')) {
+        'deny' { return "the $in settings deny Workflow" }
+        'ask' { return "the $in settings ask before a Workflow" }
+        default {
+            if ($held -eq 'plan') { return "plan mode changes nothing, and a workflow's agents would" }
+            return "$held mode asks before each Workflow"
+        }
+    }
 }
 
 function Test-ChatqRunUltracode {
@@ -2121,6 +2432,148 @@ function Format-ChatqRunCarry {
     if (Get-ChatField $Job 'ultracode') { $w += 'with Ultracode' }
     $e = [string](Get-ChatField $Job 'effort')
     if ($e) { $w += "at effort $e" }
+    return ($w -join ', ')
+}
+
+function Get-ChatqRunTook {
+    <#
+    What a queued run into a Claude chat took, from its own records - the
+    ones after -From, the transcript's length as it began: @{ Ultracode =
+    $true|$false|$null; Effort = a level|$null }, $null where they do not
+    say. Effort: the level on the run's first turn, an assistant record of
+    a print-mode entrypoint's (sdk-cli, as claude -p writes) with an effort
+    - one Claude Code made up itself, an error's, has none. Ultracode: a
+    notice of the run's before that turn (ultra_effort_enter or _exit)
+    says it. With none the run saw no change: Claude Code writes one with
+    a prompt only when the state differs from the last notice it can see
+    (Get-ChatSessionSettings), so the run had what that one says - a
+    compact_boundary after it, or no notice at all, is off. Both only once
+    the turn is there: a run cut off before its first turn says nothing.
+    The records as Get-ChatSessionRecord reads them - a subagent's are not
+    the run's; at most -Budget bytes read each way. Never throws. Not
+    known: whether Ultracode on but idle - workflows turned off, a model
+    below xhigh - still writes the enter; such a run reads as taken.
+    #>
+    param([string]$Path, [int64]$From, [int64]$Budget = $script:ChatSessionScanBudget)
+    $none = @{ Ultracode = $null; Effort = $null }
+    if (-not $Path -or $From -lt 0 -or $Budget -le 0) { return $none }
+    $x = Get-ChatSessionRx
+    $sdk = $script:ChatSdkEntrypoints
+    $ord = [StringComparison]::Ordinal
+    $latin = [System.Text.Encoding]::GetEncoding(28591)
+    # a stretch of the file as Latin-1 text, one char a byte
+    $readAt = {
+        param([int64]$At, [int]$N)
+        $b = [byte[]]::new($N)
+        [void]$fs.Seek($At, [System.IO.SeekOrigin]::Begin)
+        $got = 0
+        while ($got -lt $N) { $r = $fs.Read($b, $got, $N - $got); if ($r -le 0) { break }; $got += $r }
+        $latin.GetString($b, 0, $got)
+    }
+    try { $fs = Open-ChatRead $Path } catch { return $none }
+    try {
+        $size = $fs.Length
+        if ($size -le $From) { return $none }
+        # the run's records, from its start to its first turn: whole lines,
+        # in stretches that double from 1 MB - the turn is near the start
+        $uc = $null; $ef = $null
+        $pos = $From
+        $end = [Math]::Min($size, $From + $Budget)
+        $win = [int64]1048576
+        while ($pos -lt $end -and -not $ef) {
+            $n = [int][Math]::Min($win, $end - $pos)
+            $T = & $readAt $pos $n
+            $win *= 2
+            $last = if ($pos + $n -ge $end) { $T.Length } else { $T.LastIndexOf([char]10) + 1 }
+            # one record longer than the stretch: read a longer one
+            if ($last -le 0) { continue }
+            $at = 0
+            while ($at -lt $last) {
+                $nl = $T.IndexOf([char]10, $at, $last - $at)
+                $le = if ($nl -lt 0) { $last } else { $nl }
+                $ls = $at
+                $at = $le + 1
+                if ($le -le $ls) { continue }
+                # a notice's attachment; any other line that names one - a
+                # turn that talks of it - goes on to the turn's check
+                if ($T.IndexOf('"ultra_effort_e', $ls, $le - $ls, $ord) -ge 0) {
+                    $k = Get-ChatSessionRecord ($T.Substring($ls, $le - $ls))
+                    if ($k -and $k.K -ceq 'N') {
+                        if (-not $k.Own) { $uc = $k.On }
+                        continue
+                    }
+                }
+                if ($T.IndexOf('"type":"assistant"', $ls, $le - $ls, $ord) -lt 0 -or $T.IndexOf('"effort":', $ls, $le - $ls, $ord) -lt 0) { continue }
+                $m = $x.Obj.Match($T.Substring($ls, $le - $ls))
+                if (-not $m.Success) { continue }
+                $f = @{}
+                $ks = $m.Groups['k'].Captures
+                $vs = $m.Groups['v'].Captures
+                for ($i = 0; $i -lt $ks.Count; $i++) { $f[$ks[$i].Value] = $vs[$i].Value }
+                if ($f['"type"'] -cne '"assistant"' -or $f['"isSidechain"'] -ceq 'true') { continue }
+                $ep = if ($f['"entrypoint"']) { Read-ChatJsonText $f['"entrypoint"'] } else { $null }
+                if (-not $ep -or [Array]::IndexOf($sdk, [string]$ep) -lt 0) { continue }
+                $e = if ($f['"effort"']) { Read-ChatJsonText $f['"effort"'] } else { $null }
+                if ($e) { $ef = [string]$e; break }
+            }
+            $pos += $last
+        }
+        if (-not $ef) { return $none }
+        if ($null -ne $uc) { return @{ Ultracode = $uc; Effort = $ef } }
+        # no notice of the run's: the last one before it, or a compaction
+        # since, read back in a stretch that doubles until a whole record
+        # is found, the file's start or -Budget
+        $win = [int64]1048576
+        while ($true) {
+            $w = [Math]::Min($win, [Math]::Min($From, $Budget))
+            if ($w -le 0) { $uc = $false; break }
+            $B = & $readAt ($From - $w) ([int]$w)
+            $hi = $B.Length
+            $cut = $false
+            while ($hi -gt 0) {
+                $p = [Math]::Max($B.LastIndexOf('"ultra_effort_e', $hi - 1, $hi, $ord), $B.LastIndexOf('"compact_boundary"', $hi - 1, $hi, $ord))
+                if ($p -lt 0) { break }
+                $ls = $B.LastIndexOf([char]10, $p) + 1
+                # begun before this stretch: read a longer one
+                if ($ls -eq 0 -and $From - $w -gt 0) { $cut = $true; break }
+                $le = $B.IndexOf([char]10, $p)
+                if ($le -lt 0) { $le = $B.Length }
+                $k = Get-ChatSessionRecord ($B.Substring($ls, $le - $ls))
+                if ($k -and $k.K -ceq 'N') { $uc = $k.On; break }
+                if ($k -and $k.K -ceq 'B') { $uc = $false; break }
+                $hi = $ls
+            }
+            if ($null -ne $uc) { break }
+            if (-not $cut -and $From - $w -le 0) { $uc = $false; break }
+            if ($w -ge $Budget) { break }
+            $win *= 2
+        }
+        return @{ Ultracode = $uc; Effort = $ef }
+    }
+    catch { return $none }
+    finally { $fs.Dispose() }
+}
+
+function Confirm-ChatqRunCarry {
+    <#
+    A run's carry as it ends: the job's ultracode and effort (set at its
+    start, Get-ChatqRunCarry) put right by what the run took
+    (Get-ChatqRunTook), and what differed in words for its history -
+    'Ultracode not taken', 'ran at effort high, not max', both, or ''.
+    What the records do not say leaves the job as its start set it.
+    #>
+    param($Job, $Took)
+    if ($null -eq $Took) { return '' }
+    $w = @()
+    if ((Get-ChatField $Job 'ultracode') -and $Took.Ultracode -eq $false) {
+        Set-ChatqProp $Job 'ultracode' $null
+        $w += 'Ultracode not taken'
+    }
+    $e = [string](Get-ChatField $Job 'effort')
+    if ($e -and $Took.Effort -and [string]$Took.Effort -cne $e) {
+        Set-ChatqProp $Job 'effort' ([string]$Took.Effort)
+        $w += "ran at effort $($Took.Effort), not $e"
+    }
     return ($w -join ', ')
 }
 
@@ -2150,6 +2603,74 @@ function Update-ChatqNewChatPath {
     if (-not $p) { return }
     Set-ChatqProp $Job 'path' $p
     Set-ChatqProp $Job 'group' (Split-Path (Split-Path $p -Parent) -Leaf)
+}
+
+function Update-ChatqHeldTitle {
+    # A phone-made chat with no name runs as 'phone chat 14:02', not as its
+    # prompt's first line: every alert carries the job's title through the
+    # push service (New-ChatqPhoneNewChat). Once the chat has a title of
+    # Claude's own - its ai-title, or a rename - the job takes that and
+    # holds it no more. Returns whether the title changed.
+    param($Job)
+    if (-not (Get-ChatField $Job 'titleHeld') -or $Job.provider -ne 'claude' -or -not $Job.path) { return $false }
+    $f = Get-Item -LiteralPath ([string]$Job.path) -EA SilentlyContinue
+    if (-not $f) { return $false }
+    $rec = try { & $script:ChatProviders['claude'].Describe $f } catch { $null }
+    if (-not $rec -or $rec.TitleSource -notin 'auto', 'renamed' -or -not $rec.Title) { return $false }
+    Set-ChatqProp $Job 'title' ([string]$rec.Title)
+    Set-ChatqProp $Job 'titleHeld' $false
+    Set-ChatqHeldTitleMark ([string]$Job.sessionId) $null
+    return $true
+}
+
+# sessionId -> the neutral title a phone-made chat runs under, kept apart
+# from its jobs: chatqrm -Finished or the console's Remove takes those, and
+# with them the title, while the chat may still have none of Claude's own
+$script:ChatqHeldTitlesPath = Join-Path $script:ChatqData 'held-titles.json'
+
+function Set-ChatqHeldTitleMark {
+    # -Title $null drops the chat's mark. Only the newest 200 are kept: a
+    # chat held that long ago and never titled since is one nobody runs.
+    # Best effort - a lost mark puts back only the prompt's first line.
+    param([string]$SessionId, [string]$Title)
+    if (-not $SessionId) { return }
+    try {
+        $o = Read-ChatqJson $script:ChatqHeldTitlesPath
+        $map = [ordered]@{}
+        if ($o) { foreach ($p in $o.PSObject.Properties) { if ($p.Value -and $p.Value.title) { $map[$p.Name] = $p.Value } } }
+        if (-not $Title) {
+            if (-not $map.Contains($SessionId)) { return }
+            $map.Remove($SessionId)
+        }
+        else { $map[$SessionId] = [ordered]@{ title = $Title; at = (Get-ChatqStamp) } }
+        $keep = [ordered]@{}
+        foreach ($k in @($map.Keys | Sort-Object { [string]$map[$_].at } -Descending | Select-Object -First 200)) { $keep[$k] = $map[$k] }
+        if (-not $keep.Count) { Remove-Item -LiteralPath $script:ChatqHeldTitlesPath -Force -EA SilentlyContinue; return }
+        New-ChatqDir $script:ChatqData
+        Save-ChatqJson $script:ChatqHeldTitlesPath $keep
+    }
+    catch {}
+}
+
+function Get-ChatqHeldTitle {
+    # The neutral title a phone-made chat still runs under, for a later job
+    # into it and for a live alert about it (Update-ChatqLiveAlerts): until
+    # Claude titles the chat its row's title is the prompt's first line
+    # (Update-ChatqHeldTitle). A job of it that holds one, else the chat's
+    # mark in data/held-titles.json, which outlives its jobs. $null when
+    # neither has one, or the row's title is Claude's or yours already.
+    param($Row)
+    if (-not $Row -or $Row.Provider -ne 'claude' -or -not $Row.Id) { return $null }
+    if ((Get-ChatField $Row 'Titled') -in 'auto', 'renamed') { return $null }
+    foreach ($j in @(Get-ChatqJobs)) {
+        if ([string]$j.sessionId -eq [string]$Row.Id -and (Get-ChatField $j 'titleHeld')) { return [string]$j.title }
+    }
+    $o = Read-ChatqJson $script:ChatqHeldTitlesPath
+    if ($o) {
+        $m = $o.PSObject.Properties[[string]$Row.Id]
+        if ($m -and $m.Value -and $m.Value.title) { return [string]$m.Value.title }
+    }
+    return $null
 }
 
 # What a queued Claude run is given, each only where the watcher's own
@@ -2202,6 +2723,10 @@ function Invoke-ChatqRun {
         # as one more image
         if ($imgs) { $a += '--' }
         $a += @($Job.sessionId, '-')
+        # an npm codex.cmd: an image path holding a quote or a %, refused
+        # here as the run's own failure rather than thrown from its start
+        $no = Get-ChatqCmdArgRefusal $exe $a
+        if ($no) { return [pscustomobject]@{ kind = 'failed'; reason = $no } }
         $proc = Invoke-ChatqProcess -Exe $exe -ArgList $a -WorkDir $Job.cwd -StdIn $Prompt -LogPath $log `
             -SetEnv @{ CODEX_HOME = $Job.home } -OnTick $OnTick -OnLine {
             param($l)
@@ -2221,7 +2746,10 @@ function Invoke-ChatqRun {
     # A claude.cmd from npm runs through cmd.exe, which reads \" as no escape
     # at all: a quote in the title would end the argument there and hand the
     # rest - an & and what follows - to cmd as a command of its own. The
-    # title shows in a list, and loses nothing it needs without these.
+    # title shows in a list, and loses nothing it needs without these: the
+    # rest of the line is quoted for cmd (ConvertTo-ChatqArgLine), but a
+    # quote or a %name% in a title would fail the run, and a ! is cmd's
+    # own where delayed expansion is on.
     $name = [string]$Job.title
     if ($exe -match '\.(cmd|bat)$') { $name = (($name -replace '["%!&|<>^]', ' ') -replace '\s+', ' ').Trim() }
     $start = if (Test-ChatqFreshChat $Job) { @('--session-id', $Job.sessionId, '--name', $name) } else { @('--resume', $Job.sessionId) }
@@ -2274,6 +2802,16 @@ function Invoke-ChatqRun {
     foreach ($k in $script:ChatqRunEnv.Keys) {
         # the user's own setting stands; and never a $null, which removes one
         if ($null -eq [Environment]::GetEnvironmentVariable($k)) { $runEnv[$k] = $script:ChatqRunEnv[$k] }
+    }
+    # Every argument through an npm claude.cmd is quoted where cmd.exe
+    # would act on it; one it cannot carry at all - a data folder whose
+    # path holds a quote or a %name% (Get-ChatqCmdArgRefusal) - fails the
+    # run with that said, and nothing it wrote for the run is left behind
+    $no = Get-ChatqCmdArgRefusal $exe $a
+    if ($no) {
+        if ($ownSet) { Remove-Item -LiteralPath $ownSet -Force -EA SilentlyContinue }
+        if ($Permit) { $null = Close-ChatqPermitRun $Job $Permit }
+        return [pscustomobject]@{ kind = 'failed'; reason = $no }
     }
     try {
         $proc = Invoke-ChatqProcess -Exe $exe -ArgList $a -WorkDir $Job.cwd -StdIn $Prompt -LogPath $log `

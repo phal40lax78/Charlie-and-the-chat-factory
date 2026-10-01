@@ -18,8 +18,8 @@
 # dialog). After that no push carries a secret: an alert's link names the
 # alert and nothing else, so neither Join (whose push is a GET, logged in
 # full) nor whoever reads an ntfy alert topic can answer one. Only a message
-# whose MAC checks out does anything, and a job made or requeued by one never
-# runs above reply.maxMode (acceptEdits unless you say otherwise).
+# whose MAC checks out does anything, and a job made or requeued by one runs
+# in the chat's own mode - never above reply.maxMode, once you set one.
 #
 # The wire format, which docs/reply.html must match byte for byte:
 #   k      = HMAC-SHA256(D, "chatq-alert:" + aid)          one key per alert
@@ -45,7 +45,12 @@ $script:ChatqPhoneEvents = @('started', 'needs input', 'done', 'failed', 'limite
 # Claude's permission modes from least to most allowed. A mode not on it
 # counts as above any cap: a new mode is not trusted until it is placed here.
 $script:ChatqModeLadder = @('plan', 'default', 'manual', 'acceptEdits', 'auto', 'dontAsk', 'bypassPermissions')
-# the Codex sandboxes a phone job may keep; anything else runs workspace-write
+# reply.maxMode unset: no cap - a phone job keeps the chat's own mode, and
+# a Codex chat its sandbox, as the PC would run it. A mode on the ladder set
+# there caps it (Limit-ChatqPhoneMode, Test-ChatqPhoneSandbox).
+$script:ChatqKeepMode = 'keep'
+# the Codex sandboxes a capped phone job may keep; anything else runs
+# workspace-write
 $script:ChatqSafeSandboxes = @('read-only', 'workspace-write')
 # How long after the phone sealed it a reply to an alert is still taken: ten
 # minutes for a look, half an hour for anything else - the board's own ages
@@ -360,7 +365,13 @@ function Get-ChatqReplyConfig {
         $x = ConvertTo-ChatqDate $rp.pairing.expires
         if ($x -and $x -gt (Get-Date)) { $pairId = [string]$rp.pairing.id; $pairUntil = $x }
     }
-    $maxMode = if ((& $has 'maxMode') -and ([string]$rp.maxMode) -cin $script:ChatqModeLadder) { [string]$rp.maxMode } else { 'acceptEdits' }
+    # a mode on the ladder caps; unset, or keep, keeps the chat's own. A
+    # hand edit's case and spaces are forgiven, for keep and a mode alike.
+    # A word not on the ladder is taken as the strictest step that still
+    # lets an edit through, acceptEdits, rather than as no cap at all
+    $mm = if ((& $has 'maxMode') -and $rp.maxMode) { ([string]$rp.maxMode).Trim() } else { '' }
+    $onLadder = @($script:ChatqModeLadder | Where-Object { $_ -eq $mm })[0]
+    $maxMode = if (-not $mm -or $mm -eq $script:ChatqKeepMode) { $script:ChatqKeepMode } elseif ($onLadder) { [string]$onLadder } else { 'acceptEdits' }
     $on = [bool]($wanted -and $topic -and ($paired -or $pairUntil))
     # the PC -> phone channel's settings (src/phone-down.ps1)
     $ds = Get-ChatqDownSettings $rp $master
@@ -414,13 +425,17 @@ function Set-ChatqNotifyConfig {
       RemoveJoin    $true: forget Join
       Ntfy          ntfy topic ('' forgets ntfy); NtfyServer, NtfyToken
       Command       your PowerShell per alert; '' removes it
+      CommandLinks  $true/$false or 'on'/'off': the command gets the reply
+                    link as $env:CHATQ_LINK and goes where the phones go
+                    (Test-ChatqCommandLinks)
       Toast         $true/$false or 'on'/'off'
       QuietMinutes  0 or more
       Events        event names for the phone; 'all', @() or $null = all
       Reply         'on', 'off' or 'renew' (or $true/$false); renew pairs a
                     phone afresh, as Start-ChatqReplyPairing does
       ReplyHours    how long an alert can be answered
-      ReplyMaxMode  the highest permission mode a reply may run a job in
+      ReplyMaxMode  the highest permission mode a reply may run a job in;
+                    keep (the default) for the chat's own mode
       ReplyPage     the reply page's https URL - a copy on an origin of its
                     own; '' or $null the default again
       LiveAlerts    $true/$false or 'on'/'off': alerts about the chats you run
@@ -460,250 +475,274 @@ function Set-ChatqNotifyConfig {
     $needsPair = $false
     $out = { param($e) [pscustomobject]@{ Error = $e; Messages = $msgs.ToArray(); Changed = $changed; Config = $cfg; NeedsPairing = $needsPair } }
     $changed = $false
-    $cfg = Get-ChatqConfig
-    $d = $script:ChatqDot
+    # config.json read, changed and saved under its lock (Lock-ChatqConfig),
+    # so a pairing confirmed from the phone while this saves keeps its key;
+    # nothing below that sends a push, installs or resets runs inside it
+    $cfg = $null
+    try { Lock-ChatqConfig }
+    catch { & $say "config.json is busy - $($_.Exception.Message); nothing saved, try again" 'Yellow'; return (& $out 'config.json is busy') }
+    try {
+        $cfg = Get-ChatqConfig
+        $d = $script:ChatqDot
 
-    # every check first: a bad value saves nothing at all
-    $events = $null
-    if ($ch.ContainsKey('Events')) {
-        $names = @(@($ch['Events']) | ForEach-Object { [string]$_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-        if (-not $names.Count -or @($names | Where-Object { $_ -eq 'all' }).Count) { $events = 'all' }
-        else {
-            $events = @()
-            foreach ($n in $names) {
-                $want = ($n -replace '[-_]', ' ').ToLower()
-                if ($want -eq 'needsinput') { $want = 'needs input' }
-                if ($want -notin $script:ChatqPhoneEvents) {
-                    & $say "no event '$n' - these are: all, $($script:ChatqPhoneEvents -join ', ')" 'Yellow'
-                    return (& $out "no event '$n'")
-                }
-                if ($want -notin $events) { $events += $want }
-            }
-        }
-    }
-    $reply = $null
-    if ($ch.ContainsKey('Reply')) {
-        $v = $ch['Reply']
-        $reply = if ($v -is [bool]) { if ($v) { 'on' } else { 'off' } } else { ([string]$v).Trim().ToLower() }
-        if ($reply -notin 'on', 'off', 'renew') { & $say "-Reply takes on, off or renew, not '$v'" 'Yellow'; return (& $out 'bad reply value') }
-    }
-    $maxMode = $null
-    if ($ch.ContainsKey('ReplyMaxMode') -and $ch['ReplyMaxMode']) {
-        $want = ([string]$ch['ReplyMaxMode']).Trim()
-        $maxMode = @($script:ChatqModeLadder | Where-Object { $_ -eq $want })[0]
-        if (-not $maxMode) { & $say "a reply's mode cap is one of: $($script:ChatqModeLadder -join ', ')" 'Yellow'; return (& $out 'bad max mode') }
-    }
-    # The page holds the phone's key under its own origin, and every
-    # <user>.github.io project site shares one: a copy served from an origin
-    # of its own keeps other pages' scripts away from it. https only - the
-    # key is typed into nothing, but the page's code is what seals replies.
-    $page = $null
-    if ($ch.ContainsKey('ReplyPage')) {
-        $page = ([string]$ch['ReplyPage']).Trim()
-        if ($page) {
-            $pu = $null
-            if (-not ([Uri]::TryCreate($page, [UriKind]::Absolute, [ref]$pu) -and $pu.Scheme -eq 'https' -and $pu.Host -and $page -notmatch '[\s#]')) {
-                & $say "the reply page must be an https URL with no #, not '$page'" 'Yellow'
-                return (& $out 'bad reply page')
-            }
-        }
-    }
-    $quiet = $null
-    if ($ch.ContainsKey('QuietMinutes') -and $null -ne $ch['QuietMinutes']) {
-        $quiet = $ch['QuietMinutes'] -as [int]
-        if ($null -eq $quiet -or $quiet -lt 0) { & $say "quiet minutes: a whole number, 0 or more" 'Yellow'; return (& $out 'bad quiet minutes') }
-    }
-    $liveOn = $null
-    if ($ch.ContainsKey('LiveAlerts') -and $null -ne $ch['LiveAlerts'] -and '' -ne $ch['LiveAlerts']) {
-        $v = $ch['LiveAlerts']
-        $liveOn = if ($v -is [bool]) { $v } else { switch (([string]$v).Trim().ToLower()) { 'on' { $true } 'off' { $false } default { $null } } }
-        if ($null -eq $liveOn) { & $say "-LiveAlerts takes on or off, not '$v'" 'Yellow'; return (& $out 'bad live alerts value') }
-    }
-    # usage heads-ups, quiet hours and voice: checked here with the rest
-    $extras = Read-ChatqNotifyExtras $ch $msgs $cfg
-    if ($extras.Error) { return (& $out $extras.Error) }
-    # permissions from the phone (src/permit.ps1), checked with the rest
-    $permitCh = Read-ChatqPermitChanges $ch
-    if ($permitCh.Error) { & $say $permitCh.Error 'Yellow'; return (& $out $permitCh.Error) }
-    # answering Claude's questions from the phone (src/ask.ps1): checked
-    # here, installed only once everything else is saved
-    $askCh = Read-ChatqAskChanges $ch
-    if ($askCh.Error) { & $say $askCh.Error 'Yellow'; return (& $out $askCh.Error) }
-    # the PC -> phone channel's keys - FullText, FullMax, Compose, NewMode,
-    # Listen - checked here with the rest (src/phone-board.ps1)
-    $downCh = Get-ChatqDownChanges $ch $say
-    if ($downCh.Error) { return (& $out $downCh.Error) }
-
-    $save = {
-        Save-ChatqJson $script:ChatqConfigPath $cfg
-        if (-not $script:ChatqIsWindows) { try { & chmod 600 $script:ChatqConfigPath } catch {} }
-    }
-    if ($ch.ContainsKey('Off') -and $ch['Off']) {
-        foreach ($k in 'join', 'ntfy', 'command') { if ($cfg.PSObject.Properties[$k]) { $cfg.PSObject.Properties.Remove($k) } }
-        & $save
-        $changed = $true
-        & $say 'phone alerts and the command off - they still go to data/logs/alerts.log (and the toast)' 'DarkGray'
-        return (& $out $null)
-    }
-
-    $apiKey = if ($ch.ContainsKey('ApiKey')) { [string]$ch['ApiKey'] } else { '' }
-    $device = if ($ch.ContainsKey('Device')) { [string]$ch['Device'] } else { '' }
-    if ($apiKey.Trim()) {
-        $paste = ConvertFrom-ChatqJoinPaste $apiKey
-        if ($paste.FromUrl -and $paste.Key) {
-            $apiKey = $paste.Key
-            if (-not $device -and $paste.Device) { $device = $paste.Device }
-            & $say 'took the key out of the URL you pasted' 'DarkGray'
-        }
-    }
-    else { $apiKey = '' }
-    if ($ch.ContainsKey('RemoveJoin') -and $ch['RemoveJoin'] -and $cfg.PSObject.Properties['join']) {
-        $cfg.PSObject.Properties.Remove('join')
-        $changed = $true
-        & $say 'Join forgotten' 'DarkGray'
-    }
-    $joinExtras = @('DeviceName', 'Icon', 'PerChat' | Where-Object { $ch.ContainsKey($_) })
-    if ($apiKey -or $device.Trim() -or ($joinExtras.Count -and $cfg.PSObject.Properties['join'] -and $cfg.join)) {
-        $j = if ($cfg.PSObject.Properties['join'] -and $cfg.join) { $cfg.join } else { [pscustomobject]@{} }
-        if ($apiKey) { Set-ChatqProp $j 'apiKey' ([pscustomobject](Protect-ChatqSecret $apiKey.Trim())) }
-        if ($device.Trim()) { Set-ChatqProp $j 'device' $device.Trim() }
-        if (-not $j.device) { Set-ChatqProp $j 'device' 'group.phone' }
-        if ($ch.ContainsKey('DeviceName')) {
-            if ($ch['DeviceName']) { Set-ChatqProp $j 'deviceName' ([string]$ch['DeviceName']).Trim() }
-            elseif ($j.PSObject.Properties['deviceName']) { $j.PSObject.Properties.Remove('deviceName') }
-        }
-        if ($ch.ContainsKey('Icon')) {
-            if ($null -eq $ch['Icon']) { if ($j.PSObject.Properties['icon']) { $j.PSObject.Properties.Remove('icon') } }
-            else { Set-ChatqProp $j 'icon' ([string]$ch['Icon']).Trim() }
-        }
-        if ($ch.ContainsKey('PerChat')) { Set-ChatqProp $j 'perChat' ([bool]$ch['PerChat']) }
-        Set-ChatqProp $cfg 'join' $j
-        $changed = $true
-        if ($apiKey -or $device.Trim()) {
-            & $say "Join saved $d device $($j.device)$(if ($j.apiKey.protected) { " $d key protected with DPAPI" })" 'Green'
-        }
-    }
-
-    $ntfy = if ($ch.ContainsKey('Ntfy')) { [string]$ch['Ntfy'] } else { $null }
-    $nServer = if ($ch.ContainsKey('NtfyServer')) { [string]$ch['NtfyServer'] } else { '' }
-    $nToken = if ($ch.ContainsKey('NtfyToken')) { [string]$ch['NtfyToken'] } else { '' }
-    if ($null -ne $ntfy -and -not $ntfy.Trim() -and $ch.ContainsKey('Ntfy')) {
-        if ($cfg.PSObject.Properties['ntfy']) { $cfg.PSObject.Properties.Remove('ntfy'); $changed = $true; & $say 'ntfy forgotten' 'DarkGray' }
-    }
-    elseif ($ntfy -or $nServer -or $nToken) {
-        $n = if ($cfg.PSObject.Properties['ntfy'] -and $cfg.ntfy) { $cfg.ntfy } else { [pscustomobject]@{} }
-        if ($ntfy) { Set-ChatqProp $n 'topic' ([pscustomobject](Protect-ChatqSecret $ntfy.Trim())) }
-        if ($nServer) { Set-ChatqProp $n 'server' $nServer.Trim().TrimEnd('/') }
-        if ($nToken) { Set-ChatqProp $n 'token' ([pscustomobject](Protect-ChatqSecret $nToken.Trim())) }
-        Set-ChatqProp $cfg 'ntfy' $n
-        $changed = $true
-        $shown = Unprotect-ChatqSecret $n.topic
-        # never the whole topic: it is the password
-        if ($shown) { $shown = $shown.Substring(0, [Math]::Min(3, $shown.Length)) + '...' }
-        & $say "ntfy saved $d topic $shown $d $(if ($n.server) { $n.server } else { 'https://ntfy.sh' })" 'Green'
-        if ($n.server -and ([string]$n.server) -notmatch '^https://') {
-            & $say 'that ntfy server is not https: alerts through it carry no reply link' 'Yellow'
-        }
-    }
-    if ($ch.ContainsKey('Command')) {
-        $command = [string]$ch['Command']
-        if ($command.Trim()) { Set-ChatqProp $cfg 'command' $command; & $say 'command saved - it runs on every alert' 'Green' }
-        elseif ($cfg.PSObject.Properties['command']) { $cfg.PSObject.Properties.Remove('command'); & $say 'command removed' 'DarkGray' }
-        $changed = $true
-    }
-    if ($ch.ContainsKey('Toast') -and $null -ne $ch['Toast'] -and '' -ne $ch['Toast']) {
-        $t = $ch['Toast']
-        $on = if ($t -is [bool]) { $t } else { ([string]$t).Trim() -eq 'on' }
-        Set-ChatqProp $cfg 'toast' $on
-        $changed = $true
-        & $say "desktop toast $(if ($on) { 'on' } else { 'off' })" 'Green'
-    }
-    if ($null -ne $quiet) {
-        Set-ChatqProp $cfg 'quietMinutes' $quiet
-        $changed = $true
-        $what = if ($quiet) { "the phone stays quiet while you used the PC in the last $quiet min" } else { 'the phone is always sent to' }
-        & $say $what 'Green'
-    }
-    if ($null -ne $liveOn) {
-        Set-ChatqProp $cfg 'liveAlerts' ([bool]$liveOn)
-        $changed = $true
-        $what = if ($liveOn) { "chats you run yourself: the phone hears when one waits on you or finishes while you are away" } else { 'chats you run yourself: no phone alerts - only what chatq runs' }
-        & $say $what 'Green'
-    }
-    if ($null -ne $events) {
-        if ($events -eq 'all') {
-            if ($cfg.PSObject.Properties['phoneEvents']) { $cfg.PSObject.Properties.Remove('phoneEvents') }
-            & $say 'the phone gets every alert' 'Green'
-        }
-        else {
-            Set-ChatqProp $cfg 'phoneEvents' @($events)
-            & $say "the phone gets: $($events -join ', ') (and tests and replies)" 'Green'
-        }
-        $changed = $true
-    }
-    if ($ch.ContainsKey('ReplyHours') -and ($ch['ReplyHours'] -as [double]) -gt 0) {
-        $rp = if ($cfg.PSObject.Properties['reply'] -and $cfg.reply) { $cfg.reply } else { [pscustomobject]@{} }
-        Set-ChatqProp $rp 'hours' ([double]$ch['ReplyHours'])
-        Set-ChatqProp $cfg 'reply' $rp
-        $changed = $true
-    }
-    if ($maxMode) {
-        $rp = if ($cfg.PSObject.Properties['reply'] -and $cfg.reply) { $cfg.reply } else { [pscustomobject]@{} }
-        Set-ChatqProp $rp 'maxMode' $maxMode
-        Set-ChatqProp $cfg 'reply' $rp
-        $changed = $true
-        & $say "a reply runs a job in $maxMode at most" 'Green'
-    }
-    if ($null -ne $page) {
-        $rp = if ($cfg.PSObject.Properties['reply'] -and $cfg.reply) { $cfg.reply } else { [pscustomobject]@{} }
-        $wasPage = (Get-ChatqReplyConfig $cfg).Page
-        if ($page) { Set-ChatqProp $rp 'page' $page }
-        elseif ($rp.PSObject.Properties['page']) { $rp.PSObject.Properties.Remove('page') }
-        Set-ChatqProp $cfg 'reply' $rp
-        $changed = $true
-        $nowPage = if ($page) { $page } else { $script:ChatqReplyPage }
-        & $say "the reply page: $nowPage" 'Green'
-        # the phone keeps its key with the page it paired on: a page on
-        # another origin has none, so the phone pairs again there
-        $origin = { param($u) $x = $null; if ([Uri]::TryCreate([string]$u, [UriKind]::Absolute, [ref]$x)) { $x.GetLeftPart([UriPartial]::Authority).ToLowerInvariant() } else { '' } }
-        $rcp = Get-ChatqReplyConfig $cfg
-        if ($rcp.Paired -and (& $origin $wasPage) -ne (& $origin $nowPage)) {
-            & $say 'a page on another site has no key for the phone - pair it again there (chatnotify -Pair)' 'Yellow'
-        }
-    }
-    if (Set-ChatqDownChanges $cfg $downCh $say) { $changed = $true }
-    # Replies switched on or off: where polling got to is reset either way,
-    # so nothing sent to the topic while they were off is ever run. Off also
-    # shuts the window and forgets every alert out there (see
-    # Reset-ChatqReplyCursor); on again leaves the window shut until the
-    # next alert that can be answered opens it.
-    $flipped = $false
-    if ($reply) {
-        $rp = if ($cfg.PSObject.Properties['reply'] -and $cfg.reply) { $cfg.reply } else { [pscustomobject]@{} }
-        $was = [bool]($rp.PSObject.Properties['on'] -and $rp.on -eq $true)
-        $nowOn = $reply -ne 'off'
-        Set-ChatqProp $rp 'on' $nowOn
-        Set-ChatqProp $cfg 'reply' $rp
-        $changed = $true
-        $flipped = $was -ne $nowOn
-        $rc = Get-ChatqReplyConfig $cfg
-        if ($reply -eq 'on') {
-            if ($rc.Paired) { & $say "replies from the phone on $d tap an alert, type the next prompt $d it goes sealed through ntfy.sh" 'Green' }
+        # every check first: a bad value saves nothing at all
+        $events = $null
+        if ($ch.ContainsKey('Events')) {
+            $names = @(@($ch['Events']) | ForEach-Object { [string]$_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+            if (-not $names.Count -or @($names | Where-Object { $_ -eq 'all' }).Count) { $events = 'all' }
             else {
-                & $say 'replies from the phone on - no phone is paired yet' 'Green'
-                $needsPair = -not $rc.PairUntil
+                $events = @()
+                foreach ($n in $names) {
+                    $want = ($n -replace '[-_]', ' ').ToLower()
+                    if ($want -eq 'needsinput') { $want = 'needs input' }
+                    if ($want -notin $script:ChatqPhoneEvents) {
+                        & $say "no event '$n' - these are: all, $($script:ChatqPhoneEvents -join ', ')" 'Yellow'
+                        return (& $out "no event '$n'")
+                    }
+                    if ($want -notin $events) { $events += $want }
+                }
             }
-            $phones = ($cfg.PSObject.Properties['join'] -and $cfg.join) -or ($cfg.PSObject.Properties['ntfy'] -and $cfg.ntfy)
-            if (-not $phones) { & $say 'a reply needs an alert to tap - set up Join first (chatnotify -Setup, or -ApiKey)' 'Yellow' }
         }
-        elseif ($reply -eq 'off') { & $say 'replies from the phone off - the phone stays paired, the alerts out there stop working; -Reply on picks it up again' 'DarkGray' }
+        $reply = $null
+        if ($ch.ContainsKey('Reply')) {
+            $v = $ch['Reply']
+            $reply = if ($v -is [bool]) { if ($v) { 'on' } else { 'off' } } else { ([string]$v).Trim().ToLower() }
+            if ($reply -notin 'on', 'off', 'renew') { & $say "-Reply takes on, off or renew, not '$v'" 'Yellow'; return (& $out 'bad reply value') }
+        }
+        $maxMode = $null
+        if ($ch.ContainsKey('ReplyMaxMode') -and $ch['ReplyMaxMode']) {
+            $want = ([string]$ch['ReplyMaxMode']).Trim()
+            $maxMode = @(@($script:ChatqKeepMode) + $script:ChatqModeLadder | Where-Object { $_ -eq $want })[0]
+            if (-not $maxMode) { & $say "a reply's mode cap is $($script:ChatqKeepMode) or one of: $($script:ChatqModeLadder -join ', ')" 'Yellow'; return (& $out 'bad max mode') }
+        }
+        # The page holds the phone's key under its own origin, and every
+        # <user>.github.io project site shares one: a copy served from an origin
+        # of its own keeps other pages' scripts away from it. https only - the
+        # key is typed into nothing, but the page's code is what seals replies.
+        $page = $null
+        if ($ch.ContainsKey('ReplyPage')) {
+            $page = ([string]$ch['ReplyPage']).Trim()
+            if ($page) {
+                $pu = $null
+                if (-not ([Uri]::TryCreate($page, [UriKind]::Absolute, [ref]$pu) -and $pu.Scheme -eq 'https' -and $pu.Host -and $page -notmatch '[\s#]')) {
+                    & $say "the reply page must be an https URL with no #, not '$page'" 'Yellow'
+                    return (& $out 'bad reply page')
+                }
+            }
+        }
+        $quiet = $null
+        if ($ch.ContainsKey('QuietMinutes') -and $null -ne $ch['QuietMinutes']) {
+            $quiet = $ch['QuietMinutes'] -as [int]
+            if ($null -eq $quiet -or $quiet -lt 0) { & $say "quiet minutes: a whole number, 0 or more" 'Yellow'; return (& $out 'bad quiet minutes') }
+        }
+        $liveOn = $null
+        if ($ch.ContainsKey('LiveAlerts') -and $null -ne $ch['LiveAlerts'] -and '' -ne $ch['LiveAlerts']) {
+            $v = $ch['LiveAlerts']
+            $liveOn = if ($v -is [bool]) { $v } else { switch (([string]$v).Trim().ToLower()) { 'on' { $true } 'off' { $false } default { $null } } }
+            if ($null -eq $liveOn) { & $say "-LiveAlerts takes on or off, not '$v'" 'Yellow'; return (& $out 'bad live alerts value') }
+        }
+        $linksOn = $null
+        if ($ch.ContainsKey('CommandLinks') -and $null -ne $ch['CommandLinks'] -and '' -ne $ch['CommandLinks']) {
+            $v = $ch['CommandLinks']
+            $linksOn = if ($v -is [bool]) { $v } else { switch (([string]$v).Trim().ToLower()) { 'on' { $true } 'off' { $false } default { $null } } }
+            if ($null -eq $linksOn) { & $say "-CommandLinks takes on or off, not '$v'" 'Yellow'; return (& $out 'bad command links value') }
+        }
+        # usage heads-ups, quiet hours and voice: checked here with the rest
+        $extras = Read-ChatqNotifyExtras $ch $msgs $cfg
+        if ($extras.Error) { return (& $out $extras.Error) }
+        # permissions from the phone (src/permit.ps1), checked with the rest
+        $permitCh = Read-ChatqPermitChanges $ch
+        if ($permitCh.Error) { & $say $permitCh.Error 'Yellow'; return (& $out $permitCh.Error) }
+        # answering Claude's questions from the phone (src/ask.ps1): checked
+        # here, installed only once everything else is saved
+        $askCh = Read-ChatqAskChanges $ch
+        if ($askCh.Error) { & $say $askCh.Error 'Yellow'; return (& $out $askCh.Error) }
+        # the PC -> phone channel's keys - FullText, FullMax, Compose, NewMode,
+        # Listen - checked here with the rest (src/phone-board.ps1)
+        $downCh = Get-ChatqDownChanges $ch $say
+        if ($downCh.Error) { return (& $out $downCh.Error) }
+
+        $save = { Save-ChatqConfig $cfg }
+        if ($ch.ContainsKey('Off') -and $ch['Off']) {
+            foreach ($k in 'join', 'ntfy', 'command') { if ($cfg.PSObject.Properties[$k]) { $cfg.PSObject.Properties.Remove($k) } }
+            & $save
+            $changed = $true
+            & $say 'phone alerts and the command off - they still go to data/logs/alerts.log (and the toast)' 'DarkGray'
+            return (& $out $null)
+        }
+
+        $apiKey = if ($ch.ContainsKey('ApiKey')) { [string]$ch['ApiKey'] } else { '' }
+        $device = if ($ch.ContainsKey('Device')) { [string]$ch['Device'] } else { '' }
+        if ($apiKey.Trim()) {
+            $paste = ConvertFrom-ChatqJoinPaste $apiKey
+            if ($paste.FromUrl -and $paste.Key) {
+                $apiKey = $paste.Key
+                if (-not $device -and $paste.Device) { $device = $paste.Device }
+                & $say 'took the key out of the URL you pasted' 'DarkGray'
+            }
+        }
+        else { $apiKey = '' }
+        if ($ch.ContainsKey('RemoveJoin') -and $ch['RemoveJoin'] -and $cfg.PSObject.Properties['join']) {
+            $cfg.PSObject.Properties.Remove('join')
+            $changed = $true
+            & $say 'Join forgotten' 'DarkGray'
+        }
+        $joinExtras = @('DeviceName', 'Icon', 'PerChat' | Where-Object { $ch.ContainsKey($_) })
+        if ($apiKey -or $device.Trim() -or ($joinExtras.Count -and $cfg.PSObject.Properties['join'] -and $cfg.join)) {
+            $j = if ($cfg.PSObject.Properties['join'] -and $cfg.join) { $cfg.join } else { [pscustomobject]@{} }
+            if ($apiKey) { Set-ChatqProp $j 'apiKey' ([pscustomobject](Protect-ChatqSecret $apiKey.Trim())) }
+            if ($device.Trim()) { Set-ChatqProp $j 'device' $device.Trim() }
+            if (-not $j.device) { Set-ChatqProp $j 'device' 'group.phone' }
+            if ($ch.ContainsKey('DeviceName')) {
+                if ($ch['DeviceName']) { Set-ChatqProp $j 'deviceName' ([string]$ch['DeviceName']).Trim() }
+                elseif ($j.PSObject.Properties['deviceName']) { $j.PSObject.Properties.Remove('deviceName') }
+            }
+            if ($ch.ContainsKey('Icon')) {
+                if ($null -eq $ch['Icon']) { if ($j.PSObject.Properties['icon']) { $j.PSObject.Properties.Remove('icon') } }
+                else { Set-ChatqProp $j 'icon' ([string]$ch['Icon']).Trim() }
+            }
+            if ($ch.ContainsKey('PerChat')) { Set-ChatqProp $j 'perChat' ([bool]$ch['PerChat']) }
+            Set-ChatqProp $cfg 'join' $j
+            $changed = $true
+            if ($apiKey -or $device.Trim()) {
+                & $say "Join saved $d device $($j.device)$(if ($j.apiKey.protected) { " $d key protected with DPAPI" })" 'Green'
+            }
+        }
+
+        $ntfy = if ($ch.ContainsKey('Ntfy')) { [string]$ch['Ntfy'] } else { $null }
+        $nServer = if ($ch.ContainsKey('NtfyServer')) { [string]$ch['NtfyServer'] } else { '' }
+        $nToken = if ($ch.ContainsKey('NtfyToken')) { [string]$ch['NtfyToken'] } else { '' }
+        if ($null -ne $ntfy -and -not $ntfy.Trim() -and $ch.ContainsKey('Ntfy')) {
+            if ($cfg.PSObject.Properties['ntfy']) { $cfg.PSObject.Properties.Remove('ntfy'); $changed = $true; & $say 'ntfy forgotten' 'DarkGray' }
+        }
+        elseif ($ntfy -or $nServer -or $nToken) {
+            $n = if ($cfg.PSObject.Properties['ntfy'] -and $cfg.ntfy) { $cfg.ntfy } else { [pscustomobject]@{} }
+            if ($ntfy) { Set-ChatqProp $n 'topic' ([pscustomobject](Protect-ChatqSecret $ntfy.Trim())) }
+            if ($nServer) { Set-ChatqProp $n 'server' $nServer.Trim().TrimEnd('/') }
+            if ($nToken) { Set-ChatqProp $n 'token' ([pscustomobject](Protect-ChatqSecret $nToken.Trim())) }
+            Set-ChatqProp $cfg 'ntfy' $n
+            $changed = $true
+            $shown = Unprotect-ChatqSecret $n.topic
+            # never the whole topic: it is the password
+            if ($shown) { $shown = $shown.Substring(0, [Math]::Min(3, $shown.Length)) + '...' }
+            & $say "ntfy saved $d topic $shown $d $(if ($n.server) { $n.server } else { 'https://ntfy.sh' })" 'Green'
+            if ($n.server -and ([string]$n.server) -notmatch '^https://') {
+                & $say 'that ntfy server is not https: alerts through it carry no reply link' 'Yellow'
+            }
+        }
+        if ($ch.ContainsKey('Command')) {
+            $command = [string]$ch['Command']
+            if ($command.Trim()) { Set-ChatqProp $cfg 'command' $command; & $say 'command saved - it runs on every alert' 'Green' }
+            elseif ($cfg.PSObject.Properties['command']) { $cfg.PSObject.Properties.Remove('command'); & $say 'command removed' 'DarkGray' }
+            $changed = $true
+        }
+        # The reply link goes wherever your command sends it, and chatq cannot
+        # tell whether that is private - so only when asked for by name. The
+        # command is then a phone channel: it gets the link where Join and
+        # ntfy would go, and still runs, linkless, on an alert that stops
+        # short of the phone (Send-ChatqAlert).
+        if ($null -ne $linksOn) {
+            Set-ChatqProp $cfg 'commandLinks' ([bool]$linksOn)
+            $changed = $true
+            $hasCmd = $cfg.PSObject.Properties['command'] -and $cfg.command
+            if (-not $linksOn) { & $say 'the command gets no reply link - it runs on every alert, as before' 'Green' }
+            elseif ($hasCmd) { & $say "the command gets the reply link as `$env:CHATQ_LINK $d on an alert that reaches the phone; at the PC it runs as before, with none" 'Green' }
+            else { & $say 'the command will get the reply link - no command is set yet (-Command)' 'Yellow' }
+        }
+        if ($ch.ContainsKey('Toast') -and $null -ne $ch['Toast'] -and '' -ne $ch['Toast']) {
+            $t = $ch['Toast']
+            $on = if ($t -is [bool]) { $t } else { ([string]$t).Trim() -eq 'on' }
+            Set-ChatqProp $cfg 'toast' $on
+            $changed = $true
+            & $say "desktop toast $(if ($on) { 'on' } else { 'off' })" 'Green'
+        }
+        if ($null -ne $quiet) {
+            Set-ChatqProp $cfg 'quietMinutes' $quiet
+            $changed = $true
+            $what = if ($quiet) { "the phone stays quiet while you used the PC in the last $quiet min" } else { 'the phone is always sent to' }
+            & $say $what 'Green'
+        }
+        if ($null -ne $liveOn) {
+            Set-ChatqProp $cfg 'liveAlerts' ([bool]$liveOn)
+            $changed = $true
+            $what = if ($liveOn) { "chats you run yourself: the phone hears when one waits on you or finishes while you are away" } else { 'chats you run yourself: no phone alerts - only what chatq runs' }
+            & $say $what 'Green'
+        }
+        if ($null -ne $events) {
+            if ($events -eq 'all') {
+                if ($cfg.PSObject.Properties['phoneEvents']) { $cfg.PSObject.Properties.Remove('phoneEvents') }
+                & $say 'the phone gets every alert' 'Green'
+            }
+            else {
+                Set-ChatqProp $cfg 'phoneEvents' @($events)
+                & $say "the phone gets: $($events -join ', ') (and tests and replies)" 'Green'
+            }
+            $changed = $true
+        }
+        if ($ch.ContainsKey('ReplyHours') -and ($ch['ReplyHours'] -as [double]) -gt 0) {
+            $rp = if ($cfg.PSObject.Properties['reply'] -and $cfg.reply) { $cfg.reply } else { [pscustomobject]@{} }
+            Set-ChatqProp $rp 'hours' ([double]$ch['ReplyHours'])
+            Set-ChatqProp $cfg 'reply' $rp
+            $changed = $true
+        }
+        if ($maxMode) {
+            $rp = if ($cfg.PSObject.Properties['reply'] -and $cfg.reply) { $cfg.reply } else { [pscustomobject]@{} }
+            Set-ChatqProp $rp 'maxMode' $maxMode
+            Set-ChatqProp $cfg 'reply' $rp
+            $changed = $true
+            & $say $(if ($maxMode -eq $script:ChatqKeepMode) { "a reply runs a job in the chat's own mode" } else { "a reply runs a job in $maxMode at most" }) 'Green'
+        }
+        if ($null -ne $page) {
+            $rp = if ($cfg.PSObject.Properties['reply'] -and $cfg.reply) { $cfg.reply } else { [pscustomobject]@{} }
+            $wasPage = (Get-ChatqReplyConfig $cfg).Page
+            if ($page) { Set-ChatqProp $rp 'page' $page }
+            elseif ($rp.PSObject.Properties['page']) { $rp.PSObject.Properties.Remove('page') }
+            Set-ChatqProp $cfg 'reply' $rp
+            $changed = $true
+            $nowPage = if ($page) { $page } else { $script:ChatqReplyPage }
+            & $say "the reply page: $nowPage" 'Green'
+            # the phone keeps its key with the page it paired on: a page on
+            # another origin has none, so the phone pairs again there
+            $origin = { param($u) $x = $null; if ([Uri]::TryCreate([string]$u, [UriKind]::Absolute, [ref]$x)) { $x.GetLeftPart([UriPartial]::Authority).ToLowerInvariant() } else { '' } }
+            $rcp = Get-ChatqReplyConfig $cfg
+            if ($rcp.Paired -and (& $origin $wasPage) -ne (& $origin $nowPage)) {
+                & $say 'a page on another site has no key for the phone - pair it again there (chatnotify -Pair)' 'Yellow'
+            }
+        }
+        if (Set-ChatqDownChanges $cfg $downCh $say) { $changed = $true }
+        # Replies switched on or off: where polling got to is reset either way,
+        # so nothing sent to the topic while they were off is ever run. Off also
+        # shuts the window and forgets every alert out there (see
+        # Reset-ChatqReplyCursor); on again leaves the window shut until the
+        # next alert that can be answered opens it.
+        $flipped = $false
+        if ($reply) {
+            $rp = if ($cfg.PSObject.Properties['reply'] -and $cfg.reply) { $cfg.reply } else { [pscustomobject]@{} }
+            $was = [bool]($rp.PSObject.Properties['on'] -and $rp.on -eq $true)
+            $nowOn = $reply -ne 'off'
+            Set-ChatqProp $rp 'on' $nowOn
+            Set-ChatqProp $cfg 'reply' $rp
+            $changed = $true
+            $flipped = $was -ne $nowOn
+            $rc = Get-ChatqReplyConfig $cfg
+            if ($reply -eq 'on') {
+                if ($rc.Paired) { & $say "replies from the phone on $d tap an alert, type the next prompt $d it goes sealed through ntfy.sh" 'Green' }
+                else {
+                    & $say 'replies from the phone on - no phone is paired yet' 'Green'
+                    $needsPair = -not $rc.PairUntil
+                }
+                if (-not (Test-ChatqPhoneChannel $cfg)) { & $say 'a reply needs an alert to tap - set up Join first (chatnotify -Setup, or -ApiKey)' 'Yellow' }
+            }
+            elseif ($reply -eq 'off') { & $say 'replies from the phone off - the phone stays paired, the alerts out there stop working; -Reply on picks it up again' 'DarkGray' }
+        }
+        if (Set-ChatqNotifyExtras $cfg $extras $msgs) { $changed = $true }
+        if ($permitCh.Any) {
+            foreach ($m in @(Set-ChatqPermitChanges $cfg $permitCh)) { & $say $m.Text $m.Color }
+            $changed = $true
+        }
+        if ($changed) { & $save }
     }
-    if (Set-ChatqNotifyExtras $cfg $extras $msgs) { $changed = $true }
-    if ($permitCh.Any) {
-        foreach ($m in @(Set-ChatqPermitChanges $cfg $permitCh)) { & $say $m.Text $m.Color }
-        $changed = $true
-    }
-    if ($changed) { & $save }
+    finally { Unlock-ChatqConfig }
     Complete-ChatqNotifyExtras $extras $msgs
     if ($askCh.Any) {
         foreach ($m in @(Set-ChatqAskChanges $askCh)) { & $say $m.Text $m.Color }
@@ -764,7 +803,7 @@ function Start-ChatqReplyPairing {
     # ntfy over plain http drops it - arrives as a notification that opens
     # nothing, while the phone paired before would already be cut off.
     if (-not (Test-ChatqLinkChannel $cfg)) {
-        return (& $fail 'no phone channel can carry the pairing link - set up Join, or ntfy on an https server')
+        return (& $fail 'no phone channel can carry the pairing link - set up Join, ntfy on an https server, or a command given the link (chatnotify -CommandLinks on)')
     }
     try {
         $rsa = New-ChatqRsa 2048
@@ -810,15 +849,21 @@ function Start-ChatqReplyPairing {
         try { $null = Use-ChatqReplyState $reset }
         catch { return (& $fail "data/replies.json could not be written - $($_.Exception.Message)") }
     }
-    $rp = if ($cfg.PSObject.Properties['reply'] -and $cfg.reply) { $cfg.reply } else { [pscustomobject]@{} }
-    foreach ($k in 'key', 'phone', 'pairedAt') { if ($rp.PSObject.Properties[$k]) { $rp.PSObject.Properties.Remove($k) } }
-    Set-ChatqProp $rp 'topic' ([pscustomobject](Protect-ChatqSecret ('chatq-' + (New-ChatqRandomName 24))))
-    Set-ChatqProp $rp 'pairing' ([pscustomobject]@{ id = $pairId; key = [pscustomobject](Protect-ChatqSecret $priv); expires = $until.ToUniversalTime().ToString('o') })
-    Set-ChatqProp $rp 'on' $true
-    Set-ChatqProp $cfg 'reply' $rp
+    # read again under config.json's lock (Lock-ChatqConfig): what the setup
+    # window or chatnotify saved since the check above stays
     try {
-        Save-ChatqJson $script:ChatqConfigPath $cfg
-        if (-not $script:ChatqIsWindows) { try { & chmod 600 $script:ChatqConfigPath } catch {} }
+        Lock-ChatqConfig
+        try {
+            $cfg = Get-ChatqConfig
+            $rp = if ($cfg.PSObject.Properties['reply'] -and $cfg.reply) { $cfg.reply } else { [pscustomobject]@{} }
+            foreach ($k in 'key', 'phone', 'pairedAt') { if ($rp.PSObject.Properties[$k]) { $rp.PSObject.Properties.Remove($k) } }
+            Set-ChatqProp $rp 'topic' ([pscustomobject](Protect-ChatqSecret ('chatq-' + (New-ChatqRandomName 24))))
+            Set-ChatqProp $rp 'pairing' ([pscustomobject]@{ id = $pairId; key = [pscustomobject](Protect-ChatqSecret $priv); expires = $until.ToUniversalTime().ToString('o') })
+            Set-ChatqProp $rp 'on' $true
+            Set-ChatqProp $cfg 'reply' $rp
+            Save-ChatqConfig $cfg
+        }
+        finally { Unlock-ChatqConfig }
     }
     catch { return (& $fail "could not save config.json: $($_.Exception.Message)") }
     $rc = Get-ChatqReplyConfig (Get-ChatqConfig)
@@ -831,11 +876,15 @@ function Start-ChatqReplyPairing {
     # that never came. The old key stays gone - pairing was asked for
     # because it should stop working, and that holds whatever the network did.
     try {
-        $c2 = Get-ChatqConfig
-        if ($c2.PSObject.Properties['reply'] -and $c2.reply -and $c2.reply.pairing -and [string]$c2.reply.pairing.id -ceq $pairId) {
-            $c2.reply.PSObject.Properties.Remove('pairing')
-            Save-ChatqJson $script:ChatqConfigPath $c2
+        Lock-ChatqConfig
+        try {
+            $c2 = Get-ChatqConfig
+            if ($c2.PSObject.Properties['reply'] -and $c2.reply -and $c2.reply.pairing -and [string]$c2.reply.pairing.id -ceq $pairId) {
+                $c2.reply.PSObject.Properties.Remove('pairing')
+                Save-ChatqConfig $c2
+            }
         }
+        finally { Unlock-ChatqConfig }
     }
     catch {}
     Write-ChatqReplyLog "pairing alert not sent - $err"
@@ -844,15 +893,25 @@ function Start-ChatqReplyPairing {
 
 function Test-ChatqLinkChannel {
     # Can any phone channel carry a link a tap opens? Join always can; ntfy
-    # only over https (Send-ChatqNtfy leaves the link out otherwise).
+    # only over https (Send-ChatqNtfy leaves the link out otherwise); your
+    # command when it is given the link (Test-ChatqCommandLinks).
     param($Cfg)
     if (-not $Cfg) { $Cfg = Get-ChatqConfig }
     if ($Cfg.PSObject.Properties['join'] -and $Cfg.join -and $Cfg.join.apiKey -and $Cfg.join.device) { return $true }
+    if (Test-ChatqCommandLinks $Cfg) { return $true }
     if ($Cfg.PSObject.Properties['ntfy'] -and $Cfg.ntfy -and $Cfg.ntfy.topic) {
         $server = if ($Cfg.ntfy.server) { [string]$Cfg.ntfy.server } else { 'https://ntfy.sh' }
         return ($server -match '^https://')
     }
     return $false
+}
+
+function Test-ChatqPhoneChannel {
+    # Is any phone channel set up at all: Join, ntfy, or your command when
+    # it carries the reply link and so goes where they go (Send-ChatqAlert)
+    param($Cfg)
+    if (-not $Cfg) { $Cfg = Get-ChatqConfig }
+    return [bool](($Cfg.PSObject.Properties['join'] -and $Cfg.join) -or ($Cfg.PSObject.Properties['ntfy'] -and $Cfg.ntfy) -or (Test-ChatqCommandLinks $Cfg))
 }
 
 function Get-ChatqPairKey {
@@ -1008,20 +1067,30 @@ function Confirm-ChatqPairCandidate {
     $d = if ($dText) { ConvertFrom-ChatqB64Url $dText } else { $null }
     if ($null -eq $d -or $d.Length -ne 32) { return (& $fail 'that answer''s key cannot be read here - pair again') }
     $label = [string]$c.label
-    # config.json is read, changed and saved with no lock, as every other
-    # writer of it does: a Save in the setup dialog landing in the same
-    # instant can put back the file it read, key-less, while the answers
-    # below are cleared all the same. Known and left: the phone is then not
-    # paired after all, and chatnotify -Pair pairs it again.
-    Set-ChatqProp $rp 'key' ([pscustomobject](Protect-ChatqSecret $dText))
-    Set-ChatqProp $rp 'phone' $label
-    Set-ChatqProp $rp 'pairedAt' (Get-ChatqStamp)
-    $rp.PSObject.Properties.Remove('pairing')
+    # config.json read again, changed and saved under its lock
+    # (Lock-ChatqConfig): a Save in the setup dialog landing in the same
+    # instant waits, then reads the file with the key in it - it no longer
+    # puts back the one it read before, key-less. The pairing must still be
+    # this one: another started meanwhile has candidates of its own.
+    $gone = $false
     try {
-        Save-ChatqJson $script:ChatqConfigPath $cfg
-        if (-not $script:ChatqIsWindows) { try { & chmod 600 $script:ChatqConfigPath } catch {} }
+        Lock-ChatqConfig
+        try {
+            $cfg = Get-ChatqConfig
+            $rp = if ($cfg.PSObject.Properties['reply']) { $cfg.reply } else { $null }
+            if (-not ($rp -and $rp.pairing -and [string]$rp.pairing.id -ceq $pairId)) { $gone = $true }
+            else {
+                Set-ChatqProp $rp 'key' ([pscustomobject](Protect-ChatqSecret $dText))
+                Set-ChatqProp $rp 'phone' $label
+                Set-ChatqProp $rp 'pairedAt' (Get-ChatqStamp)
+                $rp.PSObject.Properties.Remove('pairing')
+                Save-ChatqConfig $cfg
+            }
+        }
+        finally { Unlock-ChatqConfig }
     }
     catch { return (& $fail "config.json could not be saved - $($_.Exception.Message)") }
+    if ($gone) { return (& $fail 'that pairing was replaced meanwhile - confirm the code the new one shows') }
     # Every link from before is dead (it was sealed for no key at all), and
     # polling starts over a minute back. A save that fails here leaves the
     # phone paired all the same: the candidates belong to a pairing that is
@@ -1287,8 +1356,10 @@ function Get-ChatqReplyLink {
     # -Full: the whole answer went to the down topic (Send-ChatqReplyText):
     # f=1, and o= the alert's time in unix seconds, which tells the page how
     # far back to look for it.
+    # -Status: the alert's footer (Get-ChatqAlertFooter), as s= - usage and
+    # the chats at work, shown under the title
     param($Rc, [string]$Aid, [string]$Event, $Job, [int]$TitleChars = 20,
-        [string]$UsageKind, [string]$Card, [switch]$Full, [int64]$At = 0)
+        [string]$UsageKind, [string]$Card, [switch]$Full, [int64]$At = 0, [string]$Status)
     $t = if ($Job -and $Job.title) { [string]$Job.title } else { '' }
     if ($t.Length -gt $TitleChars) {
         $n = [Math]::Max(0, $TitleChars)
@@ -1305,6 +1376,7 @@ function Get-ChatqReplyLink {
     if ($UsageKind -eq 'soon') { $q['w'] = '1' }
     if ($Card) { $q['r'] = $Card }
     if ($Full) { $q['f'] = '1'; if ($At -gt 0) { $q['o'] = [string]$At } }
+    if ($Status) { $q['s'] = $Status }
     return $Rc.Page + '#' + (($q.GetEnumerator() | ForEach-Object { $_.Key + '=' + (ConvertTo-ChatqUriPart $_.Value) }) -join '&')
 }
 
@@ -1322,7 +1394,7 @@ function New-ChatqReplyAlert {
     older than the alert - one the outbox held (seen).
     #>
     param([string]$Event, $Job, $Rc, [string]$UsageKind,
-        $Permit, [string]$Card, $SeenAt)
+        $Permit, [string]$Card, $SeenAt, [string]$Status)
     if (-not $Rc) { $Rc = Get-ChatqReplyConfig }
     if (-not $Rc.Links) { return $null }
     $aid = New-ChatqRandomName 10
@@ -1355,9 +1427,9 @@ function New-ChatqReplyAlert {
     $sealed = if ($Card) { Protect-ChatqPermitCard -Master $Rc.Master -Aid $aid -Card $Card } else { '' }
     try { $null = Use-ChatqReplyState { param($st) $st.alerts[$aid] = $e } $Rc.Hours }
     catch { return $null }
-    # UsageKind and Card kept with it: a link made again after the whole
-    # answer went (Update-ChatqReplyFull) keeps its w= and r=
-    [pscustomobject]@{ Aid = $aid; Link = (Get-ChatqReplyLink $Rc $aid $Event $Job -UsageKind $UsageKind -Card $sealed); UsageKind = $UsageKind; Card = $sealed }
+    # UsageKind, Card and Status kept with it: a link made again after the
+    # whole answer went (Update-ChatqReplyFull) keeps its w=, r= and s=
+    [pscustomobject]@{ Aid = $aid; Link = (Get-ChatqReplyLink $Rc $aid $Event $Job -UsageKind $UsageKind -Card $sealed -Status $Status); UsageKind = $UsageKind; Card = $sealed; Status = $Status }
 }
 
 function Open-ChatqReplyWindow {
@@ -1768,9 +1840,35 @@ function Get-ChatqLineRecord {
     image is one line of megabytes - so its fields are read, not its text:
     Claude Code writes type, isSidechain and a tool result's own type before
     the message, isMeta, promptSource, origin and the time after it.
+    -Provider codex: a Codex rollout's line instead. Every record there
+    leads with its own time and is written in order, so each dated one says
+    how far back a reader has come; Typed is a user message (a response_item,
+    never a compacted record's copies of old ones) that Read-CodexPrompt
+    takes for a prompt - not the AGENTS.md preamble, the environment block
+    or the IDE's wrapper around nothing. Codex writes no origin, so Human is
+    never set: a prompt inside a job's run is that job's own.
     #>
-    param([string]$Line, [switch]$Long)
+    param([string]$Line, [switch]$Long, [string]$Provider)
     $r = [pscustomobject]@{ At = $null; Dated = $false; Typed = $false; Human = $false }
+    if ($Provider -eq 'codex') {
+        $m = [regex]::Match($Line, '^\{"timestamp":"([^"]+)"')
+        if (-not $m.Success) { return $r }
+        $r.At = ConvertTo-ChatOverlayMs (ConvertTo-ChatqDate $m.Groups[1].Value)
+        if ($null -eq $r.At) { return $r }
+        $r.Dated = $true
+        if (-not $Line.Contains('"type":"response_item"') -or -not $Line.Contains('"role":"user"')) { return $r }
+        if (-not $Long) { $r.Typed = [bool](Read-CodexPrompt $Line); return $r }
+        # -Long: the text's start says enough, wherever here it is - the
+        # preamble, an environment block (<, or that escaped) or the
+        # IDE's wrapper with no request in what is here are Codex's own; no
+        # text here at all is no prompt either, as Read-CodexPrompt has it
+        $m = [regex]::Match($Line, '"type":"input_text","text":"((?:[^"\\]|\\.){0,40})')
+        if (-not $m.Success) { return $r }
+        $t = $m.Groups[1].Value -replace '^(?:\s|\\[nrt])+', ''
+        $r.Typed = if ($t.StartsWith('# Context from my IDE')) { $Line.Contains('## My request for Codex:') }
+        else { -not ($t.StartsWith('# AGENTS.md') -or $t.StartsWith('<') -or $t.StartsWith([char]92 + 'u003c')) }
+        return $r
+    }
     $user = $Line.Contains('"type":"user"')
     $queued = -not $user -and $Line.Contains('"type":"attachment"') -and $Line.Contains('"queued_command"')
     if (-not $user -and -not $queued -and -not $Line.Contains('"type":"assistant"')) { return $r }
@@ -1790,7 +1888,8 @@ function Get-ChatqLineRecord {
 function Get-ChatqTypedAfter {
     <#
     The newest prompt typed into a Claude transcript after -After (epoch
-    ms), as Get-ChatqLineRecord has it. -From, the file's length when the
+    ms), as Get-ChatqLineRecord has it - or into a Codex rollout, with
+    -Provider codex. -From, the file's length when the
     phone was shown the chat: only what was written since is read - a
     transcript is only ever appended to - so a long turn after the prompt,
     or a compaction that writes old records again (their own old times,
@@ -1804,7 +1903,7 @@ function Get-ChatqTypedAfter {
     out first - more was written than it reads - and Reached then the
     oldest time read, going back.
     #>
-    param([string]$Path, [int64]$After, [object[]]$Skip = @(), $From = $null, [int64]$Budget = $script:ChatOverlayScanBudget)
+    param([string]$Path, [int64]$After, [object[]]$Skip = @(), $From = $null, [int64]$Budget = $script:ChatOverlayScanBudget, [string]$Provider)
     $out = [pscustomobject]@{ At = $null; Reached = $null; Done = $false }
     if (-not $Budget) { $Budget = 16MB }
     try { $fs = Open-ChatRead $Path } catch { $out.Done = $true; return $out }
@@ -1839,8 +1938,8 @@ function Get-ChatqTypedAfter {
                 if ($e -lt 0) { $e = $got }
                 $ll = $e - $s
                 if ($ll -gt 0) {
-                    $rec = if ($ll -gt $keep) { Get-ChatqLineRecord ($utf8.GetString($buf, $s, 8192) + $utf8.GetString($buf, $e - 8192, 8192)) -Long }
-                    else { Get-ChatqLineRecord $utf8.GetString($buf, $s, $ll) }
+                    $rec = if ($ll -gt $keep) { Get-ChatqLineRecord ($utf8.GetString($buf, $s, 8192) + $utf8.GetString($buf, $e - 8192, 8192)) -Long -Provider $Provider }
+                    else { Get-ChatqLineRecord $utf8.GetString($buf, $s, $ll) -Provider $Provider }
                     if ((& $count $rec) -and (-not $out.At -or $rec.At -gt $out.At)) { $out.At = [int64]$rec.At }
                 }
                 $s = $e + 1
@@ -1897,7 +1996,7 @@ function Get-ChatqTypedAfter {
             for ($i = $lines.Count - 1; $i -ge 0; $i--) {
                 $l = $lines[$i]
                 if (-not $l -or $l.Length -gt $keep) { continue }
-                $rec = Get-ChatqLineRecord $l
+                $rec = Get-ChatqLineRecord $l -Provider $Provider
                 if ($null -eq $rec.At) { continue }
                 if ($rec.Dated) {
                     $out.Reached = [int64]$rec.At
@@ -1939,8 +2038,9 @@ function Get-ChatqMovedOn {
     -SinceLen: the transcript's length at -Since, and the job's endLen at
     its end - only what was written after is read (Get-ChatqTypedAfter).
     -JobOnly reads no transcript: skip, stop and now send nothing into the
-    chat. Only a Claude chat's transcript is read - no reader knows a Codex
-    rollout's prompts yet (FUTURE_WORK.md) - and one not found says nothing.
+    chat. A Claude chat's transcript or a Codex chat's rollout is read
+    (Get-ChatqLineRecord -Provider); another tool's, or one not found, says
+    nothing.
     TypedAt, epoch ms: the newest prompt after the job's end, when that
     matters - a prompt's mode (Invoke-ChatqReply), a job waiting on input -
     else after -Since.
@@ -1957,7 +2057,8 @@ function Get-ChatqMovedOn {
         $ranOn = $Loose -and $wasState -in 'queued', 'running' -and $state -in 'done', 'failed'
         if (-not ($byItself -or $ranOn)) { $r.Why = 'job'; return $r }
     }
-    if ($JobOnly -or ($Provider -and $Provider -ne 'claude')) { return $r }
+    if ($JobOnly -or ($Provider -and $Provider -notin 'claude', 'codex')) { return $r }
+    $prov = if ($Provider) { $Provider } else { [string](Get-ChatField $Job 'provider') }
     if (-not $Path -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $r }
     $from = ConvertTo-ChatOverlayMs (ConvertTo-ChatqDate $Since)
     $runs = [System.Collections.Generic.List[object]]::new()
@@ -1970,12 +2071,12 @@ function Get-ChatqMovedOn {
     }
     $skip = $runs.ToArray()
     if ($endMs -and ($Loose -or $state -eq 'needs-input')) {
-        $te = Get-ChatqTypedAfter -Path $Path -After $endMs -Skip $skip -From (Get-ChatField $Job 'endLen')
+        $te = Get-ChatqTypedAfter -Path $Path -After $endMs -Skip $skip -From (Get-ChatField $Job 'endLen') -Provider $prov
         $r.TypedAt = $te.At
         if ($state -eq 'needs-input' -and $te.At) { $r.Why = 'answered'; return $r }
     }
     if (-not $from) { return $r }
-    $t = Get-ChatqTypedAfter -Path $Path -After $from -Skip $skip -From $SinceLen
+    $t = Get-ChatqTypedAfter -Path $Path -After $from -Skip $skip -From $SinceLen -Provider $prov
     if (-not $r.TypedAt) { $r.TypedAt = $t.At }
     if ($t.At) { $r.Why = 'typed' }
     elseif (-not $t.Done -and ($null -eq $t.Reached -or $t.Reached -gt $from)) { $r.Why = 'typed' }
@@ -1987,27 +2088,38 @@ function Get-ChatqModeRank {
     # as a run with none goes, and one not on it is above everything
     param([string]$Mode)
     if (-not $Mode) { $Mode = 'default' }
+    # keep, as a cap: above everything, an unknown mode too
+    if ($Mode -ceq $script:ChatqKeepMode) { return 1000 }
     for ($i = 0; $i -lt $script:ChatqModeLadder.Count; $i++) { if ($script:ChatqModeLadder[$i] -ceq $Mode) { return $i } }
     return 99
 }
 
 function Limit-ChatqPhoneMode {
     # the mode a job made or requeued by a reply runs in: $Mode when it is
-    # within the cap, else the cap itself. @{ Mode; Capped }
+    # within the cap - always, under keep - else the cap itself. No cap
+    # given is keep. @{ Mode; Capped }
     param([string]$Mode, [string]$Cap)
+    if (-not $Cap) { $Cap = $script:ChatqKeepMode }
     if ((Get-ChatqModeRank $Mode) -gt (Get-ChatqModeRank $Cap)) { return [pscustomobject]@{ Mode = $Cap; Capped = $true } }
     return [pscustomobject]@{ Mode = $Mode; Capped = $false }
+}
+
+function Test-ChatqPhoneSandbox {
+    # may a Codex job from the phone keep this sandbox? Under keep (no cap
+    # given is keep), any; under a cap, read-only and workspace-write only
+    # (the rest run workspace-write)
+    param([string]$Sandbox, [string]$Cap)
+    return (-not $Sandbox -or -not $Cap -or $Cap -ceq $script:ChatqKeepMode -or $Sandbox -in $script:ChatqSafeSandboxes)
 }
 
 function Invoke-ChatqReply {
     <#
     One verified reply, done: what the phone asked for, then a push saying
     how it went - itself an alert with a fresh link, so the answer can be
-    answered. Nothing in the message picks a permission mode, and no job
-    made or requeued here runs above reply.maxMode (acceptEdits unless set
-    otherwise): a prompt goes in its old job's mode or the chat's own, and
-    either is brought down to the cap. A Codex job never keeps a sandbox
-    wider than workspace-write. Text from the phone is sent as it is: its
+    answered. Nothing in the message picks a permission mode: a prompt goes
+    in its old job's mode or the chat's own, brought down to reply.maxMode
+    once one is set (unset, keep: as it is). Under a cap a Codex job never
+    keeps a sandbox wider than workspace-write. Text from the phone is sent as it is: its
     links pull no files from data/queue (-NoLinks). Returns @{ Act;
     Feedback; Job }, $null for an unknown act.
     An alert about a chat you run yourself (the entry says live) has no job
@@ -2028,7 +2140,7 @@ function Invoke-ChatqReply {
     param($Payload, $Entry, [string]$Aid, $Rc, [switch]$Quick,
         [string]$Raw)
     if (-not $Rc) { $Rc = Get-ChatqReplyConfig }
-    $cap = if ($Rc.MaxMode) { $Rc.MaxMode } else { 'acceptEdits' }
+    $cap = if ($Rc.MaxMode) { $Rc.MaxMode } else { $script:ChatqKeepMode }
     $act = [string]$Payload.act
     $text = [string]$Payload.text
     $job = if ($Entry.jobId) { Find-ChatqJob ([string]$Entry.jobId) -Exact } else { $null }
@@ -2069,52 +2181,34 @@ function Invoke-ChatqReply {
         }
         'live-refused' { $say = "that chat is one you run yourself, not a chatq job - nothing to $act; send it a prompt instead" }
         'prompt' {
-            if (-not $text.Trim()) { $say = 'an empty reply - nothing queued'; break }
-            if ($text.Length -gt 8000) { $say = "that reply is $($text.Length) characters, 8000 at most - nothing queued"; break }
             if (-not $Entry.sessionId) { $say = 'that alert is not about a chat - nothing queued'; break }
             $path = if ($job) { $job.path } else { $Entry.path }
             $cwd = if ($job) { $job.cwd } else { $Entry.cwd }
             $row = Get-ChatqRowById -Id $Entry.sessionId -Provider $Entry.provider -Path $path -Cwd $cwd
             if (-not $row) { $say = "that chat is gone - nothing queued"; break }
-            $info = Get-ChatqJobInfo $row
-            if ($info.Error) { $say = "nothing queued: $($info.Error)"; break }
-            $note = ''
-            # the old job's mode only if it had one of its own - never one
-            # the message names - and never above the cap
-            $mode = if ($job -and $job.mode) { [string]$job.mode } else { '' }
-            if ($row.Provider -eq 'codex') {
-                if ($info.Sandbox -and [string]$info.Sandbox -notin $script:ChatqSafeSandboxes) {
-                    $info.Sandbox = 'workspace-write'
-                    $info.Mode = 'workspace-write'
-                    $note = & $limitNote 'workspace-write'
-                }
-            }
-            else {
-                # Nor above the chat's own, once a prompt went into it after
-                # that job ended: one typed at the PC carries the mode it
-                # went in (a chatq run most often none), so a chat put in
-                # plan there is not edited from the phone in the job's mode.
-                # A job closed as answered in its chat had one; its end is
-                # the closing's, after that prompt, so it is not by time.
-                $jEnd = if ($job) { ConvertTo-ChatOverlayMs (ConvertTo-ChatqDate $job.endedAt) } else { $null }
-                $answeredThere = $job -and [string](Get-ChatField (Get-ChatField $job 'result') 'reason') -eq 'answered in the chat'
-                $typedAfter = $moved -and $moved.TypedAt -and $jEnd -and [int64]$moved.TypedAt -gt [int64]$jEnd
-                if ($mode -and ($typedAfter -or $answeredThere) -and (Get-ChatqModeRank ([string]$info.Mode)) -lt (Get-ChatqModeRank $mode)) {
-                    $mode = [string]$info.Mode
-                    $note = " - runs in $mode, the chat's own at the PC"
-                }
-                $lim = Limit-ChatqPhoneMode $(if ($mode) { $mode } else { [string]$info.Mode }) $cap
-                if ($lim.Capped) { $mode = $lim.Mode; $note = & $limitNote $lim.Mode }
-            }
-            $how = @{ Row = $row; Info = $info; Prompt = $text; Kind = 'prompt'; Rule = 'phone'; Mode = $mode; NoLinks = $true }
+            # made as the board's send makes one (New-ChatqPhoneJob): the text
+            # checked, a Codex sandbox no wider than workspace-write, rule
+            # phone, links left as text. The old job's mode only if it had one
+            # of its own - never one the message names - and never above the
+            # cap. Nor above the chat's own, once a prompt went into it after
+            # that job ended: one typed at the PC carries the mode it went in
+            # (a chatq run most often none), so a chat put in plan there is
+            # not edited from the phone in the job's mode. A job closed as
+            # answered in its chat had one; its end is the closing's, after
+            # that prompt, so it is not by time.
+            $jEnd = if ($job) { ConvertTo-ChatOverlayMs (ConvertTo-ChatqDate $job.endedAt) } else { $null }
+            $answeredThere = $job -and [string](Get-ChatField (Get-ChatField $job 'result') 'reason') -eq 'answered in the chat'
+            $typedAfter = $moved -and $moved.TypedAt -and $jEnd -and [int64]$moved.TypedAt -gt [int64]$jEnd
+            $how = @{ Row = $row; Text = $text; Cap = $cap; Noun = 'reply'; Mode = $(if ($job -and $job.mode) { [string]$job.mode } else { '' }); OwnIfLower = [bool]($typedAfter -or $answeredThere) }
             # The chat lives under its own config dir, whichever one this
             # watcher happened to be started with - the default one ($null)
             # included. From the old job, else from the alert.
             if ($job) { $how['JobHome'] = $job.home }
             elseif ($Entry.ContainsKey('home')) { $how['JobHome'] = $Entry['home'] }
-            $r = New-ChatqJob @how
-            if ($r.Error) { $say = "nothing queued: $($r.Error)"; break }
-            $new = $r.Job
+            $made = New-ChatqPhoneJob @how
+            if ($made.Error) { $say = $made.Error; break }
+            $note = $made.Note
+            $new = $made.Job
             if ($job -and $job.state -eq 'needs-input') {
                 Complete-ChatqJob $job 'skipped' ([pscustomobject]@{ kind = 'skipped'; reason = "answered from the phone with #$($new.seq)" }) 'answered from the phone'
             }
@@ -2136,7 +2230,7 @@ function Invoke-ChatqReply {
             $note = ''
             $m = ''
             if ($job.provider -eq 'codex') {
-                if ($job.sandbox -and [string]$job.sandbox -notin $script:ChatqSafeSandboxes) {
+                if (-not (Test-ChatqPhoneSandbox ([string]$job.sandbox) $cap)) {
                     Set-ChatqProp $job 'sandbox' 'workspace-write'
                     $note = & $limitNote 'workspace-write'
                 }
@@ -2220,6 +2314,9 @@ function Get-ChatqPhoneStatusReport {
     # a notification (~700 characters)
     $d = $script:ChatqDot
     $jobs = @(Get-ChatqJobs)
+    # a job you answered in the chat since is no longer "needs you", overlay
+    # running or not (Sync-ChatqAnsweredJobs)
+    if (@(Sync-ChatqAnsweredJobs $jobs)) { $jobs = @(Get-ChatqJobs) }
     $blocks = Get-ChatqBlocks
     $eta = Get-ChatqEta $jobs $blocks
     $lines = @(Get-ChatqStatusLine $jobs $blocks)
@@ -2274,40 +2371,10 @@ function Get-ChatqLiveAlertStatusText {
     $qm = Get-ChatqQuietMinutes $Cfg
     if ($qm -le 0) { return 'on, but quiet minutes is 0 - you never count as away, so none go' }
     if (-not $script:ChatqIsWindows) { return 'on - but only the Windows overlay sends them' }
-    $run = if (-not (Test-ChatqLockHeld $script:ChatOverlayLockPath)) { ' - the overlay is not running, so none go now (chatoverlay)' }
-    elseif (Test-ChatqOverlayStale) { ' - the overlay runs an older copy - chatoverlay -Stop, then chatoverlay' }
-    else { '' }
+    # An overlay on older code is no longer a case to name here: it restarts
+    # on what is on disk within a minute or so (Test-ChatOverlayCodeChanged).
+    $run = if (-not (Test-ChatqLockHeld $script:ChatOverlayLockPath)) { ' - the overlay is not running, so none go now (chatoverlay)' } else { '' }
     return "on - waiting on you or finished, while you are away $qm min$run"
-}
-
-function Get-ChatqOverlayStarted {
-    # When the running overlay's process started: the pid data/overlay.pid
-    # names, as the OS has it. $null when there is no such file or process,
-    # or its start time cannot be read.
-    try {
-        if (-not (Test-Path -LiteralPath $script:ChatOverlayPidPath)) { return $null }
-        $id = ([string](Get-Content -LiteralPath $script:ChatOverlayPidPath -TotalCount 1 -EA Stop)).Trim() -as [int]
-        if (-not $id) { return $null }
-        $p = Get-Process -Id $id -EA SilentlyContinue
-        if ($p) { return $p.StartTime }
-    }
-    catch {}
-    return $null
-}
-
-function Test-ChatqOverlayStale {
-    # Does the overlay run code older than what is on disk? It loads the
-    # script once, at its start, and nothing reloads it - an upgrade leaves
-    # the old copy running for days, and ChatVersion may not have moved. So:
-    # started before src/phone.ps1 was last written. Not known is not stale.
-    $began = Get-ChatqOverlayStarted
-    if (-not $began) { return $false }
-    try {
-        $f = Join-Path (Join-Path $script:ChatRoot 'src') 'phone.ps1'
-        if (-not (Test-Path -LiteralPath $f)) { return $false }
-        return ($began -lt (Get-Item -LiteralPath $f).LastWriteTime)
-    }
-    catch { return $false }
 }
 
 function ConvertTo-ChatqLiveJob {
@@ -2380,7 +2447,7 @@ function Get-ChatqLiveAlertText {
     $turn = if ($Path) { Get-ChatqLastTurn $Path } else { $null }
     if ($turn -and $turn.Limit -and $Auto -and $Auto.State -in 'armed', 'due') { return "$Title $d stopped by the usage limit $d auto-continues $($Auto.At)" }
     if ($turn -and $turn.Limit) { return "$Title $d stopped by the usage limit$(if ($turn.ResetsAt) { " until $($turn.ResetsAt.ToString('HH:mm'))" })$(if ($Auto -and $Auto.Tag) { " $d $($Auto.Tag)" })" }
-    if ($turn -and $turn.Overloaded) { return "$Title $d stopped - Claude was overloaded" }
+    if ($turn -and $turn.Overloaded) { return "$Title $d stopped - Claude was overloaded$(if ($Auto -and $Auto.State -in 'armed', 'due') { " $d auto-continues $($Auto.At)" })" }
     $x = ''
     if ($turn -and $turn.Type -eq 'assistant' -and $turn.Text) {
         $ex = Get-ChatqExcerpt ([string]$turn.Text) 200
@@ -2458,7 +2525,7 @@ function Update-ChatqLiveAlerts {
     param($Ctx, [object[]]$Live, [datetime]$Now = (Get-Date))
     try {
         $cfg = Get-ChatqLiveAlertConfig $Ctx $Now
-        $phones = ($cfg.PSObject.Properties['join'] -and $cfg.join) -or ($cfg.PSObject.Properties['ntfy'] -and $cfg.ntfy)
+        $phones = Test-ChatqPhoneChannel $cfg
         # off: forgotten, so that on again starts from a quiet first pass
         if (-not $phones -or -not (Test-ChatqLiveAlertsOn $cfg)) { $Ctx.PhoneSeen = $null; return }
         $rank = @{ waiting = 0; busy = 1; idle = 2 }
@@ -2468,9 +2535,13 @@ function Update-ChatqLiveAlerts {
             if (-not $e) { continue }
             $sid = [string](Get-ChatField $e 'SessionId')
             if (-not $sid) { continue }
-            # chatq's own claude -p runs register too, as another kind
+            # a claude -p - chatq's own runs, a phone reply, anyone's script
+            # - is no chat someone types in: told by a kind that is not
+            # interactive, or by an SDK's entrypoint, as Claude Code 2.1.283
+            # registers one interactive (S38 item 5)
             $kind = [string](Get-ChatField $e 'Kind')
             if ($kind -and $kind -ne 'interactive') { continue }
+            if ([string](Get-ChatField $e 'Entrypoint') -cin $script:ChatSdkEntrypoints) { continue }
             $s = [string](Get-ChatField $e 'Status')
             $st = if ($s -in 'waiting', 'busy') { $s } else { 'idle' }
             # a chat open in two windows is at the more urgent of the two
@@ -2515,7 +2586,7 @@ function Update-ChatqLiveAlerts {
             $autoJob = if ($ev -eq 'done') { Get-ChatqLiveAutoJob $Ctx $sid } else { $null }
             if ($autoJob) { $ev = 'limited' }
             if (-not (Test-ChatqPhoneEvent $cfg $ev)) { $m.Settled = $true; continue }
-            if ($null -eq $away) { $away = [bool](Test-ChatqUserAway $cfg) }
+            if ($null -eq $away) { $away = Test-ChatqPhoneAway $cfg }
             # at the PC: nothing goes and nothing is settled - you see it there
             # or you do not, and away later can still send it while it is news
             if (-not $away) { continue }
@@ -2529,18 +2600,23 @@ function Update-ChatqLiveAlerts {
             $cfgDir = [string](Get-ChatField $Ctx 'ClaudeHome')
             if (-not $cfgDir) { $cfgDir = $script:ChatClaudeHome }
             # the title as the chat's row has it: what the pass read, else the
-            # transcript's own records, else the registry's name for it
+            # transcript's own records, else the registry's name for it. A
+            # phone-made chat Claude has not titled yet goes by the neutral
+            # title its jobs hold (Get-ChatqHeldTitle), never its prompt's
+            # first line: the alert's text crosses the push service.
             $tx = $null
             $texts = Get-ChatField $Ctx 'Text'
             if ($texts) { $tx = $texts[$sid] }
             $path = if ($tx -and $tx.Path) { [string]$tx.Path } else { Find-ChatOverlayTranscript $cfgDir $cwd $sid }
             if ($path -and (Test-ChatqSideTranscript $path)) { $m.Settled = $true; continue }
             $title = $null
-            if ($tx) { foreach ($c in @($tx.CustomTitle, $tx.Sidecar, $tx.AiTitle, $tx.First)) { if ($c) { $title = [string]$c; break } } }
-            if (-not $title -and $path) {
+            if ($tx) { foreach ($c in @($tx.CustomTitle, $tx.Sidecar, $tx.AiTitle)) { if ($c) { $title = [string]$c; break } } }
+            if (-not $title -and -not ($tx -and $tx.First) -and $path) {
                 $r = Find-ChatTailRecords $path -Budget 1048576
                 $title = if ($r.CustomTitle) { $r.CustomTitle } elseif ($r.AiTitle) { $r.AiTitle } else { $null }
             }
+            if (-not $title) { $title = Get-ChatqHeldTitle ([pscustomobject]@{ Provider = 'claude'; Id = $sid; Titled = $null }) }
+            if (-not $title -and $tx -and $tx.First) { $title = [string]$tx.First }
             if (-not $title) { $title = [string](Get-ChatField $e0 'Name') }
             $title = if ($title) { Format-ChatTitle $title 60 } else { 'a chat' }
             # the chat's config dir, $null for the default one - a prompt sent
@@ -2567,7 +2643,8 @@ function Update-ChatqLiveAlerts {
 function Send-ChatqResetAskAlert {
     <#
     The reset ask on the phone (Invoke-ChatOverlayCycle, for the cut-offs
-    it announced): one alert, event limited, about several chats and so
+    it announced - the limit's, and a VS Code window's restart's, worded
+    by Format-ChatqAskHead): one alert, event limited, about several chats and so
     about no one session - the reply page offers Status alone, as for any
     alert about no chat. Answering is at the PC. The gates are
     Update-ChatqLiveAlerts' own: a phone channel set, liveAlerts on,
@@ -2580,14 +2657,16 @@ function Send-ChatqResetAskAlert {
     try {
         if (-not $Ask -or -not @($Keys).Count) { return 'off' }
         $cfg = Get-ChatqLiveAlertConfig $Ctx $Now
-        $phones = ($cfg.PSObject.Properties['join'] -and $cfg.join) -or ($cfg.PSObject.Properties['ntfy'] -and $cfg.ntfy)
+        $phones = Test-ChatqPhoneChannel $cfg
         if (-not $phones -or -not (Test-ChatqLiveAlertsOn $cfg) -or -not (Test-ChatqPhoneEvent $cfg 'limited')) { return 'off' }
-        if (-not (Test-ChatqUserAway $cfg)) { return 'wait' }
+        if (-not (Test-ChatqPhoneAway $cfg)) { return 'wait' }
         $n = [int]$Ask.Count
         $chats = "$n chat$(if ($n -ne 1) { 's' })"
+        # event limited for chats a VS Code window's restart cut off too: the
+        # same ask, and phoneEvents has no word of its own for it
         $alert = [ordered]@{
             event = 'limited'; priority = 0
-            text = "limit over at $(Format-ChatOverlayAskAt $Ask.ResetsAt $Now) $($script:ChatqDot) $chats it cut off can continue - answer on the PC"
+            text = "$(Format-ChatqAskHead $Ask $Now) $($script:ChatqDot) $(Format-ChatqAskCount $Ask) can continue - answer on the PC"
             sessionId = $null; title = $null; cwd = $null; path = $null; home = $null
         }
         $null = Send-ChatqLiveAlert $alert

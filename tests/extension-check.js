@@ -61,6 +61,10 @@ ext._carryIo.mod = fakeCp;
 // that one began
 ext._carryIo.hostStart = 0;
 ext._carryIo.now = () => 0;
+// Every reload asked about is listed for the overlay (askReload): in the
+// sandbox, never the real tool folder's data/, which the real overlay reads
+const reloadData = path.join(__dirname, '.sandbox', 'ext-reload-data');
+ext._reloadIo.dir = reloadData;
 // Before any reload, and for a new install, the extension asks the script
 // which chats of its window work (safe-restart.js). A test never runs that
 // PowerShell - it would load the real tool folder's scripts - so the answer
@@ -68,6 +72,11 @@ ext._carryIo.now = () => 0;
 const safe = require(path.join(__dirname, '..', 'extension', 'safe-restart.js'));
 const noWork = async () => ({ hostPid: process.pid, known: true, chats: [] });
 safe._hostWork = noWork;
+// Nor the PowerShell that reads a registry entry's process (procFacts): a
+// platform of no such look knows nothing of any process, unless a check
+// hands it one. procRuns: every script it was given
+const procRuns = [];
+ext._procIo = { platform: () => 'test', run: async (script) => { procRuns.push(script); return ''; } };
 let failed = 0, total = 0;
 // A run that ends before its summary fails: an await on what never comes,
 // with nothing else holding the event loop, lets node exit 0 there, the
@@ -302,6 +311,19 @@ check('watch: only the last rows kept - 5000 - each still by its place in the wh
     wCapD.length === 5 && wCapD.every(Boolean) && wCapD[0].i === 4 &&
     wv.MAX_ROWS === 5000 && wBig.items.length === 5000 && wBig.dropped === 3 && wBig.items[0].text === 'r3',
     JSON.stringify([wCap.items.map(i => i.i), wCap.dropped, wCapD.map(i => i && i.i), wBig.items.length, wBig.dropped]));
+// the pinned todo outlives its row: a TodoWrite, then more rows than are
+// kept - still pinned, from the parser's own last list, and a later one
+// takes its place
+const wTodo = (todos) => JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'td' + todos.length, name: 'TodoWrite', input: { todos } }] } });
+const wPin = wv.newParser({ maxRows: 5 });
+wPin.push(wTodo([{ content: 'a', status: 'completed' }, { content: 'b', activeForm: 'Doing b', status: 'in_progress' }]), T0);
+for (let i = 0; i < 8; i++) wPin.push(wText('row ' + i), T0);
+const wPinOld = wv.pinnedTodo(wPin), wPinRows = wv.pinnedTodo(wPin.items), wPinGone = !wPin.items.some(i => i.todos);
+wPin.push(wTodo([{ content: 'a', status: 'completed' }, { content: 'b', status: 'completed' }, { content: 'c', status: 'pending' }]), T0);
+check('watch: the pinned todo kept apart from the rows - a TodoWrite dropped past the kept rows still pinned, and the next one replaces it',
+    wPinGone && wPinRows === '' && wPinOld === 'Now: Doing b (2/2)' && wv.pinnedTodo(wPin) === 'Todo: 2/3 done' &&
+    wv.pinnedTodo(wv.newParser()) === '' && wv.pinnedTodo(null) === '',
+    JSON.stringify([wPinOld, wPinRows, wv.pinnedTodo(wPin)]));
 // back in the queue after a try - the limit mid-run: Open chat, the tab the
 // handover closed put back by nothing else until the next run
 const hBack = wv.headerHtml({ seq: 15, title: 'T', state: 'queued', startedAt: '2026-09-28T10:00:00Z', provider: 'claude', sessionId: 'x',
@@ -455,6 +477,78 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     stub.window.showInformationMessage = plainInfo;
     check('a new chat a run started, in a window open on its folder: said, with no reload offered - it would cut off what works here and list nothing',
         calls.join() === 'ask' && newButtons.join() === '0', calls.join() + ' ' + newButtons.join());
+
+    // two requests inside one poll: the newest is the file, the one before it
+    // under earlier (Save-ChatRequest) - each taken once, oldest first
+    const del = (id, title, x) => Object.assign({ id, kind: 'deleted', title, busy: false, cwd: path.resolve('/work/projA'), at: new Date().toISOString() }, x);
+    const saidDel = [];
+    stub.window.showInformationMessage = async (m) => { calls.push('ask'); saidDel.push(m); };
+    calls.length = 0;
+    fs.writeFileSync(file, JSON.stringify(Object.assign(del('d2', 'B'), { earlier: [del('d1', 'A'), { kind: 'deleted', title: 'no id' }] })));
+    const rq2 = ext._requestsOf(file);
+    ext._check(context, file, false);
+    await tick();
+    const d2Calls = calls.join(), d2Said = saidDel.slice();
+    ext._check(context, file, false);
+    await tick();
+    const d2Again = calls.join();
+    const d2Last = state['chatManagerReload.lastSeenId'], d2Seen = state['chatManager.seenIds'].slice(-2).join();
+    // the script's next write: the newest on top, the last one carried
+    fs.writeFileSync(file, JSON.stringify(Object.assign(del('d3', 'C'), { earlier: [del('d2', 'B')] })));
+    calls.length = 0;
+    saidDel.length = 0;
+    ext._check(context, file, false);
+    await tick();
+    stub.window.showInformationMessage = plainInfo;
+    check('a file of two requests: each asked once, the earlier first - one with no id passed by - and taken as seen, the newest in the one key an older extension reads',
+        rq2.map(r => r.id || '-').join() === 'd1,d2' && rq2[1].earlier === undefined &&
+        d2Calls === 'ask,ask' && /^Deleted "A"\./.test(d2Said[0]) && /^Deleted "B"\./.test(d2Said[1]) && d2Again === d2Calls &&
+        d2Last === 'd2' && d2Seen === 'd1,d2', d2Calls + ' | ' + d2Said.join(' | ') + ' | ' + d2Last + ' ' + d2Seen);
+    check('the next write carries the last: only the new one asked', calls.join() === 'ask' && /^Deleted "C"\./.test(saidDel[0]) &&
+        state['chatManagerReload.lastSeenId'] === 'd3', calls.join() + ' | ' + saidDel.join(' | '));
+    // what another window's write of the list dropped: this window's own
+    // memory still has it
+    state['chatManager.seenIds'] = [];
+    delete state['chatManagerReload.lastSeenId'];
+    calls.length = 0;
+    ext._check(context, file, false);
+    await tick();
+    const lostList = calls.join();
+    const state2 = {};
+    const many = { globalState: { get: (k) => state2[k], update: async (k, v) => { state2[k] = v; } } };
+    for (let i = 0; i < 20; i++) {
+        fs.writeFileSync(file, JSON.stringify(del('m' + i, 'M', { kind: 'new' })));
+        ext._check(many, file, true);
+    }
+    await tick();
+    check('seen ids: this window\'s own kept beside globalState; globalState keeps the last 16',
+        lostList === '' && state2['chatManager.seenIds'].length === 16 && state2['chatManager.seenIds'][15] === 'm19' && state2['chatManager.seenIds'][0] === 'm4',
+        lostList + ' ' + JSON.stringify(state2['chatManager.seenIds']));
+    check('an older script\'s file, or one no object, is one request or none', ext._requestsOf(file).length === 1 &&
+        (fs.writeFileSync(file, '[{"id":"x"}]'), ext._requestsOf(file).length === 0) && (fs.writeFileSync(file, 'nope'), ext._requestsOf(file).length === 0));
+    // the first look after an update from an extension that kept one id: no
+    // list yet, and every request up to that id was the old extension's -
+    // taken as seen, never asked again; an id the file no longer holds is
+    // older than all it does, and none is
+    const upTry = (legacy) => {
+        const st = { 'chatManagerReload.lastSeenId': legacy };
+        const ctx = { globalState: { get: (k) => st[k], update: async (k, v) => { st[k] = v; } } };
+        fs.writeFileSync(file, JSON.stringify(Object.assign(del('g3', 'C'), { earlier: [del('g1', 'A'), del('g2', 'B')] })));
+        saidDel.length = 0;
+        ext._check(ctx, file, true);
+        return st;
+    };
+    stub.window.showInformationMessage = async (m) => { saidDel.push(m); };
+    const upSt = upTry('g2');
+    await tick();
+    const upSaid = saidDel.map(m => m.slice(0, 11)).join('|');
+    const goneSt = upTry('gone');
+    await tick();
+    const goneSaid = saidDel.map(m => m.slice(0, 11)).join('|');
+    stub.window.showInformationMessage = plainInfo;
+    check('after an update from an extension that kept one id: what the file carries up to it taken as seen, only the newer asked; an id it no longer holds - all asked',
+        upSaid === 'Deleted "C"' && upSt['chatManager.seenIds'].join() === 'g1,g2,g3' &&
+        goneSaid === 'Deleted "A"|Deleted "B"|Deleted "C"' && goneSt['chatManager.seenIds'].join() === 'g1,g2,g3', upSaid + ' / ' + goneSaid);
 
     // --- the commands each way runs -------------------------------------------
     // every wait to nothing; the ages a request may have stay what they are.
@@ -917,6 +1011,73 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         su1 === 'stale' && !su1Calls.includes('close:') && su1Calls === OPEN + ',ask' && su1Asked[0] === ext._texts.staleTab(reqT) &&
         su2 === 'stale' && !su2Calls.includes('close:') && !su2Calls.includes('check:end'),
         [sn, snCalls, su1, su1Calls, su2, su2Calls].join(' | '));
+    // An extension-host restart, told from a reload as Claude Code tells
+    // it: vscode.env.sessionId the same as the last activation's. Claude
+    // Code reopens the tabs it lost after one - most within restartHold -
+    // and such a tab looks like the new one an open makes - over a process
+    // of this window started before the open, which the second check would
+    // end
+    check('an extension-host restart told from a reload: the window\'s session id the same as the last activation\'s; none kept - unknown; VS Code\'s placeholder, or none - untracked',
+        ext._hostStartOf('s-1', 's-1') === 'restart' && ext._hostStartOf('s-1', 's-2') === 'reload' && ext._hostStartOf(undefined, 's-2') === 'unknown' &&
+        ext._hostStartOf('', 's-2') === 'unknown' && ext._hostStartOf('s-1', 'someValue.sessionId') === 'untracked' && ext._hostStartOf('s-1', undefined) === 'untracked');
+    {
+        const hws = {};
+        const hctx = { workspaceState: { get: (k) => hws[k], update: async (k, v) => { hws[k] = v; } } };
+        stub.env = { sessionId: 'win-1' };
+        const hs1 = ext._noteHostStart(hctx);
+        await settle();
+        const hs2 = ext._noteHostStart(hctx);
+        stub.env = { sessionId: 'win-2' };
+        const hs3 = ext._noteHostStart(hctx);
+        await settle();
+        stub.env = { sessionId: 'someValue.sessionId' };
+        const hs4 = ext._noteHostStart(hctx);
+        await settle();
+        const hsKept = hws[ext._hostKey];
+        delete stub.env;
+        const hs5 = ext._noteHostStart({});
+        check('each activation keeps its session id in workspaceState for the next: the first unknown, the same id a restart, a new one a reload; a placeholder kept nowhere; no workspaceState - nothing written, nothing thrown',
+            hs1 === 'unknown' && hs2 === 'restart' && hs3 === 'reload' && hs4 === 'untracked' && hsKept === 'win-2' && hs5 === 'untracked' &&
+            ext._hostKey === 'chatManager.lastActivationSessionId', JSON.stringify([hs1, hs2, hs3, hs4, hsKept, hs5]));
+        const T = 1000000;
+        ext._runClock.activatedAt = T;
+        const held = (start, at) => { ext._runClock.hostStart = start; return ext._restartHeld(at); };
+        check('held for restartHold (30 s) after a restart - or an unknown start, as Claude Code counts it - never after a reload or an untracked one',
+            ext._timing.restartHold === 30000 && held('restart', T + 29999) && held('unknown', T + 1) && !held('restart', T + 30000) &&
+            !held('reload', T + 1) && !held('untracked', T + 1) && !held(null, T + 1));
+        ext._runClock.activatedAt = 0;
+        ext._runClock.hostStart = null;
+    }
+    const restarted = async (start, at, withTab) => {
+        reset();
+        logged.length = 0;
+        vAsked.length = 0;
+        if (withTab) { tabs.push(claudeTab(SID, 'T')); active.tab = tabs[0]; }
+        ext._runClock.activatedAt = at;
+        ext._runClock.hostStart = start;
+        ext._getVerdict = twoChecks(liveV(), endedV());
+        try {
+            const r = await ext._showLive(reqT, file);
+            return { r, calls: calls.join(), asked: asked.slice(), v: vAsked.slice(), logged: logged.slice() };
+        } finally { ext._runClock.activatedAt = 0; ext._runClock.hostStart = null; }
+    };
+    const sr1 = await restarted('restart', Date.now(), false);
+    const sr2 = await restarted('unknown', Date.now(), false);
+    const sr3 = await restarted('reload', Date.now(), false);
+    const sr4 = await restarted('restart', Date.now() - 31000, false);
+    const sr5 = await restarted('restart', Date.now(), true);
+    check('Show it within 30 s of an extension-host restart, a new tab come up: the second check only judges - nothing ended, the tab maybe one Claude Code reopened by itself - and said so, not the side bar\'s copy as stale; an unknown start the same',
+        sr1.r === 'new' && sr1.calls === OPEN + ',check:judge,' + UNLOCK + ',ask' && sr1.v.length === 1 && sr1.v[0].judgeOnly === true && !sr1.v[0].grace &&
+        sr1.asked[0] === ext._texts.restartNew(reqT) && sr1.logged.some(l => /a new tab within 30 s of an extension-host restart \(restart\) - maybe one Claude Code reopened: judged only, nothing ended/.test(l)) &&
+        sr2.r === 'new' && sr2.calls === sr1.calls && sr2.asked[0] === ext._texts.restartNew(reqT),
+        JSON.stringify([sr1, sr2]));
+    check('and after a reload, or past the 30 s, a new tab\'s second check ends the side bar\'s process as ever; the chat\'s own tab closed within the 30 s - ended as ever too',
+        sr3.calls === OPEN + ',check:end,' + UNLOCK + ',ask' && sr3.asked[0] === ext._texts.sideBarStale(reqT) && sr3.v[0].grace === 8 &&
+        sr4.calls === sr3.calls && sr4.asked[0] === ext._texts.sideBarStale(reqT) &&
+        sr5.r === 'reopened' && sr5.calls.includes('close:T,check:end'),
+        JSON.stringify([sr3, sr4, sr5]));
+    check('the restart\'s word: in a new tab, nothing ended, the side bar\'s copy stale if there is one',
+        /^"T" is in a new tab\. VS Code restarted its extensions a moment ago, and Claude Code reopens the tabs it lost then, so nothing of the chat was ended\. .*side bar.* stale and can be closed\.$/.test(ext._texts.restartNew({ title: 'T' })));
     // the second check finding a process still there, or failing: the tab
     // stays closed, nothing opened beside the process, and said
     reset();
@@ -1196,6 +1357,133 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     await ext._checkOpen(context, ofile, false);
     await settle();
     check('the same open twice acts once', calls.join() === OPENED, calls.join());
+    // two clicks inside one poll: both chats opened, the earlier first
+    reset();
+    const openReq = (id, sid, title) => ({ id, kind: 'open', title, sessionId: sid, cwd: path.resolve('/work/projA'), home: null, busy: null,
+        oldProcess: 'none', hostPids: [], at: new Date().toISOString() });
+    fs.writeFileSync(ofile, JSON.stringify(Object.assign(openReq('o7b', SID, 'T'), { earlier: [openReq('o7a', SID2x, 'A')] })));
+    const o7 = await ext._checkOpen(context, ofile, false);
+    await settle();
+    const o7Calls = calls.join(), o7Args = openArgs.map(a => a[0]).join();
+    calls.length = 0;
+    await ext._checkOpen(context, ofile, false);
+    await settle();
+    check('an open file of two: both opened once, the earlier first, and what the newest came to returned',
+        o7 === 'new' && o7Calls === OPENED + ',' + OPENED && o7Args === SID2x + ',' + SID && calls.length === 0 &&
+        state['chatManagerReload.lastOpenId'] === 'o7b' && state['chatManager.openSeenIds'].slice(-2).join() === 'o7a,o7b', o7 + ' ' + o7Calls + ' ' + o7Args);
+    // A run's Show it offered here and not taken: the chat's tab shows it
+    // from before the run. The chip's open of it goes Show it's way - judged,
+    // its tab closed, what outlived the close ended, opened again from disk -
+    // and once that is done the next open only brings the tab forward.
+    reset();
+    logged.length = 0;
+    aliveSet.add(process.pid);
+    tabs.push(claudeTab(SID, 'T'));
+    active.tab = tabs[0];
+    ext._getVerdict = twoChecks(liveV(), endedV());
+    liveHere('u1', { at: new Date(Date.now() - 60000).toISOString() });
+    ext._check(context, file, false);
+    await drain();
+    const sn1Calls = calls.join(), sn1Asked = asked.slice(), sn1Kept = ext._unshown.has(SID);
+    calls.length = 0;
+    open('u2', { oldProcess: 'live', hostPids: [process.pid] });
+    const sn2 = await ext._checkOpen(context, ofile, false);
+    await drain();
+    const sn2Calls = calls.join();
+    calls.length = 0;
+    open('u3', { oldProcess: 'live', hostPids: [process.pid] });
+    const sn3 = await ext._checkOpen(context, ofile, false);
+    await drain();
+    const sn3Calls = calls.join();
+    // a newer run's request, handled by itself, takes the place of one not taken
+    reset();
+    tabs.push(claudeTab(SID, 'T'));
+    active.tab = tabs[0];
+    liveHere('u4', { at: new Date(Date.now() - 60000).toISOString() });
+    ext._check(context, file, false);
+    await drain();
+    liveHere('u5');
+    ext._check(context, file, false);
+    await drain();
+    const sn5Kept = ext._unshown.has(SID);
+    aliveSet.clear();
+    check('Show it offered and not taken, then the chip: its tab closed, its process ended if it outlived the close, opened again - and said in the log',
+        sn1Calls === 'ask' && /Show it\?$/.test(sn1Asked[0]) && sn1Kept && sn2 === 'reopened' &&
+        sn2Calls === 'check:judge,' + OPEN + ',close:T,check:end,' + OPENED && !ext._unshown.has(SID) &&
+        logged.includes('open 11111111: its run\'s Show it was not taken here - shown its way'),
+        sn1Calls + ' ' + sn2 + ' ' + sn2Calls + ' | ' + logged.join(' | '));
+    check('then the next open only brings the tab forward; and a newer run\'s request, shown by itself, takes the place of one not taken',
+        sn3 === 'revealed' && sn3Calls === OPENED && !sn5Kept, sn3 + ' ' + sn3Calls);
+    // its notice answered Show it only once the chip went its way: passed by -
+    // shown again, the fresh tab would close and its new process end
+    reset();
+    logged.length = 0;
+    aliveSet.add(process.pid);
+    tabs.push(claudeTab(SID, 'T'));
+    active.tab = tabs[0];
+    ext._getVerdict = twoChecks(liveV(), endedV());
+    const askBefore = stub.window.showInformationMessage;
+    let answerLate = () => { };
+    stub.window.showInformationMessage = (m, ...b) => {
+        calls.push('ask'); asked.push(m);
+        return new Promise(r => { answerLate = () => r(b.includes('Show it') ? 'Show it' : undefined); });
+    };
+    liveHere('u5b', { at: new Date(Date.now() - 60000).toISOString() });
+    const lateOffer = ext._check(context, file, false);
+    await drain();
+    stub.window.showInformationMessage = askBefore;
+    open('u5c', { oldProcess: 'live', hostPids: [process.pid] });
+    const snLateChip = await ext._checkOpen(context, ofile, false);
+    await drain();
+    const snLateCalls = calls.join();
+    calls.length = 0;
+    answerLate();
+    const snLate = await lateOffer;
+    await drain();
+    aliveSet.clear();
+    check('its notice\'s Show it clicked once the chip went its way: passed by, nothing checked, closed or opened again',
+        snLateChip === 'reopened' && snLateCalls === 'ask,check:judge,' + OPEN + ',close:T,check:end,' + OPENED && snLate === 'shown' &&
+        calls.length === 0 && logged.includes('Show it 11111111: shown already, by the open chip - passed by'),
+        snLateChip + ' ' + snLate + ' ' + snLateCalls + ' | ' + calls.join());
+    // Show it's way only while the chip finds the old process idle here: none
+    // left (its tab closed), or working (typed into since) - a plain open, the
+    // offer forgotten; unjudged, or no window to tell (a Mac) - a plain open,
+    // the offer kept
+    const notTaken = { id: 'u0', kind: 'ran', title: 'T', sessionId: SID, cwd: path.resolve('/work/projA'), home: null, busy: false,
+        away: false, oldProcess: 'live', hostPids: [process.pid], at: new Date(Date.now() - 60000).toISOString() };
+    aliveSet.add(process.pid);
+    const snWay = [];
+    for (const [id, x] of [['u6', { oldProcess: 'none', hostPids: [] }], ['u7', { oldProcess: 'held', hostPids: [process.pid] }],
+        ['u8', { oldProcess: 'kept', hostPids: [process.pid] }], ['u9', { oldProcess: 'live', hostPids: [] }]]) {
+        reset();
+        tabs.push(claudeTab(SID, 'T'));
+        ext._unshown.set(SID, notTaken);
+        open(id, x);
+        const r = await ext._checkOpen(context, ofile, false);
+        await drain();
+        snWay.push(r + ':' + calls.join('+') + ':' + ext._unshown.has(SID));
+    }
+    // Show it's way, its check finding the chat working by then, or failing:
+    // where Show it would ask to reload, the chip's own open - no ask
+    const snAsk = [];
+    for (const [id, v] of [['u10', liveV({ oldProcess: 'held', outcome: 'held' })], ['u11', null]]) {
+        reset();
+        tabs.push(claudeTab(SID, 'T'));
+        ext._unshown.set(SID, notTaken);
+        ext._getVerdict = twoChecks(v, endedV());
+        open(id, { oldProcess: 'live', hostPids: [process.pid] });
+        const r = await ext._checkOpen(context, ofile, false);
+        await drain();
+        snAsk.push(r + ':' + calls.join('+') + ':' + asked.length + ':' + ext._unshown.has(SID));
+    }
+    aliveSet.clear();
+    ext._unshown.clear();
+    check('a Show it not taken: the chip finding no process, or one working, opens as ever and forgets it; unjudged, or no window to tell, opens as ever and keeps it',
+        snWay.join() === ['revealed:' + OPENED.replace(',', '+') + ':false', 'revealed:' + OPENED.replace(',', '+') + ':false',
+            'revealed:' + OPENED.replace(',', '+') + ':true', 'revealed:' + OPENED.replace(',', '+') + ':true'].join(), snWay.join(' | '));
+    check('a Show it not taken, the chip\'s check then finding the chat working, or failing: the chip\'s own open, never a reload asked',
+        snAsk.join() === ['revealed:check:judge+' + OPENED.replace(',', '+') + ':0:false', 'revealed:check:judge+' + OPENED.replace(',', '+') + ':0:false'].join(),
+        snAsk.join(' | '));
 
     // --- the chat picker: Chat Manager: Open chat... ---------------------------
     // a Claude home of its own, its transcripts and its registry written here
@@ -1290,6 +1578,23 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         tl(S.sidecar) === 'from the side' && tl(S.big) === 'tail ai' && tl(S.bigHead) === 'only in the head', JSON.stringify(desc));
     check('pick: a side transcript, and a small one holding no message, are left out',
         desc[S.side].skip === 'side' && desc[S.empty].skip === 'empty' && tl(S.long) === longPrompt, JSON.stringify(desc));
+    // a big file's rename, or Claude's title, written only near its start:
+    // the head looked in where the tail has none of that kind, as the
+    // index's Describe does. Files of their own, outside the folders listed
+    const headDir = path.join(home, 'heads');
+    const headChat = async (n, text) => {
+        const f = mkChat(headDir, G(n), text, 0);
+        return (await realReadChat({ file: f, dir: headDir, sid: G(n), size: fs.statSync(f).size })) || {};
+    };
+    const hRename = await headChat(41, user('p') + jl({ type: 'custom-title', customTitle: 'renamed early' }) + filler + jl({ type: 'ai-title', aiTitle: 'tail ai' }) + asst('z'));
+    const hAi = await headChat(42, user('p') + jl({ type: 'ai-title', aiTitle: 'early ai' }) + filler + asst('z'));
+    const hTail = await headChat(43, user('p') + jl({ type: 'custom-title', customTitle: 'old name' }) + filler + jl({ type: 'custom-title', customTitle: 'new name' }) + asst('z'));
+    fs.mkdirSync(path.join(headDir, G(44)), { recursive: true });
+    fs.writeFileSync(path.join(headDir, G(44), 'custom-title.json'), '{"customTitle":"side name"}');
+    const hSide = await headChat(44, user('p') + jl({ type: 'ai-title', aiTitle: 'early ai' }) + filler + asst('z'));
+    check('pick: a big file\'s rename, or Claude\'s title, written only near its start - read from its head where its tail has none; the tail\'s still first, and a sidecar\'s rename over the head\'s ai-title',
+        hRename.title === 'renamed early' && hAi.title === 'early ai' && hTail.title === 'new name' && hSide.title === 'side name',
+        [hRename.title, hAi.title, hTail.title, hSide.title].join(' | '));
     const readsFirst = reads;
     for (const c of listed) await ext._describeChat(c);
     const readsAgain = reads;
@@ -1605,6 +1910,358 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         lr1 === 'refused' && calls.join() === 'ask' && asked[0] === ext._texts.pickRunning({ title: 'only me' }) &&
         logged.includes('pick ' + L.solo.slice(0, 8) + ': running -> refused'), lr1 + ' ' + calls.join() + ' | ' + asked.join(' | '));
 
+    // --- the picker: each registry entry's process, as the OS has it ----------
+    // procFacts' PowerShell stood in for: procOf, by pid, what CIM would
+    // say - a start as a FILETIME, the parent's pid and start, the names
+    const ft = (ms) => ((BigInt(Math.round(ms)) + 11644473600000n) * 10000n).toString();
+    const procOf = new Map();
+    const realProcIo = ext._procIo;
+    const procLine = (p, f) => ['proc', p, f.start, f.ppid, f.parentStart, f.name, f.parentName].join('|');
+    ext._procIo = {
+        platform: () => 'win32',
+        run: async (script) => {
+            procRuns.push(script);
+            return [...procOf].filter(([p]) => new RegExp('ProcessId=' + p + '\\b').test(script)).map(([p, f]) => procLine(p, f)).join('\r\n');
+        }
+    };
+    const facts = (p, x) => procOf.set(p, Object.assign({ start: ft(pnow), ppid: 999301, parentStart: ft(pnow - HOUR), name: 'claude.exe', parentName: 'Code' }, x));
+    const parsed = ext._parseProcs('proc|12|133000000000000000|34|132000000000000000|claude.exe|Code\r\nnoise\r\nproc|56|0|0|0|Code Helper.exe|\nproc 78 0 0 0 old.exe\n');
+    check('proc: CIM\'s lines by pid, FILETIMEs kept as strings, a name with a space whole, a parent of no name, anything else passed over',
+        parsed.size === 2 && parsed.get(12).start === '133000000000000000' && parsed.get(12).ppid === 34 && parsed.get(12).parentName === 'Code' &&
+        parsed.get(56).name === 'Code Helper.exe' && parsed.get(56).parentName === '' &&
+        /ProcessId=7 OR ProcessId=8/.test(ext._procScript([7, 8])) && /ToFileTimeUtc/.test(ext._procScript([7])) && /ProcessName/.test(ext._procScript([7])),
+        JSON.stringify([...parsed]));
+    const fits = (o, f) => ext._startFits(Object.assign({ startedAt: pnow }, o), Object.assign({ start: ft(pnow), name: 'claude.exe' }, f));
+    check('proc: an entry\'s process still its own - a claude or node, started within 3 s of a FILETIME procStart, never over 10 s after startedAt; a start not read says nothing',
+        fits({ procStart: ft(pnow + 2000) }, {}) && fits({ procStart: ft(pnow) }, { name: 'node.exe' }) && fits({ procStart: 'Tue Sep 30 2026' }, { start: ft(pnow + 5000) }) &&
+        !fits({ procStart: ft(pnow - 4000) }, {}) && !fits({ procStart: ft(pnow) }, { name: 'notepad.exe' }) && !fits({}, { start: ft(pnow + 11000) }) &&
+        fits({ procStart: ft(pnow - HOUR) }, { start: '0' }) && fits({}, { start: ft(pnow - HOUR) }));
+    const vs = { entrypoint: 'claude-vscode' };
+    aliveSet.add(999301);
+    const code = (x) => Object.assign({ start: ft(pnow), ppid: 999301, parentStart: ft(pnow - HOUR), parentName: 'Code' }, x);
+    check('proc: a panel\'s window by its parent - this extension host is here, another Code that is there is another window; a terminal\'s, a parent gone, of another name, or younger than its child cannot be told',
+        ext._whereOf(vs, code({ ppid: process.pid })) === 'here' && ext._whereOf(vs, code({})) === 'window' &&
+        ext._whereOf(vs, code({ parentName: 'Code - Insiders' })) === 'window' &&
+        ext._whereOf({ entrypoint: 'cli' }, code({ ppid: process.pid })) === '' &&
+        ext._whereOf(vs, code({ ppid: 999302 })) === '' && ext._whereOf(vs, code({ parentName: 'pwsh' })) === '' &&
+        ext._whereOf(vs, code({ parentName: '' })) === '' &&
+        ext._whereOf(vs, code({ parentStart: ft(pnow + MIN) })) === '' && ext._whereOf(vs, code({ parentStart: '0' })) === '');
+    check('proc: a chat\'s place - every panel here, every one in other windows, else none; and those windows\' hosts',
+        ext._placeOf([{ where: 'here' }, { where: 'here' }]) === 'here' && ext._placeOf([{ where: 'window', host: 5 }]) === 'window' &&
+        ext._placeOf([{ where: 'here' }, { where: 'window' }]) === '' && ext._placeOf([{ where: 'window' }, {}]) === '' && ext._placeOf(undefined) === '' &&
+        ext._hostsOf([{ where: 'window', host: 5 }, { where: 'window', host: 5 }, { where: 'here', host: 6 }, { where: 'window', host: 7 }]).join() === '5,7');
+    // the look: once per pid within procFresh, a failed one not kept, and
+    // none at all off Windows
+    ext._procSeen.clear();
+    procRuns.length = 0;
+    facts(999211);
+    aliveSet.add(999211);
+    const pf1 = await ext._procFacts([999211, 999212], pnow);
+    const pf2 = await ext._procFacts([999211, 999212], pnow + 5000);
+    const runsKept = procRuns.length, firstRun = procRuns[0] || '';
+    await ext._procFacts([999211], pnow + ext._timing.procFresh + 1);
+    const runsLater = procRuns.length;
+    ext._procSeen.clear();
+    procOf.clear();
+    procRuns.length = 0;
+    logged.length = 0;
+    const pfFail = await ext._procFacts([999211], pnow);
+    await ext._procFacts([999211], pnow + 1);
+    const failRuns = procRuns.length;
+    const winIo = ext._procIo;
+    ext._procIo = { platform: () => 'darwin', run: winIo.run };
+    const pfMac = await ext._procFacts([999211], pnow);
+    const macRuns = procRuns.length;
+    ext._procIo = winIo;
+    check('proc: every pid asked in one run, kept procFresh - a pid not there kept as unknown too; a look that found nothing kept not, and logged; off Windows, none',
+        pf1.get(999211).name === 'claude.exe' && !pf1.has(999212) && pf2.size === 1 && runsKept === 1 && /ProcessId=999211 OR ProcessId=999212/.test(firstRun) &&
+        runsLater === 2 && pfFail.size === 0 && failRuns === 2 && logged.some(l => /^processes 999211: their start and parent could not be read$/.test(l)) &&
+        pfMac.size === 0 && macRuns === 2, runsKept + ' ' + runsLater + ' ' + failRuns + ' ' + macRuns + ' | ' + logged.join(' | '));
+    // a pick while the picker's look is still out waits for it; and a look
+    // that fails never hands back an answer older than procFresh
+    ext._procSeen.clear();
+    procRuns.length = 0;
+    facts(999213);
+    const [pfA, pfB] = await Promise.all([ext._procFacts([999213, 999214], pnow), ext._procFacts([999213], pnow + 1)]);
+    const sharedRuns = procRuns.length;
+    procOf.clear();
+    ext._procSeen.set(999215, { at: pnow - 3 * ext._timing.procFresh, f: { start: ft(pnow), ppid: 1, parentStart: '0', name: 'claude.exe', parentName: '' } });
+    const pfOld = await ext._procFacts([999215], pnow);
+    check('proc: a second look while one is out waits for that one - one PowerShell, the same answer; a failed look gives no older answer back',
+        sharedRuns === 1 && pfA.get(999213).name === 'claude.exe' && pfB.get(999213).name === 'claude.exe' && pfOld.size === 0,
+        sharedRuns + ' ' + pfA.size + ' ' + pfB.size + ' ' + pfOld.size);
+    // the registry with it: a pid handed on since boot is no chat's
+    ext._procSeen.clear();
+    regSet([[999221, { sessionId: L.a, procStart: ft(pnow) }], [999222, { sessionId: L.solo, procStart: ft(pnow) }], [999223, { sessionId: L.b, procStart: ft(pnow) }]]);
+    facts(999221, { start: ft(pnow + 20 * MIN) });
+    facts(999222, { name: 'svchost.exe' });
+    facts(999223, { ppid: process.pid, parentStart: ft(pnow - DAY) });
+    const lr = await ext._liveRegistry(home3, Date.now());
+    const plain = ext._readRegistry(home3, Date.now());
+    check('proc: the registry, each process looked at - a pid a later process has, or one of no claude\'s, runs nothing; a panel here is here, and the plain read still counts all three',
+        !lr.has(L.a) && !lr.has(L.solo) && lr.get(L.b)[0].where === 'here' && lr.get(L.b)[0].host === process.pid && plain.size === 3,
+        [...lr.keys()].join() + ' / ' + plain.size);
+    // the middle dot between the age and the state
+    const dotSp = ' ' + String.fromCharCode(0xb7) + ' ';
+    check('proc: the picker says where - in this window, in another window - for a chat open or working; nothing more for the rest',
+        ext._pickItem({ sid: G(1), mtimeMs: pnow, folder: 'f' }, { title: 't' }, 'open', false, pnow, 'window').description === 'now' + dotSp + 'open in another window' &&
+        ext._pickItem({ sid: G(1), mtimeMs: pnow, folder: 'f' }, { title: 't' }, 'working', false, pnow, 'here').description === 'now' + dotSp + 'working in this window' &&
+        ext._pickItem({ sid: G(1), mtimeMs: pnow, folder: 'f' }, { title: 't' }, 'terminal', false, pnow, 'here').description === 'now' + dotSp + 'in a terminal' &&
+        ext._pickItem({ sid: G(1), mtimeMs: pnow, folder: 'f' }, { title: 't' }, 'open', false, pnow, '').description === 'now' + dotSp + 'open');
+    // the accept, and the chat handed to the window that has it: its
+    // open-request in a tool folder of the sandbox's own
+    const handTool = path.join(pk, 'tool');
+    cfgVals['chatManager.folder'] = handTool;
+    const handFile = path.join(handTool, 'data', 'open-request');
+    const handed = () => { try { return JSON.parse(fs.readFileSync(handFile, 'utf8')); } catch (e) { return null; } };
+    const inOther = (pid, x) => { ext._procSeen.clear(); procOf.clear(); regSet([[pid, Object.assign({ sessionId: L.solo }, x)]]); facts(pid); };
+    reset();
+    logged.length = 0;
+    fs.rmSync(handTool, { recursive: true, force: true });
+    inOther(999231, { status: 'busy' });
+    const hw1 = await ext._acceptChat(c3(L.solo));
+    const hq1 = handed();
+    check('hand: working in another window, no tab here - handed to that window through data/open-request, as the chip hands one, and said; nothing opened here',
+        hw1 === 'handed to 999301' && calls.join() === 'ask' && asked[0] === ext._texts.pickHanded({ title: 'only me' }) &&
+        !!hq1 && hq1.kind === 'open' && hq1.sessionId === L.solo && hq1.oldProcess === 'held' && hq1.hostPids.join() === '999301' && hq1.busy === null &&
+        hq1.title === 'only me' && hq1.cwd === projA && ext._isGuid(hq1.id) && Math.abs(Date.parse(hq1.at) - Date.now()) < 60000 && !ext._isTarget(hq1) &&
+        logged.includes('pick ' + L.solo.slice(0, 8) + ': working -> handed to 999301'), hw1 + ' ' + calls.join() + ' ' + JSON.stringify(hq1));
+    reset();
+    fs.rmSync(handTool, { recursive: true, force: true });
+    inOther(999232);
+    warnAnswer = 'Show it there';
+    const hw2 = await ext._acceptChat(c3(L.solo));
+    const hq2 = handed(), hw2Calls = calls.join(), hw2Asked = asked.slice();
+    reset();
+    fs.rmSync(handTool, { recursive: true, force: true });
+    inOther(999233);
+    warnAnswer = 'Open here too';
+    const hw3 = await ext._acceptChat(c3(L.solo));
+    check('hand: open idle in another window - asked, Show it there handing it over (live), Open here too opening a second copy here as before',
+        hw2 === 'handed to 999301' && hw2Calls === 'warn,ask' && hw2Asked[0] === ext._texts.pickThere({ title: 'only me' }) && hq2 && hq2.oldProcess === 'live' &&
+        hw3 === 'new' && calls.join() === 'warn,' + OPENED && handed() === null, hw2 + ' ' + hw2Calls + ' / ' + hw3 + ' ' + calls.join());
+    // this window's own side bar: said so, and never handed anywhere
+    reset();
+    inOther(999234, { status: 'busy' });
+    facts(999234, { ppid: process.pid });
+    const hh1 = await ext._acceptChat(c3(L.solo));
+    const hh1Asked = asked.slice();
+    reset();
+    inOther(999235);
+    facts(999235, { ppid: process.pid });
+    warnAnswer = 'Cancel';
+    const hh2 = await ext._acceptChat(c3(L.solo));
+    check('hand: held in this window outside its tabs - working refused as this window\'s side bar, idle asked as it; nothing handed',
+        hh1 === 'refused' && hh1Asked[0] === ext._texts.pickWorkingHere({ title: 'only me' }) &&
+        hh2 === 'cancelled' && asked[0] === ext._texts.pickSideBar({ title: 'only me' }) && handed() === null, hh1 + ' ' + hh2 + ' ' + asked.join(' | '));
+    // Show it there, and the chat left that window meanwhile
+    reset();
+    inOther(999236);
+    warnAnswer = 'Show it there';
+    const plainWarn2 = stub.window.showWarningMessage;
+    stub.window.showWarningMessage = async (m, ...b) => { const r = await plainWarn2(m, ...b); ext._procSeen.clear(); facts(999236, { ppid: process.pid }); return r; };
+    const hm1 = await ext._acceptChat(c3(L.solo));
+    stub.window.showWarningMessage = plainWarn2;
+    check('hand: Show it there, the chat since in this window\'s side bar - nothing done, and said; no second copy unasked',
+        hm1 === 'moved' && calls.join() === 'warn,ask' && asked[1] === ext._texts.pickMoved({ title: 'only me' }) && handed() === null && !calls.includes(OPEN),
+        hm1 + ' ' + calls.join());
+    // Show it there, and the chat closed meanwhile: nothing holds it now,
+    // so it opens here from disk - the only place left to show it
+    reset();
+    logged.length = 0;
+    inOther(999238);
+    warnAnswer = 'Show it there';
+    stub.window.showWarningMessage = async (m, ...b) => { const r = await plainWarn2(m, ...b); ext._procSeen.clear(); regSet([]); return r; };
+    const hc1 = await ext._acceptChat(c3(L.solo));
+    stub.window.showWarningMessage = plainWarn2;
+    check('hand: Show it there, the chat closed since - opened here from disk, as a closed chat is; nothing handed',
+        hc1 === 'new' && calls.join() === 'warn,' + OPENED && handed() === null && logged.includes('pick ' + L.solo.slice(0, 8) + ': closed -> new'),
+        hc1 + ' ' + calls.join() + ' | ' + logged.join(' | '));
+    // the picker itself: its list put again once the look comes back - the
+    // look held back here until the titles are listed, so only that second
+    // put can say where a chat is, or drop a pid a later process has
+    reset();
+    ext._procSeen.clear();
+    procOf.clear();
+    regSet([[999241, { sessionId: L.solo }], [999242, { sessionId: L.long2, procStart: ft(pnow) }]]);
+    facts(999241);
+    facts(999242, { start: ft(pnow + 20 * MIN) });
+    let lookGo;
+    const lookHeld = new Promise(r => { lookGo = r; });
+    const lookIo = ext._procIo;
+    ext._procIo = { platform: lookIo.platform, run: async (s) => { await lookHeld; return lookIo.run(s); } };
+    procRuns.length = 0;
+    const pp = ext._openChat();
+    const qpL = qps[qps.length - 1];
+    const descL = (sid) => (qpL.items.find(i => i.chat.sid === sid) || {}).description || '';
+    await waitFor(() => qpL.sets.length && !qpL.busy);
+    const lookBefore = [descL(L.solo), descL(L.long2)];
+    const setsBefore = qpL.sets.length;
+    lookGo();
+    await waitFor(() => qpL.sets.length > setsBefore);
+    const lookAfter = [descL(L.solo), descL(L.long2)];
+    const ppRuns = procRuns.slice();
+    qpL.hide();
+    const ppr = await pp;
+    ext._procIo = lookIo;
+    check('proc: the picker puts its list again once the look is back - a chat in another window says so, one whose pid a later process has drops to no state',
+        lookBefore[0].endsWith(dotSp + 'open') && lookBefore[1].endsWith(dotSp + 'open') &&
+        lookAfter[0].endsWith(dotSp + 'open in another window') && lookAfter[1] !== '' && !lookAfter[1].includes(dotSp) &&
+        ppRuns.length === 1 && /ProcessId=999241\b/.test(ppRuns[0]) && /ProcessId=999242\b/.test(ppRuns[0]) && ppr === 'none',
+        lookBefore.join(' | ') + ' / ' + lookAfter.join(' | ') + ' / ' + ppRuns.length + ' run(s)');
+    // the open-request that cannot be written: said, nothing opened here
+    reset();
+    logged.length = 0;
+    fs.rmSync(handTool, { recursive: true, force: true });
+    fs.writeFileSync(handTool, 'a file where the tool folder would be');
+    inOther(999237, { status: 'busy' });
+    const hn1 = await ext._acceptChat(c3(L.solo));
+    check('hand: data/open-request that cannot be written - not handed, said, and logged; nothing opened here',
+        hn1 === 'not handed' && calls.join() === 'ask' && asked[0] === ext._texts.pickNotHanded({ title: 'only me' }) &&
+        logged.some(l => l.startsWith('pick ' + L.solo.slice(0, 8) + ': ') && /could not be written/.test(l)), hn1 + ' ' + calls.join() + ' | ' + logged.join(' | '));
+    fs.rmSync(handTool, { force: true });
+    delete cfgVals['chatManager.folder'];
+    ext._procSeen.clear();
+    procOf.clear();
+    ext._procIo = realProcIo;
+
+    // --- the queue, in the status bar ------------------------------------------
+    // data/ of a tool folder of the sandbox's own: job files as New-ChatqJobSlot
+    // names them, data/state.json as Save-ChatqWatchState writes it
+    const qTool = path.join(pk, 'qtool'), qData = path.join(qTool, 'data');
+    cfgVals['chatManager.folder'] = qTool;
+    fs.rmSync(qTool, { recursive: true, force: true });
+    fs.mkdirSync(path.join(qData, 'queue'), { recursive: true });
+    const qJob = (id, x) => fs.writeFileSync(path.join(qData, 'queue', id + '.json'),
+        JSON.stringify(Object.assign({ id, seq: Number(id.replace(/\D/g, '')) || 1, state: 'queued', provider: 'claude', home: null }, x)));
+    const qState = (x) => fs.writeFileSync(path.join(qData, 'state.json'), JSON.stringify(Object.assign({ pid: 999401, blocked: {}, outage: {}, listening: false }, x)));
+    const iso = (ms) => new Date(ms).toISOString();
+    const qnow = Date.now();
+    // the pure parts: the lanes' waits, the next send, the words
+    const blk = ext._queueBlocks({ blocked: { claude: { until: iso(qnow + HOUR), type: 'session' }, 'claude|/h2': { until: iso(qnow - MIN), type: 'session' } }, outage: { codex: {} } }, true, qnow);
+    check('queue: the lanes\' limits and overloads from the watcher\'s state - one ended left out; none where the watcher is down or only listening',
+        blk.claude.until === Date.parse(iso(qnow + HOUR)) && !blk['claude|/h2'] && blk.codex.type === 'overloaded' &&
+        Object.keys(ext._queueBlocks({ blocked: { claude: { until: iso(qnow + HOUR) } } }, false, qnow)).length === 0 &&
+        Object.keys(ext._queueBlocks({ blocked: { claude: { until: iso(qnow + HOUR) } }, listening: true }, true, qnow)).length === 0, JSON.stringify(blk));
+    const qn = (jobs, blocks) => ext._queueNext(jobs, blocks || {}, qnow);
+    const qx1 = qn([{ state: 'queued', provider: 'claude', notBefore: iso(qnow + 2 * HOUR) }, { state: 'queued', provider: 'claude' }, { state: 'done', provider: 'claude' }]);
+    const qx2 = qn([{ state: 'queued', provider: 'claude' }, { state: 'running', provider: 'claude', seq: 7 }]);
+    const qx3 = qn([{ state: 'queued', provider: 'claude', notBefore: iso(qnow + 2 * HOUR) }, { state: 'queued', provider: 'claude', retryAt: iso(qnow + HOUR), notBefore: iso(qnow - HOUR) }]);
+    const qx4 = qn([{ state: 'queued', provider: 'claude' }], { claude: { until: qnow + HOUR } });
+    const qx5 = qn([{ state: 'queued', provider: 'claude', home: '/h2' }], { claude: { until: qnow + HOUR } });
+    const qx6 = qn([{ state: 'queued', provider: 'claude' }, { state: 'queued', provider: 'codex', deferUntil: iso(qnow + 3 * HOUR) }], { claude: { type: 'overloaded' } });
+    const qx7 = qn([{ state: 'queued', provider: 'claude' }], { claude: { type: 'overloaded' } });
+    check('queue: the next send as Get-ChatqEta has it - one free now is next, or after the run going; else the soonest wait, each job\'s latest; a limit\'s end and a minute, by its own lane; an overload skipped, or when Claude is back',
+        qx1.count === 2 && qx1.next === 'now' && qx2.next === 'after' && qx2.seq === 7 && qx3.next === 'at' && qx3.at === Date.parse(iso(qnow + HOUR)) &&
+        qx4.next === 'at' && qx4.at === qnow + HOUR + MIN && qx5.next === 'now' && qx6.next === 'at' && qx6.at === Date.parse(iso(qnow + 3 * HOUR)) &&
+        qx7.next === 'back' && qn([{ state: 'done' }, { state: 'running', seq: 2 }]) === null, JSON.stringify([qx1, qx2, qx3, qx4, qx5, qx6, qx7]));
+    // a deferUntil that is only the next look: the board's words, no time
+    const qDefer = (x) => Object.assign({ state: 'queued', provider: 'claude', deferUntil: iso(qnow + 5 * MIN) }, x);
+    const qw1 = qn([qDefer({ deferWhy: 'in-use' })]);
+    const qw2 = qn([qDefer({ deferWhy: 'background', deferSince: iso(qnow - MIN) }), qDefer({ provider: 'codex', deferWhy: 'in-use' })]);
+    const qw3 = qn([qDefer({ deferWhy: 'in-use' }), { state: 'queued', provider: 'claude', notBefore: iso(qnow + 2 * HOUR) }]);
+    const qw4 = qn([qDefer({ deferWhy: 'background', retryAt: iso(qnow + HOUR) })]);
+    const qw5 = qn([qDefer({ deferWhy: 'vscode' })]);
+    const qw6 = qn([qDefer({ deferWhy: 'in-use', deferUntil: iso(qnow - MIN) })]);
+    const qw7 = qn([qDefer({ deferWhy: 'in-use' }), { state: 'queued', provider: 'codex' }], { codex: { type: 'overloaded' } });
+    check('queue: a job put off for a tab in use or a background command - its deferUntil only the next look - the board\'s words, no time; a later retry, a vscode hold, or another job\'s real time still a time; one past, free now',
+        qw1.next === 'waits' && qw1.words === 'waits for you to leave its tab' && qw2.next === 'waits' && qw2.words === 'waits for a background command' &&
+        qw3.next === 'at' && qw3.at === Date.parse(iso(qnow + 2 * HOUR)) && qw4.next === 'at' && qw4.at === Date.parse(iso(qnow + HOUR)) &&
+        qw5.next === 'at' && qw5.at === Date.parse(iso(qnow + 5 * MIN)) && qw6.next === 'now' && qw7.next === 'waits',
+        JSON.stringify([qw1, qw2, qw3, qw4, qw5, qw6, qw7]));
+    const midday = new Date(2026, 9, 1, 12, 0, 0).getTime();
+    const qt = (q, up) => ext._queueText(q, up === undefined ? true : up, midday);
+    const dotQ = ' ' + String.fromCharCode(0xb7) + ' ';
+    check('queue: the item\'s words, the board\'s - next, after #seq, a time today, a weekday before one later, when Claude is back; the watcher stopped said instead; none queued, no item',
+        qt({ count: 2, next: 'now' }).text === '$(clock) chatq 2 queued' + dotQ + 'next' &&
+        qt({ count: 1, next: 'after', seq: 7 }).text === '$(clock) chatq 1 queued' + dotQ + 'after #7' &&
+        qt({ count: 1, next: 'at', at: new Date(2026, 9, 1, 16, 5).getTime() }).text === '$(clock) chatq 1 queued' + dotQ + '16:05' &&
+        qt({ count: 1, next: 'at', at: new Date(2026, 9, 2, 9, 0).getTime() }).text === '$(clock) chatq 1 queued' + dotQ + 'Fri 09:00' &&
+        qt({ count: 3, next: 'back' }).text === '$(clock) chatq 3 queued' + dotQ + 'when Claude is back' &&
+        qt({ count: 2, next: 'now' }, false).text === '$(clock) chatq 2 queued' + dotQ + 'watcher stopped' && /chatqrun/.test(qt({ count: 2, next: 'now' }, false).tooltip) &&
+        /Click for the queue/.test(qt({ count: 1, next: 'after', seq: 7 }).tooltip) && qt(null) === null,
+        [qt({ count: 1, next: 'at', at: new Date(2026, 9, 2, 9, 0).getTime() }).text, qt({ count: 2, next: 'now' }, false).tooltip].join(' | '));
+    const qtw = qt({ count: 1, next: 'waits', words: 'waits for you to leave its tab' });
+    check('queue: a wait of no time in the board\'s words - and the tooltip promises no send time',
+        qtw.text === '$(clock) chatq 1 queued' + dotQ + 'waits for you to leave its tab' && /waits for you to leave its tab/.test(qtw.tooltip) && !/sends at/.test(qtw.tooltip),
+        qtw.text + ' | ' + qtw.tooltip);
+    // the item itself, from data/: the watcher's lock, its state, each job
+    // file read again only once it changed
+    const qItems = [];
+    const plainSb = stub.window.createStatusBarItem, plainAlign = stub.StatusBarAlignment;
+    stub.window.createStatusBarItem = (al, pr) => { const it = { text: '', shown: false, al, pr, show() { this.shown = true; }, hide() { this.shown = false; }, dispose() { } }; qItems.push(it); return it; };
+    stub.StatusBarAlignment = { Left: 1, Right: 2 };
+    const qIo = Object.assign({}, ext._overlayIo);
+    let lockUp = true;
+    const lockAsked = [];
+    Object.assign(ext._overlayIo, { platform: () => 'win32', lockHeld: (f) => { lockAsked.push(f); return lockUp; } });
+    const qu0 = ext._updateQueueItem(qnow);
+    qJob('j1', { notBefore: iso(qnow + 2 * HOUR) });
+    qJob('j2', { state: 'done' });
+    qState({});
+    const qu1 = ext._updateQueueItem(qnow);
+    const qi = ext._queueItem();
+    const qu1Item = qi ? { text: qi.text, shown: qi.shown, command: qi.command, pr: qi.pr } : null;
+    // the cache, by file reads: nothing changed, no job file read again;
+    // one rewritten, only that one
+    const jobReads = [];
+    const plainReadFile = fs.readFileSync;
+    let qReads0 = [], qReads1 = [];
+    fs.readFileSync = function (f, ...rest) {
+        if (path.basename(path.dirname(String(f))) === 'queue') jobReads.push(path.basename(String(f)));
+        return plainReadFile.call(this, f, ...rest);
+    };
+    try {
+        ext._updateQueueItem(qnow);
+        ext._updateQueueItem(qnow);
+        qReads0 = jobReads.slice();
+        qJob('j2', { state: 'done', note: 'rewritten' });
+        ext._updateQueueItem(qnow);
+        qReads1 = jobReads.slice(qReads0.length);
+    } finally { fs.readFileSync = plainReadFile; }
+    check('queue: each job file read again only once it changed - none while nothing did, then only the one rewritten',
+        qReads0.length === 0 && qReads1.join() === 'j2.json', qReads0.join() + ' / ' + qReads1.join());
+    // a job's file rewritten: read again; one not changed is not
+    const readsBefore = ext._readQueue().length;
+    qJob('j1', { notBefore: iso(qnow + 2 * HOUR), state: 'running' });
+    qJob('j3', {});
+    const qu2 = ext._updateQueueItem(qnow);
+    lockUp = false;
+    const qu3 = ext._updateQueueItem(qnow);
+    qJob('j3', { state: 'done' });
+    const qu4 = ext._updateQueueItem(qnow);
+    const qu4Shown = qi && qi.shown;
+    check('queue: the item from data/ - none before anything is queued; shown, the board\'s command on a click, beside the run\'s item; a job file changed read again; the watcher\'s lock down said; nothing queued, hidden',
+        qu0 === 'hidden' && qItems.length === 1 && qu1Item && qu1Item.shown && qu1Item.command === 'chatManager.showQueue' && qu1Item.pr === 49 &&
+        qu1 === '$(clock) chatq 1 queued' + dotQ + ext._queueText({ count: 1, next: 'at', at: Date.parse(iso(qnow + 2 * HOUR)) }, true, qnow).text.split(dotQ)[1] &&
+        readsBefore === 2 && qu2 === '$(clock) chatq 1 queued' + dotQ + 'after #1' && qu3 === '$(clock) chatq 1 queued' + dotQ + 'watcher stopped' &&
+        lockAsked.every(f => f === path.join(qData, 'watcher.lock')) && qu4 === 'hidden' && qu4Shown === false,
+        [qu0, qu1, qu2, qu3, qu4].join(' | ') + ' ' + qItems.length);
+    // off Windows the lock is only advisory: the pid the state saved answers
+    Object.assign(ext._overlayIo, { platform: () => 'darwin' });
+    aliveSet.add(999401);
+    const macUp = ext._watcherUp({ pid: 999401 });
+    aliveSet.delete(999401);
+    check('queue: off Windows the watcher is up while the pid its state saved is - not by its lock',
+        macUp && !ext._watcherUp({ pid: 999401 }) && !ext._watcherUp(null) && !ext._watcherUp({ pid: 'x' }));
+    // a click: the board in the Markdown preview, or said where there is none
+    const qCmds = [];
+    const plainExec = stub.commands.executeCommand;
+    stub.commands.executeCommand = async (c, a) => { qCmds.push(c + (a && a.fsPath ? ':' + a.fsPath : '')); };
+    reset();
+    const sq1 = await ext._showQueue();
+    fs.writeFileSync(path.join(qData, 'queue.md'), '# chatq\n');
+    const sq2 = await ext._showQueue();
+    check('queue: a click opens data/queue.md in the Markdown preview; no board yet - said, nothing opened',
+        sq1 === 'none' && asked[0] === ext._texts.noBoard && sq2 === 'shown' && qCmds.join() === 'markdown.showPreview:' + path.join(qData, 'queue.md'),
+        sq1 + ' ' + sq2 + ' ' + qCmds.join() + ' | ' + asked.join(' | '));
+    stub.commands.executeCommand = plainExec;
+    stub.window.createStatusBarItem = plainSb;
+    stub.StatusBarAlignment = plainAlign;
+    Object.assign(ext._overlayIo, qIo);
+    delete cfgVals['chatManager.folder'];
+    fs.rmSync(qTool, { recursive: true, force: true });
+
     // --- chats Claude Code leaves out of its lists -----------------------------
     // Its rule: the first entrypoint in a transcript's first 64 KB, else the
     // last in its last 64 KB; an SDK's hides the chat, and its tab opens blank.
@@ -1799,11 +2456,16 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         aliveSet.add(RUNNER);
         const jobF = path.join(rdata, 'queue', JOB + '.json'), logF = path.join(rdata, 'logs', JOB + '.jsonl');
         let rsN = 0;
+        // handoverId as Write-ChatRunState (src/chatrm.ps1) gives it: a
+        // handover's own id, else null unless the write passes the one
+        // before it
         const putRs = (x) => {
             const id = 'rs-' + (++rsN);
-            fs.writeFileSync(path.join(rdata, 'run-state'), JSON.stringify(Object.assign({ id, handoverId: id, kind: 'prompt', phase: 'handover', jobId: JOB, seq: 15,
+            const o = Object.assign({ id, kind: 'prompt', phase: 'handover', jobId: JOB, seq: 15,
                 provider: 'claude', sessionId: SID, title: 'T', cwd: projA, home: null, hostPids: [process.pid], runnerPid: RUNNER, away: false, beside: null,
-                log: logF, job: jobF, at: new Date().toISOString() }, x)));
+                log: logF, job: jobF, at: new Date().toISOString() }, x);
+            if (!(x && 'handoverId' in x)) o.handoverId = o.phase === 'handover' ? id : null;
+            fs.writeFileSync(path.join(rdata, 'run-state'), JSON.stringify(o));
             return id;
         };
         const putJob = (x, id) => fs.writeFileSync(path.join(rdata, 'queue', (id || JOB) + '.json'), JSON.stringify(Object.assign({ id: id || JOB, seq: 15,
@@ -1977,8 +2639,11 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         tabs.push(claudeTab(SID, 'T'));
         active.tab = tabs[0];
         stub.window.state.focused = false;
+        // a Show it offered here before and not taken: the view it was for
+        // goes with the tab
+        ext._unshown.set(SID, { id: 'h5-ran', kind: 'ran', sessionId: SID });
         const h5 = await runOnce();
-        const h5Calls = calls.join(), h5Recs = recs();
+        const h5Calls = calls.join(), h5Recs = recs(), h5Unshown = ext._unshown.has(SID);
         resetRun();
         putJob({});
         putRs({ away: true });
@@ -1990,6 +2655,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
             h5Recs[0].viewColumn === 1 && h5Recs[0].wasVisible === true && !h5Recs[0].restored &&
             h5b.acted === 'closing' && calls.join() === 'watch:1,close:T' && tabs.length === 1 && ext._isWatchTab(tabs[0]),
             h5Calls + ' / ' + calls.join() + ' ' + JSON.stringify(h5Recs));
+        check('handover: the tab closed forgets a Show it offered for it and not taken - the chat comes back from disk', !h5Unshown, String(h5Unshown));
         resetRun();
         putJob({});
         putRs({});
@@ -2032,17 +2698,23 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         // that command
         resetRun();
         putJob({});
-        putRs({ phase: 'running', beside: 'background' });
+        const hbId = putRs({ phase: 'running', beside: 'background', handoverId: null });
         tabs.push(claudeTab(SID, 'T'));
         active.tab = tabs[0];
         const hb = await runOnce();
         const hbCalls = calls.join(), hbAsked = asked.slice();
-        putRs({ phase: 'running', beside: 'background' });
+        // the same write looked at again, as the timer does: nothing more
+        const hbAgain = await runOnce();
+        const hbAgainCalls = calls.join();
+        // the job back in the queue at the limit, and run again beside the
+        // tab: a new run, said again - its live view, open already, left
+        putRs({ phase: 'running', beside: 'background', handoverId: null });
         const hb2 = await runOnce();
-        check('a run beside its tab, for a background command the chat runs: the tab left open, its live view beside it, the old view said stale - once a job',
+        check('a run beside its tab, for a background command the chat runs: the tab left open, its live view beside it, the old view said stale - once a run, and again for the job\'s next run',
             hb.acted === 'beside' && hbCalls === 'watch:-2:pf,warn' && hbAsked[0] === ext._texts.besideStale(rsT) && tabs.some(t => ext._isClaudeTab(t) && t.label === 'T') &&
-            !hbCalls.includes('close:') && ackOf() === null && hb2.acted === 'said' && calls.join() === hbCalls,
-            hbCalls + ' / ' + calls.join() + ' ' + JSON.stringify([hb, hb2]));
+            !hbCalls.includes('close:') && ackOf() === null && hbAgain.acted === null && hbAgainCalls === hbCalls &&
+            hb2.acted === 'beside' && calls.join() === hbCalls + ',warn' && ext._runOf({ id: hbId, handoverId: null }) === hbId,
+            hbCalls + ' / ' + calls.join() + ' ' + JSON.stringify([hb, hbAgain, hb2]));
 
         // the run's end: the chat put back
         const handOver = async (x) => {
@@ -2074,7 +2746,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         putJob({});
         putRs({});
         const lateRs = ext._readRunState();
-        putRs({ phase: 'running', beside: 'unsure' });
+        putRs({ phase: 'running', beside: 'unsure', handoverId: lateRs.id });
         tabs.push(claudeTab(SID, 'T'));
         active.tab = tabs[0];
         const l1 = await ext._onHandover(context, lateRs);
@@ -2096,34 +2768,48 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
             l3.acted === 'late' && ackOf() === null && calls.join() === '' && tabs.length === 1 && logged.some(l => /late - the watcher went on without it/.test(l)),
             JSON.stringify([l1, l1Calls, l2, l2Calls, l3, calls.join(), ackOf()]));
         // the run beside this window's view of the chat: the handover unsure,
-        // or timed out - the old view said stale, once a job
+        // or timed out - the old view said stale, once a run: a write of
+        // the same run - its handoverId - says nothing more
         resetRun();
         putJob({});
-        putRs({ phase: 'running', beside: 'unsure' });
+        // its handover gone by before this window looked
+        const l4Id = putRs({});
+        putRs({ phase: 'running', beside: 'unsure', handoverId: l4Id });
         tabs.push(claudeTab(SID, 'T'));
         active.tab = tabs[0];
         const l4 = await runOnce();
         const l4Calls = calls.join(), l4Asked = asked.slice();
-        putRs({ phase: 'running', beside: 'unsure' });
+        putRs({ phase: 'running', beside: 'unsure', handoverId: l4Id });
         const l5 = await runOnce();
         const pT = await handOver();
+        const pTId = ext._readRunState().id;
         calls.length = 0;
         asked.length = 0;
-        putRs({ phase: 'running', beside: 'timed-out' });
+        putRs({ phase: 'running', beside: 'timed-out', handoverId: pTId });
         const l6 = await runOnce();
         const l6Calls = calls.join(), l6Asked = asked.slice(), l6Kept = !!pT && !pT.disposed && pT.revealed.length === 0;
         resetRun();
         putJob({});
-        putRs({});
+        const l7Id = putRs({});
         await runOnce();
         const l7Calls = calls.join();
-        putRs({ phase: 'running', beside: 'unsure' });
+        putRs({ phase: 'running', beside: 'unsure', handoverId: l7Id });
         const l7 = await runOnce();
-        check('a run beside its tab after a handover unsure or timed out: the old view said stale, its live view beside - one open already left where it is; once a job, the handover\'s own word counting',
+        const l7After = calls.join();
+        // that job back in the queue at the limit, then run again beside the
+        // tab: its next run, a handover of its own - said again, the live
+        // view open already left where it is (its handover gone by unseen)
+        const l8Id = putRs({});
+        putRs({ phase: 'running', beside: 'unsure', handoverId: l8Id });
+        const l8 = await runOnce();
+        check('a run beside its tab after a handover unsure or timed out: the old view said stale, its live view beside - one open already left where it is; once a run, the handover\'s own word counting',
             l4.acted === 'beside' && l4Calls === 'watch:-2:pf,warn' && l4Asked[0] === ext._texts.handoverStale(rsT) && l5.acted === 'said' &&
             l6.acted === 'beside' && l6Calls === 'warn' && l6Asked[0] === ext._texts.handoverStale(rsT) && l6Kept &&
-            l7Calls === 'watch:-2:pf,warn' && l7.acted === 'said' && calls.join() === l7Calls,
-            JSON.stringify([l4, l4Calls, l4Asked, l5, l6, l6Calls, l6Asked, l6Kept, l7Calls, l7, calls.join()]));
+            l7Calls === 'watch:-2:pf,warn' && l7.acted === 'said' && l7After === l7Calls,
+            JSON.stringify([l4, l4Calls, l4Asked, l5, l6, l6Calls, l6Asked, l6Kept, l7Calls, l7, l7After]));
+        check('and the same job run beside the tab again, after the limit: a new run - the old view said stale again',
+            l8.acted === 'beside' && calls.join() === l7Calls + ',warn' && asked[asked.length - 1] === ext._texts.handoverStale(rsT),
+            JSON.stringify([l8, calls.join()]));
 
         const p1 = await handOver();
         p1.active = true;
@@ -2250,6 +2936,107 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         check('and a run whose panel was closed before the window went: put back once the moment after the start is over - asked, the panel gone',
             JSON.stringify(e9c.restored) === '[]' && JSON.stringify(e9d.restored) === '["asked"]' && asked.includes(ext._texts.ranClosed(rsT)),
             JSON.stringify([e9c, e9d]));
+        // its watch tab kept by VS Code but never shown again: the chat
+        // waits for it tabHold from the run's end, not the record's two
+        // days - then put back as for a closed view, the tab left
+        const p9e = await handOver();
+        p9e.onDispose();
+        const e9e = await endIt({});
+        const e9eRecs = recs();
+        ext._timing.tabHold = 40;
+        await new Promise(r => setTimeout(r, 60));
+        const e9g = await runOnce();
+        ext._timing.tabHold = 600000;
+        check('a watch tab kept but never brought back: the chat waits for it tabHold from the run\'s end, then is put back as for a closed view - asked - the tab left where it is',
+            JSON.stringify(e9e.restored) === '[]' && !e9eRecs[0].restored &&
+            JSON.stringify(e9g.restored) === '["asked"]' && asked.includes(ext._texts.ranClosed(rsT)) && !!recs()[0].restored && tabs.includes(p9e.tab) &&
+            logged.some(l => /its watch tab not brought back in 0 s - put back without it/.test(l)),
+            JSON.stringify([e9e, e9g, recs()]) + ' ' + logged.join(' | '));
+        // that tab shown after the put-back: VS Code brings its panel back,
+        // which says how the run ended, with Open chat - nothing opened or
+        // put back again
+        tabs.splice(tabs.indexOf(p9e.tab), 1);
+        const pr9e = stub.window.createWebviewPanel('chatManager.watch', 'x', { viewColumn: 1 }, {});
+        calls.length = 0;
+        asked.length = 0;
+        await ext._watchSerializer(context).deserializeWebviewPanel(pr9e, { jobId: JOB });
+        await drain();
+        const v9e = ext._watchViews.get(JOB);
+        check('and that tab shown after it: its panel back, saying how the run ended, with Open chat - nothing opened, asked or put back again',
+            !!v9e && v9e.panel === pr9e && !pr9e.disposed && /class="state ok"/.test(v9e.head) && v9e.head.includes('data-act="open"') &&
+            calls.join() === '' && asked.length === 0 && ext._tabWaits.size === 0,
+            calls.join() + ' ' + (v9e && v9e.head));
+        // the wait ends early: the tab shown before tabHold - its panel back
+        // through the serializer - or closed; either way put back once, the
+        // wait gone with it
+        const p9h = await handOver();
+        p9h.onDispose();
+        const e9h = await endIt({});
+        const e9hWait = ext._tabWaits.has(JOB);
+        tabs.splice(tabs.indexOf(p9h.tab), 1);
+        const pr9h = stub.window.createWebviewPanel('chatManager.watch', 'x', { viewColumn: 1 }, {});
+        pr9h.active = true;
+        calls.length = 0;
+        await ext._watchSerializer(context).deserializeWebviewPanel(pr9h, { jobId: JOB });
+        await drain();
+        const e9hCalls = calls.join(), e9hWaitAfter = ext._tabWaits.has(JOB);
+        const e9hAgain = await runOnce();
+        check('a watch tab brought back before tabHold: the wait ends - the chat put back in the panel\'s place, once, nothing left waiting',
+            JSON.stringify(e9h.restored) === '[]' && e9hWait && e9hCalls === OPEN + ',' + UNLOCK + ',dispose:watch' && pr9h.disposed &&
+            !e9hWaitAfter && !!recs()[0].restored && JSON.stringify(e9hAgain.restored) === '[]',
+            JSON.stringify([e9h, e9hWait, e9hCalls, e9hWaitAfter, e9hAgain]));
+        const p9i = await handOver();
+        p9i.onDispose();
+        const e9i = await endIt({});
+        const e9iWait = ext._tabWaits.has(JOB);
+        // closed unshown: no panel to come back
+        tabs.splice(tabs.indexOf(p9i.tab), 1);
+        asked.length = 0;
+        const e9j = await runOnce();
+        const e9jAgain = await runOnce();
+        check('a watch tab closed before tabHold: the wait ends - the chat put back as for a closed view, asked, once, nothing left waiting',
+            JSON.stringify(e9i.restored) === '[]' && e9iWait && JSON.stringify(e9j.restored) === '["asked"]' && asked.includes(ext._texts.ranClosed(rsT)) &&
+            !ext._tabWaits.has(JOB) && JSON.stringify(e9jAgain.restored) === '[]',
+            JSON.stringify([e9i, e9iWait, e9j, e9jAgain]));
+        // the clock: from the first look past restoreHold that finds the run
+        // over - none while a window just started still waits on the
+        // serializer
+        const p9k = await handOver();
+        p9k.onDispose();
+        ext._runClock.activatedAt = Date.now();
+        const e9k = await endIt({});
+        const e9kWait = ext._tabWaits.has(JOB);
+        ext._runClock.activatedAt = 0;
+        const t9k = Date.now();
+        const e9l = await runOnce();
+        const e9lAt = ext._tabWaits.get(JOB);
+        check('tabHold counts from the first look past restoreHold that finds the run over: no clock while a window just started waits, one set at the next look',
+            JSON.stringify(e9k.restored) === '[]' && !e9kWait && JSON.stringify(e9l.restored) === '[]' && typeof e9lAt === 'number' && e9lAt >= t9k,
+            JSON.stringify([e9k, e9kWait, e9l, e9lAt, t9k]));
+        // a wait begun after one run of a job, the job run again - back in
+        // the queue at the limit, then on - before the tab came back: the
+        // next run's end waits tabHold of its own, not what is left of the
+        // first
+        const p9m = await handOver();
+        p9m.onDispose();
+        ext._timing.tabHold = 40;
+        const e9m = await endIt({});
+        const e9mWait = ext._tabWaits.has(JOB);
+        putJob({});
+        putRs({ phase: 'running' });
+        await runOnce();
+        const e9mRunWait = ext._tabWaits.has(JOB);
+        await new Promise(r => setTimeout(r, 60));
+        const e9n = await endIt({});
+        const e9nWait = ext._tabWaits.has(JOB);
+        await new Promise(r => setTimeout(r, 60));
+        asked.length = 0;
+        const e9o = await runOnce();
+        ext._timing.tabHold = 600000;
+        check('a job run again while its record waits on a watch tab: the wait starts over - the next run\'s end waits tabHold of its own, then is put back',
+            JSON.stringify(e9m.restored) === '[]' && e9mWait && !e9mRunWait && JSON.stringify(e9n.restored) === '[]' && e9nWait &&
+            JSON.stringify(e9o.restored) === '["asked"]' && asked.includes(ext._texts.ranClosed(rsT)),
+            JSON.stringify([e9m, e9mWait, e9mRunWait, e9n, e9nWait, e9o]));
 
         // the status bar item
         resetRun();
@@ -3204,6 +3991,58 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         check('carry: the chat put back, its launch not come yet - the open done and the show queue free at once, the arm waiting, nothing said yet',
             JSON.stringify(eH.restored) === '["new"]' && nextUp === 'next' && heldMs < 5000 && ext._carryArms.has(SID) && noticed().length === 0,
             JSON.stringify([eH.restored, nextUp, heldMs, ext._carryArms.has(SID), noticed()]));
+        // the run's end, the chat not opened by chatq - asked, or its live
+        // view left up behind others - and opened another way meanwhile
+        // (Session history, the side bar): that launch takes both, armed as
+        // the run ended; no launch at all - nothing said once the arm goes;
+        // Open chat clicked after - its own arm takes over, and carries
+        const putBackNot = async (how, click) => {
+            onMake = click ? (sid) => launch(['--output-format', 'stream-json', '--resume=' + sid]) : null;
+            launch([R]);    // the check before left its arm waiting: taken
+            await handOver({ home: homeR });
+            uPut(S.real);
+            if (how === 'asked') panels[0].dispose(); else panels[0].active = false;
+            const infoWas = stub.window.showInformationMessage;
+            let clickIt = null;
+            stub.window.showInformationMessage = (m, ...b) => {
+                asked.push(m);
+                return m === ext._texts.ranClosed(rsT) ? new Promise(r => { clickIt = () => r('Open chat'); }) : Promise.resolve(undefined);
+            };
+            try {
+                logged.length = 0;
+                fakeCp.spawned.length = 0;
+                const e = await endIt({}, { home: homeR });
+                await within(ext._putBackLast());
+                const armed = ext._carryArms.has(SID);
+                if (click && clickIt) { clickIt(); await drain(); await settle(); }
+                else if (!click) launch(['--output-format', 'stream-json', R]);
+                return JSON.stringify([e.restored, armed, JSON.stringify(lastArgs()) === RA, noticed(), ext._carryArms.has(SID),
+                    logged.some(l => /^run 11111111 ended, the chat not opened again: Ultracode, effort max armed for its next launch here, for \d+ min$/.test(l)),
+                    logged.includes('spawn 11111111: carried Ultracode, effort max'), logged.includes('reopened 11111111: armed again by a newer open - its word, not this one')]);
+            } finally {
+                stub.window.showInformationMessage = infoWas;
+            }
+        };
+        const pb = [await putBackNot('asked'), await putBackNot('shown'), await putBackNot('asked', true)];
+        check('carry: the chat put back by no open of chatq\'s - asked, or its live view left up - armed as the run ends; a launch of it by other means takes Ultracode and max, logged, nothing said; Open chat clicked after - its own arm takes over, the launch carries both, the first arm says nothing',
+            pb.join(' ') === [JSON.stringify([['asked'], true, true, [], false, true, true, false]), JSON.stringify([['shown'], true, true, [], false, true, true, false]),
+                JSON.stringify([['asked'], true, true, [], false, true, true, false])].join(' '),
+            pb.join(' '));
+        ext._timing.putBackWait = 300;
+        onMake = null;
+        await handOver({ home: homeR });
+        uPut(S.real);
+        panels[0].dispose();
+        logged.length = 0;
+        const eQ = await endIt({}, { home: homeR });
+        await within(ext._putBackLast());
+        const qArmed = ext._carryArms.has(SID);
+        await new Promise(res => setTimeout(res, 600));
+        ext._timing.putBackWait = 30 * 60000;
+        check('carry: the chat put back by no open of chatq\'s, and no launch of it within timing.putBackWait - the arm gone, logged, nothing said',
+            JSON.stringify(eQ.restored) === '["asked"]' && qArmed && !ext._carryArms.has(SID) && noticed().length === 0 &&
+            logged.some(l => /^open 11111111: no launch of it within \d+ s - nothing carried$/.test(l)),
+            JSON.stringify([eQ.restored, qArmed, ext._carryArms.has(SID), noticed(), logged]));
         // deactivate: the arms dropped unsaid, child_process.spawn as it was
         ext.deactivate();
         const pkS = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'extension', 'package.json'), 'utf8')).contributes.configuration.properties['chatManager.keepSessionSettings'];
@@ -3876,22 +4715,26 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     cfgVals['chatManager.folder'] = path.join(sbx, 'tool2');
     ext.activate(ctxA);
     await settle();
-    check('the old one on another file than chatManager.folder\'s: this one handles its own - run-state too', !ext._oldWatchesMine() && watched.length === 3 &&
-        watched[0] === path.join(sbx, 'tool2', 'data', 'reload-request') && watched[2] === path.join(sbx, 'tool2', 'data', 'run-state'), watched.join());
+    check('the old one on another file than chatManager.folder\'s: this one handles its own - run-state and the overlay\'s reload answers too', !ext._oldWatchesMine() && watched.length === 4 &&
+        watched[0] === path.join(sbx, 'tool2', 'data', 'reload-request') && watched[2] === path.join(sbx, 'tool2', 'data', 'run-state') &&
+        watched[3] === ext._answerFile(), watched.join());
     watched.length = 0;
     delete cfgVals['chatManager.folder'];
     oldHere = false;
     ext.activate(ctxA);
     await settle();
-    check('without it, both request files are watched, in the tool folder, and data/run-state beside them', watched.length === 3 &&
+    check('without it, both request files are watched, in the tool folder, data/run-state beside them, and the overlay\'s answer to a reload', watched.length === 4 &&
         watched[0] === path.join(tool, 'data', 'reload-request') && watched[1] === path.join(tool, 'data', 'open-request') &&
-        watched[2] === path.join(tool, 'data', 'run-state'), watched.join());
+        watched[2] === path.join(tool, 'data', 'run-state') && watched[3] === ext._answerFile(), watched.join());
     check('and the palette has every command - the autostart switch among them',
         ['chatManager.installTerminal', 'chatManager.showLog', 'chatManager.openChat', 'chatManager.overlayAutoStart', 'chatManager.phoneAlerts'].every(c => registered.includes(c)),
         registered.join());
     check('and auto-continue\'s, 0.9.0', registered.includes('chatManager.autoContinue'), registered.join());
     check('and Watch the running queued prompt, and the watch panel\'s serializer, so a reload brings one back',
         registered.includes('chatManager.watchRun') && serialized.includes('chatManager.watch'), registered.join() + ' / ' + serialized.join());
+    const pkgCmds = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'extension', 'package.json'), 'utf8')).contributes.commands.map(c => c.command);
+    check('and Show the queue, the queue item\'s click - registered, and in the palette',
+        registered.includes('chatManager.showQueue') && pkgCmds.includes('chatManager.showQueue'), registered.join());
     await settle();
     check('activation, the loader in place: the overlay started once, from the tool folder\'s loader - however often it runs',
         ovFirst.join() === 'PS:Start-ChatOverlayAuto:' + path.join(tool, su.LOADER) && ovRan.length === 1, ovFirst.join() + ' / ' + ovRan.join());
@@ -4065,6 +4908,12 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         const hwCmd = sr._hostWorkCommand(4321, "D:\\h's");
         check('safe restart: the look asks Get-ChatHostWork of this host\'s pid, the Claude home quoted',
             /Get-ChatHostWork -HostPid 4321 -ConfigDir 'D:\\h''s'/.test(hwCmd) && /ConvertTo-ChatHostWorkJson/.test(hwCmd), hwCmd);
+        const hwNote = sr._hostWorkCommand(4321, '', 1700000000000.7);
+        const hwStart = sr._hostStart();
+        check('safe restart: the look leaves its note with this host\'s start, after the line it prints - only where the scripts have Save-ChatHostWorkNote; no start known, 0',
+            /\(ConvertTo-ChatHostWorkJson \$r\)\); if \(Get-Command Save-ChatHostWorkNote -EA SilentlyContinue\) \{ Save-ChatHostWorkNote \$r -HostStart 1700000000000 \} \}$/.test(hwNote) &&
+            /-HostStart 0 \}/.test(hwCmd) && /-HostStart 0 \}/.test(sr._hostWorkCommand(1, '', NaN)) && /-HostStart 0 \}/.test(sr._hostWorkCommand(1, '', -5)) &&
+            Number.isInteger(hwStart) && hwStart > 0 && hwStart <= Date.now(), hwNote + ' | ' + hwStart);
         const wk = sr._workingOf({ chats: [chat(SA, 'background'), chat(SB, '', true), chat(SC, '', false)] }, SB);
         check('safe restart: working - a background-only chat counts; one only written this minute counts, unless it is the run\'s own chat; an idle one never',
             wk.map(c => c.sessionId).join() === SA && sr._workingOf({ chats: [chat(SB, '', true)] }).length === 1 &&
@@ -4206,7 +5055,16 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
             const m4 = sr._movedSince(look, since);
             ext._readRegistry = () => new Map();
             const m5 = sr._movedSince(look, Date.now() + 60000);
+            // written as a window reloads - a record with no turn, no time -
+            // after a last turn of an hour ago: its mtime is fresh, it is not
+            const tTouched = path.join(srDir, SC + '.jsonl');
+            const hourAgo = Date.now() - 3600000;
+            fs.writeFileSync(tTouched, '{"type":"user","message":{"role":"user","content":"say \\"timestamp\\":\\"2099-01-01T00:00:00Z\\""},"timestamp":"' + new Date(hourAgo).toISOString() + '"}\n{"type":"cost-state"}\n');
+            const m6 = sr._movedSince({ chats: [chat(SC, '', false, tTouched)] }, since);
+            const lw = sr._lastWritten(tTouched), lwPlain = sr._lastWritten(tMoved);
             ext._readRegistry = regWas;
+            check('safe restart: a transcript written since the look is by its last turn\'s time - one only touched since, as a reload touches it, is not; no time in it at all, its mtime',
+                m6 === '' && Math.abs(lw - hourAgo) < 2 && Math.abs(lwPlain - fs.statSync(tMoved).mtimeMs) < 1, [m6, lw, hourAgo, lwPlain].join(' | '));
             check('safe restart: the registry\'s last word - a chat of the look busy now, a VS Code chat started since the look began, a transcript written since: each holds the reload; a terminal\'s claude does not',
                 m1 === SA.slice(0, 8) + ' busy' && m2 === SC.slice(0, 8) + ' started' && m3 === '' && m4 === SB.slice(0, 8) + ' written' && m5 === '',
                 [m1, m2, m3, m4, m5].join(' | '));
@@ -4364,7 +5222,10 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
             e3 === 0 && e3Said.length === 2 && e3Said[0].b.join() === 'Reload,Not now' && /would stop the chat working here/.test(e3Said[1].m),
             e3 + ' ' + JSON.stringify(e3Said));
 
-        // the question left unanswered for good holds no show behind it
+        // the question left unanswered for good holds no show behind it -
+        // any other check's left unanswered forgotten first, so the overlay's
+        // list below holds this one alone
+        ext._pendingAsks.clear();
         const warnWas = stub.window.showWarningMessage;
         stub.window.showWarningMessage = () => new Promise(() => { });
         verdict = as([chat(SB, 'background')]);
@@ -4376,6 +5237,102 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         check('reload guard: its question, never answered, holds up no show queued after it', qNext && reloads() === 0, qNext + ' ' + srCalls.join());
         await qFirst;
         srReset();
+
+        // that question, on the overlay too: listed in reload-pending/<pid>
+        // .json while it is up, and the overlay's reload is its Reload anyway
+        {
+            const readJson = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return null; } };
+            const answer = (id, a, at) => {
+                fs.mkdirSync(path.dirname(ext._answerFile()), { recursive: true });
+                fs.writeFileSync(ext._answerFile(), String.fromCharCode(0xFEFF) + JSON.stringify({ id, answer: a, at: at || new Date().toISOString() }));
+                return ext._onReloadAnswer();
+            };
+            const p1 = readJson(ext._pendingFile());
+            const a1 = p1 && p1.asks[0];
+            check('reload on the overlay: an unanswered reload question is listed for it - this host\'s pid, when it started, its window, the ask\'s id, state and line',
+                p1 && p1.pid === process.pid && typeof p1.started === 'number' && p1.window === 'projA' && p1.asks.length === 1 &&
+                a1.state === 'anyway' && a1.say === 'it would stop 1 working chat' && /would stop the chat working here/.test(a1.text) &&
+                path.dirname(ext._pendingFile()) === path.join(reloadData, 'reload-pending'), JSON.stringify(p1));
+            const r1 = answer(a1.id, 'reload');
+            await settle();
+            check('reload on the overlay: its reload is the notice\'s Reload anyway - the window reloads, the answer and the listing both gone',
+                r1 === 'reload' && reloads() === 1 && !fs.existsSync(ext._pendingFile()) && !fs.existsSync(ext._answerFile()) && !ext._pendingAsks.size,
+                r1 + ' ' + srCalls.join());
+            srReset();
+            // later: every ask of this window off the overlay, the notices
+            // still up and still answering
+            let letGo = null;
+            stub.window.showWarningMessage = (m, ...b) => new Promise(r => { letGo = r; });
+            stub.window.showInformationMessage = (m, ...b) => new Promise(() => { });
+            let picked = 'none';
+            ext._askReload(false, 'Reload?', 'Reload', ext._askSay({ kind: 'deleted', title: 'Old chat' })).then(p => { picked = p; });
+            ext._askReload(true, 'Reload anyway?', 'Reload anyway', 'x').then(p => { picked = p; });
+            const p2 = readJson(ext._pendingFile());
+            const ids2 = p2 ? p2.asks.map(a => a.id) : [];
+            const st2 = p2 ? p2.asks.map(a => a.state).join() : '';
+            // later on the older: an ask made since - not yet on the overlay
+            // when it was answered - stays; later on the newest, all go
+            const r2a = answer(ids2[0], 'later');
+            const kept2 = [...ext._pendingAsks.keys()].join();
+            const r2 = answer(ids2[1], 'later');
+            await tick();
+            const gone2 = !fs.existsSync(ext._pendingFile()) && !ext._pendingAsks.size && picked === 'none';
+            letGo('Reload anyway');
+            await tick();
+            check('reload on the overlay: later takes the ask it answered, and those before it, off; one asked since stays; the notice left up still answers',
+                ids2.length === 2 && ids2[0] !== ids2[1] && st2 === 'offered,anyway' && p2.asks[0].say === '"Old chat" deleted - the chat list still shows it' &&
+                r2a === 'later' && kept2 === ids2[1] && r2 === 'later' && gone2 && picked === 'Reload anyway' && !fs.existsSync(ext._pendingFile()),
+                [ids2.join(), st2, r2a, kept2, r2, gone2, picked].join(' '));
+            srReset();
+            // answered on the overlay, its notice cannot be taken down: its
+            // button there still acts - Reload anyway reloads
+            let letGo2 = null, picked2 = 'none';
+            stub.window.showWarningMessage = (m, ...b) => new Promise(r => { letGo2 = r; });
+            ext._askReload(true, 'Reload anyway?', 'Reload anyway', 'x').then(p => { picked2 = p; });
+            const r7 = answer(ext._pendingAsks.keys().next().value, 'reload');
+            await tick();
+            const n7 = reloads();
+            letGo2('Reload anyway');
+            await settle();
+            check('reload on the overlay: the notice\'s own button, clicked after the overlay answered it, still reloads',
+                r7 === 'reload' && picked2 === 'Reload anyway' && n7 === 0 && reloads() === 1, [r7, picked2, n7, reloads()].join());
+            srReset();
+            // an answer to an ask no longer open, or an old one: nothing
+            stub.window.showWarningMessage = () => new Promise(() => { });
+            ext._askReload(true, 'Reload anyway?', 'Reload anyway', 'x');
+            const id3 = ext._pendingAsks.keys().next().value;
+            const r3 = answer('nope-1', 'reload');
+            const r4 = answer(id3, 'reload', new Date(Date.now() - 11 * 60000).toISOString());
+            const r5 = answer(id3, 'maybe');
+            const r6 = ext._onReloadAnswer();
+            await settle();
+            check('reload on the overlay: an answer to no open ask, one over ten minutes old, or no answer at all does nothing - and is removed',
+                r3 === 'stale' && r4 === 'stale' && r5 === 'stale' && r6 === 'none' && reloads() === 0 && ext._pendingAsks.size === 1 &&
+                fs.existsSync(ext._pendingFile()) && !fs.existsSync(ext._answerFile()), [r3, r4, r5, r6, reloads()].join());
+            ext._pendingAsks.clear();
+            ext._writePending();
+            stub.window.showWarningMessage = warnWas;
+            stub.window.showInformationMessage = async (m, ...b) => { srAsked.push({ m, b, kind: 'info' }); return b.includes(srAnswer.info) ? srAnswer.info : undefined; };
+            // at activation: the files of windows gone swept, a live one's kept
+            const pd = path.dirname(ext._pendingFile()), ad = path.dirname(ext._answerFile());
+            fs.mkdirSync(ad, { recursive: true });
+            for (const n of ['424242.json', '515151.json', '424242.json.tmp', process.pid + '.json', 'notes.txt']) fs.writeFileSync(path.join(pd, n), '{}');
+            fs.writeFileSync(path.join(ad, '424242.json'), '{}');
+            const aliveWas = ext._alive;
+            ext._alive = (p) => p === 515151;
+            ext._sweepPending();
+            ext._alive = aliveWas;
+            const left = fs.readdirSync(pd).sort().join(), leftA = fs.readdirSync(ad).join();
+            check('reload on the overlay: activation sweeps the files of hosts gone, and this host\'s own - a live window\'s stay',
+                left === '515151.json,notes.txt' && leftA === '', left + ' / ' + leftA);
+            check('reload on the overlay: the line each request gets there',
+                ext._askSay({ kind: 'archived', title: 'A' }) === '"A" archived - the chat list still shows it' &&
+                ext._askSay({ kind: 'ran', title: 'R' }) === 'a queued prompt ran in "R" - a reload shows it' &&
+                ext._askSay({ kind: 'deleted' }) === 'a chat deleted - the chat list still shows it' && ext._askSay({ kind: 'other' }) === 'a reload is waiting',
+                [ext._askSay({ kind: 'archived', title: 'A' }), ext._askSay({ kind: 'ran', title: 'R' })].join(' | '));
+            fs.rmSync(reloadData, { recursive: true, force: true });
+            srReset();
+        }
 
         sr._stopWait();
         sr._now = () => Date.now();

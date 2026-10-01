@@ -235,7 +235,7 @@ function Update-ChatqUsageAlerts {
         $cfg = Get-ChatqLiveAlertConfig $Ctx $Now
         $uc = Get-ChatqUsageAlertConfig $cfg
         if (-not $uc.Alerts) { return }
-        $phones = ($cfg.PSObject.Properties['join'] -and $cfg.join) -or ($cfg.PSObject.Properties['ntfy'] -and $cfg.ntfy)
+        $phones = Test-ChatqPhoneChannel $cfg
         $toastOn = -not ($cfg.PSObject.Properties['toast'] -and $cfg.toast -eq $false)
         if (-not $phones -and -not $toastOn) { return }
         if (-not $toastOn -and -not (Test-ChatqPhoneEvent $cfg 'usage')) { return }
@@ -969,7 +969,6 @@ function Get-ChatqNotifyExtrasStatus {
     if ($uc.Alerts) {
         if (-not $script:ChatqIsWindows) { $ut += ' - only the Windows overlay checks' }
         elseif (-not (Test-ChatqLockHeld $script:ChatOverlayLockPath)) { $ut += ' - the overlay is not running, so none go now (chatoverlay)' }
-        elseif (Test-ChatqOverlayStale) { $ut += ' - the overlay runs an older copy - chatoverlay -Stop, then chatoverlay' }
     }
     & $add "usage    $ut $d resets $(if ($uc.Reset) { 'on' } else { 'off' })"
     if (($uc.Alerts -or $uc.Reset) -and -not (Test-ChatqPhoneEvent $Cfg 'usage')) { & $add "    usage heads-ups are on, but 'usage' is not among the phone's events" 'Yellow' }

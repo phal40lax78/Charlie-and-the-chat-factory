@@ -138,4 +138,92 @@ $dl = Get-ChatqAttachDir $jl
 chatqrm $jl.seq *> $null
 Check 'chatqrm takes the job''s files with it' (-not (Test-Path -LiteralPath $dl))
 foreach ($x in @(Get-ChatqJobs | Where-Object { $_.id -in @($ja.id, $jc.id, $jp.id, $jf.id, $jt.id, $jt2.id, $jd.id, $jw.id) })) { chatqrm $x.seq -Force *> $null }
+
+# chatq -New: a prompt for a chat not made yet, from the shell - its folder
+# relative to the shell's own, named or named by its first line, with the
+# files, the time and the mode a prompt for any chat takes
+$nwSaid = Lock-Queue { chatq -New $newDir 'Docs pass' -Prompt "write the docs`nall of them" -Attach $png -Mode acceptEdits -In 2h -First 6>&1 | Out-String -Width 400 }
+$nw = @(Get-ChatqJobs | Where-Object { $_.kind -eq 'new' -and $_.title -eq 'Docs pass' })[0]
+Check 'chatq -New queues a new chat''s job: named, in that folder, with its file, mode, time and place' (
+    $nw -and $nw.cwd -eq $newDir -and $nw.rule -eq 'new' -and $nw.sessionId -match '^[0-9a-f-]{36}$' -and (Read-ChatqPrompt $nw) -eq "write the docs`nall of them" -and
+    @(Get-ChatqAttachments $nw).Count -eq 1 -and $nw.mode -eq 'acceptEdits' -and $nw.notBefore -and $nw.first) $nwSaid
+Check 'and says how to reach the chat once its first run makes it' ($nwSaid -like "*a new chat 'Docs pass'*" -and $nwSaid -like "*chatq $($nw.sessionId.Substring(0, 8)) writes to it*") $nwSaid
+Push-Location -LiteralPath $sb
+try { Lock-Queue { chatq -New 'work\fresh project' -Prompt "  `nfix the build`nthen the tests" *> $null } } finally { Pop-Location }
+$nwRel = @(Get-ChatqJobs | Where-Object { $_.kind -eq 'new' -and $_.title -eq 'fix the build' })[0]
+Check 'a folder relative to the shell''s, and no name: the first line names it' ($nwRel -and $nwRel.cwd -eq $newDir) "$($nwRel.cwd)"
+# the editor, through a stand-in that writes the prompt as a tab would
+$edKeep = ${function:Invoke-ChatqEditor}
+${function:Invoke-ChatqEditor} = { param($Path) [System.IO.File]::AppendAllText($Path, "plan the release`nstep by step", [System.Text.UTF8Encoding]::new($false)) }
+try { Lock-Queue { chatq -New $newDir *> $null } } finally { ${function:Invoke-ChatqEditor} = $edKeep }
+$nwEd = @(Get-ChatqJobs | Where-Object { $_.kind -eq 'new' -and $_.title -eq 'plan the release' })[0]
+Check 'no -Prompt: the editor, and its first line names the chat and its prompt file' (
+    $nwEd -and (Read-ChatqPrompt $nwEd) -eq "plan the release`nstep by step" -and $nwEd.promptFile -eq "#$($nwEd.seq) plan the release.md" -and
+    (Test-Path -LiteralPath (Get-ChatqPromptPath $nwEd))) "$($nwEd.title) $($nwEd.promptFile)"
+$script:ChatqClipboardSeam = { [pscustomobject]@{ Image = $null; Files = @(); Text = 'from the clipboard' } }
+Lock-Queue { chatq -New $newDir -Paste *> $null }
+$script:ChatqClipboardSeam = $null
+$nwCb = @(Get-ChatqJobs | Where-Object { $_.kind -eq 'new' -and $_.title -eq 'from the clipboard' })[0]
+Check '-Paste: the clipboard''s text is a new chat''s prompt' ($nwCb -and (Read-ChatqPrompt $nwCb) -eq 'from the clipboard')
+$nwN = @(Get-ChatqJobs).Count
+$nwRefused = foreach ($c in @(
+        { chatq -New $newDir -Prompt 'x' -WhatIf }, { chatq -New (Join-Path $sb 'no such folder') -Prompt 'x' }, { chatq -New $newDir -Continue },
+        { chatq -New $newDir -Prompt 'x' -Provider codex }, { chatq -New $newDir -Prompt ' ' }, { chatq -New '' -Prompt 'x' })) {
+    Lock-Queue { & $c 6>&1 | Out-String -Width 400 }
+}
+Check '-WhatIf, a folder not there, -Continue, Codex, no prompt and no folder queue nothing, and say why' (
+    @(Get-ChatqJobs).Count -eq $nwN -and $nwRefused[0] -like '*-WhatIf: nothing queued*' -and $nwRefused[1] -like '*no such folder*' -and
+    $nwRefused[2] -like '*nothing to continue*' -and $nwRefused[3] -like '*a Claude chat*' -and $nwRefused[4] -like '*empty prompt*' -and
+    $nwRefused[5] -like "*takes the new chat's folder*") ($nwRefused -join ' / ')
+# its first run makes the chat; then chatq finds it by its id's first 8
+$env:FAKE_NEW_CHAT = '1'
+Invoke-ChatqJob (New-ChatqWatchState) (Find-ChatqJob $nwRel.id)
+Remove-Item env:FAKE_NEW_CHAT
+Remove-Item -LiteralPath $script:ChatReloadPath -Force -EA SilentlyContinue
+$nwPick = (chatq $nwRel.sessionId.Substring(0, 8) -Prompt 'and the docs' -WhatIf 6>&1 | Out-String -Width 400)
+Check 'once run, chatq <its id''s first 8> picks the chat it made' ((Find-ChatqJob $nwRel.id).state -eq 'done' -and $nwPick -like '*fix the build*' -and $nwPick -like '*-WhatIf: nothing queued*') $nwPick
+$nwEsc = Format-ChatqNewChatTitle "$([char]27)[31mfix it$([char]7)`nmore"
+Check 'a first line with an ESC or BEL pasted in names the chat without them' ($nwEsc -eq '[31mfix it' -and $nwEsc -notmatch '[\x00-\x1f]') $nwEsc
+Check 'Tab offers no chat''s title as a new chat''s name, and still does without -New' (
+    -not @(& $script:ChatTitleCompleter 'chatq' 'Target' 'Deadline' $null @{ New = '.' }).Count -and
+    @(& $script:ChatTitleCompleter 'chatq' 'Target' 'Deadline' $null @{}).Count)
+foreach ($x in @(Get-ChatqJobs | Where-Object { $_.id -in @($nw.id, $nwRel.id, $nwEd.id, $nwCb.id) })) { chatqrm $x.seq -Force *> $null }
 Remove-Item env:FAKE_RECORD
+# An image pasted into a prompt tab that was then cancelled: nothing moves it
+# into a job, so the watcher sweeps what no prompt links to once a day old -
+# by the newer of its two times. Never what is linked, young, a job's folder
+# (even with no .json yet), or the queue's own files; a folder VS Code made
+# goes once empty and old itself. A prompt that cannot be read stops it all.
+$swQ = $script:ChatqQueueDir
+$swOld = (Get-Date).AddDays(-2)
+$swAge = { param($p, [switch]$KeepCreated) $i = Get-Item -LiteralPath $p -Force; if (-not $KeepCreated) { $i.CreationTime = $swOld }; $i.LastWriteTime = $swOld }
+$swFiles = @{ stray = 'stray.png'; young = 'young.png'; linked = 'linked shot.png'; created = 'created-now.png'; cancel = 'sweep-job.cancel'; tmp = '#992 Sweep.md.tmp'; md = '#991 Old prompt.md' }
+foreach ($k in $swFiles.Keys) { [System.IO.File]::WriteAllBytes((Join-Path $swQ $swFiles[$k]), [byte[]](0x89, 0x50, 0x4E, 0x47)) }
+$swPrompt = Join-Path $swQ '#990 Sweep test.md'
+[System.IO.File]::WriteAllText($swPrompt, 'see ![a](<linked shot.png>) and ![b](vsimg/kept.png)', $utf8)
+$swVs = Join-Path $swQ 'vsimg'
+$swVsNew = Join-Path $swQ 'vsnew'
+$swJob = Join-Path $swQ '20260101-000000-5w5w'
+foreach ($d in (Join-Path $swVs 'deep'), $swVsNew, $swJob) { $null = New-Item -ItemType Directory -Path $d -Force }
+foreach ($f in (Join-Path $swVs 'kept.png'), (Join-Path $swVs 'deep\gone.png'), (Join-Path $swVsNew 'gone2.png'), (Join-Path $swJob 'attached.png')) { [System.IO.File]::WriteAllBytes($f, [byte[]](1, 2)) }
+foreach ($k in 'stray', 'linked', 'cancel', 'tmp', 'md') { & $swAge (Join-Path $swQ $swFiles[$k]) }
+& $swAge (Join-Path $swQ $swFiles.created) -KeepCreated
+foreach ($p in (Join-Path $swVs 'kept.png'), (Join-Path $swVs 'deep\gone.png'), (Join-Path $swVs 'deep'), $swVs, (Join-Path $swVsNew 'gone2.png'), (Join-Path $swJob 'attached.png'), $swJob) { & $swAge $p }
+# a prompt held open by another program: nothing goes
+$swHold = [System.IO.File]::Open($swPrompt, 'Open', 'ReadWrite', 'None')
+try { $sw0 = @(Clear-ChatqStrayFiles) } finally { $swHold.Dispose() }
+$sw0Kept = Test-Path -LiteralPath (Join-Path $swQ $swFiles.stray)
+$sw1 = @(Clear-ChatqStrayFiles)
+$swGone = (@($sw1 | ForEach-Object { $_.Substring($swQ.Length + 1) } | Sort-Object) -join '|')
+$swLeft = (@('stray', 'young', 'linked', 'created', 'cancel', 'tmp', 'md' | Where-Object { Test-Path -LiteralPath (Join-Path $swQ $swFiles[$_]) }) -join ',')
+Check 'a prompt that cannot be read: nothing swept' (-not $sw0.Count -and $sw0Kept) "$($sw0 -join '|')"
+Check 'the sweep: a day-old file no prompt links to, at the root or in a folder VS Code made, goes - and that folder once empty and old; linked, young, a job''s or the queue''s own stay' (
+    $swGone -eq 'stray.png|vsimg\deep|vsimg\deep\gone.png|vsnew\gone2.png' -and $swLeft -eq 'young,linked,created,cancel,tmp,md' -and
+    (Test-Path -LiteralPath (Join-Path $swVs 'kept.png')) -and (Test-Path -LiteralPath $swVsNew) -and (Test-Path -LiteralPath (Join-Path $swJob 'attached.png'))) "$swGone / $swLeft"
+$sw2 = @(Clear-ChatqStrayFiles -Now (Get-Date).AddDays(3))
+Remove-Item -LiteralPath $swPrompt -Force
+$sw3 = @(Clear-ChatqStrayFiles -Now (Get-Date).AddDays(3))
+Check 'a day on, the young ones go too; a prompt''s link keeps its file until the prompt goes' (
+    @($sw2 | Where-Object { $_ -like '*young.png' -or $_ -like '*created-now.png' }).Count -eq 2 -and -not @($sw2 | Where-Object { $_ -like '*linked shot.png' -or $_ -like '*kept.png' }).Count -and
+    @($sw3 | Where-Object { $_ -like '*linked shot.png' }).Count -eq 1 -and -not (Test-Path -LiteralPath $swVs) -and (Test-Path -LiteralPath (Join-Path $swJob 'attached.png'))) "$($sw2 -join '|') // $($sw3 -join '|')"
+foreach ($p in $swJob, (Join-Path $swQ $swFiles.cancel), (Join-Path $swQ $swFiles.tmp), (Join-Path $swQ $swFiles.md)) { Remove-Item -LiteralPath $p -Recurse -Force -EA SilentlyContinue }

@@ -597,7 +597,7 @@ function Update-ChatqReplyFull {
         # made with what the first link carried too: a soon usage alert's
         # w=1 and a permission request's sealed card (New-ChatqReplyAlert)
         $Reply.Link = Get-ChatqReplyLink $Rc $Reply.Aid $Event $Job -Full:$full -At ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()) `
-            -UsageKind ([string](Get-ChatField $Reply 'UsageKind')) -Card ([string](Get-ChatField $Reply 'Card'))
+            -UsageKind ([string](Get-ChatField $Reply 'UsageKind')) -Card ([string](Get-ChatField $Reply 'Card')) -Status ([string](Get-ChatField $Reply 'Status'))
     }
     catch {}
 }

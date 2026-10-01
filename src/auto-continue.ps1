@@ -206,7 +206,11 @@ function Get-ChatqAskExtra {
     for ($i = 0; $i -lt $ii.Count -and $i -lt $kk.Count; $i++) {
         if (-not $kk[$i] -or -not $ii[$i]) { continue }
         $r = ConvertTo-ChatqDate (Get-ChatField $ii[$i] 'ResetsAt')
-        $out[[string]$kk[$i]] = [ordered]@{ sessionId = [string](Get-ChatField $ii[$i] 'Id'); resetsAt = $(if ($r) { $r.ToUniversalTime().ToString('o') } else { $null }) }
+        $x = [ordered]@{ sessionId = [string](Get-ChatField $ii[$i] 'Id'); resetsAt = $(if ($r) { $r.ToUniversalTime().ToString('o') } else { $null }) }
+        # a window's restart cut it, not the limit: it has no reset, and
+        # holds nothing of this mode's (Get-ChatRestartCutOffs)
+        if ([string](Get-ChatField $ii[$i] 'Why') -eq 'restart') { $x['why'] = 'restart' }
+        $out[[string]$kk[$i]] = $x
     }
     return $out
 }
@@ -258,6 +262,17 @@ function Get-ChatqAutoMarkerJobs {
     return @($Jobs | Where-Object { $_ -and [string]$_.sessionId -eq $SessionId -and [int]$_.seq -in $seqs })
 }
 
+function Test-ChatqAutoHeldElsewhere {
+    # Held by a process that is not a VS Code panel's: a terminal's claude, a
+    # background session, claude -p. Claude Code's own wait continues it
+    # there, and a continue queued here would be a second writer.
+    param([string]$SessionId, [object[]]$Live)
+    return [bool]@($Live | Where-Object {
+            $_ -and [string](Get-ChatField $_ 'SessionId') -eq $SessionId -and -not (
+                ([string](Get-ChatField $_ 'Kind') -in '', 'interactive') -and [string](Get-ChatField $_ 'Entrypoint') -eq 'claude-vscode')
+        }).Count
+}
+
 function Get-ChatqAutoState {
     <#
     What auto-continue does with one cut-off (a Get-ChatqCutOffChats row),
@@ -266,39 +281,53 @@ function Get-ChatqAutoState {
     markers and -Now come in; -Eta is Get-ChatqEta's answer, for the time a
     queued continue goes. Words are the overlay row's, short: the reason
     they leave out is in Long (the chip's tooltip, the console, -Print,
-    chatqlist) and Why. The checks, in order:
-      overloaded  a 529, not the limit - left as it was
+    chatqlist) and Why. A 529 Overloaded goes through the same checks: it
+    has no reset, so its continue is due at once and waits in the watcher
+    for Claude to be back (Enter-ChatqAutoOutage), not for a time. The
+    checks, in order:
+      restart     a VS Code window's restart cut it off - only ever asked about
       running / armed / due   a continue auto-continue queued: running, the
-                  reset still ahead, or past it and waiting its turn
+                  reset still ahead, or past it and waiting its turn - a
+                  529's is due
       never, off  the chat set to never; the switch not on and it not always
+                  (off keeps the row's old words: cut off - resets 13:00);
+                  a 529's is overloaded then, the row as it always was
       terminal    a live process other than a VS Code panel's holds it
       stopped     2 auto-continues in a row failed, on this cut-off
       failed, declined   its marker: the job failed, or was removed or
                   skipped, or the reset ask was answered leave - or the job
                   could not be made (failed)
       far         before since, over 12 h old, or its reset over 24 h after it
-      late        first seen over 30 min after its reset
+      late        first seen over 30 min after its reset - a 529's, over
+                  30 min after it
       ready       none of them: the scan queues it
     #>
     param($CutOff, [object[]]$Jobs, [object[]]$Live, $Config, [hashtable]$Markers, [datetime]$Now = (Get-Date), [hashtable]$Eta)
     $d = $script:ChatqDot
     $sid = [string]$CutOff.Id
-    $reset = $CutOff.ResetsAt
-    $when = if ($reset -and $reset -gt $Now) { "resets $(Format-ChatqAutoTime $reset $Now)" } else { 'limit over' }
+    # anything not the limit is the server's trouble: a 529, or another 5xx
+    # (Get-ChatqLastTurn) - Claude being back ends it, never a reset
+    $ov = [string]$CutOff.Why -ne 'limit'
+    $reset = if ($ov) { $null } else { $CutOff.ResetsAt }
+    $when = if ($ov) { '529' } elseif ($reset -and $reset -gt $Now) { "resets $(Format-ChatqAutoTime $reset $Now)" } else { 'limit over' }
+    $lead = if ($ov) { 'cut off by a 529' } else { "cut off - $when" }
     # the row's words are short - at the panel's default width a long state
     # leaves the title a few letters - so each tag has a one-word form there
     $brief = @{ 'never auto' = 'never'; 'in a terminal' = 'terminal'; 'auto stopped' = 'stopped'; 'auto-continue failed' = 'failed'; 'not continued' = 'skipped'; 'by hand' = 'by hand' }
     $make = {
         param([string]$State, [string]$Short, [string]$Tag, [string]$Why, $Job, [string]$Long, [string]$At)
-        $w = if ($Short) { $Short } elseif ($Tag) { "$when $d $($brief[$Tag])" } else { $when }
-        $l = if ($Long) { $Long } elseif ($Tag) { "cut off - $when $d $Tag" } else { "cut off - $when" }
+        $w = if ($Short) { $Short } elseif ($Tag) { "$when $d $($brief[$Tag])" } elseif ($ov) { '529 - waits for Claude' } else { $when }
+        $l = if ($Long) { $Long } elseif ($Tag) { "$lead $d $Tag" } else { $lead }
         [pscustomobject]@{
             State = $State; Words = $w; Long = $l; Tag = $Tag; Why = $Why; At = $At; Job = $Job
             Seq = $(if ($Job) { [int]$Job.seq } else { $null }); JobId = $(if ($Job) { [string]$Job.id } else { $null })
         }
     }
-    if ($CutOff.Why -ne 'limit') {
-        return (& $make 'overloaded' '529 - waits for Claude' '' 'Claude was overloaded (a 529) - auto-continue is for the usage limit only' $null '529 - waits for Claude')
+    $cutAt = if ($CutOff.At) { " at $(Format-ChatqAutoTime $CutOff.At $Now)" } else { '' }
+    # a VS Code window's restart (Get-ChatRestartCutOffs): never continued by
+    # itself, whatever the switch or the chat says - the reset ask offers it
+    if ($CutOff.Why -eq 'restart') {
+        return (& $make 'restart' 'cut off - VS Code restarted' '' 'a VS Code window restarted under it - auto-continue never continues one by itself; the reset ask offers it' $null 'cut off - VS Code restarted')
     }
     # a continue auto-continue queued for it: running, or waiting
     $job = @($Jobs | Where-Object { $_ -and [string]$_.sessionId -eq $sid -and [string]$_.state -in 'queued', 'running' -and (Get-ChatField $_ 'auto') }) | Select-Object -First 1
@@ -307,6 +336,14 @@ function Get-ChatqAutoState {
         $e = if ($Eta) { [string]$Eta[[string]$job.id] } else { '' }
         $at = ($e -replace '\s*\([^)]*\)$', '').Trim()
         $note = if ($e -match '\(([^)]*)\)$') { $Matches[1] } else { '' }
+        if ($ov) {
+            # no time to wait for: the watcher sends it once Claude is back -
+            # at once when a probe says so, or behind the jobs before it
+            if ($at -in '', 'next', 'when Claude is back') { $at = 'when Claude is back' }
+            $short = if ($at -eq 'when Claude is back') { "#$($job.seq) auto $d 529" } else { "#$($job.seq) auto $at" }
+            $why = "a 529 cut it off$cutAt, and auto-continue sends ""continue"" $(if ($at -match '^\d|^[A-Z][a-z]{2} ') { "at $at" } else { $at })$(if ($note) { " - $note" })"
+            return (& $make 'due' $short '' $why $job "#$($job.seq) auto-continues $at$(if ($note) { " ($note)" })" $at)
+        }
         # never before its own reset, whatever the queue says - but after a
         # job that itself waits for a time is the truth: one limit's cut-offs
         # all go at its reset, one at a time (Get-ChatqEta)
@@ -326,16 +363,19 @@ function Get-ChatqAutoState {
     $pref = if ($Config -and $Config.Chats -and $Config.Chats[$sid]) { [string]$Config.Chats[$sid].auto } else { '' }
     if ($pref -eq 'never') { return (& $make 'never' '' 'never auto' "this chat is set to never auto-continue - chatq '<title>' -AutoContinue default follows the switch again") }
     if ($pref -ne 'always' -and -not ($Config -and $Config.On)) {
+        # a 529 with the switch not on: the row it always had - the reset ask
+        # is for the limit only, and has nothing to ask about here
+        if ($ov) {
+            $how = if ($Config -and $Config.Mode -eq 'ask') { 'auto-continue asks after the limit only - Continue queues one now' } else { 'auto-continue is off - Continue queues one' }
+            return (& $make 'overloaded' '529 - waits for Claude' '' "Claude was overloaded (a 529) - $how" $null '529 - waits for Claude')
+        }
         $how = if ($Config -and $Config.Mode -eq 'ask') { 'auto-continue asks once the limit is over - Continue queues one now' } else { 'auto-continue is off - Continue queues one' }
-        return (& $make 'off' '' '' $how)
+        # the words the row had before auto-continue, short and long: the
+        # state is there for the row's continue chip, not to reword it
+        $old = Format-ChatOverlayCutOff $CutOff $Now
+        return (& $make 'off' $old '' $how $null $old)
     }
-    # held by a process that is not a VS Code panel's: a terminal's claude,
-    # a background session, claude -p - two writers otherwise
-    $other = @($Live | Where-Object {
-            $_ -and [string](Get-ChatField $_ 'SessionId') -eq $sid -and -not (
-                ([string](Get-ChatField $_ 'Kind') -in '', 'interactive') -and [string](Get-ChatField $_ 'Entrypoint') -eq 'claude-vscode')
-        })
-    if ($other) { return (& $make 'terminal' '' 'in a terminal' 'open in a terminal, or held by another claude - Claude Code''s own wait continues it there') }
+    if (Test-ChatqAutoHeldElsewhere $sid $Live) { return (& $make 'terminal' '' 'in a terminal' 'open in a terminal, or held by another claude - Claude Code''s own wait continues it there') }
     $cut = Get-ChatqCutId $CutOff
     $sk = if ($Config -and $Config.Streak) { $Config.Streak[$sid] } else { $null }
     if ($sk -and [int]$sk.n -ge $script:ChatqAutoStreakCap -and (-not $sk.uuid -or [string]$sk.uuid -eq $cut)) {
@@ -372,21 +412,27 @@ function Get-ChatqAutoState {
         if ([string](Get-ChatField $mk 'answer') -eq 'leave') {
             return (& $make 'declined' '' 'not continued' 'left as it was when the reset was asked about - Continue queues one')
         }
+        if ($ov) { return (& $make 'declined' '' 'not continued' 'its continue was removed - not sent for this 529; the next cut-off is continued again') }
         return (& $make 'declined' '' 'not continued' 'its continue was removed - not sent after this reset; the next time the limit cuts it off, it is continued again')
     }
     $since = if ($Config -and $Config.Since) { $Config.Since } else { $Now }
     $at0 = $CutOff.At
     $far = if (-not $at0 -or -not $cut) { 'no time was recorded for the cut-off' }
-    elseif (-not $reset) { 'no reset time was recorded' }
+    elseif (-not $ov -and -not $reset) { 'no reset time was recorded' }
     elseif ($since -and $at0 -lt $since) { 'it was cut off before auto-continue was on here' }
     elseif (($Now - $at0).TotalHours -gt $script:ChatqAutoMaxAgeHours) { "it was cut off over $($script:ChatqAutoMaxAgeHours) h ago" }
-    elseif (($reset - $at0).TotalHours -gt $script:ChatqAutoMaxResetHours) { "its reset is over $($script:ChatqAutoMaxResetHours) h away - a weekly limit" }
+    elseif (-not $ov -and ($reset - $at0).TotalHours -gt $script:ChatqAutoMaxResetHours) { "its reset is over $($script:ChatqAutoMaxResetHours) h away - a weekly limit" }
     else { $null }
     if ($far) { return (& $make 'far' '' 'by hand' "$far - continue it yourself") }
-    if ($reset -lt $Now.AddMinutes(-$script:ChatqAutoLateMinutes)) {
+    # a 529 has no reset: the 30 minutes run from the cut-off itself - one
+    # found later was continued by hand, or is past wanting it
+    if ($ov -and $at0 -lt $Now.AddMinutes(-$script:ChatqAutoLateMinutes)) {
+        return (& $make 'late' '' 'by hand' "first seen over $($script:ChatqAutoLateMinutes) minutes after the 529 - continue it yourself")
+    }
+    if (-not $ov -and $reset -lt $Now.AddMinutes(-$script:ChatqAutoLateMinutes)) {
         return (& $make 'late' '' 'by hand' "first seen over $($script:ChatqAutoLateMinutes) minutes after its reset - continue it yourself")
     }
-    return (& $make 'ready' '' '' 'auto-continue queues "continue" for it at its next look' $null "cut off - $when $d auto-continue queues it")
+    return (& $make 'ready' '' '' 'auto-continue queues "continue" for it at its next look' $null "$lead $d auto-continue queues it")
 }
 
 #endregion
@@ -418,20 +464,25 @@ function Write-ChatqAutoLog {
 
 function New-ChatqAutoJob {
     # The marker first, then the job -Continue makes, in the chat's own mode
-    # and model, at the back of the queue. $null when another scan made the
+    # and model, with the other continues ahead of the prompts waiting
+    # (Get-ChatqJobs). $null when another scan made the
     # marker first, or the job could not be made - which the marker then
     # says, so that cut-off is never tried again. The marker has the ask's
     # shape (Save-ChatqAskAnswer: at, answer, source, seq) and what this
-    # mode reads back: the chat, the cut-off, its reset and the job.
+    # mode reads back: the chat, the cut-off, its reset and the job - and
+    # why it stopped: overloaded for a 529, which has no reset, so the
+    # watcher waits for Claude to be back instead (Enter-ChatqAutoOutage).
     param($CutOff, [object[]]$Live, [string]$Source, [datetime]$Now)
     $sid = [string]$CutOff.Id
     $key = Get-ChatqCutKey $CutOff
     if (-not $key) { return $null }
     $cut = Get-ChatqCutId $CutOff
+    $ov = [string]$CutOff.Why -ne 'limit'
     $utc = { param($x) $dd = ConvertTo-ChatqDate $x; if ($dd) { $dd.ToUniversalTime().ToString('o') } else { $null } }
     $fields = [ordered]@{
         at = (Get-ChatqStamp); answer = 'continue'; source = $Source; seq = @(); sessionId = $sid; cutUuid = $cut
-        cutAt = (& $utc $CutOff.At); resetsAt = (& $utc $CutOff.ResetsAt); jobId = $null
+        cutAt = (& $utc $CutOff.At); resetsAt = $(if ($ov) { $null } else { & $utc $CutOff.ResetsAt }); jobId = $null
+        why = $(if ($ov) { 'overloaded' } else { 'limit' })
     }
     if (-not (New-ChatqAutoMarker $key $fields)) { return $null }
     $sid8 = $sid.Substring(0, [Math]::Min(8, $sid.Length))
@@ -441,16 +492,20 @@ function New-ChatqAutoJob {
         $info = Get-ChatqJobInfo $row
         if ($info.Error) { throw [string]$info.Error }
         $set = @{ auto = $true; cutUuid = $cut }
-        $hold = Get-ChatqAutoHoldUntil $sid $CutOff.ResetsAt $Live $Now
+        # a 529's panel hold runs from the cut-off: there is no reset to
+        # wait for, and the panel's own retry, if any, goes in those minutes
+        $holdBase = if ($ov) { $CutOff.At } else { $CutOff.ResetsAt }
+        $hold = Get-ChatqAutoHoldUntil $sid $holdBase $Live $Now
         if ($hold) { $set['deferUntil'] = $hold.ToUniversalTime().ToString('o'); $set['deferWhy'] = 'vscode' }
-        $note = "auto - limit $(Format-ChatqAutoTime $CutOff.At $Now), resets $(Format-ChatqAutoTime $CutOff.ResetsAt $Now)"
+        $note = if ($ov) { "auto - 529 $(Format-ChatqAutoTime $CutOff.At $Now)" } else { "auto - limit $(Format-ChatqAutoTime $CutOff.At $Now), resets $(Format-ChatqAutoTime $CutOff.ResetsAt $Now)" }
         $made = New-ChatqJob -Row $row -Kind continue -Rule auto -Info $info -Set $set -LogNote $note
         if ($made.Error) { throw [string]$made.Error }
         $fields.jobId = [string]$made.Job.id
         $fields.seq = @([int]$made.Job.seq)
         Set-ChatqAutoMarker $key $fields
+        $after = if ($ov) { 'a 529, goes when Claude is back' } else { "resets $(Format-ChatqAutoTime $CutOff.ResetsAt $Now)" }
         if ($Source -eq 'watcher') { Write-ChatqWatchLog "auto-continue: queued #$($made.Job.seq) for $sid8 (scan)" }
-        else { Write-ChatOverlayLog "auto-continue: queued #$($made.Job.seq) for $sid8 ($(Format-ChatqAutoTitle $row.Title)), resets $(Format-ChatqAutoTime $CutOff.ResetsAt $Now)" -Always }
+        else { Write-ChatOverlayLog "auto-continue: queued #$($made.Job.seq) for $sid8 ($(Format-ChatqAutoTitle $row.Title)), $after" -Always }
         return $made.Job
     }
     catch {
@@ -538,14 +593,102 @@ function Invoke-ChatqWatchAutoScan {
 function Get-ChatqAutoHold {
     # The VS Code hold for an auto job as the watcher reaches it: the chat
     # live in a panel, and the reset - from its marker - plus 5 minutes still
-    # ahead. $null otherwise, and for any other job.
+    # ahead; for a 529's, the cut-off plus 5 minutes. $null otherwise, and
+    # for any other job.
     param($Job, [object[]]$Live, [datetime]$Now = (Get-Date))
     if (-not (Get-ChatField $Job 'auto') -or -not $Job.sessionId) { return $null }
     $p = Get-ChatqAutoMarkerPath $Job
     $m = if ($p) { Read-ChatqJson $p } else { $null }
-    $reset = if ($m) { ConvertTo-ChatqDate (Get-ChatField $m 'resetsAt') } else { $null }
+    $f = if ($m -and [string](Get-ChatField $m 'why') -eq 'overloaded') { 'cutAt' } else { 'resetsAt' }
+    $reset = if ($m) { ConvertTo-ChatqDate (Get-ChatField $m $f) } else { $null }
     if (-not $reset) { return $null }
     return (Get-ChatqAutoHoldUntil ([string]$Job.sessionId) $reset $Live $Now)
+}
+
+function Get-ChatqAutoCutTurn {
+    # An auto job's chat as it stands now, when that is still where its
+    # cut-off left it: the transcript there, its last turn the limit or the
+    # 529, and that turn the one the job was queued for (its cutUuid). That
+    # last turn, else $null - the chat is gone, or it moved on: you retried
+    # it in the panel, or it was cut off again since. Never throws.
+    param($Job)
+    try {
+        if (-not $Job.path -or -not (Test-Path -LiteralPath $Job.path)) { return $null }
+        $last = Get-ChatqLastTurn $Job.path
+        if (-not $last -or -not ($last.Limit -or $last.Overloaded)) { return $null }
+        $cut = Get-ChatqCutId ([pscustomobject]@{ Id = [string]$Job.sessionId; LimitUuid = $last.Uuid; At = $last.At })
+        if (-not $cut -or $cut -ne [string](Get-ChatField $Job 'cutUuid')) { return $null }
+        return $last
+    }
+    catch { return $null }
+}
+
+function Enter-ChatqAutoOutage {
+    <#
+    An auto job for a 529 cut-off, about to be probed for (Confirm-ChatqAllowed):
+    its lane is taken as overloaded from the cut-off on, as if the watcher
+    had seen the 529 itself (Enter-ChatqOutage), so Test-ChatqOutageOver lets
+    it go - at once when status.claude.com shows Claude Code operational, else
+    15 minutes after the 529 - and a probe that gets a 529 again keeps it
+    waiting the same way. Not when the lane is in an outage already, nor when
+    a probe said allowed since the 529: Claude was back then. Nor when the
+    chat no longer stands where the 529 left it (Get-ChatqAutoCutTurn): this
+    runs before Invoke-ChatqJob's own checks, and a chat you retried in the
+    panel - the usual case - would otherwise hold every prompt on the
+    account for a job that is then skipped as already continued. No alert -
+    the 529 was the chat's, and you saw it there. The outage keeps the job's
+    id (AutoJob) for Clear-ChatqAutoOutage. Never throws; $true when it
+    started one.
+    #>
+    param($W, $Job)
+    try {
+        if (-not (Get-ChatField $Job 'auto') -or $Job.provider -ne 'claude') { return $false }
+        $lane = Get-ChatqLane $Job
+        if ($W.outage[$lane]) { return $false }
+        $p = Get-ChatqAutoMarkerPath $Job
+        $m = if ($p) { Read-ChatqJson $p } else { $null }
+        if (-not $m -or [string](Get-ChatField $m 'why') -ne 'overloaded') { return $false }
+        $cutAt = ConvertTo-ChatqDate (Get-ChatField $m 'cutAt')
+        if (-not $cutAt) { return $false }
+        $ok = $W.lastAllowed[$lane]
+        if ($ok -and $ok -ge $cutAt) { return $false }
+        $turn = Get-ChatqAutoCutTurn $Job
+        if (-not $turn -or -not $turn.Overloaded) { return $false }
+        # Since is now, not the 529: the 6-hour reminder counts from here.
+        # LastProbe is the 529, so the 15 minutes run from it
+        $W.outage[$lane] = @{ Since = (Get-Date); Attempts = 0; Status = $null; Alerted = $true; Reminded = $false; LastProbe = $cutAt; NextCheck = (Get-Date); AutoJob = [string]$Job.id }
+        Write-ChatqWatchLog "#$($Job.seq) auto-continue after a 529 at $(Format-ChatqAutoTime $cutAt): waits for Claude to be back"
+        return $true
+    }
+    catch { return $false }
+}
+
+function Clear-ChatqAutoOutage {
+    <#
+    An outage Enter-ChatqAutoOutage started, ended once the job it was for
+    no longer waits on it: removed (Don't continue), run, skipped, or its
+    chat moved on since (a retry in the panel). That outage was only the
+    chat's 529, never seen by a probe, and the lane's other prompts would
+    wait for nothing. One a probe has since met a 529 in is the watcher's
+    own (Enter-ChatqOutage drops AutoJob) and stays. Never throws; $true
+    when it ended one.
+    #>
+    param($W, $Job)
+    try {
+        $lane = Get-ChatqLane $Job
+        $o = $W.outage[$lane]
+        if (-not $o -or -not $o.AutoJob) { return $false }
+        $j = Find-ChatqJob ([string]$o.AutoJob) -Exact
+        if ($j -and $j.state -eq 'queued') {
+            $turn = Get-ChatqAutoCutTurn $j
+            if ($turn -and $turn.Overloaded) { return $false }
+        }
+        $W.outage[$lane] = $null
+        $which = if ($j) { "#$($j.seq)" } else { 'its job' }
+        Write-ChatqWatchLog "$lane no longer waits for Claude: $which, the 529's auto-continue, is no longer waiting"
+        return $true
+    }
+    catch { return $false }
 }
 
 function Test-ChatqAutoTerminal {
@@ -577,7 +720,7 @@ function Step-ChatqAutoStreak {
         }
         if ($Job.state -ne 'failed') { return $false }
         $last = if ($Job.path) { try { Get-ChatqLastTurn $Job.path } catch { $null } } else { $null }
-        $left = if ($last -and $last.Limit) { Get-ChatqCutId ([pscustomobject]@{ Id = $sid; LimitUuid = $last.Uuid; At = $last.At }) } else { $null }
+        $left = if ($last -and ($last.Limit -or $last.Overloaded)) { Get-ChatqCutId ([pscustomobject]@{ Id = $sid; LimitUuid = $last.Uuid; At = $last.At }) } else { $null }
         $was = [string](Get-ChatField $Job 'cutUuid')
         if (-not $left) { $left = $was }
         $v = Update-ChatqAutoState {
@@ -604,7 +747,7 @@ function Get-ChatqAutoStopText {
 
 function Get-ChatqAutoJobNote {
     # the console's detail for an auto job: when the limit cut it off, and
-    # when it resets - from its marker
+    # when it resets - from its marker; or when a 529 did
     param($Job)
     if (-not (Get-ChatField $Job 'auto')) { return $null }
     $p = Get-ChatqAutoMarkerPath $Job
@@ -612,6 +755,9 @@ function Get-ChatqAutoJobNote {
     $cutAt = if ($m) { ConvertTo-ChatqDate (Get-ChatField $m 'cutAt') } else { $null }
     $reset = if ($m) { ConvertTo-ChatqDate (Get-ChatField $m 'resetsAt') } else { $null }
     $t = 'queued by auto-continue'
+    if ($m -and [string](Get-ChatField $m 'why') -eq 'overloaded') {
+        return "${t}: a 529 cut this chat off$(if ($cutAt) { " at $(Format-ChatqAutoTime $cutAt)" }), and it goes when Claude is back"
+    }
     if ($cutAt -or $reset) {
         $t += ': the limit cut this chat off'
         if ($cutAt) { $t += " at $(Format-ChatqAutoTime $cutAt)" }
@@ -643,7 +789,7 @@ function Get-ChatqAutoSwitchSay {
     $msg = [System.Collections.Generic.List[object]]::new()
     switch ($Value) {
         'on' {
-            $msg.Add([pscustomobject]@{ Text = 'auto-continue: on - a chat the limit cuts off gets "continue" a minute after the reset'; Color = 'Green' })
+            $msg.Add([pscustomobject]@{ Text = 'auto-continue: on - a chat the limit cuts off gets "continue" a minute after the reset - one a 529 cuts off, once Claude is back'; Color = 'Green' })
             $msg.Add([pscustomobject]@{ Text = "  chatq '<title>' -AutoContinue never keeps one out"; Color = 'DarkGray' })
             return $msg.ToArray()
         }
@@ -824,7 +970,17 @@ function Get-ChatqLiveAutoJob {
 function Get-ChatqAutoSkipText {
     # the phone's answer to a skip, for a continue auto-continue queued
     param($Job)
-    return "#$($Job.seq) skipped - $(Format-ChatqAutoTitle $Job.title) will not be continued after this reset"
+    return "#$($Job.seq) skipped - $(Format-ChatqAutoTitle $Job.title) will not be continued $(Get-ChatqAutoWhen $Job)"
+}
+
+function Get-ChatqAutoWhen {
+    # what a continue removed is not sent for, from its marker: "after this
+    # reset", or "for this 529" - which has no reset
+    param($Job)
+    $p = if ($Job) { Get-ChatqAutoMarkerPath $Job } else { $null }
+    $m = if ($p) { Read-ChatqJson $p } else { $null }
+    if ($m -and [string](Get-ChatField $m 'why') -eq 'overloaded') { return 'for this 529' }
+    return 'after this reset'
 }
 
 #endregion
@@ -845,9 +1001,14 @@ function Update-ChatOverlayAuto {
     param($Ctx, [object[]]$Live, [datetime]$Now, [hashtable]$Eta, [switch]$Scan, [object[]]$Rows)
     $cfg = Get-ChatqAutoConfig
     $Ctx.AutoOn = [bool]$cfg.On
-    # nothing for this mode to do - ask or off, no chat set to always: no
-    # state on any row, which reads as it always did, and no marker read
-    if (-not (Test-ChatqAutoWanted $cfg)) { $Ctx.AutoStates = @{}; $Ctx.AutoMarkers = $null; return $false }
+    # nothing for this mode to do - ask or off, no chat set to always: off
+    # on each row, which reads as it always did and has the continue chip,
+    # and no marker read
+    if (-not (Test-ChatqAutoWanted $cfg)) {
+        $Ctx.AutoMarkers = $null
+        $Ctx.AutoStates = Get-ChatqAutoRowStates -CutOff $Ctx.CutOff -Jobs @($Ctx.Jobs | ForEach-Object { $_.Job }) -Live $Live -Config $cfg -Now $Now -Eta $Eta
+        return $false
+    }
     $fresh = $Ctx.CutAt -eq $Now
     $got = $false
     if ($Scan -and $fresh -and @($Rows).Count) {
@@ -856,7 +1017,16 @@ function Update-ChatOverlayAuto {
         $every = @(Get-ChatqJobs)
         $r = Invoke-ChatqAutoContinueScan -CutOff $Rows -Jobs $every -Live $Live -Source overlay -Now $Now
         foreach ($j in @($r.Queued)) {
-            $Ctx.Jobs = @($Ctx.Jobs) + @([pscustomobject]@{ Job = $j; First = 'continue' })
+            # where Get-ChatqJobs puts it, so this pass's "sends" agree with
+            # the watcher: behind the jobs put first and the continues, ahead
+            # of every other prompt
+            $all = @($Ctx.Jobs)
+            $at = 0
+            for ($k = 0; $k -lt $all.Count; $k++) {
+                $x = $all[$k].Job
+                if (($x.PSObject.Properties['first'] -and $x.first) -or $x.kind -eq 'continue' -or [string](Get-ChatField $x 'rule') -eq 'restart') { $at = $k + 1 }
+            }
+            $Ctx.Jobs = @($all | Select-Object -First $at) + @([pscustomobject]@{ Job = $j; First = 'continue' }) + @($all | Select-Object -Skip $at)
             $Ctx.AutoQueued.Add($j)
             $got = $true
         }
@@ -905,21 +1075,45 @@ function Update-ChatOverlayAutoMarkers {
 }
 
 function Update-ChatOverlayAutoStates {
-    # The states alone, from what the pass holds. A chat this mode does
-    # nothing for - off: the switch on ask or off, the chat not always - has
-    # none, so its row reads as it did before the automatic mode existed.
+    # The states alone, from what the pass holds (Get-ChatqAutoRowStates).
     param($Ctx, [object[]]$Live, [datetime]$Now, [hashtable]$Eta, $Config)
     if (-not $Config) { $Config = Get-ChatqAutoConfig }
     if ($null -eq $Ctx.AutoMarkers) { Update-ChatOverlayAutoMarkers $Ctx }
     $jobs = @($Ctx.Jobs | ForEach-Object { $_.Job })
     $all = @($jobs) + @($Ctx.AutoEnded | Where-Object { $_ })
+    $Ctx.AutoStates = Get-ChatqAutoRowStates -CutOff $Ctx.CutOff -Jobs $all -Live $Live -Config $Config -Markers $Ctx.AutoMarkers -Now $Now -Eta $Eta
+}
+
+function Get-ChatqAutoRowStates {
+    <#
+    Each cut-off's state for its row (Get-ChatqAutoState), by session id -
+    the overlay's pass and the phone board's scan (Get-ChatqBoardScan)
+    alike. A 529 left overloaded - the switch not on - has none: its row
+    says so itself. With nothing for the
+    automatic mode to do (Test-ChatqAutoWanted: the switch on ask or off, no
+    chat set to always) only off is kept, and a chat set to never is as any
+    other - the reset ask offers it all the same - so every row reads as it
+    did before auto-continue, with the continue chip; the markers are not
+    needed then. An off held by a terminal (Test-ChatqAutoHeldElsewhere) is
+    dropped in every mode: off comes before that check, and its continue
+    chip would queue a second writer beside the terminal's claude - the
+    row reads as before, with no chip, as the reset ask leaves it out. A
+    continue auto-continue queued before the switch turned has no state to
+    ride on, and keeps a row of its own (Get-ChatOverlayRows).
+    #>
+    param([object[]]$CutOff, [object[]]$Jobs, [object[]]$Live, $Config, [hashtable]$Markers, [datetime]$Now = (Get-Date), [hashtable]$Eta)
+    if (-not $Config) { $Config = Get-ChatqAutoConfig }
+    $idle = -not (Test-ChatqAutoWanted $Config)
+    $cfg = if ($idle) { [pscustomobject]@{ Mode = $Config.Mode; On = $false; Since = $Config.Since; Chats = @{}; Streak = @{} } } else { $Config }
     $states = @{}
-    foreach ($c in @($Ctx.CutOff)) {
+    foreach ($c in @($CutOff)) {
         if (-not $c -or -not $c.Id) { continue }
-        $st = Get-ChatqAutoState $c $all $Live $Config $Ctx.AutoMarkers $Now $Eta
-        if ($st.State -notin 'off', 'overloaded') { $states[[string]$c.Id] = $st }
+        $st = Get-ChatqAutoState $c $Jobs $Live $cfg $(if ($idle) { $null } else { $Markers }) $Now $Eta
+        $keep = if ($idle) { $st.State -eq 'off' } else { $st.State -notin 'overloaded', 'restart' }
+        if ($keep -and $st.State -eq 'off' -and (Test-ChatqAutoHeldElsewhere ([string]$c.Id) $Live)) { $keep = $false }
+        if ($keep) { $states[[string]$c.Id] = $st }
     }
-    $Ctx.AutoStates = $states
+    return $states
 }
 
 function Invoke-ChatOverlayAutoVerbs {
@@ -970,7 +1164,8 @@ function Invoke-ChatOverlayAutoChip {
             $id = if ($a) { [string](Get-ChatField $a 'jobId') } else { '' }
             $j = if ($id) { Find-ChatqJob $id -Exact } else { $null }
             if (-not $j) { $j = @(Get-ChatqAutoJobs -SessionId $sid) | Select-Object -First 1 }
-            if ($j -and (Remove-ChatqJob $j 'chip')) { $say = "$title will not be continued after this reset." }
+            $when = if ($j) { Get-ChatqAutoWhen $j } else { '' }
+            if ($j -and (Remove-ChatqJob $j 'chip')) { $say = "$title will not be continued $when." }
             elseif ($j) {
                 $now = Find-ChatqJob $j.id -Exact
                 $say = if ($now -and $now.state -eq 'running') { "#$($j.seq) is running - it cannot be taken back now." } else { "#$($j.seq) could not be removed - its file is in use; try again." }
@@ -1061,7 +1256,7 @@ function Add-ChatConsoleAutoLine {
     $chips = New-ChatConsoleChips @('default', 'always', 'never') @("Default ($($cfg.Mode))", 'Always', 'Never') $cur {
         param($s, $e) $e.Handled = $true; Set-ChatConsoleAutoChat $script:ChatOverlayHost ([string]$s.Tag)
     }
-    $tips = @{ default = "Follow the setting in the panel's settings box."; always = 'Continue this chat after every limit, even with the switch on Ask or Leave.'; never = 'Never continue this chat by itself; its orange row stays until you do.' }
+    $tips = @{ default = "Follow the setting in the panel's settings box."; always = 'Continue this chat after every limit or 529, even with the switch on Ask or Leave.'; never = 'Never continue this chat by itself; its orange row stays until you do.' }
     foreach ($c in @($chips.Children)) { $c.ToolTip = $tips[[string]$c.Tag] }
     [void]$d.Children.Add($chips)
     $d.Tag = 'auto'
@@ -1099,7 +1294,7 @@ function Invoke-ChatConsoleDontContinue {
         Set-ChatConsoleStatus $H $(if ($now -and $now.state -eq 'running') { "#$($j.seq) is running - cancel it instead" } else { "#$($j.seq) could not be removed - its file is in use; try again" }) 'warn'
         return
     }
-    Set-ChatConsoleStatus $H "#$($j.seq) removed - $(Format-ChatqAutoTitle $j.title) will not be continued after this reset"
+    Set-ChatConsoleStatus $H "#$($j.seq) removed - $(Format-ChatqAutoTitle $j.title) will not be continued $(Get-ChatqAutoWhen $j)"
     if ($H.Con.Sel -eq $j.id) { $H.Con.Sel = $null }
     Update-ChatConsoleNow $H
 }

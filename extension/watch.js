@@ -78,12 +78,14 @@ function sniffToolId(line) {
 // so only that goes to the page. now: when the line was seen, in ms; a
 // tool's own clock starts there. Only the last maxRows rows are kept (o,
 // else MAX_ROWS): a row's i is its place in the whole run all the same, and
-// dropped says how many went before the first kept.
+// dropped says how many went before the first kept. The last TodoWrite's
+// list is kept apart from the rows (todos), so the pinned todo outlives the
+// row it came in.
 function newParser(o) {
     const max = o && o.maxRows > 0 ? o.maxRows : MAX_ROWS;
     const items = [];
     const tools = new Map();
-    let changed = new Set(), next = 0, dropped = 0;
+    let changed = new Set(), next = 0, dropped = 0, todos = null;
     const add = (it) => {
         it.i = next++;
         items.push(it);
@@ -152,6 +154,7 @@ function newParser(o) {
                             since: at, progress: null, done: false, error: false
                         });
                         if (t.id) tools.set(t.id, t);
+                        if (t.todos) todos = t.todos;
                     }
                 }
                 return;
@@ -221,6 +224,8 @@ function newParser(o) {
     return {
         items, push,
         get dropped() { return dropped; },
+        // the last TodoWrite's list, however long ago its row was dropped
+        get todos() { return todos; },
         // a row changed and dropped since is not handed over
         dirty() {
             const first = items.length ? items[0].i : next;
@@ -240,10 +245,13 @@ function watchItems(lines, now) {
 }
 
 // The latest TodoWrite, pinned above the rows: what is being done, and how
-// far along the list that is - "Now: run the tests (3/7)". '' for none. Pure.
-function pinnedTodo(items) {
+// far along the list that is - "Now: run the tests (3/7)". '' for none.
+// from: a parser, whose own last list counts - a run past MAX_ROWS has
+// dropped the row it came in - or rows, looked through. Pure.
+function pinnedTodo(from) {
     let todos = null;
-    for (const it of items || []) if (it.kind === 'tool' && it.todos) todos = it.todos;
+    if (Array.isArray(from)) { for (const it of from) if (it && it.kind === 'tool' && it.todos) todos = it.todos; }
+    else if (from && Array.isArray(from.todos)) todos = from.todos;
     if (!todos || !todos.length) return '';
     const n = todos.length;
     const at = todos.findIndex(t => t && t.status === 'in_progress');

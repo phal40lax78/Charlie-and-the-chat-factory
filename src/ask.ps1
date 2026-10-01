@@ -1064,9 +1064,18 @@ function Set-ChatqAskChanges {
     #>
     param($Changes)
     $msgs = [System.Collections.Generic.List[object]]::new()
-    $put = { param($k, $v) $c = Get-ChatqConfig; if (-not ($c.PSObject.Properties['ask'] -and $c.ask)) { Set-ChatqProp $c 'ask' ([pscustomobject]@{}) }; Set-ChatqProp $c.ask $k $v; Save-ChatqJson $script:ChatqConfigPath $c
-        # off Windows config.json holds the keys unprotected: the owner's alone, as every save of it keeps it
-        if (-not $script:ChatqIsWindows) { try { & chmod 600 $script:ChatqConfigPath } catch {} } }
+    # each key read, set and saved under config.json's lock (Lock-ChatqConfig)
+    $put = {
+        param($k, $v)
+        Lock-ChatqConfig
+        try {
+            $c = Get-ChatqConfig
+            if (-not ($c.PSObject.Properties['ask'] -and $c.ask)) { Set-ChatqProp $c 'ask' ([pscustomobject]@{}) }
+            Set-ChatqProp $c.ask $k $v
+            Save-ChatqConfig $c
+        }
+        finally { Unlock-ChatqConfig }
+    }
     if ($null -ne $Changes.Wait) {
         & $put 'waitMinutes' $Changes.Wait
         $msgs.Add([pscustomobject]@{ Text = "a question is held for the phone $($Changes.Wait) min - the dialog stays open either way"; Color = 'Green' })

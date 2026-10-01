@@ -160,6 +160,78 @@ Built in 0.9.0 on top of the ask, as the two authors agreed:
   goes through `Invoke-ChatOverlayVerb`, held while the console runs a loop
   of its own; and the collapsed line counts `(1 auto)`.
 
+## The chats a restart cut off (`restart`, built)
+
+Built after 0.10.2: a VS Code window that reloads under working chats
+cuts them off as a limit does, and the reset ask offers them with a reason
+of their own, `restart`, next to `limit`. One way of continuing a chat,
+not two.
+
+- **The note.** Every look the extension runs before a reload - the update
+  notice's, the wait's every 25 s, chatq's own reload check - ends with
+  [Save-ChatHostWorkNote](../src/host-work.ps1): `data/host-work/<host
+  pid>.json`, with the host's start (`hostStart`, from
+  [hostStart](../extension/safe-restart.js)), when, and each chat at work -
+  a turn, a prompt, background work, never a `claude -p` run - with its
+  transcript, its size and its processes' oldest start. Nothing at work, or
+  the window's chats not told apart, removes it. That makes it Windows
+  only: off Windows a process's parent cannot be read
+  ([Get-ChatProcessTable](../src/overlay-data.ps1) gives none), the look is
+  never `Known`, and no note is written. Each save also removes any note
+  past its 12 hours, so a host left after **Later** with no overlay asking
+  does not leave its note for good.
+- **Which chats.** The overlay's cut-off look runs
+  [Get-ChatRestartCutOffs](../src/host-work.ps1) with the limit's look -
+  once a minute, and at once when the live chats change, as they do after
+  a reload ([Invoke-ChatOverlayCycle](../src/overlay-data.ps1)). It reads only notes
+  whose host is gone ([Test-ChatHostAlive](../src/host-work.ps1): pid and
+  start, to 5 s) and under 12 hours old, and writes `goneAt` the first time.
+  A chat counts when nothing of it works now, no job is queued for it, no
+  process of it outlived the host, nothing was written to it since the host
+  went, and something was lost: its last message owes an answer
+  ([Test-ChatRestartMid](../src/host-work.ps1) - a `tool_use`, a prompt, a
+  tool's result; not an answer, a turn you stopped, a slash command) or a
+  workflow or agent it started never reported. A tab the reload brought
+  back, idle, still counts. A process that seems to have outlived the host
+  is first only marked (`heldAt`), and the chat dropped when a look a
+  minute on still finds it: the overlay's live list is up to 10 s old, so
+  the old host's own process, killed, can read as alive for a moment. A
+  last message that cannot be read keeps the chat for a later look. The
+  whole transcript is read for background work only once the cheap checks
+  on its tail left the chat in. The row is a cut-off row with `Why` `restart`,
+  its `LimitUuid` the last message's uuid, plus `Mid` and `Tasks`.
+- **The ask.** [Get-ChatqResetAsk](../src/queue.ps1) takes a restart row at
+  once - no reset to wait for, no 5-minute hold - and counts it as
+  `Restart`; while a window is limited it still asks nothing.
+  [Format-ChatqAskHead](../src/queue.ps1) words it `VS Code restarted`, or
+  `limit over at 13:00, and VS Code restarted` with both, on every surface
+  the ask has on Windows - the banner, the tray's balloon, the console, the
+  phone. The Mac menu's wording follows it too, but no restart chat is
+  ever found there. The ask runs only on an overlay that is running, with
+  `autoContinue` not `off`; with it off the chats are orange rows alone
+  (`cutOff`). The answer marker carries `why: restart`
+  ([Get-ChatqAskExtra](../src/auto-continue.ps1)). Leaving them drops them
+  from their note, so their rows go, where a limit's stay orange
+  ([Format-ChatqAskLeaveTip](../src/queue.ps1) words the tooltip by which).
+- **Never by itself.** With `autoContinue` `on` the ask still runs, for the
+  restart's chats alone (`-RestartOnly`), and a chat set to `always` is
+  asked too: [Get-ChatqAutoState](../src/auto-continue.ps1) gives it the
+  state `restart` (`cut off - VS Code restarted`), which the scan never
+  queues. A reload is not a limit: what was cut off may have been a
+  command you meant to stop.
+- **The continue.** [Invoke-ChatqContinueChats](../src/commands.ps1) makes
+  a `prompt` job, rule `restart`, in the chat's own mode, with
+  [Get-ChatqRestartPrompt](../src/queue.ps1)'s text - the window restarted
+  mid-turn, the workflow or agent by name that did not finish, since
+  `claude --resume` brings back the chat but not its background work - and
+  the cut-off's uuid as `restartUuid`. [Get-ChatqJobs](../src/queue.ps1)
+  sorts it with the continues, ahead of other prompts, and
+  [Invoke-ChatqJob](../src/watcher.ps1) skips it if the chat went on first.
+- **Not found.** A reload no chatq look came before - Developer: Reload
+  Window, the Extensions view's Restart Extensions, another extension's or
+  VS Code's own update - leaves no note (FUTURE_WORK.md, "Continue the
+  chats a reload stopped").
+
 ## What there is today
 
 **How a cut-off chat is found.**
@@ -225,12 +297,14 @@ leave no record that would show the chat moved on. The job goes back to
 `queued`, with "limited mid-run, continues at 13:00", and a `limited` alert.
 `noProgress` stops a job after `maxRetries` (5) runs in a row with no reply.
 
-**A 529 today.** For a run of chatq's own: the job is requeued,
+**A 529.** For a run of chatq's own: the job is requeued,
 [Enter-ChatqOutage](../src/watcher.ps1) watches status.claude.com every
 minute, and the job is retried when it shows `operational`. It is also
 retried after 1, 2, 5 and 10 minutes, then every 15. One alert is sent,
-and a reminder after 6 hours. For a chat chatq did not run: the overlay row
-says `529 - waits for Claude`, and nothing is queued.
+and a reminder after 6 hours. For a chat chatq did not run: with
+auto-continue off or on Ask, the overlay row says `529 - waits for
+Claude`, and nothing is queued; switched on, the scan queues a continue
+for it as for a limit (see [After a 529](#after-a-529)).
 
 **Chats you run yourself, on the phone.** [Update-ChatqLiveAlerts](../src/phone.ps1)
 sends `done` when a chat goes from busy to idle while you are away.
@@ -307,7 +381,7 @@ to reset* (interactive-mode), *You've hit your session limit* (errors),
 | Claude chat under another `CLAUDE_CONFIG_DIR` | **no** | not scanned (out of scope) |
 | Codex chat | **no** | no scan exists. A Codex job chatq ran is already continued by the watcher |
 | Copilot chat | **no** | nothing can resume one |
-| any chat cut off by a **529** | **no** | limit only in this version (out of scope) |
+| any chat cut off by a **529** | **yes**, once Claude is back | the job waits as the watcher waits out its own 529 (see [After a 529](#after-a-529)) |
 
 ## Behaviour
 
@@ -322,7 +396,9 @@ state table):
 1. **The setting.** Auto-continue is on for the chat: the chat is set to
    `always`, or it is not set to `never` and the global switch is on.
    Otherwise the state is `off` or `never`.
-2. **A limit.** `Why` is `limit`. A 529 is left as today.
+2. **A limit or a 529.** `Why` is `limit` or `overloaded`. A 529 with
+   the switch not on (and the chat not `always`) keeps the row it always
+   had, state `overloaded`, since Ask is for the limit only.
 3. **Not open elsewhere.** No live registry entry holds the session,
    except an `interactive` one whose entrypoint is `claude-vscode`.
    Otherwise the state is `terminal`.
@@ -350,8 +426,10 @@ state table):
    `stopped`.
 
 The job is the one `-Continue` makes: [New-ChatqJob](../src/commands.ps1)
-with `-Kind continue -Rule auto`, in the chat's own mode and model, at the
-back of the queue. It gets two new fields:
+with `-Kind continue -Rule auto`, in the chat's own mode and model, ahead
+of the prompts waiting and behind the continues queued before it -
+[Get-ChatqJobs](../src/queue.ps1) sorts every continue there. (Built at
+the back of the queue; moved ahead after 0.10.2.) It gets two new fields:
 
 - `auto: true`, the job auto-continue made;
 - `cutUuid`, the limit record's `uuid`.
@@ -430,7 +508,7 @@ the console and `chatqlist` all word a chat from it.
 | `far` | `cut off - resets Mon 00:00 · by hand` | reset over 24 h after the record, record over 12 h old, or before `since` | not by itself |
 | `late` | `cut off - limit over · by hand` | first seen over 30 min after its reset | not by itself |
 | `stopped` | `cut off - resets 13:00 · auto stopped` | 2 auto-continues in a row failed | a turn in the chat ends without a limit (the streak resets), or `-AutoContinue always` again |
-| 529 | `529 - waits for Claude` (unchanged) | – | – |
+| `overloaded` | `529 - waits for Claude` (unchanged) | a 529, the switch not on, the chat not `always` | the switch goes on → the next scan queues it if the other checks pass |
 
 In `armed` and `due`, the row stays **orange** at rank 0.5, not the purple
 of a queued job. It is still a cut-off chat, and the words say what will
@@ -439,6 +517,50 @@ the job. For an open one, it is the session row. The job gets no row of its
 own. [Get-ChatOverlayRows](../src/overlay-data.ps1) leaves an `auto` job
 on its chat's cut-off row instead of taking the row away. The counts, the
 collapsed line and the tray still count it as `cut off`.
+
+## After a 529
+
+Built 2026-10-01. A 529 has no reset time, so the checks above run with
+the cut-off's own time in its place:
+[Get-ChatqAutoState](../src/auto-continue.ps1) takes `Why` `overloaded`
+as a cut-off to continue once the switch is on (or the chat is `always`);
+`far` skips the reset checks, and `late` is over 30 minutes after the 529
+itself. The words: a `ready` row still reads `529 - waits for Claude`,
+its long line `cut off by a 529 · auto-continue queues it`; `due` is
+`#12 auto · 529`, and its tooltip says it auto-continues when Claude is
+back. A removed job leaves it `declined`
+for this 529 only.
+
+[New-ChatqAutoJob](../src/auto-continue.ps1) writes the marker with `why`
+`overloaded`, `cutAt` the 529 and `resetsAt` null, and the job's history
+note `auto - 529 13:02`. [Get-ChatqAutoHold](../src/auto-continue.ps1)
+holds a panel chat 5 minutes after the 529, not after a reset.
+
+The watcher: before it probes for such a job,
+[Confirm-ChatqAllowed](../src/watcher.ps1) calls
+[Enter-ChatqAutoOutage](../src/auto-continue.ps1), which puts the lane in
+an outage as if the watcher had seen the 529 itself - `Since` now, so the
+6-hour reminder counts from here, and `LastProbe` the 529, so
+[Test-ChatqOutageOver](../src/watcher.ps1) lets the job go when
+status.claude.com says Claude Code is `operational`, or 15 minutes after
+the 529. No alert: the 529 was the chat's, and it was seen there. Not
+when the lane is in an outage already, nor when a probe said allowed
+since the 529, nor when the chat no longer stands where the 529 left it
+([Get-ChatqAutoCutTurn](../src/auto-continue.ps1): the transcript there,
+its last turn a 529, and that turn the job's `cutUuid`). That last check
+is needed because the outage starts before
+[Invoke-ChatqJob](../src/watcher.ps1)'s own moved-on, chat-gone and
+terminal checks: a chat you retried in the panel - the usual case - would
+otherwise hold every Claude prompt on the account for a job then skipped.
+Other Claude jobs on that lane wait with it, as in any outage. The outage
+keeps the job's id (`AutoJob`, carried over a handover), and
+[Clear-ChatqAutoOutage](../src/auto-continue.ps1), first in each
+Confirm-ChatqAllowed, ends it once that job is no longer queued (Don't
+continue, run, skipped) or its chat has moved on.
+[Enter-ChatqOutage](../src/watcher.ps1) drops `AutoJob` when a probe meets
+a 529 itself: from then on the outage is the watcher's own, and stays.
+The moved-on check is the one a limit has: a chat you continued yourself
+is skipped.
 
 ## The settings and their files
 
@@ -563,9 +685,10 @@ This mode makes it three chips, **Continue**, **Ask** and **Leave**, once
   Ask's tooltip stays as built: "Once the limit is over, say how many chats
   it cut off, and continue them on a click."
 - The label's tooltip: "A chat the usage limit cuts off: Continue sends it
-  "Continue from where you left off." a minute after the reset. Ask says
-  so once the limit is over, and continues it if you say so. Leave only
-  marks it orange." (Built today without the Continue sentence.)
+  "Continue from where you left off." a minute after the reset - after a
+  529, once Claude is back. Ask says so once the limit is over, and
+  continues it if you say so. Leave only marks it orange." (Built today
+  without the Continue sentence.)
 - [New-ChatOverlayChips](../src/overlay-windows.ps1) gains `-Tips`, a
   tooltip per chip:
   - Continue: "Continue each chat the limit cuts off, by itself."
@@ -625,7 +748,7 @@ or recent) gets a line under the target line:
   `Default (on)` or `Default (off)`.
 - Tooltips:
   - Default: "Follow the setting in the panel's settings box."
-  - Always: "Continue this chat after every limit, even with auto-continue off."
+  - Always: "Continue this chat after every limit or 529, even with the switch on Ask or Leave."
   - Never: "Never continue this chat by itself; its orange row stays until you do."
 - A click runs [Set-ChatqAutoChat](../src/queue.ps1). **Never** also
   removes a queued `auto` job for the chat, and the status line says so.
@@ -964,7 +1087,8 @@ other sections use (`New-FakeChat -CutOff -ResetsAt`):
   - a terminal's chat not queued (`terminal`), and queued at the next
     scan once its entry is gone;
   - a non-interactive entry not queued;
-  - a 529 not queued;
+  - a 529 queued, its marker's `why` `overloaded`, its job waiting on
+    the status page, and one first seen over 30 min after the 529 not;
   - a second config dir not scanned.
 - Each check in order, with the state it leaves: global off, `never`,
   `always` with global off, a job already queued, `since`, 12 h, 24 h,
@@ -1084,11 +1208,6 @@ cut-offs on 2.1.282 and 2.1.283 got nothing after the reset until a typed
 
 ## Out of scope
 
-- **A 529.** It has no reset time. Someone at the panel usually retries it
-  at once, and the status-page wait for chatq's own jobs is there to build
-  on. Goes to FUTURE_WORK.md as "Auto-continue after a 529", with what
-  closing it takes: the same scan with `Why overloaded`, and the job
-  released by [Test-ChatqOutageOver](../src/watcher.ps1).
 - **Codex chats chatq did not run.** There is no cut-off scan for Codex
   rollouts. Goes to FUTURE_WORK.md.
 - **Other `CLAUDE_CONFIG_DIR` accounts.** The cut-off scan reads only the
@@ -1144,7 +1263,8 @@ cut-offs on 2.1.282 and 2.1.283 got nothing after the reset until a typed
 4. **No VS Code setting**, only a palette command that writes `config.json`.
 5. **A terminal's chat is never auto-continued** while that terminal holds
    it.
-6. **Limit only**, not a 529.
+6. **Limit only**, not a 529 (amended 2026-10-01: a 529 is continued too,
+   with the switch on - see [After a 529](#after-a-529)).
 7. **The switch leaves chatq's own jobs alone.** A prompt you queued is
    still run to the end.
 8. **A 5-minute hold for a chat open in a VS Code panel**, until A1 says

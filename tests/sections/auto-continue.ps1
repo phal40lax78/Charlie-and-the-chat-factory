@@ -104,7 +104,7 @@ $far12 = & $S (& $stCut -At $tn.AddHours(-13) -Reset $tn.AddMinutes(20))
 $far24 = & $S (& $stCut -Reset $tn.AddHours(30))
 $farNoSince = & $S (& $stCut) -cfg (& $stCfg $true @{} @{} $null $false)
 $late = & $S (& $stCut -At $tn.AddHours(-2) -Reset $tn.AddMinutes(-45))
-$over = & $S (& $stCut -Why 'overloaded')
+$over = & $S (& $stCut -Why 'overloaded' -Reset $null) -cfg (& $stCfg $false)
 $farDay = & $S (& $stCut -Reset $tn.AddHours(30))
 $ws = { param($x) "$($x.State)|$($x.Words)|$($x.Long)" }
 Check 'the states: ready, armed, due, running - words exact, short on the row and in full beside it' (
@@ -116,7 +116,7 @@ Check 'the states: ready, armed, due, running - words exact, short on the row an
     (& $ws $armedBusy) -eq 'armed|#12 auto 13:01|#12 auto-continues 13:01') (
     @($ready, $armed, $armedNext, $due, $dueAfter, $running, $armedTied, $armedBusy) | ForEach-Object { & $ws $_ }) -join ' / '
 Check 'the states: off - and ask, which says it asks - always with them, never, terminal (a terminal''s claude, any entry not a panel''s), a panel''s is no bar' (
-    (& $ws $off) -eq 'off|resets 13:00|cut off - resets 13:00' -and $off.Why -like 'auto-continue is off*' -and $askSt.State -eq 'off' -and $askSt.Why -like 'auto-continue asks once the limit is over*' -and
+    (& $ws $off) -eq 'off|cut off - resets 13:00|cut off - resets 13:00' -and $off.Why -like 'auto-continue is off*' -and $askSt.State -eq 'off' -and $askSt.Why -like 'auto-continue asks once the limit is over*' -and
     $always.State -eq 'ready' -and
     (& $ws $never) -eq "never|resets 13:00 $d never|cut off - resets 13:00 $d never auto" -and
     (& $ws $term) -eq "terminal|resets 13:00 $d terminal|cut off - resets 13:00 $d in a terminal" -and $print.State -eq 'terminal' -and $panel.State -eq 'ready') (
@@ -127,6 +127,40 @@ Check 'the states: stopped on its own cut-off only, declined, failed (its job, o
     (& $ws $failedJ) -eq "failed|resets 13:00 $d failed|cut off - resets 13:00 $d auto-continue failed" -and $failedJ.Why -like '#9 ended failed: gave up*' -and
     $failedE.State -eq 'failed' -and $failedE.Why -like '*the chat could not be read') (
     @($stopped, $stoppedOld, $declined, $failedJ, $failedE) | ForEach-Object { & $ws $_ }) -join ' / '
+# the rows' states: with the switch on ask or off and no chat always, off
+# alone - the old words and the continue chip - even for a chat set to never
+# or one with an auto continue kept; on, everything - a 529 too, which
+# auto-continue then queues as any other cut-off
+$rsCuts = @((& $stCut 's1'), (& $stCut 's2'), (& $stCut 's3'), (& $stCut 's4' -Why 'overloaded'))
+$rsJob = [pscustomobject]@{ id = 'j20'; seq = 20; sessionId = 's3'; state = 'queued'; auto = $true; cutUuid = 'u1'; title = 'Parser rewrite' }
+$rsIdle = Get-ChatqAutoRowStates -CutOff $rsCuts -Jobs @($rsJob) -Config (& $stCfg $false @{ s2 = [pscustomobject]@{ auto = 'never' } } -Mode 'ask') -Now $tn
+$rsOn = Get-ChatqAutoRowStates -CutOff $rsCuts -Jobs @($rsJob) -Config (& $stCfg $true @{ s2 = [pscustomobject]@{ auto = 'never' } }) -Markers @{} -Now $tn -Eta @{ j20 = '13:01' }
+$rsAlways = Get-ChatqAutoRowStates -CutOff $rsCuts -Jobs @() -Config (& $stCfg $false @{ s1 = [pscustomobject]@{ auto = 'always' } } -Mode 'ask') -Markers @{} -Now $tn
+Check 'the rows'' states: ask or off keeps off alone, never and a kept auto continue included; on keeps all, a 529 too; one chat always, the rest off' (
+    (@($rsIdle.Keys | Sort-Object) -join ',') -eq 's1,s2' -and $rsIdle['s1'].State -eq 'off' -and $rsIdle['s2'].State -eq 'off' -and $rsIdle['s2'].Words -eq 'cut off - resets 13:00' -and
+    (@($rsOn.Keys | Sort-Object) -join ',') -eq 's1,s2,s3,s4' -and $rsOn['s1'].State -eq 'ready' -and $rsOn['s2'].State -eq 'never' -and $rsOn['s3'].State -eq 'armed' -and
+    $rsOn['s4'].State -eq 'ready' -and
+    $rsAlways['s1'].State -eq 'ready' -and $rsAlways['s2'].State -eq 'off' -and $rsAlways['s3'].State -eq 'off' -and -not $rsAlways.ContainsKey('s4')) (
+    (@($rsIdle, $rsOn, $rsAlways) | ForEach-Object { $h = $_; (@($h.Keys | Sort-Object) | ForEach-Object { "$_=$($h[$_].State)" }) -join ',' }) -join ' / ')
+# so a cut-off row reads as it did before auto-continue in every mode, and
+# has the continue chip all the same; a 529 neither
+$rsAll = @(Get-ChatOverlayRows -CutOff @($rsCuts[0], $rsCuts[3]) -Auto $rsIdle -Now $tn)
+$rsRows = @(@($rsAll | Where-Object { $_.sessionId -eq 's1' })[0], @($rsAll | Where-Object { $_.sessionId -eq 's4' })[0])
+$rsPlain = @(Get-ChatOverlayRows -CutOff @($rsCuts[0]) -Now $tn)[0]
+$rsChips = { param($r) (@(Get-ChatOverlayChipActions $r) | ForEach-Object Id) -join ',' }
+Check 'ask or off: a cut-off row''s words as with no state at all, and its continue chip; a 529''s row no chip' (
+    $rsRows[0].detail -eq $rsPlain.detail -and $rsRows[0].detail -eq 'cut off - resets 13:00' -and $rsRows[0].auto.state -eq 'off' -and (& $rsChips $rsRows[0]) -eq 'continue' -and
+    $rsRows[1].detail -eq '529 - waits for Claude' -and (& $rsChips $rsRows[1]) -eq '') "$($rsRows[0].detail) | $(& $rsChips $rsRows[0]) / $($rsRows[1].detail) | $(& $rsChips $rsRows[1])"
+# but a cut-off a terminal's claude holds gets no off, in ask mode or with
+# another chat always: its continue chip would be a second writer there; a
+# panel's is no bar
+$rsHeld = Get-ChatqAutoRowStates -CutOff @($rsCuts[0], $rsCuts[1]) -Jobs @() -Live @((& $acTerm 's1'), (& $acPanel 's2')) -Config (& $stCfg $false -Mode 'ask') -Now $tn
+$rsHeldAlways = Get-ChatqAutoRowStates -CutOff @($rsCuts[0], $rsCuts[1]) -Jobs @() -Live @(& $acTerm 's2') -Config (& $stCfg $false @{ s1 = [pscustomobject]@{ auto = 'always' } } -Mode 'ask') -Markers @{} -Now $tn
+$rsHeldRow = @(Get-ChatOverlayRows -CutOff @($rsCuts[0]) -Auto $rsHeld -Now $tn)[0]
+Check 'ask or off: a cut-off a terminal holds gets no state, so no continue chip, its words as before; with one chat always too' (
+    (@($rsHeld.Keys | Sort-Object) -join ',') -eq 's2' -and $rsHeldRow.detail -eq 'cut off - resets 13:00' -and (& $rsChips $rsHeldRow) -eq '' -and
+    (@($rsHeldAlways.Keys | Sort-Object) -join ',') -eq 's1' -and $rsHeldAlways['s1'].State -eq 'ready') (
+    "$((@($rsHeld.Keys | Sort-Object)) -join ',') | $($rsHeldRow.detail) | $(& $rsChips $rsHeldRow) / $((@($rsHeldAlways.Keys | Sort-Object)) -join ',')")
 # the reset ask's markers are this mode's too: leave is declined, a continue
 # whose job failed is failed - its jobs named by number
 $askLeave = & $S (& $stCut) -m @{ 's1_u1' = [pscustomobject]@{ at = 'x'; answer = 'leave'; source = 'overlay'; seq = @() } }
@@ -144,13 +178,35 @@ $sibFailed = & $S (& $stCut -Uuid 'u2') @([pscustomobject]@{ id = 'jf'; seq = 9;
 $sibAsk = & $S (& $stCut -Uuid 'u2') -m @{ 's1_u1' = [pscustomobject]@{ answer = 'leave'; seq = @(); resetsAt = $tn.Date.AddHours(13).ToUniversalTime().ToString('o') } }
 Check 'a new cut-off with the same reset as one whose continue was removed, or that the ask left: declined too; another reset, or a failed one, is not' (
     $sibSame.State -eq 'declined' -and $sibOther.State -eq 'ready' -and $sibFailed.State -eq 'ready' -and $sibAsk.State -eq 'declined') "$($sibSame.State) $($sibOther.State) $($sibFailed.State) $($sibAsk.State)"
-Check 'the states: far (before since, over 12 h, reset over 24 h, no since yet), late, and a 529 as it was' (
+Check 'the states: far (before since, over 12 h, reset over 24 h, no since yet), late, and a 529 with the switch off as it was' (
     (& $ws $farSince) -eq "far|resets 13:00 $d by hand|cut off - resets 13:00 $d by hand" -and $farSince.Why -like '*before auto-continue was on*' -and
     $far12.State -eq 'far' -and $far12.Why -like '*over 12 h ago*' -and $far24.State -eq 'far' -and $far24.Why -like '*weekly*' -and
     $farDay.Words -like "resets * $d by hand" -and $farDay.Words -match 'resets [A-Z][a-z]{2} \d\d:\d\d' -and $farNoSince.State -eq 'far' -and
     (& $ws $late) -eq "late|limit over $d by hand|cut off - limit over $d by hand" -and
     (& $ws $over) -eq 'overloaded|529 - waits for Claude|529 - waits for Claude') (
     @($farSince, $far12, $far24, $farDay, $farNoSince, $late, $over) | ForEach-Object { & $ws $_ }) -join ' / '
+# a 529 with the switch on: the same checks, no reset - its continue is due
+# at once and waits for Claude to be back; late 30 minutes after the 529
+$ovCut = { param($At = $tn.AddMinutes(-1)) & $stCut -Why 'overloaded' -Reset $null -At $At }
+$ovReady = & $S (& $ovCut)
+$ovDue = & $S (& $ovCut) @(& $stJob) -e @{ j12 = 'next' }
+$ovBack = & $S (& $ovCut) @(& $stJob) -e @{ j12 = 'when Claude is back' }
+$ovAfter = & $S (& $ovCut) @(& $stJob) -e @{ j12 = 'after #3' }
+$ovLate = & $S (& $ovCut $tn.AddMinutes(-31))
+$ovFar = & $S (& $ovCut $tn.AddHours(-13))
+$ovDecl = & $S (& $ovCut) -m @{ 's1_u1' = [pscustomobject]@{ jobId = 'gone'; seq = @(9); why = 'overloaded' } }
+$ovAsk = & $S (& $ovCut) -cfg (& $stCfg $false -Mode 'ask')
+$ovAlways = & $S (& $ovCut) -cfg (& $stCfg $false @{ s1 = [pscustomobject]@{ auto = 'always' } })
+$ovTerm = & $S (& $ovCut) -l @(& $acTerm 's1')
+Check 'a 529 with the switch on: ready, then due "when Claude is back" (never a reset time), after the jobs before it; late 30 min after the 529, far, declined for this 529; ask leaves it as it was' (
+    (& $ws $ovReady) -eq "ready|529 - waits for Claude|cut off by a 529 $d auto-continue queues it" -and
+    (& $ws $ovDue) -eq "due|#12 auto $d 529|#12 auto-continues when Claude is back" -and $ovDue.At -eq 'when Claude is back' -and $ovDue.Why -like 'a 529 cut it off at *, and auto-continue sends "continue" when Claude is back' -and
+    (& $ws $ovBack) -eq (& $ws $ovDue) -and (& $ws $ovAfter) -eq 'due|#12 auto after #3|#12 auto-continues after #3' -and
+    (& $ws $ovLate) -eq "late|529 $d by hand|cut off by a 529 $d by hand" -and $ovLate.Why -like '*minutes after the 529*' -and
+    $ovFar.State -eq 'far' -and $ovFar.Why -like '*over 12 h ago*' -and
+    (& $ws $ovDecl) -eq "declined|529 $d skipped|cut off by a 529 $d not continued" -and $ovDecl.Why -like '*not sent for this 529*' -and
+    $ovAsk.State -eq 'overloaded' -and $ovAsk.Why -like '*asks after the limit only*' -and $ovAlways.State -eq 'ready' -and $ovTerm.State -eq 'terminal') (
+    @($ovReady, $ovDue, $ovAfter, $ovLate, $ovFar, $ovDecl, $ovAsk, $ovAlways, $ovTerm) | ForEach-Object { & $ws $_ }) -join ' / '
 
 # --- the scan -------------------------------------------------------------------------
 # since was written as the switch turned on: a cut-off from before it - one
@@ -244,12 +300,122 @@ Check 'said once in the log: not queued - in a terminal; the queued one too' (@(
     $ovl -like "*auto-continue: queued #* for $($idA3.Substring(0, 8)) (scan)*")
 
 $idA4 = 'ac000004-0000-4000-8000-000000000004'
-$p4 = New-FakeChat $projAC $idA4 'Auto overloaded chat' 0.02 @('x') -Overloaded
+$null = New-FakeChat $projAC $idA4 'Auto overloaded chat' 0.02 @('x') -Overloaded
 $c4 = Get-AcCut $idA4
 $r4 = Invoke-AcScan @($c4)
+$j4 = @(Get-AcJobs $idA4)[0]
+$mk4 = if ($j4) { Read-ChatqJson (Get-ChatqAutoMarkerPath $j4) } else { $null }
+$jl4 = [System.IO.File]::ReadAllText((Join-Path $script:ChatqLogDir 'jobs.log'), $utf8)
 $other = @(Get-ChatqCutOffChats @() -Hours 200 | Where-Object { $_.Id -eq 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' })
-Check 'a 529 is not auto-continued; a chat under another config dir is not even scanned' ($c4.Why -eq 'overloaded' -and @($r4.Queued).Count -eq 0 -and
-    -not @(Get-AcJobs $idA4).Count -and -not $other.Count) "$($c4.Why) $(@($r4.Queued).Count) $($other.Count)"
+Check 'a 529 is auto-continued too: one continue, its marker why overloaded with no reset, jobs.log "auto - 529 HH:mm"; a chat under another config dir is not even scanned' (
+    $c4.Why -eq 'overloaded' -and @($r4.Queued).Count -eq 1 -and $j4 -and $j4.auto -eq $true -and $j4.kind -eq 'continue' -and -not $j4.deferUntil -and
+    $mk4.why -eq 'overloaded' -and $null -eq $mk4.resetsAt -and $mk4.cutAt -and $mk4.jobId -eq $j4.id -and
+    $jl4 -like "*#$($j4.seq) queued (continue, auto - 529 $(Format-ChatqAutoTime $c4.At)) $d Auto overloaded chat*" -and -not $other.Count) "$($c4.Why) $(@($r4.Queued).Count) $($mk4 | ConvertTo-Json -Compress) $($other.Count)"
+$st4 = Get-ChatqAutoState $c4 @(Get-ChatqJobs) @() (Get-ChatqAutoConfig) (Get-ChatqAutoMarkers) (Get-Date)
+Check 'its words: due, "#n auto - 529", when Claude is back; the console''s note, the skip and the chip say 529, not a reset' (
+    $st4.State -eq 'due' -and $st4.Words -eq "#$($j4.seq) auto $d 529" -and $st4.At -eq 'when Claude is back' -and (Get-ChatqAutoWhen $j4) -eq 'for this 529' -and
+    (Get-ChatqAutoJobNote $j4) -like 'queued by auto-continue: a 529 cut this chat off at *, and it goes when Claude is back' -and
+    (Get-ChatqAutoSkipText $j4) -like '*will not be continued for this 529' -and (Get-ChatqAutoWhen ([pscustomobject]@{ sessionId = $idA1; cutUuid = $a1.Uuid; auto = $true })) -eq 'after this reset') "$($st4.State) $($st4.Words) $(Get-ChatqAutoJobNote $j4)"
+# the watcher: the lane taken as overloaded from the 529 on, no alert, so
+# Test-ChatqOutageOver lets it go - when the page says operational, or 15
+# minutes after the 529
+$W4 = New-ChatqWatchState
+$lane4 = Get-ChatqLane $j4
+$oa4 = Get-AlertCount '*overloaded*'
+Set-FakeStatus 'major_outage'
+$in4 = Enter-ChatqAutoOutage $W4 $j4
+$o4 = $W4.outage[$lane4]
+$again4 = Enter-ChatqAutoOutage $W4 $j4
+$wait4 = Test-ChatqOutageOver $W4 $j4
+$o4.NextCheck = (Get-Date).AddSeconds(-1)
+$o4.LastProbe = (Get-Date).AddMinutes(-16)
+$late4 = Test-ChatqOutageOver $W4 $j4
+$wl4 = [System.IO.File]::ReadAllText((Join-Path $script:ChatqLogDir 'watcher.log'), $utf8)
+Check 'Enter-ChatqAutoOutage: the lane in an outage from the 529 - since now, its 15 minutes from the 529 - quietly, once; the page down holds it, 15 minutes let it go' (
+    $in4 -and $o4 -and $o4.Alerted -and ((Get-Date) - $o4.Since).TotalSeconds -lt 30 -and -not $again4 -and -not $wait4 -and $late4 -and
+    (Get-AlertCount '*overloaded*') -eq $oa4 -and $wl4 -like "*#$($j4.seq) auto-continue after a 529 at $(Format-ChatqAutoTime $c4.At): waits for Claude to be back*") "$in4 $again4 $wait4 $late4"
+# a probe that said allowed since the 529: Claude was back - nothing to wait
+# for; a limit's continue, or one you queued, never
+$W4b = New-ChatqWatchState
+$W4b.lastAllowed[$lane4] = Get-Date
+$back4 = Enter-ChatqAutoOutage $W4b $j4
+$lim4 = Enter-ChatqAutoOutage (New-ChatqWatchState) (Find-ChatqJob $j1b.id -Exact)
+$mine4 = Enter-ChatqAutoOutage (New-ChatqWatchState) ([pscustomobject]@{ provider = 'claude'; home = $claudeHome; sessionId = $idA4; cutUuid = $j4.cutUuid; seq = 1 })
+# through Confirm-ChatqAllowed: the page down, no probe; up, the probe, and
+# allowed ends it
+$W4c = New-ChatqWatchState
+$ok4a = Confirm-ChatqAllowed $W4c $j4
+$out4a = [bool]$W4c.outage[$lane4]
+Set-FakeStatus 'operational'
+$W4c.outage[$lane4].NextCheck = (Get-Date).AddSeconds(-1)
+$ok4b = Confirm-ChatqAllowed $W4c $j4
+Check 'a probe allowed since the 529, a limit''s continue, one not auto: no outage; Confirm-ChatqAllowed waits while the page is down, and probes once it is up' (
+    -not $back4 -and -not $lim4 -and -not $mine4 -and -not $ok4a -and $out4a -and $ok4b -and -not $W4c.outage[$lane4]) "$back4 $lim4 $mine4 $ok4a $out4a $ok4b"
+# a 529 you retried in the panel before its continue came up: the chat has
+# a newer turn, so no outage - Invoke-ChatqJob skips the job as already
+# continued, and the account's other prompts never wait on it. One that
+# started before the retry ends at the next Confirm-ChatqAllowed.
+$idA4r = 'ac00004d-0000-4000-8000-00000000004d'
+$p4r = New-FakeChat $projAC $idA4r 'Auto overloaded retried chat' 0.02 @('x') -Overloaded
+$null = Invoke-AcScan @(Get-AcCut $idA4r)
+$j4r = @(Get-AcJobs $idA4r)[0]
+$W4r = New-ChatqWatchState
+Set-FakeStatus 'major_outage'
+$in4r = Enter-ChatqAutoOutage $W4r $j4r
+$auto4r = if ($W4r.outage[$lane4]) { [string]$W4r.outage[$lane4].AutoJob } else { '' }
+$keep4r = Clear-ChatqAutoOutage $W4r $j4r
+$retry4r = [ordered]@{ parentUuid = $null; isSidechain = $false; type = 'assistant'; uuid = [guid]::NewGuid().ToString(); timestamp = (Get-Date).ToUniversalTime().ToString('o')
+    message = [ordered]@{ model = 'claude-opus-4-5'; role = 'assistant'; content = @([ordered]@{ type = 'text'; text = 'Done after the retry.' }); stop_reason = 'end_turn' }
+    cwd = $projAC; sessionId = $idA4r }
+[System.IO.File]::AppendAllText($p4r, ($retry4r | ConvertTo-Json -Compress -Depth 8) + "`n", $utf8)
+$gone4r = Clear-ChatqAutoOutage $W4r $j4r
+$after4r = [bool]$W4r.outage[$lane4]
+$W4r2 = New-ChatqWatchState
+$moved4r = Enter-ChatqAutoOutage $W4r2 $j4r
+$ok4r = Confirm-ChatqAllowed $W4r2 $j4r
+$wl4r = [System.IO.File]::ReadAllText((Join-Path $script:ChatqLogDir 'watcher.log'), $utf8)
+Check 'a 529 auto job whose chat has a newer turn (retried in the panel): no outage, the probe goes at once; an outage it started before the retry ends at the next check, said in watcher.log' (
+    $in4r -and $auto4r -eq [string]$j4r.id -and -not $keep4r -and $gone4r -and -not $after4r -and -not $moved4r -and $ok4r -and -not $W4r2.outage[$lane4] -and
+    $wl4r -like "*$lane4 no longer waits for Claude: #$($j4r.seq), the 529's auto-continue, is no longer waiting*") "$in4r $auto4r $keep4r $gone4r $after4r $moved4r $ok4r"
+Set-FakeStatus 'operational'
+$null = Remove-ChatqJob (Find-ChatqJob $j4r.id -Exact) 'chip'
+Remove-Item -LiteralPath $p4r -Force
+# two waits for the removal check below: one only the 529's, one a probe met
+# a 529 in since - the watcher's own
+$W4e = New-ChatqWatchState
+$null = Enter-ChatqAutoOutage $W4e $j4
+$W4f = New-ChatqWatchState
+$null = Enter-ChatqAutoOutage $W4f $j4
+$oa4f = Get-AlertCount '*overloaded*'
+$null = Enter-ChatqOutage $W4f $j4 'the probe got 529 Overloaded'
+# a 529's panel hold runs from the cut-off; one first seen over 30 minutes
+# after it is late
+$idA4p = 'ac00004b-0000-4000-8000-00000000004b'
+$null = New-FakeChat $projAC $idA4p 'Auto overloaded panel chat' 0.02 @('x') -Overloaded
+$c4p = Get-AcCut $idA4p
+$null = Invoke-AcScan @($c4p) @(& $acPanel $idA4p)
+$j4p = @(Get-AcJobs $idA4p)[0]
+$du4p = if ($j4p) { ConvertTo-ChatqDate $j4p.deferUntil } else { $null }
+$hold4p = if ($j4p) { Get-ChatqAutoHold $j4p @(& $acPanel $idA4p) } else { $null }
+$idA4l = 'ac00004c-0000-4000-8000-00000000004c'
+$p4l = New-FakeChat $projAC $idA4l 'Auto overloaded late chat' 0.6 @('x') -Overloaded
+$r4l = Invoke-AcScan @(Get-AcCut $idA4l)
+Check 'a 529 chat open in a panel: held till 5 minutes past the 529; one 36 minutes old: late, not queued' (
+    $du4p -and [Math]::Abs(($du4p - $c4p.At.AddMinutes(5)).TotalSeconds) -lt 2 -and $hold4p -and [Math]::Abs(($hold4p - $c4p.At.AddMinutes(5)).TotalSeconds) -lt 2 -and
+    @($r4l.Queued).Count -eq 0 -and @($r4l.Skipped | Where-Object { $_.State -eq 'late' }).Count -eq 1) "$($j4p.deferUntil) $hold4p $(@($r4l.Skipped).State)"
+# don't continue: removed, its marker kept - declined for this 529
+$null = Remove-ChatqJob (Find-ChatqJob $j4.id -Exact) 'chip'
+if ($j4p) { $null = Remove-ChatqJob (Find-ChatqJob $j4p.id -Exact) 'chip' }
+$st4d = Get-ChatqAutoState $c4 @(Get-ChatqJobs) @() (Get-ChatqAutoConfig) (Get-ChatqAutoMarkers) (Get-Date)
+$r4d = Invoke-AcScan @($c4)
+Check 'a 529''s continue removed: declined, not sent for this 529, never queued again for it' (
+    $st4d.State -eq 'declined' -and $st4d.Why -like '*not sent for this 529*' -and @($r4d.Queued).Count -eq 0) "$($st4d.State) $($st4d.Why)"
+$clr4e = Clear-ChatqAutoOutage $W4e $j4
+$clr4f = Clear-ChatqAutoOutage $W4f $j4
+Check 'Don''t continue on a 529''s continue ends the wait it started; one a probe met a 529 in since stays, with no second alert' (
+    $clr4e -and -not $W4e.outage[$lane4] -and -not $clr4f -and $W4f.outage[$lane4] -and -not $W4f.outage[$lane4].AutoJob -and
+    (Get-AlertCount '*overloaded*') -eq $oa4f) "$clr4e $clr4f $($W4f.outage[$lane4].AutoJob)"
+Remove-Item -LiteralPath $p4l -Force
 
 # the switch, and one chat's own
 $idA5 = 'ac000005-0000-4000-8000-000000000005'
@@ -544,10 +710,13 @@ Check 'the board: continue (auto) in the prompt column, picked by auto' ($board 
 $hitL1 = [pscustomobject]@{ Record = [pscustomobject]@{ Id = $idL1; Title = 'Autolist queued chat' } }
 $rmSaid = (Test-ChatJobsHold $hitL1 6>&1 | Out-String)
 $held1 = Test-ChatJobsHold $hitL1 6> $null
-$mineL = New-ChatqJob -Row (Get-ChatqRowById $idL1 'claude' $l1.Path) -Prompt 'mine' -Kind prompt
+# gone looked for before the next job: queued in the same second for the
+# same chat, that one takes the freed id (New-ChatqJob)
+$gone1 = -not (Find-ChatqJob $jl1.id)
+$mineL =New-ChatqJob -Row (Get-ChatqRowById $idL1 'claude' $l1.Path) -Prompt 'mine' -Kind prompt
 $held2 = Test-ChatJobsHold $hitL1 6> $null
 Check 'chatrm drops a chat''s auto continue without -DropJobs, and says so; a job you queued still keeps the chat' ($rmSaid -like "*dropped #$($jl1.seq), its auto-continue*" -and
-    -not (Find-ChatqJob $jl1.id) -and -not $held1 -and $held2) "$rmSaid $held1 $held2"
+    $gone1 -and -not $held1 -and $held2) "$rmSaid $gone1 $held1 $held2"
 $null = Remove-ChatqJob (Find-ChatqJob $mineL.Job.id) 'test'
 
 # --- the overlay's rows -------------------------------------------------------------------
@@ -764,7 +933,7 @@ Set-ChatOverlaySettingsOpen `$H `$true
 `$ch = & `$chipsOf
 `$on = { param(`$p) @(`$p.Children | Where-Object { `$_.Background -eq (Get-ChatOverlayBrush 'accent') } | ForEach-Object { `$_.Tag }) -join ',' }
 `$row7 = `$lab -and [System.Windows.Controls.Grid]::GetRow(`$lab) -eq 6 -and `$g.RowDefinitions.Count -eq 7 -and
-    `$lab.ToolTip -like 'A chat the usage limit cuts off: Continue sends it "Continue from where you left off." a minute after the reset. Ask says so once the limit is over, and continues it if you say so. Leave only marks it orange.' -and
+    `$lab.ToolTip -like 'A chat the usage limit cuts off: Continue sends it "Continue from where you left off." a minute after the reset - after a 529, once Claude is back. Ask says so once the limit is over, and continues it if you say so. Leave only marks it orange.' -and
     (@(`$ch.Children | ForEach-Object { `$_.Tag }) -join ',') -eq 'continue,ask,leave' -and (@(`$ch.Children | ForEach-Object { `$_.Child.Text }) -join ',') -eq 'Continue,Ask,Leave' -and
     `$ch.Children[0].ToolTip -eq 'Continue each chat the limit cuts off, by itself.' -and `$ch.Children[1].ToolTip -like 'Once the limit is over*' -and
     `$ch.Children[2].ToolTip -like 'Only mark them - Continue in the console*' -and (& `$on `$ch) -eq 'continue'
@@ -845,11 +1014,16 @@ Show-ChatOverlayChip `$H `$rects[0] ([System.Drawing.Point]::new(-9000, -9000))
 `$dragged = `$script:Opened -eq 0 -and -not `$script:AutoActs.Count
 `$kids[0].RaiseEvent((& `$ev `$true)); `$kids[0].RaiseEvent((& `$ev `$false))
 `$same = (`$script:AutoActs -join ',') -eq 'dont' -and `$script:Opened -eq 0
-# an unarmed chip takes no click - but says so, click again, and is armed
-# for the next one
-`$H.ChipArmed = `$false
+# an unarmed chip just up takes no click - but says so, click again, and
+# is armed for the next one
+`$H.ChipArmed = `$false; `$H.ChipShownTick = [int64][Environment]::TickCount
 `$kids[1].RaiseEvent((& `$ev `$true)); `$kids[1].RaiseEvent((& `$ev `$false))
 `$unarmed = `$script:Opened -eq 0 -and `$H.ChipArmed -and `$kids[1].Child.Text -eq 'click again'
+`$kids[1].RaiseEvent((& `$ev `$true)); `$kids[1].RaiseEvent((& `$ev `$false))
+`$unarmed = `$unarmed -and `$script:Opened -eq 1
+# one up a second under a pointer that never left it: the first click opens
+`$script:Opened = 0
+`$H.ChipArmed = `$false; `$H.ChipShownTick = [int64][Environment]::TickCount - 1000
 `$kids[1].RaiseEvent((& `$ev `$true)); `$kids[1].RaiseEvent((& `$ev `$false))
 `$unarmed = `$unarmed -and `$script:Opened -eq 1
 `$script:Opened = 0

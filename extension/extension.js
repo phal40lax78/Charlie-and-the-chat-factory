@@ -44,14 +44,28 @@ const GUID = /^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$/;
 //   restoreHold    a window just started puts no chat back for this long
 //                  where the watch panel of its run is not here yet: the
 //                  serializer may still bring it back
+//   tabHold        ... and at most this long, from the first look past
+//                  restoreHold that finds the run over, where a watch tab of
+//                  its run is kept but not brought back (viewComing)
 //   carryWait      a chat chatq opens again takes Ultracode and its session's
 //                  level only into a launch of it within this (armCarry)
+//   putBackWait    a chat whose run ended with it not opened again - asked,
+//                  or its live view left up - takes them into a launch of it
+//                  within this, however it is opened (armPutBack)
+//   restartHold    after an extension-host restart, Show it's second check
+//                  ends nothing on a new tab for this long: Claude Code
+//                  reopens most tabs it lost by itself then, though not
+//                  all (restartHeld, tabGrew)
+//   procFresh      a registry entry's process start and parent, once read
+//                  (procFacts), kept this long
+//   procTimeout    that read, at most; one not done by then knows nothing
 const timing = {
     retry: 2500, tabSettle: 400, tabRecount: 1500, startupOpen: 2000,
     openMaxAge: 120000, judgedMaxAge: 20000, verdictTimeout: 20000,
     commandTimeout: 15000, pickBudget: 250, labelBudget: 1500, anywayFresh: 60000,
     runPoll: 1000, runCheck: 5000, graceSeconds: 8, ackWindow: 2750, restoreHold: 4000,
-    carryWait: 60000
+    tabHold: 600000, carryWait: 60000, putBackWait: 30 * 60000, restartHold: 30000,
+    procFresh: 10000, procTimeout: 5000
 };
 
 // chatManager.* first. For one release the old extension's chatManagerReload.*
@@ -132,6 +146,64 @@ function readRequest(file) {
     try { return JSON.parse(raw); } catch (e) { return null; }
 }
 
+// A signal file's requests, oldest first. The file is one request, the
+// newest, as it always was - an older extension, or the old
+// chatManagerReload one, reads it so and misses only what it always missed -
+// and the script carries the few it wrote just before under earlier
+// (Save-ChatRequest, src/chatrm.ps1): two requests inside one poll, a
+// delete right after a queued run, used to leave the first overwritten
+// unseen. A file from an older script has no earlier, and is one request.
+function requestsOf(file) {
+    const top = readRequest(file);
+    if (!top || typeof top !== 'object' || Array.isArray(top)) return [];
+    const own = Object.assign({}, top);
+    delete own.earlier;
+    const earlier = Array.isArray(top.earlier) ? top.earlier.filter(r => r && typeof r === 'object' && !Array.isArray(r) && r.id) : [];
+    return earlier.concat([own]);
+}
+
+// The ids a window has taken, per file. globalState keeps the last few,
+// shared by every window and kept over a reload, beside the one id the key
+// always held - a window still on an older extension reads that one. And
+// this host's own, which no other window's write of the list can drop.
+const SEEN_LIST = { [SEEN_KEY]: 'chatManager.seenIds', [OPEN_SEEN_KEY]: 'chatManager.openSeenIds' };
+const SEEN_KEEP = 16;
+const seenHere = new WeakMap();
+function seenSet(context) {
+    let s = seenHere.get(context);
+    if (!s) { s = new Set(); seenHere.set(context, s); }
+    return s;
+}
+function wasSeen(context, key, id) {
+    if (seenSet(context).has(key + ' ' + id) || context.globalState.get(key) === id) return true;
+    const list = context.globalState.get(SEEN_LIST[key]);
+    return Array.isArray(list) && list.includes(id);
+}
+// marked here at once, before any await: a poll that fires meanwhile finds it
+function markSeen(context, key, id) {
+    seenSet(context).add(key + ' ' + id);
+    const list = context.globalState.get(SEEN_LIST[key]);
+    const next = (Array.isArray(list) ? list.filter(x => x !== id) : []).concat([id]).slice(-SEEN_KEEP);
+    return Promise.all([context.globalState.update(key, id), context.globalState.update(SEEN_LIST[key], next)]);
+}
+// The first look after an update from an extension that kept the one id:
+// no list yet, and a request carried under that id's was the old
+// extension's to take - it took it, a poll before, or missed it as it
+// always did. Taken as seen, every request up to that id, which the file
+// holds in the order they were written; without this a request acted on
+// just before the update, carried under a later one, was asked again - a
+// delete under 10 minutes old, an open under openMaxAge. An id the file no
+// longer holds is older than all it does, so nothing in it was seen.
+function seedSeen(context, key, reqs) {
+    if (context.globalState.get(SEEN_LIST[key]) !== undefined) return;
+    const legacy = context.globalState.get(key);
+    const i = legacy ? reqs.findIndex(r => r.id === legacy) : -1;
+    if (i < 0) return;
+    const ids = reqs.slice(0, i + 1).map(r => r.id).filter(Boolean);
+    for (const id of ids) seenSet(context).add(key + ' ' + id);
+    context.globalState.update(SEEN_LIST[key], ids.slice(-SEEN_KEEP));
+}
+
 function isGuid(s) { return typeof s === 'string' && GUID.test(s); }
 
 // Every window watches the same file, so each decides for itself whether the
@@ -204,7 +276,18 @@ const texts = {
     pickTerminal: req => name(req) + ' is open in a terminal, so it was not opened here. Type there, or close it first.',
     pickWorking: req => name(req) + ' is working elsewhere in VS Code - another window or the side bar - so it was not opened here: a second copy would start mid-answer. Open it once it finishes.',
     pickElsewhere: req => name(req) + ' is open elsewhere in VS Code - another window or the side bar. A second copy here splits the chat: each copy answers on its own.',
+    // the picker, where the chat's process tells its window (whereOf)
+    pickWorkingHere: req => name(req) + ' is working in this window outside its tabs - most likely the side bar - so it was not opened as a tab: a second copy would start mid-answer. Open it once it finishes.',
+    pickSideBar: req => name(req) + ' is open in this window outside its tabs - most likely the side bar. A second copy in a tab splits the chat: each copy answers on its own.',
+    pickThere: req => name(req) + ' is open in another VS Code window. A second copy here splits the chat: each copy answers on its own.',
+    pickHanded: req => name(req) + ' is in another VS Code window, so it was handed to that window, which brings its tab forward - or says why not. Switch to that window: it cannot be raised from here.',
+    pickNotHanded: req => name(req) + ' is in another VS Code window, and could not be handed to it. Chat Manager: Show log has the details.',
+    noBoard: 'chatq has not written its queue board (data/queue.md) yet. chatqlist -Board in a terminal writes it.',
+    pickMoved: req => name(req) + ' is no longer only in that other window, so nothing was done. Pick it again to see where it is now.',
     sideBarStale: req => name(req) + ' was also open in this window outside its tabs - most likely the side bar. That copy is stale now and can be closed: the tab shows the run.',
+    // Show it's new tab moments after an extension-host restart: maybe one
+    // Claude Code reopened by itself, so nothing was ended (restartHeld)
+    restartNew: req => name(req) + ' is in a new tab. VS Code restarted its extensions a moment ago, and Claude Code reopens the tabs it lost then, so nothing of the chat was ended. If a copy of it is also open outside the tabs - the side bar - that copy is stale and can be closed.',
     unlistable: req => name(req) + ' was started by a claude -p run, and Claude Code leaves such chats out of its lists, so no tab can show it. Open it in a terminal instead?',
     hiddenBusy: req => name(req) + ' is out of Claude Code\'s chat list for now, and working somewhere, so a tab here would open blank. Open it once it finishes: it is listed again then.',
     unmended: req => name(req) + ' is out of Claude Code\'s chat list, and could not be put back, so a tab here would open blank. Chat Manager: Show log has the details.',
@@ -541,13 +624,61 @@ async function openWith(sessionId, viewColumn, prompt) {
 }
 
 // Did a Claude tab appear that was not among before? Not always ours: from
-// Claude Code 2.1.284, in the first seconds after an extension-host restart
-// (not a window reload), it reopens a tab it lost by itself. Such a tab
-// comes with the default label, as ours would, so it cannot be told apart
-// (FUTURE_WORK.md: "A tab Claude Code reopens by itself").
+// Claude Code 2.1.284, after an extension-host restart (not a window
+// reload), it reopens a tab it lost by itself. Such a tab comes with the
+// default label, as ours would, so it cannot be told apart - Show it ends
+// nothing on a new tab within restartHold of a restart (restartHeld).
+// Claude Code's watch for lost tabs (2.1.286) has no deadline of its own,
+// though: a lost tab is replaced only once it is the selected tab of its
+// group, 5 s (10 s on a first start) after that, and one whose chat is
+// still held elsewhere is tried again, while the window is focused, up to
+// every 60 s for as long as it is held. A reopen past restartHold is left
+// (FUTURE_WORK.md: "A tab Claude Code reopens late").
 function tabGrew(before) {
     const now = allTabs().filter(isClaudeTab);
     return now.length > before.length || now.some(t => !before.includes(t));
+}
+
+// What started this extension host, by the test Claude Code itself makes
+// (2.1.285: its workspaceState's lastActivationSessionId):
+// vscode.env.sessionId is new with each window start and reload, and kept
+// by an extension-host restart - Developer: Restart Extension Host, or the
+// Extensions view's Restart Extensions after an update. saved: the id the
+// last activation here wrote. 'restart' (the same id), 'reload' (another:
+// a reload, or the window's start), 'unknown' (none saved - this
+// extension's first start in the workspace, which an update's restart may
+// be) or 'untracked' (VS Code gives the placeholder, telemetry off: Claude
+// Code then reopens nothing either). Pure.
+const HOST_KEY = 'chatManager.lastActivationSessionId';
+function hostStartOf(saved, now) {
+    if (typeof now !== 'string' || !now || now === 'someValue.sessionId') return 'untracked';
+    if (typeof saved !== 'string' || !saved) return 'unknown';
+    return saved === now ? 'restart' : 'reload';
+}
+
+// This activation's start, as hostStartOf reads it, into runClock - and
+// its id written for the next. A workspaceState that cannot be written
+// leaves the next start 'reload' or 'unknown': said, nothing more.
+function noteHostStart(context) {
+    const ws = context && context.workspaceState;
+    const now = vscode.env ? vscode.env.sessionId : undefined;
+    runClock.hostStart = hostStartOf(ws && ws.get ? ws.get(HOST_KEY) : undefined, now);
+    log('this extension host: ' + runClock.hostStart);
+    if (!ws || !ws.update || runClock.hostStart === 'untracked') return runClock.hostStart;
+    try { Promise.resolve(ws.update(HOST_KEY, now)).catch(e => log('the window\'s session id could not be kept: ' + (e && e.message))); }
+    catch (e) { log('the window\'s session id could not be kept: ' + (e && e.message)); }
+    return runClock.hostStart;
+}
+
+// Within restartHold of an activation that may be a restart - 'unknown'
+// too, as Claude Code itself counts it: a tab that comes up now may be one
+// it reopened by itself, not the one an open made. Most such reopens come
+// then, a lost tab in front being replaced 5-10 s after the start; one
+// behind others, or held elsewhere, can come later, and is not covered
+// (tabGrew).
+function restartHeld(now) {
+    return (runClock.hostStart === 'restart' || runClock.hostStart === 'unknown') && runClock.activatedAt > 0 &&
+        (now === undefined ? Date.now() : now) - runClock.activatedAt < timing.restartHold;
 }
 
 // Looked at twice, after tabSettle and again after tabRecount: a new panel
@@ -1160,6 +1291,7 @@ function sayLost(req, lost, prefilled, carrying) {
 // one another extension put over it later is not undone.
 const carryArms = new Map();    // session id -> { ultracode, effort, settle, timer }
 const launches = new Map();     // session id -> { at, ultracode, effort }: its latest launch here
+let putBackLast = Promise.resolve(null);    // the latest armPutBack, for the tests to wait on
 let spawnHook = null;           // { mod, original, wrapper } while in
 // the module the hook goes into; when this extension host started - every
 // process of a tab in this window began after it; the clock a launch is
@@ -1302,24 +1434,54 @@ function disarm(key, got) {
 // nothing where no launch came within timing.carryWait, or the hook is not
 // in. null where a newer arm for the chat took its place: that open - Show
 // it's after a handover's, say - owns the word, and a nothing here would
-// say the carry missed while the newer launch takes it.
-function armCarry(sessionId, what) {
+// say the carry missed while the newer launch takes it. wait: how long the
+// arm waits, timing.carryWait where none is given.
+function armCarry(sessionId, what, wait) {
     const none = { ultracode: false, effort: null };
     const key = String(sessionId || '').toLowerCase();
     const ultracode = !!(what && what.ultracode), effort = (what && what.effort) || null;
     if (!isGuid(key) || (!ultracode && !effort) || !installSpawnHook()) return Promise.resolve(none);
     disarm(key, null);
+    const ms = Number.isFinite(wait) ? wait : timing.carryWait;
     return new Promise(settle => {
         const arm = { ultracode, effort, settle, timer: null };
         arm.timer = setTimeout(() => {
             if (carryArms.get(key) !== arm) return;
             carryArms.delete(key);
-            log('open ' + key.slice(0, 8) + ': no launch of it within ' + Math.round(timing.carryWait / 1000) + ' s - nothing carried');
+            log('open ' + key.slice(0, 8) + ': no launch of it within ' + Math.round(ms / 1000) + ' s - nothing carried');
             settle(none);
-        }, timing.carryWait);
+        }, ms);
         if (arm.timer && arm.timer.unref) arm.timer.unref();
         carryArms.set(key, arm);
     });
+}
+
+// A chat whose run ended and which chatq did not open again - asked, or its
+// live view left up with Open chat - can still be opened another way: from
+// Claude Code's Session history in another tab, or its side bar. That
+// launch is the tab the handover took coming back all the same, and chatq's
+// own arm, set only right before its own open, never sees it: on 2026-09-30
+// a run's end asked, the chat was picked from another tab's Session history
+// twelve seconds on, and its new process started without the Ultracode the
+// run had kept. So the carry is armed as the run ends, for any launch of
+// the chat here within timing.putBackWait - quietly: no launch, nothing was
+// opened, so nothing to say; spawn's own line logs one that came. An open
+// of chatq's later - Open chat, Show it - arms again and takes it over, and
+// an arm already waiting for the chat is left alone. A promise, once the
+// arm is set, of { carrying: armCarry's promise }, or null where nothing is
+// armed. Never throws.
+async function armPutBack(req, start) {
+    try {
+        const lost = await lostByReopen(req, start);
+        const key = String(req.sessionId || '').toLowerCase();
+        if (!lost || lost.prefill !== null || carryArms.has(key)) return null;
+        log('run ' + key.slice(0, 8) + ' ended, the chat not opened again: ' + carriedText(lost) + ' armed for its next launch here, for ' +
+            Math.round(timing.putBackWait / 60000) + ' min');
+        return { carrying: armCarry(req.sessionId, lost, timing.putBackWait) };
+    } catch (e) {
+        log('arming the chat put back failed: ' + (e && e.message));
+        return null;
+    }
 }
 
 // Right before an open that may start the chat's new process: armCarry's
@@ -1420,10 +1582,12 @@ async function openCore(req, before, why, viewColumn, prompt) {
 
 // The overlay's open chip: the chat in a tab, or the tab already showing it
 // brought forward. The chip's script ended nothing, so a tab there already
-// is up to date and only revealed - and the open (openCall) never rewrites
-// the Claude extension's preferredLocation setting, as a plain editor.open
-// does. It does not look at the side bar, though: a chat held
-// there gets a second panel and a second process. Held idle, that is said
+// is up to date and only revealed - one a run went in beside, whose Show it
+// was offered here and not taken, goes Show it's way instead while its
+// process idles in this window (checkOpenOne). And the open (openCall)
+// never rewrites the Claude extension's preferredLocation setting, as a
+// plain editor.open does. It does not look at the side bar, though: a chat
+// held there gets a second panel and a second process. Held idle, that is said
 // once; held working, it is not opened at all, since the second process
 // would start mid-turn.
 async function openTab(req) {
@@ -1475,6 +1639,165 @@ function reloadAnyway(shownAt, named, except) {
     if (safe._now() - shownAt < timing.anywayFresh) return reloadWindow();
     log('Reload anyway clicked ' + Math.round((safe._now() - shownAt) / 1000) + ' s after its warning: the chats here looked at again');
     return safe._guardReload(false, except || null, named || null);
+}
+
+// --- a reload asked for, on the overlay too ---------------------------------
+// A notice slides into the notification centre after a few seconds, and a
+// reload a delete asked for was easy to miss there. So every reload this
+// window asks about is also listed in data/reload-pending/<this host's
+// pid>.json for as long as its notice is unanswered, and the overlay shows it
+// as a banner with reload and later (Add-ChatOverlayReload, src/overlay-
+// windows.ps1). The overlay's answer comes back in data/reload-answer/<pid>
+// .json: reload is the notice's own button - the same guard, the same Reload
+// anyway - and later takes it off the overlay alone, the notice still up
+// here. The file goes when the last ask is answered, and with the window: a
+// reload starts a new host, so one a crash left names a pid no longer alive,
+// which the overlay passes by and the next window here sweeps.
+const pendingAsks = new Map();
+let askSeq = 0;
+// dir: the data folder these go in, the tool folder's unless the tests set
+// one - every reload they ask about would reach the real overlay otherwise
+const reloadIo = { dir: null };
+function pendingDir() { return path.join(reloadIo.dir || dataDir(), 'reload-pending'); }
+function answerDir() { return path.join(reloadIo.dir || dataDir(), 'reload-answer'); }
+function pendingFile() { return path.join(pendingDir(), process.pid + '.json'); }
+function answerFile() { return path.join(answerDir(), process.pid + '.json'); }
+
+// what the overlay calls this window: its workspace, else its folder
+function windowName() {
+    const f = (vscode.workspace.workspaceFolders || [])[0];
+    return String(vscode.workspace.name || (f ? path.basename(f.uri.fsPath) : '') || 'VS Code').replace(/ \(Workspace\)$/, '');
+}
+
+// The asks still open, newest last, written whole and moved into place; none
+// left, the file goes. Never throws.
+// When this host started, as the overlay checks the pid against: taken
+// once, as the module loads - process.uptime() stands still while the
+// machine sleeps, so worked out later it would drift by every sleep since.
+const hostStarted = Math.round(Date.now() - process.uptime() * 1000);
+let pendingRetry = null;
+function writePending(tries = 0) {
+    const f = pendingFile();
+    if (pendingRetry) { clearTimeout(pendingRetry); pendingRetry = null; }
+    try {
+        if (!pendingAsks.size) {
+            try { fs.unlinkSync(f); } catch (e) { if (e && e.code !== 'ENOENT') throw e; }
+            return;
+        }
+        fs.mkdirSync(path.dirname(f), { recursive: true });
+        const asks = [...pendingAsks.values()].map(a => ({ id: a.id, state: a.state, say: a.say, text: a.text, at: a.at }));
+        fs.writeFileSync(f + '.tmp', JSON.stringify({ v: 1, pid: process.pid, started: hostStarted, window: windowName(), asks }));
+        fs.renameSync(f + '.tmp', f);
+    } catch (e) {
+        // held a moment - an antivirus scan, a reader that shares no
+        // delete: tried again, or the overlay goes on showing an ask
+        // answered, whose answer from there would find nothing open
+        log('reload-pending: ' + f + ' could not be written: ' + (e && e.message) + (tries < 5 ? ' - trying again' : ''));
+        if (tries < 5) {
+            pendingRetry = setTimeout(() => { pendingRetry = null; writePending(tries + 1); }, 500);
+            if (pendingRetry.unref) pendingRetry.unref();
+        }
+    }
+}
+
+// The overlay's line for a reload asked about. Pure.
+function askSay(req) {
+    const t = req && req.title ? '"' + formatTitle(String(req.title), 40) + '"' : 'a chat';
+    if (!req || !req.kind || req.kind === 'deleted') return t + ' deleted - the chat list still shows it';
+    if (req.kind === 'archived') return t + ' archived - the chat list still shows it';
+    if (req.kind === 'ran') return 'a queued prompt ran in ' + t + ' - a reload shows it';
+    return 'a reload is waiting';
+}
+
+// A reload asked about: the notice - a warning, or not - with go and Not
+// now, and the same ask on the overlay (say: its line there, anyway: go
+// is Reload anyway). Resolves as the notice does, to what was picked; the
+// overlay's reload resolves it to go, its later leaves it to the notice.
+function askReload(warn, msg, go, say) {
+    const seq = ++askSeq;
+    const id = process.pid + '-' + seq + '-' + Date.now().toString(36);
+    const shown = warn ? vscode.window.showWarningMessage(msg, go, 'Not now') : vscode.window.showInformationMessage(msg, go, 'Not now');
+    return new Promise(resolve => {
+        let done = false;
+        const finish = (pick) => {
+            if (done) return;
+            done = true;
+            if (pendingAsks.delete(id)) writePending();
+            resolve(pick);
+        };
+        pendingAsks.set(id, {
+            id, seq, state: go === 'Reload' ? 'offered' : 'anyway', say: say || '', text: msg, at: Date.now(),
+            answer: (a) => {
+                if (a === 'reload') { log('reload: ' + go + ', from the overlay'); finish(go); return; }
+                // this ask and those before it, which the overlay showed
+                // this one over - never one asked since, not seen there yet
+                log('reload: later, from the overlay - the notices stay here');
+                for (const [k, v] of pendingAsks) if (v.seq <= seq) pendingAsks.delete(k);
+                writePending();
+            }
+        });
+        writePending();
+        Promise.resolve(shown).then(pick => {
+            if (!done) return finish(pick);
+            // The overlay answered first, and this notice has no way to be
+            // taken down: its button still does what it says - Reload
+            // looks at the window's chats as ever, Reload anyway reloads
+            if (pick !== go) return;
+            log('reload: ' + go + ' on a notice the overlay already answered');
+            enqueue(() => go === 'Reload' ? safe._guardReload(false, null) : reloadWindow());
+        }, () => finish(undefined));
+    });
+}
+
+// The overlay answered: data/reload-answer/<pid>.json, { id, answer, at },
+// read once and removed. An ask no longer open, or an answer over ten
+// minutes old, does nothing.
+function onReloadAnswer() {
+    const f = answerFile();
+    const a = readRequest(f);
+    if (!a) return 'none';
+    try { fs.unlinkSync(f); } catch (e) { }
+    const at = Date.parse(a.at || '');
+    const ask = pendingAsks.get(String(a.id || ''));
+    if (!ask || !(Date.now() - at < 600000) || !['reload', 'later'].includes(a.answer)) {
+        log('reload: an answer from the overlay to no open ask (' + String(a.id || '') + ' ' + String(a.answer || '') + ')');
+        return 'stale';
+    }
+    ask.answer(a.answer);
+    return a.answer;
+}
+
+// At activation: the files of windows gone - their host's pid not alive -
+// taken away, so the overlay never shows one a crash left.
+function sweepPending() {
+    for (const d of [pendingDir(), answerDir()]) {
+        let names;
+        try { names = fs.readdirSync(d); } catch (e) { continue; }
+        for (const n of names) {
+            const m = /^(\d+)\.json(\.tmp)?$/.exec(n);
+            if (!m || (Number(m[1]) !== process.pid && module.exports._alive(Number(m[1])))) continue;
+            try { fs.unlinkSync(path.join(d, n)); } catch (e) { }
+        }
+    }
+}
+
+// A run's Show it this window offered and nobody took - Not now, or the
+// notice left unanswered - its request, by chat. Taken, or run by itself,
+// or a newer run's request in (offer), or the tab handed over to a run
+// (onHandover), and it goes; gone with the host too, as the stale view is:
+// a reload loads every chat from disk. The chip's open of that chat goes
+// Show it's way meanwhile (checkOpenOne).
+const unshown = new Map();
+function unshownKey(sid) { return String(sid || '').toLowerCase(); }
+// The runs shown already, by request id - by Show it, or by the chip going
+// its way. That run's notice stays in the notification centre, and its
+// Show it clicked later would close the fresh tab, end its new process
+// after the grace and open it once more: it is passed by instead (offer).
+const shownRuns = new Set();
+function markShown(req) {
+    if (!req || !req.id) return;
+    shownRuns.add(req.id);
+    while (shownRuns.size > 32) shownRuns.delete(shownRuns.values().next().value);
 }
 
 // Every show goes through one chain per window, so two never interleave.
@@ -1610,7 +1933,13 @@ const JUDGED = ['ok', 'held', 'other', 'running'];
 // chat it found working is still a reason to ask the reload only as anyway.
 // A queued prompt going into the chat now leaves it alone: showing it would
 // load it part way through - its live view is shown, where it is chatq's.
-async function showIt(req, file) {
+// The chip's open of a chat whose Show it was not taken comes here too,
+// as that run's request, with the chip's own as asOpen (checkOpenOne):
+// where Show it would offer a reload - the chat held working since, or a
+// check that failed - it goes the chip's ordinary way (openTab) instead,
+// with what the check found: a chip never asks to reload.
+async function showIt(req, file, asOpen) {
+    unshown.delete(unshownKey(req.sessionId));
     const bar = vscode.window.setStatusBarMessage ? vscode.window.setStatusBarMessage(texts.checking) : null;
     let v;
     try { v = await module.exports._getVerdict(req, file, { judgeOnly: true }); }
@@ -1626,6 +1955,7 @@ async function showIt(req, file) {
         return 'running';
     }
     if (v && v.judged === 'only' && v.oldProcess === 'live' && hostPidsOf(v).includes(process.pid) && showFresh() && hasClaude() && req.sessionId) {
+        markShown(req);
         return enqueue(() => showLive(req, file));
     }
     // Idle in another window only: the request was this window's by its
@@ -1640,6 +1970,11 @@ async function showIt(req, file) {
     }
     const verdict = v || { busy: req.busy === true ? true : null, oldProcess: req.oldProcess };
     const how = plan(req, verdict, { fresh: showFresh(), claude: hasClaude() });
+    if (asOpen && how === 'reload') {
+        const now = v ? Object.assign({}, asOpen, { oldProcess: v.oldProcess, busy: v.busy, hostPids: hostPidsOf(v) }) : asOpen;
+        log('open ' + sid + ': not shown Show it\'s way (' + (v ? 'oldProcess ' + v.oldProcess : 'the check failed') + ') - opened as ever');
+        return enqueue(() => openTab(now));
+    }
     // Held working, or another chat of the folder busy: a reload now cuts it
     // off, so it is asked only as anyway - held, as the offer says it; the
     // chat itself not held, as the other chat's work, which is what a reload
@@ -1648,7 +1983,7 @@ async function showIt(req, file) {
         const go = 'Reload anyway';
         const said = verdict.oldProcess === 'held' ? message(Object.assign({}, req, { oldProcess: 'held' }), true) : texts.ranBusy(req);
         const shownAt = safe._now();
-        const pick = await vscode.window.showWarningMessage(said, go, 'Not now');
+        const pick = await askReload(true, said, go, askSay(req));
         // held: the warning named this chat; busy: another chat of its folder,
         // which it did not name, so nothing is left out of a later look
         if (pick === go) return enqueue(() => reloadAnyway(shownAt, verdict.oldProcess === 'held' ? req.sessionId : null, req.sessionId));
@@ -1656,7 +1991,7 @@ async function showIt(req, file) {
     }
     if (how === 'reload') {
         const go = 'Reload';
-        const pick = await vscode.window.showWarningMessage(texts.couldNotEnd(req), go, 'Not now');
+        const pick = await askReload(true, texts.couldNotEnd(req), go, askSay(req));
         // a plain Reload, maybe clicked minutes later: looked at again
         if (pick === go) return enqueue(() => safe._guardReload(false, req.sessionId));
         return 'asked';
@@ -1665,6 +2000,7 @@ async function showIt(req, file) {
     // either may name this one, whose old view then needs a word after
     const had = hostPidsOf(req);
     const shown = v ? Object.assign({}, req, { hostPids: had.concat(hostPidsOf(v).filter(p => !had.includes(p))) }) : req;
+    markShown(req);
     return enqueue(() => perform(how, shown));
 }
 
@@ -1688,9 +2024,10 @@ function workingNow(req) {
 // kept gets no second check at all - its process stays under it. A new
 // tab means the chat had no panel here - its process sits in the side bar -
 // and the second check ends only processes started before the open, so the
-// new tab's own is never ended. 'reopened', 'watch' (a queued prompt went
-// into it meanwhile: its live view instead), 'new', 'stale', 'working',
-// 'running', or what ensureListed refused.
+// new tab's own is never ended - and none at all within restartHold of an
+// extension-host restart (restartHeld). 'reopened', 'watch' (a queued
+// prompt went into it meanwhile: its live view instead), 'new', 'stale',
+// 'working', 'running', or what ensureListed refused.
 async function showLive(req, file) {
     const sid = (req.sessionId || '').slice(0, 8);
     const step = (s) => log('Show it ' + sid + ': ' + s);
@@ -1756,11 +2093,17 @@ async function showLive(req, file) {
         vscode.window.showInformationMessage(texts.staleTab(req));
         return 'stale';
     }
-    const v2 = await module.exports._getVerdict(req, file, { grace: timing.graceSeconds, hostPid: process.pid, startedBefore });
+    // A new tab moments after an extension-host restart may be one Claude
+    // Code reopened by itself, the open only revealing it: its process, of
+    // this window and started before the open, is the one the second check
+    // would end - that tab dead again. So then it only judges.
+    const held = how === 'new' && restartHeld();
+    if (held) step('a new tab within ' + Math.round(timing.restartHold / 1000) + ' s of an extension-host restart (' + runClock.hostStart + ') - maybe one Claude Code reopened: judged only, nothing ended');
+    const v2 = await module.exports._getVerdict(req, file, held ? { judgeOnly: true } : { grace: timing.graceSeconds, hostPid: process.pid, startedBefore });
     step(v2 ? 'then oldProcess ' + v2.oldProcess + ', outcome ' + v2.outcome : 'the second check failed');
     if (how === 'new') {
         await unlockClaudeGroup(req.title, before, 'new');
-        vscode.window.showInformationMessage(texts.sideBarStale(req));
+        vscode.window.showInformationMessage((held ? texts.restartNew : texts.sideBarStale)(req));
         // a new process too: what the old one alone had is not in it, but
         // where carried - and the first open might have revealed a panel,
         // so no pre-fill
@@ -1803,7 +2146,9 @@ async function offer(context, req, file) {
 
     // Marked seen BEFORE acting: the file is still on disk afterwards, so
     // without this the same request would prompt again on every reload.
-    await context.globalState.update(SEEN_KEY, req.id);
+    // A newer run into the chat takes the place of a Show it not taken.
+    if (req.kind === 'ran') unshown.delete(unshownKey(req.sessionId));
+    await markSeen(context, SEEN_KEY, req.id);
 
     // The run of a job this window handed its tab over to: the chat is put
     // back as the run ends (restoreHandover), from data/run-state, whatever
@@ -1831,14 +2176,21 @@ async function offer(context, req, file) {
         if (req.oldProcess === 'held') {
             const go = 'Reload anyway';
             const shownAt = safe._now();
-            const pick = await vscode.window.showWarningMessage(message(req, true), go, 'Not now');
+            const pick = await askReload(true, message(req, true), go, askSay(req));
             if (pick === go) return enqueue(() => reloadAnyway(shownAt, req.sessionId, req.sessionId));
             return;
         }
         const go = 'Show it';
+        // until it is taken, the chip's open of this chat goes its way
+        if (req.sessionId) unshown.set(unshownKey(req.sessionId), req);
         const pick = await vscode.window.showInformationMessage(message(req, true), go, 'Not now');
-        if (pick === go) return showIt(req, file);
-        return;
+        if (pick !== go) return;
+        // the chip went its way while this notice waited: shown already
+        if (shownRuns.has(req.id)) {
+            log('Show it ' + (req.sessionId || '').slice(0, 8) + ': shown already, by the open chip - passed by');
+            return 'shown';
+        }
+        return showIt(req, file);
     }
 
     // The script's word was of one folder, as the request went out; the
@@ -1853,9 +2205,7 @@ async function offer(context, req, file) {
     const busy = req.busy === true;
     const go = busy ? 'Reload anyway' : 'Reload';
     const shownAt = safe._now();
-    const pick = busy
-        ? await vscode.window.showWarningMessage(message(req, false), go, 'Not now')
-        : await vscode.window.showInformationMessage(message(req, false), go, 'Not now');
+    const pick = await askReload(busy, message(req, false), go, askSay(req));
     if (pick === go) {
         // Reload anyway was the answer to a warning about this request's
         // chat: fresh, it reloads; later, looked at again past that chat. A
@@ -1865,10 +2215,22 @@ async function offer(context, req, file) {
     }
 }
 
+// Every request in the file not seen yet, oldest first; what the newest of
+// them came to is returned.
 function check(context, file, onlyRecent) {
-    const req = readRequest(file);
-    if (!req || !req.id || req.kind === 'open') return;
-    if (context.globalState.get(SEEN_KEY) === req.id) return;
+    let last;
+    const reqs = requestsOf(file);
+    seedSeen(context, SEEN_KEY, reqs);
+    for (const req of reqs) {
+        const r = checkOne(context, req, file, onlyRecent);
+        if (r !== undefined) last = r;
+    }
+    return last;
+}
+
+function checkOne(context, req, file, onlyRecent) {
+    if (!req.id || req.kind === 'open') return;
+    if (wasSeen(context, SEEN_KEY, req.id)) return;
     if (!isTarget(req)) return;
     if (onlyRecent) {
         // at startup, ignore a request left over from days ago - the list it
@@ -1879,7 +2241,7 @@ function check(context, file, onlyRecent) {
         // included, so it has nothing to reload for - and the new chat a
         // run started is one no reload lists; and a run's away verdict,
         // given as it ended, is stale with someone opening windows
-        if (req.kind === 'ran' || req.kind === 'new') { context.globalState.update(SEEN_KEY, req.id); return; }
+        if (req.kind === 'ran' || req.kind === 'new') { markSeen(context, SEEN_KEY, req.id); return; }
     }
     return offer(context, req, file);
 }
@@ -1890,14 +2252,38 @@ function check(context, file, onlyRecent) {
 // just opened for it - the Claude extension is given a moment to start.
 // Its watch (kind 'watch', with the job's id): a queued prompt runs into the
 // chat, and its live view is opened instead - no Claude extension needed.
+// Every request in the file not seen yet, oldest first, each waited for;
+// what the newest of them came to is returned.
 async function checkOpen(context, file, onlyRecent) {
-    const req = readRequest(file);
-    if (!req || !isGuid(req.sessionId) || !req.id) return;
+    let last;
+    const reqs = requestsOf(file);
+    seedSeen(context, OPEN_SEEN_KEY, reqs);
+    for (const req of reqs) {
+        const r = await checkOpenOne(context, req, file, onlyRecent);
+        if (r !== undefined) last = r;
+    }
+    return last;
+}
+
+// A chat whose run was offered Show it here, not taken (unshown): its tab
+// shows it from before the run, on a process that never reads the
+// transcript again, and a message typed there goes on from before it. So
+// the chip's open goes Show it's way - judged first, its tab closed, what
+// outlived the close ended, and opened again from disk (showLive) - with
+// what the chip judged just now in place of what the run's end did. Only
+// while the chip found that process idle in this window (live): with none
+// left - its tab closed - any open loads the chat from disk, and one
+// working has been typed into since, so it goes on from what it shows and
+// a reopen would show the same. Either way the offer is forgotten. Where
+// no window can be told (hostPids empty, as on a Mac) the tab is brought
+// forward as before.
+async function checkOpenOne(context, req, file, onlyRecent) {
+    if (!isGuid(req.sessionId) || !req.id) return;
     if (req.kind !== 'open' && !(req.kind === 'watch' && validJobId(req.jobId))) return;
-    if (context.globalState.get(OPEN_SEEN_KEY) === req.id) return;
+    if (wasSeen(context, OPEN_SEEN_KEY, req.id)) return;
     if (!isTarget(req)) return;
     const age = ageOf(req);
-    await context.globalState.update(OPEN_SEEN_KEY, req.id);
+    await markSeen(context, OPEN_SEEN_KEY, req.id);
     if (!(age <= timing.openMaxAge)) return;
     if (req.kind === 'watch') {
         log('watch ' + req.sessionId.slice(0, 8) + ': #' + (req.seq || '?') + ' from the chip');
@@ -1906,6 +2292,12 @@ async function checkOpen(context, file, onlyRecent) {
     if (!hasClaude()) {
         vscode.window.showInformationMessage(texts.noClaude(req));
         return;
+    }
+    const ran = unshown.get(unshownKey(req.sessionId));
+    if (ran && (req.oldProcess === 'none' || req.oldProcess === 'held')) unshown.delete(unshownKey(req.sessionId));
+    else if (ran && req.oldProcess === 'live' && hostPidsOf(req).includes(process.pid)) {
+        log('open ' + req.sessionId.slice(0, 8) + ': its run\'s Show it was not taken here - shown its way');
+        return showIt(Object.assign({}, ran, { hostPids: hostPidsOf(req), oldProcess: req.oldProcess, busy: req.busy, file: req.file || ran.file, at: req.at }), file, req);
     }
     if (onlyRecent) await sleep(timing.startupOpen);
     return enqueue(() => openTab(req));
@@ -2029,11 +2421,17 @@ async function psRun(cmd) {
 function besideColumn() { return vscode.ViewColumn && vscode.ViewColumn.Beside !== undefined ? vscode.ViewColumn.Beside : -2; }
 
 // run-state ids acted on; jobs whose next handover skips the in-use rule
-// (Hand over now); jobs whose in-use notice was said; the last run-state of
-// each job, for its away once run-state has moved on
+// (Hand over now); jobs whose in-use notice was said; runs (runOf) whose
+// old view was said stale; the last run-state of each job, for its away
+// once run-state has moved on
 const handled = new Set(), handOverNow = new Set(), inUseSaid = new Set(), besideSaid = new Set();
 const lastRuns = new Map();
 function remember(set, v) { set.add(v); if (set.size > 200) set.delete(set.values().next().value); }
+
+// One run of a job, as run-state names it: its handover's id, which the
+// run's own writes carry on (handoverId), else - no handover, as for a
+// background command - the write's own id, one 'running' a run. Pure.
+function runOf(rs) { return String((rs && (rs.handoverId || rs.id)) || ''); }
 
 // Is the handover rs still the one the watcher waits on? run-state read
 // again: it moves on once the watcher stops listening - after
@@ -2075,7 +2473,7 @@ async function onHandover(context, rs) {
         if (!answer('unsure')) return 'late';
         say('no tab here is surely its own' + (shared ? ' - another chat of its folder has that label' : '') + ': its live view beside, the old view said stale');
         // the run goes beside it ('unsure'): said here, so not again then
-        remember(besideSaid, rs.jobId);
+        remember(besideSaid, runOf(rs));
         openWatch(rs.jobId, { viewColumn: besideColumn(), preserveFocus: true, title: rs.title });
         vscode.window.showWarningMessage(texts.handoverStale(rs));
         return 'unsure';
@@ -2111,8 +2509,13 @@ async function onHandover(context, rs) {
     // put back with the chat, and a reload before then forgets the launch
     const start = processStart(rs.sessionId);
     await bounded(vscode.window.tabGroups.close(t), 'closing the tab');
+    // the view a Show it not taken was for is gone: the chat comes back
+    // from disk as the run ends
+    unshown.delete(unshownKey(rs.sessionId));
     const rec = { sessionId: rs.sessionId, jobId: rs.jobId, seq: rs.seq, title: rs.title || '', cwd: rs.cwd || '', home: rs.home || null,
         provider: rs.provider || 'claude', viewColumn: col, wasVisible: visible, at: new Date().toISOString(), start };
+    // a new record, a new run: no wait on an old run's watch tab carried on
+    tabWaits.delete(rs.jobId);
     await putHandovers(context, handovers(context).filter(r => r.jobId !== rs.jobId).concat([rec]));
     say('its tab closed' + (visible ? ', its live view in its place' : ' - a tab behind others, so no live view by itself'));
     if (!visible) {
@@ -2156,12 +2559,13 @@ async function askHandOver(rs) {
 // which closing its tab would end; 'unsure' - the handover got no answer in
 // time, or none sure of the tab; 'timed-out' - its tab closed, its process
 // did not leave. Its live view beside - one open already stays where it is
-// - and the old view said stale; once a job, the handover's own word
-// included.
+// - and the old view said stale; once a run, the handover's own word
+// included. A job run again - back in the queue at the limit, then on - is
+// a new run, beside the tab again, and said again.
 const BESIDE = ['background', 'unsure', 'timed-out'];
 function onBeside(rs) {
-    if (besideSaid.has(rs.jobId)) return 'said';
-    remember(besideSaid, rs.jobId);
+    if (besideSaid.has(runOf(rs))) return 'said';
+    remember(besideSaid, runOf(rs));
     log('run ' + String(rs.sessionId || '').slice(0, 8) + ' (' + seqOf(rs) + '): beside its tab (' + rs.beside + ')');
     const had = watchViews.get(rs.jobId);
     if (!had || had.disposed) openWatch(rs.jobId, { viewColumn: besideColumn(), preserveFocus: true, title: rs.title });
@@ -2188,6 +2592,164 @@ function updateRunItem(rs, live) {
     runItem.backgroundColor = asks && vscode.ThemeColor ? new vscode.ThemeColor('statusBarItem.warningBackground') : undefined;
     runItem.show();
     return asks ? 'asks' : 'running';
+}
+
+// --- the queue, in the status bar ---------------------------------------------
+// How many prompts are queued and when the next one sends: the "sends" of
+// chatqlist and the board (Get-ChatqEta, src/alerts.ps1), cut to the first.
+// Looked at on the run-state timer (timing.runCheck), from data/ alone:
+// each job file read again only when it changed, and data/state.json,
+// the watcher's own view of the lanes' limits and overloads.
+
+function stampOf(s) { const t = Date.parse(s || ''); return Number.isFinite(t) ? t : null; }
+
+// Get-ChatqBlocks: each lane's limit or overload, by lane, from the saved
+// state - only while its watcher runs and is not just listening for phone
+// replies, whose view of the limits is hours stale. Where the watcher does
+// not run nothing sends anyway, and chatqlist's scan of the limits is
+// PowerShell's alone: no lane is taken as blocked. Pure.
+function queueBlocks(state, watcherUp, now) {
+    const out = {};
+    if (!state || !watcherUp || state.listening) return out;
+    for (const [lane, b] of Object.entries(state.blocked || {})) {
+        const u = stampOf(b && b.until);
+        if (u && u > now) out[lane] = { until: u, type: b.type };
+    }
+    for (const lane of Object.keys(state.outage || {})) out[lane] = { type: 'overloaded' };
+    return out;
+}
+
+// What a job put off waits for, where its deferUntil is only its next look:
+// Format-ChatqDeferWhy's words (src/alerts.ps1), the "since" left off
+const DEFER_WORDS = { 'in-use': 'waits for you to leave its tab', background: 'waits for a background command' };
+
+// The queue in short, else null for none queued: count, and when the first
+// sends - 'now' (nothing ahead), 'after' (the run going now, seq), 'at' (a
+// time), 'waits' (no time: words, what the first one waits for), or 'back'
+// (every one waits on an overload). A job's wait is its lane's limit's end
+// and a minute, its notBefore, and a deferUntil or retryAt still ahead -
+// the latest of them, as Get-ChatqEta has it; and where that latest is a
+// deferUntil for a tab in use or a background command, the board gives
+// its words instead of a time, so no time is taken from it here. A time
+// beats words: it is a send, and theirs is only a look. Pure.
+function queueNext(jobs, blocks, now) {
+    const queued = (jobs || []).filter(j => j && j.state === 'queued');
+    if (!queued.length) return null;
+    const running = (jobs || []).find(j => j && j.state === 'running');
+    let soonest = null, waits = null;
+    for (const j of queued) {
+        const lane = j.home ? j.provider + '|' + j.home : String(j.provider || '');
+        const b = (blocks || {})[lane];
+        if (b && b.type === 'overloaded') continue;
+        const times = [];
+        if (b && b.until) times.push(b.until + 60000);
+        const du = stampOf(j.deferUntil);
+        for (const t of [stampOf(j.notBefore), du, stampOf(j.retryAt)]) if (t && t > now) times.push(t);
+        if (!times.length) {
+            return running ? { count: queued.length, next: 'after', seq: running.seq } : { count: queued.length, next: 'now' };
+        }
+        const at = Math.max(...times);
+        const words = du && du > now && at === du ? DEFER_WORDS[j.deferWhy] : undefined;
+        if (words) { if (!waits) waits = words; continue; }
+        if (soonest === null || at < soonest) soonest = at;
+    }
+    if (soonest !== null) return { count: queued.length, next: 'at', at: soonest };
+    return waits ? { count: queued.length, next: 'waits', words: waits } : { count: queued.length, next: 'back' };
+}
+
+// a time as the board writes it: HH:mm today, else its weekday before it
+function sendsAt(t, now) {
+    const d = new Date(t), n = new Date(now);
+    const day = d.toDateString() === n.toDateString() ? '' : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()] + ' ';
+    return day + watch.hhmm(t);
+}
+
+// The item's text and tooltip, else null for none queued. The board's
+// words: next, after #seq, a time, what it waits for, when Claude is back.
+// Pure.
+function queueText(q, watcherUp, now) {
+    if (!q) return null;
+    const n = q.count + ' queued';
+    const dot = ' \u00b7 ';
+    if (!watcherUp) {
+        return { text: '$(clock) chatq ' + n + dot + 'watcher stopped',
+            tooltip: 'chatq has ' + n + ', and its watcher is not running: nothing sends until chatqrun - or a new terminal that loads chatq - starts it. Click for the queue.' };
+    }
+    const seq = q.seq === undefined || q.seq === null ? '?' : q.seq;
+    const when = q.next === 'now' ? 'next' : q.next === 'after' ? 'after #' + seq : q.next === 'back' ? 'when Claude is back' :
+        q.next === 'waits' ? q.words : sendsAt(q.at, now);
+    const says = q.next === 'now' ? 'the next one sends now' : q.next === 'after' ? 'the next one sends after #' + seq + ', the run going now' :
+        q.next === 'back' ? 'they send when Claude is back from its overload' : q.next === 'waits' ? 'the next one ' + q.words + ', and has no time to send' :
+        'the next one sends at ' + when;
+    return { text: '$(clock) chatq ' + n + dot + when, tooltip: 'chatq has ' + n + ': ' + says + '. Click for the queue.' };
+}
+
+// data/queue/*.json, each read again only when its size or write time moved
+const queueSeen = new Map();
+function readQueue() {
+    const dir = path.join(dataDir(), 'queue');
+    let names;
+    try { names = fs.readdirSync(dir); } catch (e) { queueSeen.clear(); return []; }
+    const jobs = [], here = new Set();
+    for (const n of names) {
+        if (!/\.json$/i.test(n)) continue;
+        const f = path.join(dir, n);
+        let st;
+        try { st = fs.statSync(f); } catch (e) { continue; }
+        here.add(f);
+        const hit = queueSeen.get(f);
+        let job = hit && hit.size === st.size && hit.mtimeMs === st.mtimeMs ? hit.job : undefined;
+        if (job === undefined) {
+            job = readRequest(f);
+            // one caught mid-write is read again next time
+            if (job) queueSeen.set(f, { size: st.size, mtimeMs: st.mtimeMs, job });
+        }
+        if (job && job.id) jobs.push(job);
+    }
+    for (const f of [...queueSeen.keys()]) if (!here.has(f)) queueSeen.delete(f);
+    return jobs;
+}
+
+// Is the watcher running? It holds data/watcher.lock open for its whole
+// life (Test-ChatqWatcherAlive, src/alerts.ps1); a Mac's lock is only
+// advisory, so there the pid it saved in data/state.json answers instead.
+function watcherUp(state) {
+    const io = module.exports._overlayIo;
+    if (io.platform() === 'win32') return io.lockHeld(path.join(dataDir(), 'watcher.lock'));
+    return !!state && Number.isInteger(state.pid) && state.pid > 0 && module.exports._alive(state.pid);
+}
+
+// The item, in every window: shown while something is queued, gone when
+// nothing is. A click opens the board.
+let queueItem = null;
+function updateQueueItem(now) {
+    const t = now === undefined ? Date.now() : now;
+    const jobs = readQueue();
+    let shown = null;
+    if (jobs.some(j => j.state === 'queued')) {
+        const state = readRequest(path.join(dataDir(), 'state.json'));
+        const up = watcherUp(state);
+        shown = queueText(queueNext(jobs, queueBlocks(state, up, t), t), up, t);
+    }
+    if (!shown) { if (queueItem && queueItem.hide) queueItem.hide(); return 'hidden'; }
+    if (!queueItem && vscode.window.createStatusBarItem) {
+        queueItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment ? vscode.StatusBarAlignment.Left : 1, 49);
+    }
+    if (!queueItem) return 'none';
+    queueItem.text = shown.text;
+    queueItem.tooltip = shown.tooltip;
+    queueItem.command = 'chatManager.showQueue';
+    queueItem.show();
+    return shown.text;
+}
+
+// The board, data/queue.md, as the watcher last wrote it, in the Markdown
+// preview - which follows each write after (chatqlist -Board)
+async function showQueue() {
+    const file = path.join(dataDir(), 'queue.md');
+    if (!fs.existsSync(file)) { vscode.window.showInformationMessage(texts.noBoard); return 'none'; }
+    try { await command('markdown.showPreview', vscode.Uri.file(file)); return 'shown'; }
+    catch (e) { log('the queue board could not be shown: ' + (e && e.message)); return 'failed'; }
 }
 
 // the job file of the run going now, watched for what the phone is asked
@@ -2232,8 +2794,13 @@ function stillRunning(r, rs) {
     return !!job && job.state === 'running' && Number.isInteger(job.runnerPid) && module.exports._alive(job.runnerPid);
 }
 
-// When this window's extension started: restoreHold counts from it
-const runClock = { activatedAt: 0 };
+// When this window's extension started: restoreHold and restartHold count
+// from it. hostStart: what started it (hostStartOf); null before then
+const runClock = { activatedAt: 0, hostStart: null };
+
+// the jobs whose record waits on a watch tab not brought back yet, and
+// since when (viewComing)
+const tabWaits = new Map();
 
 // Is the watch panel of that handover about to come back? A window started
 // again brings its watch panels back through the serializer - after the
@@ -2243,14 +2810,25 @@ const runClock = { activatedAt: 0 };
 // to open a chat whose panel then shows Open chat too. So a record waits
 // while its panel is not here: for restoreHold after the start, and while a
 // watch tab of its job (its label, '#15') waits to be brought back - the
-// serializer looks again as it brings one.
+// serializer looks again as it brings one. That wait is tabHold at most,
+// from the first look past restoreHold that found the run over: a tab VS
+// Code keeps but never shows again would hold the chat for the record's two
+// days, so past it the chat is put back as for a closed view, the tab left
+// to come back with Open chat. A wait ends with its view back or its tab
+// gone, and starts over when the job runs again (restoreRuns) or is handed
+// over again (onHandover).
 function viewComing(r, now) {
     const v = watchViews.get(r.jobId);
-    if (v && !v.disposed) return false;
+    if (v && !v.disposed) { tabWaits.delete(r.jobId); return false; }
     if (runClock.activatedAt && now - runClock.activatedAt < timing.restoreHold) return true;
     if (!/^\d+$/.test(String(r.seq))) return false;
     const mark = new RegExp('^\\S #' + r.seq + '(\\s|$)');
-    return allTabs().some(t => isWatchTab(t) && mark.test(String(t.label || '')));
+    if (!allTabs().some(t => isWatchTab(t) && mark.test(String(t.label || '')))) { tabWaits.delete(r.jobId); return false; }
+    if (!tabWaits.has(r.jobId)) tabWaits.set(r.jobId, now);
+    if (now - tabWaits.get(r.jobId) < timing.tabHold) return true;
+    log('run ' + String(r.sessionId || '').slice(0, 8) + ' (' + seqOf(r) + ') ended: its watch tab not brought back in ' + Math.round(timing.tabHold / 1000) + ' s - put back without it');
+    tabWaits.delete(r.jobId);
+    return false;
 }
 
 // The chats handed over whose run is over - done, needs input, failed,
@@ -2273,7 +2851,11 @@ function restoreRuns(context, rsNow) {
             if (r.restored) { if (now - Date.parse(r.restored) < 30 * 60000) keep.push(r); continue; }
             if (!(now - Date.parse(r.at) < 2 * 86400000)) continue;
             keep.push(r);
-            if (restoringNow.has(r.jobId) || stillRunning(r, rs) || viewComing(r, now)) continue;
+            if (restoringNow.has(r.jobId)) continue;
+            // the job running (again): a wait on its watch tab begun after an
+            // earlier run of it counts from that run's end, so it starts over
+            if (stillRunning(r, rs)) { tabWaits.delete(r.jobId); continue; }
+            if (viewComing(r, now)) continue;
             due.push(r);
         }
         for (const r of due) restoringNow.add(r.jobId);
@@ -2341,8 +2923,10 @@ async function restoreHandover(r) {
         if (how === 'new' || how === 'revealed') sayLost(req, lost, how === 'new' && !!prompt, carrying);
         return how;
     });
+    // not opened now: armed for however it is opened meanwhile (armPutBack)
+    const armLater = () => { putBackLast = armPutBack(req, validStart(r.start)); };
     if (view && !view.disposed) {
-        if (!(view.panel.active || away)) { say('its live view shows how, with Open chat'); return 'shown'; }
+        if (!(view.panel.active || away)) { say('its live view shows how, with Open chat'); armLater(); return 'shown'; }
         const col = view.panel.viewColumn !== undefined ? view.panel.viewColumn : r.viewColumn;
         say('the chat in its live view\'s place' + (away ? ' - nobody at the PC' : ''));
         const how = await open(col, '(' + seqOf(r) + ' ended, in its live view\'s place)');
@@ -2352,6 +2936,7 @@ async function restoreHandover(r) {
     if (away) { say('the chat where its tab was - nobody at the PC'); return open(r.viewColumn, '(' + seqOf(r) + ' ended, where its tab was)'); }
     const go = 'Open chat';
     say('its live view closed - asked');
+    armLater();
     Promise.resolve(vscode.window.showInformationMessage(texts.ranClosed(r), go))
         .then(pick => (pick === go ? open(r.viewColumn, '(' + seqOf(r) + ' ended, asked)') : null))
         .catch(e => log('putting a chat back failed: ' + ((e && e.stack) || e)));
@@ -2523,7 +3108,7 @@ function postWatch(v, full) {
     const rows = all ? v.parser.items : v.parser.dirty();
     if (all) v.parser.dirty();
     const gone = v.parser.dropped;
-    const msg = { head: v.head, pin: watch.pinnedTodo(v.parser.items), running: v.running, rows: rows.map(it => ({ i: it.i, html: watch.itemHtml(it) })),
+    const msg = { head: v.head, pin: watch.pinnedTodo(v.parser), running: v.running, rows: rows.map(it => ({ i: it.i, html: watch.itemHtml(it) })),
         earlier: gone ? gone + ' earlier rows are not kept here - Log has them' : '' };
     if (all) msg.reset = true;
     v.reset = false;
@@ -2761,11 +3346,15 @@ async function readSidecar(dir, sid) {
 
 // One transcript, as the Claude extension would title it: a rename (a
 // custom-title record, or the sidecar beside it), else its ai-title, else
-// the first prompt typed - '' for none. The records are looked for in the
-// last 256 KB, newest first, the prompt in the first 256 KB; a file of no
-// more is read once. { skip } for what the Claude extension lists not: a
-// side transcript, flagged on its first line, and one of 64 KB or less that
-// holds no message at all. null when it cannot be read.
+// the first prompt typed - '' for none. Each record is looked for in the
+// last 256 KB, newest first, and where the tail has none of that kind, in
+// the first 256 KB - as the index's Describe (src/providers.ps1) does, so a
+// large chat renamed early reads the same here and in chatfind. The prompt
+// is looked for in the first 256 KB; a file of no more is read once, and
+// the head of a larger one only when something is looked for there. { skip }
+// for what the Claude extension lists not: a side transcript, flagged on its
+// first line, and one of 64 KB or less that holds no message at all. null
+// when it cannot be read.
 async function readChat(c) {
     let fh;
     try { fh = await fsp.open(c.file, 'r'); } catch (e) { return null; }
@@ -2790,8 +3379,12 @@ async function readChat(c) {
             tail = tail.slice(tail.indexOf('\n') + 1);
         }
         if (size <= 65536 && !tail.includes('"type":"user"') && !tail.includes('"type":"assistant"')) return { skip: 'empty' };
-        const title = lastRecord(tail, 'custom-title', 'customTitle') || await readSidecar(c.dir, c.sid) ||
-            lastRecord(tail, 'ai-title', 'aiTitle') || firstPrompt(await headText());
+        // a record of that kind at the tail, else at the head - which is the
+        // tail itself for a file of no more than SPAN
+        const either = async (type, field) => lastRecord(tail, type, field) ||
+            (size > SPAN ? lastRecord(await headText(), type, field) : '');
+        const title = await either('custom-title', 'customTitle') || await readSidecar(c.dir, c.sid) ||
+            await either('ai-title', 'aiTitle') || firstPrompt(await headText());
         return { title };
     } catch (e) {
         log('pick: reading ' + c.file + ' failed: ' + (e && e.message));
@@ -2869,7 +3462,9 @@ async function labelShared(title, cwd, sid, home) {
 // Is a registry entry's process still that session? Its pid answers - a
 // process of another user's is there too (EPERM) - and its startedAt is
 // neither in the future nor from before this machine last started, which
-// catches most files a crash left behind for a pid handed on since.
+// catches most files a crash left behind for a pid handed on since. A pid
+// handed on since boot answers too: liveRegistry looks at the process
+// itself where it can (procFacts).
 function entryLive(o, now) {
     const at = Number(o.startedAt);
     if (Number.isFinite(at) && at > 0) {
@@ -2896,6 +3491,191 @@ function readRegistry(home, now) {
         by.get(o.sessionId).push(o);
     }
     return by;
+}
+
+// --- a registry entry's process, as the OS has it ----------------------------
+// What node cannot read of another process: when it started, and its
+// parent. On Windows one Windows PowerShell asks CIM (Win32_Process) for
+// every pid at once - about a second, for any number; wmic is gone from
+// Windows 11, and tasklist knows neither - and each answer is kept
+// timing.procFresh by pid, so the picker and the pick after it ask once.
+// Elsewhere nothing is asked and nothing known: the registry is taken as
+// entryLive has it. Replaced by the tests: they never start PowerShell.
+const procIo = {
+    platform: () => process.platform,
+    // the script's output, '' where it did not run to its end
+    run: (script, ms) => new Promise(resolve => {
+        try {
+            cp.execFile(windowsPowerShell(), ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
+                { timeout: ms, windowsHide: true, maxBuffer: 1 << 20 }, (err, out) => resolve(err ? '' : String(out || '')));
+        } catch (e) { resolve(''); }
+    })
+};
+
+// One line per process that is there, its fields split by | - which no
+// process name holds, a Windows file name never does: its pid, its start
+// as a FILETIME - the registry's procStart - its parent's pid and start,
+// its name, and its parent's name as Get-Process has it ("Code"). A parent
+// that is gone, or not this user's to read, starts at 0 and has no name.
+// Pure.
+function procScript(pids) {
+    const filter = pids.map(p => 'ProcessId=' + p).join(' OR ');
+    return "$ErrorActionPreference = 'SilentlyContinue'\n" +
+        "foreach ($p in @(Get-CimInstance Win32_Process -Filter '" + filter + "')) {\n" +
+        "  $st = if ($p.CreationDate) { $p.CreationDate.ToFileTimeUtc() } else { 0 }\n" +
+        "  $pp = Get-Process -Id ([int]$p.ParentProcessId)\n" +
+        "  $ps = 0; $pn = ''\n" +
+        "  if ($pp) { $pn = [string]$pp.ProcessName; try { $ps = $pp.StartTime.ToFileTimeUtc() } catch { $ps = 0 } }\n" +
+        "  [Console]::Out.WriteLine(('proc|{0}|{1}|{2}|{3}|{4}|{5}' -f $p.ProcessId, $st, $p.ParentProcessId, $ps, $p.Name, $pn))\n" +
+        "}\n";
+}
+
+// procScript's lines, by pid. FILETIMEs stay strings: they are past 2^53.
+// Pure.
+function parseProcs(text) {
+    const out = new Map();
+    for (const line of String(text || '').split(/\r?\n/)) {
+        const m = /^proc\|(\d+)\|(\d+)\|(\d+)\|(\d+)\|([^|]+)\|([^|]*)$/.exec(line.trim());
+        if (m) out.set(Number(m[1]), { start: m[2], ppid: Number(m[3]), parentStart: m[4], name: m[5], parentName: m[6] });
+    }
+    return out;
+}
+
+// pid -> { at, f }: f null for a pid asked about that was not there. One
+// look at a time is asked for: a pick while the picker's own look is out
+// waits for that one rather than start a second PowerShell.
+const procSeen = new Map();
+let procAsking = null;
+async function procFacts(pids, now) {
+    const out = new Map();
+    const io = module.exports._procIo;
+    if (io.platform() !== 'win32') return out;
+    const t = now === undefined ? Date.now() : now;
+    const ask = [];
+    for (const p of new Set(pids)) {
+        if (!Number.isInteger(p) || p <= 0) continue;
+        const hit = procSeen.get(p);
+        if (hit && t - hit.at >= 0 && t - hit.at < timing.procFresh) { if (hit.f) out.set(p, hit.f); }
+        else ask.push(p);
+    }
+    if (!ask.length) return out;
+    // what the look found, fresh: one that failed leaves an older answer out
+    const keep = () => {
+        for (const p of ask) {
+            const hit = procSeen.get(p);
+            if (hit && hit.f && Math.abs(t - hit.at) < timing.procFresh) out.set(p, hit.f);
+        }
+        return out;
+    };
+    if (procAsking && ask.every(p => procAsking.pids.has(p))) { await procAsking.done; return keep(); }
+    const asking = { pids: new Set(ask), done: null };
+    asking.done = (async () => {
+        const got = parseProcs(await io.run(procScript(ask), timing.procTimeout));
+        // none at all is a query that failed, or pids all gone since: either
+        // way nothing is kept, and entryLive's answer stands
+        if (!got.size) { log('processes ' + ask.join(',') + ': their start and parent could not be read'); return; }
+        for (const p of ask) procSeen.set(p, { at: t, f: got.get(p) || null });
+    })().catch(e => log('processes ' + ask.join(',') + ': ' + (e && e.message)));
+    procAsking = asking;
+    try { await asking.done; } finally { if (procAsking === asking) procAsking = null; }
+    return keep();
+}
+
+function ftMs(ft) { return Number(BigInt(ft) / 10000n) - 11644473600000; }
+
+// Is the process an entry's pid names now still that entry's? The rules of
+// Test-ChatqSessionAlive (src/live-chats.ps1) and Test-ChatqClaudeProcess
+// (src/watcher.ps1): a claude or node, started when procStart says - to
+// 3 s, where it is a FILETIME, as on Windows - and never more than 10 s
+// after startedAt. A start not read (0) says nothing. Pure.
+function startFits(o, f) {
+    if (!/^(claude|node)/i.test(f.name)) return false;
+    const began = /^\d{17,}$/.test(f.start) ? BigInt(f.start) : null;
+    if (began === null) return true;
+    const ps = String(o.procStart === undefined || o.procStart === null ? '' : o.procStart);
+    if (/^\d{17,}$/.test(ps)) {
+        const d = BigInt(ps) - began;
+        if (d > 30000000n || d < -30000000n) return false;
+    }
+    const at = Number(o.startedAt);
+    if (Number.isFinite(at) && at > 0 && ftMs(began) - at > 10000) return false;
+    return true;
+}
+
+// Which window a VS Code panel's process is in: its parent is the
+// extension host of the window that started it, as the script's hostPids
+// has it (S30, Test-ChatVsCodeOwned in src/live-chats.ps1) - 'here' where
+// that is this extension's host, 'window' for another Code that is still
+// there, '' where it cannot be told: not a VS Code panel, a start not read,
+// a parent of another name, or one that started after the process did -
+// its pid handed on since. Pure but for alive.
+function whereOf(o, f) {
+    if (o.entrypoint !== 'claude-vscode' || !(f.ppid > 0)) return '';
+    if (!/^\d{17,}$/.test(f.start) || !/^\d{17,}$/.test(f.parentStart) || BigInt(f.parentStart) > BigInt(f.start)) return '';
+    if (f.ppid === process.pid) return 'here';
+    return /^Code( - Insiders)?$/i.test(f.parentName || '') && module.exports._alive(f.ppid) ? 'window' : '';
+}
+
+// readRegistry's entries, those whose process is not theirs any more left
+// out, and each of the rest with where it runs and its host (whereOf). An
+// entry of no facts is kept as it was. Pure but for alive.
+function withFacts(by, facts) {
+    const out = new Map();
+    for (const [sid, es] of by) {
+        const keep = [];
+        for (const o of es) {
+            const f = facts && facts.get(o.pid);
+            if (f && !startFits(o, f)) continue;
+            keep.push(f ? Object.assign({}, o, { where: whereOf(o, f), host: f.ppid }) : o);
+        }
+        if (keep.length) out.set(sid, keep);
+    }
+    return out;
+}
+
+// the live entries, by session id, each process looked at where it can be
+async function liveRegistry(home, now) {
+    const by = readRegistry(home, now);
+    const pids = [];
+    for (const es of by.values()) for (const o of es) pids.push(o.pid);
+    return withFacts(by, pids.length ? await procFacts(pids, now) : new Map());
+}
+
+// Where the VS Code panels holding a chat are: 'here' - all in this
+// window, 'window' - all in others, '' - some of each, a terminal's among
+// them, or any that cannot be told. Pure.
+function placeOf(entries) {
+    const ws = new Set((entries || []).map(e => e.where || ''));
+    return ws.size === 1 ? [...ws][0] : '';
+}
+
+// the other windows' hosts holding it
+function hostsOf(entries) {
+    return [...new Set((entries || []).filter(e => e.where === 'window').map(e => e.host))];
+}
+
+// A chat another window holds, handed to it through data/open-request as
+// the overlay's open chip hands one (Write-ChatOpenRequest,
+// src/chatrm.ps1): the same fields, and hostPids its windows, so only they
+// act on it. There it is openTab's: its tab brought forward, or - working
+// outside the tabs - said, and never a second copy. The chip's own file, so
+// a chip's click within the same 2 s poll replaces it, as one click
+// replaces another. The request or null.
+function handToWindow(c, title, busy, hostPids, home) {
+    const file = openFiles()[0];
+    const req = {
+        id: require('crypto').randomUUID(), kind: 'open', sessionId: c.sid, cwd: c.cwd, title,
+        home: String(process.env.CLAUDE_CONFIG_DIR || '').trim() ? home : null,
+        busy: null, oldProcess: busy ? 'held' : 'live', hostPids, file: c.file, at: new Date().toISOString()
+    };
+    try {
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, JSON.stringify(req));
+        return req;
+    } catch (e) {
+        log('pick ' + c.sid.slice(0, 8) + ': ' + file + ' could not be written: ' + (e && e.message));
+        return null;
+    }
 }
 
 // What runs a chat, from its live entries. Pure.
@@ -2943,9 +3723,11 @@ const ICON = /(\\)?\$\([A-Za-z0-9-]+(?:~[A-Za-z]+)?\)/g;
 function noIcons(s) { return String(s).replace(ICON, (m, escaped) => (escaped ? m : '\\' + m)); }
 
 // One chat's line in the picker; d undefined while its title is being read
-// shows its id. Pure.
-function pickItem(c, d, state, multi, now) {
-    const word = STATE_WORD[state] || '';
+// shows its id. place: placeOf its entries, said of a chat open or working
+// where it is known. Pure.
+function pickItem(c, d, state, multi, now, place) {
+    const held = state === 'open' || state === 'working';
+    const word = (STATE_WORD[state] || '') + (held && place === 'here' ? ' in this window' : held && place === 'window' ? ' in another window' : '');
     const item = {
         label: (STATE_ICON[state] || '') + (d ? noIcons(formatTitle(d.title)) : c.sid),
         description: ageText(now - c.mtimeMs) + (word ? ' \u00b7 ' + word : ''),
@@ -2975,7 +3757,9 @@ async function openChat() {
     qp.show();
     const now = Date.now();
     const chats = await listChats(home, folders, PICK_CAP);
-    const states = readRegistry(home, now);
+    // the registry at once; each process looked at beside the titles'
+    // reads, and the list put again with what that finds (liveRegistry)
+    let states = readRegistry(home, now);
     const known = new Map();
     for (const c of chats) { const d = cachedChat(c); if (d) known.set(c.file, d); }
     // over: picked or dismissed, and the picker gone - nothing more put in it
@@ -2988,7 +3772,8 @@ async function openChat() {
         for (const c of chats) {
             const d = known.get(c.file);
             if (d && d.skip) continue;
-            items.push(pickItem(c, d, chatState(states.get(c.sid)), multi, now));
+            const es = states.get(c.sid);
+            items.push(pickItem(c, d, chatState(es), multi, now, placeOf(es)));
         }
         qp.items = items;
         const keep = was && items.find(i => i.chat.sid === was.chat.sid);
@@ -3007,6 +3792,12 @@ async function openChat() {
         }
     };
     const reading = Promise.all(Array.from({ length: Math.min(PICK_READS, todo.length) }, worker));
+    const pids = [];
+    for (const es of states.values()) for (const o of es) pids.push(o.pid);
+    if (pids.length) {
+        procFacts(pids, now).then(facts => { if (facts.size) { states = withFacts(states, facts); later(); } },
+            e => log('pick: ' + (e && e.message)));
+    }
     await Promise.race([reading, sleep(timing.pickBudget)]);
     put();
     if (!chats.length) qp.placeholder = 'No Claude chats in this window\'s folders';
@@ -3022,10 +3813,13 @@ async function openChat() {
 // A chat picked. What runs it is read again: the picker may have been open
 // a while. A terminal holds it, or a queued prompt goes into it: never.
 // Working in VS Code: only its one tab here brought forward - anything else
-// starts a second copy mid-answer. Open idle elsewhere - another window, or
-// the side bar, which the open (openCall) does not look at - only when asked.
-// Nothing runs it: opened from disk. Its one tab here counts only while no
-// other chat of its folder shares the tab's label. And it is read once more
+// starts a second copy mid-answer - and where its process says it is in
+// another window (whereOf), handed to that window (handToWindow), which
+// brings its tab forward there. Open idle elsewhere - another window, or
+// the side bar, which the open (openCall) does not look at - only when
+// asked; in another window, Show it there hands it over instead. Nothing
+// runs it: opened from disk. Its one tab here counts only while no other
+// chat of its folder shares the tab's label. And it is read once more
 // after the question, which may sit unanswered for minutes, and again right
 // before the open, which may wait behind another show: what began to work
 // meanwhile is refused as it would have been at once.
@@ -3036,19 +3830,30 @@ async function acceptChat(c) {
     // the title as written for the tabs, and shortened for what is said
     const req = { kind: 'pick', sessionId: c.sid, title, cwd: c.cwd, file: c.file };
     const said = { title: title ? formatTitle(title) : '' };
-    let state;
-    // what runs it now, and whether it has a tab here that is surely its own
+    let state, place = '', hosts = [];
+    // what runs it now, where, and whether it has a tab here that is surely
+    // its own
     const look = async () => {
-        state = chatState(readRegistry(home, Date.now()).get(c.sid));
+        const es = (await liveRegistry(home, Date.now())).get(c.sid);
+        state = chatState(es);
+        place = placeOf(es);
+        hosts = hostsOf(es);
         if (state !== 'working' && state !== 'open') return false;
         return !!oneTabOf(title, allTabs().filter(isClaudeTab)) && !(await labelShared(title, c.cwd, c.sid, home));
     };
     // said and true where it may not be opened as it stands
     const refused = (tab) => {
         const why = state === 'terminal' ? texts.pickTerminal : state === 'running' ? texts.pickRunning :
-            state === 'working' && !tab ? texts.pickWorking : null;
+            state === 'working' && !tab ? (place === 'here' ? texts.pickWorkingHere : texts.pickWorking) : null;
         if (why) vscode.window.showInformationMessage(why(said));
         return !!why;
+    };
+    // held in other windows alone, with no tab here: theirs to show
+    const theirs = (tab) => (state === 'working' || state === 'open') && !tab && place === 'window' && hosts.length > 0;
+    const handOver = () => {
+        const sent = handToWindow(c, title, state === 'working', hosts, home);
+        vscode.window.showInformationMessage((sent ? texts.pickHanded : texts.pickNotHanded)(said));
+        return done(sent ? 'handed to ' + hosts.join(',') : 'not handed');
     };
     const done = (outcome) => { log('pick ' + c.sid.slice(0, 8) + ': ' + state + ' -> ' + outcome); return outcome; };
     // A queued prompt of chatq's going into it - from the handover, before
@@ -3064,11 +3869,23 @@ async function acceptChat(c) {
     };
     if (watched()) return done('watch');
     let tab = await look();
+    if (state === 'working' && theirs(tab)) return handOver();
     if (refused(tab)) return done('refused');
     if (state === 'open' && !tab) {
-        const go = 'Open here too';
-        if (await vscode.window.showWarningMessage(texts.pickElsewhere(said), go, 'Cancel') !== go) return done('cancelled');
+        const go = 'Open here too', there = 'Show it there';
+        const inWindow = theirs(tab);
+        const ask = inWindow ? texts.pickThere : place === 'here' ? texts.pickSideBar : texts.pickElsewhere;
+        const pick = await (inWindow ? vscode.window.showWarningMessage(ask(said), there, go, 'Cancel') :
+            vscode.window.showWarningMessage(ask(said), go, 'Cancel'));
+        if (pick !== go && pick !== there) return done('cancelled');
         tab = await look();
+        if (pick === there) {
+            if (theirs(tab)) return handOver();
+            // left that window meanwhile: here only where that is its tab,
+            // or nothing holds it now - never a second copy unasked
+            if (refused(tab)) return done('refused');
+            if (state !== 'closed' && !tab) { vscode.window.showInformationMessage(texts.pickMoved(said)); return done('moved'); }
+        }
         if (refused(tab)) return done('refused');
     }
     if (!hasClaude()) { vscode.window.showInformationMessage(texts.noClaude(said)); return done('no Claude'); }
@@ -3395,6 +4212,7 @@ function activate(context) {
         context.subscriptions.push(vscode.commands.registerCommand('chatManager.phoneAlerts', () => phoneAlerts()));
         context.subscriptions.push(vscode.commands.registerCommand('chatManager.autoContinue', () => autoContinue()));
         context.subscriptions.push(vscode.commands.registerCommand('chatManager.watchRun', () => watchRun()));
+        context.subscriptions.push(vscode.commands.registerCommand('chatManager.showQueue', () => showQueue()));
     }
     // the spawn hook in before Claude Code brings its tabs back, so it sees
     // when each chat's process began (processStart)
@@ -3402,6 +4220,9 @@ function activate(context) {
     // a watch panel open as the window reloaded comes back - whoever
     // handles the requests
     runClock.activatedAt = Date.now();
+    // a restart or a reload (restartHeld), and this activation's id kept
+    // for the next one to tell
+    noteHostStart(context);
     if (vscode.window.registerWebviewPanelSerializer) {
         try { context.subscriptions.push(vscode.window.registerWebviewPanelSerializer(WATCH_TYPE, watchSerializer(context))); }
         catch (e) { log('the watch panel\'s serializer failed: ' + (e && e.message)); }
@@ -3441,9 +4262,22 @@ function activate(context) {
     const look = () => { onRunState(context).catch(e => log('run-state: ' + ((e && e.stack) || e))); };
     look();
     fs.watchFile(rsFile, { interval: timing.runPoll }, look);
-    const timer = setInterval(look, timing.runCheck);
+    // the queue's status bar item, on the same timer
+    const lookQueue = () => { try { updateQueueItem(); } catch (e) { log('the queue item: ' + ((e && e.stack) || e)); } };
+    lookQueue();
+    const timer = setInterval(() => { look(); lookQueue(); }, timing.runCheck);
     if (timer && timer.unref) timer.unref();
-    context.subscriptions.push({ dispose: () => { fs.unwatchFile(rsFile); clearInterval(timer); watchRunJob(context, null); if (runItem) { runItem.dispose(); runItem = null; } } });
+    context.subscriptions.push({ dispose: () => {
+        fs.unwatchFile(rsFile); clearInterval(timer); watchRunJob(context, null);
+        if (runItem) { runItem.dispose(); runItem = null; }
+        if (queueItem) { queueItem.dispose(); queueItem = null; }
+    } });
+    // the overlay's answers to a reload asked here (askReload); a gone
+    // window's files swept, and this one's own taken with it
+    sweepPending();
+    const ansFile = answerFile();
+    fs.watchFile(ansFile, { interval: 2000 }, () => { try { onReloadAnswer(); } catch (e) { log('reload-answer: ' + ((e && e.stack) || e)); } });
+    context.subscriptions.push({ dispose: () => { fs.unwatchFile(ansFile); pendingAsks.clear(); writePending(); } });
 }
 
 // child_process.spawn as it was, where chatq's hook is still in it
@@ -3453,7 +4287,8 @@ function deactivate() { removeSpawnHook(); }
 // wording, the auto rules, the plan and the command sequences can be driven
 // from a test with the vscode module stubbed out - all of them decide
 // whether, or how, a chat is shown, and fail silently when wrong. _alive,
-// _getVerdict, _readChat, _timing and _overlayIo are replaced by the tests.
+// _getVerdict, _readChat, _timing, _overlayIo and _procIo are replaced by
+// the tests.
 module.exports = {
     activate, deactivate,
     _readRequest: readRequest, _isMine: isMine, _signalFiles: signalFiles, _openFiles: openFiles, _message: message,
@@ -3470,7 +4305,7 @@ module.exports = {
     _ageText: ageText, _pickItem: pickItem, _openChat: openChat, _acceptChat: acceptChat, _claudeHome: claudeHome,
     _labelShared: labelShared, _noIcons: noIcons, _overlayAutoStart: overlayAutoStart,
     _openCall: openCall, _claudeColumn: claudeColumn, _versionAtLeast: versionAtLeast, _openOnce: openOnce,
-    _showsItself: showsItself
+    _showsItself: showsItself, _requestsOf: requestsOf, _unshown: unshown
 };
 module.exports._phoneAlerts = phoneAlerts;
 module.exports._autoContinue = autoContinue;
@@ -3487,9 +4322,11 @@ Object.assign(module.exports, {
     _openWatch: openWatch, _watchViews: watchViews, _watchIo: watchIo, _watchRun: watchRun, _watchSerializer: watchSerializer,
     _updateRunItem: updateRunItem, _cancelRun: cancelRun, _openFromWatch: openFromWatch, _onWatchMessage: onWatchMessage,
     _promptOf: promptOf, _promptIo: promptIo, _askHandOver: askHandOver, _watchTitle: watchTitle, _validJobId: validJobId,
-    _stillHandover: stillHandover, _runClock: runClock,
-    _forgetRuns: () => { handled.clear(); handOverNow.clear(); inUseSaid.clear(); besideSaid.clear(); lastRuns.clear(); restoringNow.clear(); }
+    _stillHandover: stillHandover, _runClock: runClock, _runOf: runOf, _tabWaits: tabWaits,
+    _forgetRuns: () => { handled.clear(); handOverNow.clear(); inUseSaid.clear(); besideSaid.clear(); lastRuns.clear(); restoringNow.clear(); tabWaits.clear(); }
 });
+// an extension-host restart told from a reload, for Show it's second check
+Object.assign(module.exports, { _hostStartOf: hostStartOf, _noteHostStart: noteHostStart, _restartHeld: restartHeld, _hostKey: HOST_KEY });
 // Ultracode and effort, lost by a reopen: _sessionSettingsIn is replaced by
 // the tests
 Object.assign(module.exports, { _effortSaid: effortSaid, _effortLine: effortLine, _sessionSettingsIn: sessionSettingsIn, _ultracodeIn: ultracodeIn,
@@ -3498,6 +4335,17 @@ Object.assign(module.exports, { _effortSaid: effortSaid, _effortLine: effortLine
 // child_process is never hooked there
 Object.assign(module.exports, { _carryIo: carryIo, _installSpawnHook: installSpawnHook, _removeSpawnHook: removeSpawnHook,
     _carryArgs: carryArgs, _armCarry: armCarry, _carryFor: carryFor, _reportCarry: reportCarry, _keepSettings: keepSettings,
-    _carryReaches: carryReaches, _carryArms: carryArms, _launches: launches, _processStart: processStart, _validStart: validStart });
+    _carryReaches: carryReaches, _carryArms: carryArms, _launches: launches, _processStart: processStart, _validStart: validStart,
+    _putBackLast: () => putBackLast });
+// the picker's look at each process - _procIo is replaced by the tests, so
+// PowerShell is never started there - and the queue's status bar item
+Object.assign(module.exports, { _procIo: procIo, _procScript: procScript, _parseProcs: parseProcs, _procFacts: procFacts,
+    _procSeen: procSeen, _startFits: startFits, _whereOf: whereOf, _withFacts: withFacts, _liveRegistry: liveRegistry,
+    _placeOf: placeOf, _hostsOf: hostsOf, _handToWindow: handToWindow,
+    _queueBlocks: queueBlocks, _queueNext: queueNext, _queueText: queueText, _readQueue: readQueue, _watcherUp: watcherUp,
+    _updateQueueItem: updateQueueItem, _showQueue: showQueue, _queueItem: () => queueItem });
 // what safe-restart.js uses of this file
 Object.assign(module.exports, { _log: log, _command: command, _reloadWindow: reloadWindow, _reloadAnyway: reloadAnyway, _safe: safe, _forgetPwsh: () => { pwshFound = undefined; } });
+// a reload asked for, on the overlay too
+Object.assign(module.exports, { _askReload: askReload, _askSay: askSay, _onReloadAnswer: onReloadAnswer, _sweepPending: sweepPending,
+    _pendingAsks: pendingAsks, _pendingFile: pendingFile, _answerFile: answerFile, _writePending: writePending, _reloadIo: reloadIo });

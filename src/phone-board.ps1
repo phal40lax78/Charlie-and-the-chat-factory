@@ -48,8 +48,10 @@ $script:ChatqComposeActs = @{
 # page is up, a list or a status now and then; what changes the queue, and
 # new chats above all, far less
 $script:ChatqComposeLimits = @{ board = 120; look = 30; read = 20; change = 20; new = 5 }
-# the last board built, and when: a second one asked within 10 s (40 s for
-# one from a scan) is sent again rather than built again
+# the last board built, and when (At, Body): a board asked again within 10 s
+# is sent as it was. A scan's rows are kept 40 s (Scan, ScanAt) and built on
+# again, with the queue and each row's jobs read afresh
+# (Get-ChatqPhoneBoardAnswer)
 $script:ChatqBoardCache = $null
 # the scan's cut-off look by transcript, kept between boards
 $script:ChatqBoardCutCache = @{}
@@ -111,7 +113,8 @@ function Set-ChatqDownChanges {
     if ($null -ne $D.FullMax) { Set-ChatqProp $rp 'fullMax' ([int]$D.FullMax); $any = $true; & $Say "a whole answer is $($D.FullMax) characters at most - the end is kept" 'Green' }
     if ($null -ne $D.Compose) {
         Set-ChatqProp $rp 'compose' ([bool]$D.Compose); $any = $true
-        & $Say $(if ($D.Compose) { "the phone's board can queue to any chat, act on the queue and start new chats - in $cap at most" } else { 'the phone takes no chats but its alerts''' }) 'Green'
+        $in = if ($cap -ceq $script:ChatqKeepMode) { "in the chat's own mode" } else { "in $cap at most" }
+        & $Say $(if ($D.Compose) { "the phone's board can queue to any chat, act on the queue and start new chats - $in" } else { 'the phone takes no chats but its alerts''' }) 'Green'
     }
     if ($D.NewMode) {
         Set-ChatqProp $rp 'newMode' $D.NewMode; $any = $true
@@ -331,7 +334,7 @@ function Invoke-ChatqCompose {
     #>
     param($Payload, $Pick, [string]$Cid, $Rc, [switch]$Quick, [switch]$NoAck, [string]$Raw)
     $act = [string]$Payload.act
-    $cap = if ($Rc.MaxMode) { $Rc.MaxMode } else { 'acceptEdits' }
+    $cap = if ($Rc.MaxMode) { $Rc.MaxMode } else { $script:ChatqKeepMode }
     $ok = $false
     $say = $null
     # the push's words, when they must say less than the sealed ack's
@@ -510,8 +513,9 @@ function Invoke-ChatqJobAct {
     board again ("out of date"). retry and allow send into the chat, so its
     transcript is read too: typed into since the board, refused; answered
     while the job waited, the job closed as the overlay would close it.
+    No -Cap given is keep.
     #>
-    param([string]$Act, $Pick, [string]$Cap)
+    param([string]$Act, $Pick, [string]$Cap = $script:ChatqKeepMode)
     $job = Find-ChatqJob ([string]$Pick.jobId) -Exact
     # the job the handle was made for, or none: never another under its id
     if ($job -and $Pick.seq -and [int]$job.seq -ne [int]$Pick.seq) { $job = $null }
@@ -559,7 +563,7 @@ function Invoke-ChatqJobAct {
             $note = ''
             $m = ''
             if ($job.provider -eq 'codex') {
-                if ($job.sandbox -and [string]$job.sandbox -notin $script:ChatqSafeSandboxes) { Set-ChatqProp $job 'sandbox' 'workspace-write'; $note = & $limitNote 'workspace-write' }
+                if (-not (Test-ChatqPhoneSandbox ([string]$job.sandbox) $Cap)) { Set-ChatqProp $job 'sandbox' 'workspace-write'; $note = & $limitNote 'workspace-write' }
             }
             else {
                 $lim = Limit-ChatqPhoneMode $(if ($job.mode) { [string]$job.mode } else { [string]$job.modeAtQueue }) $Cap
@@ -585,37 +589,49 @@ function Invoke-ChatqJobAct {
 
 function New-ChatqPhoneJob {
     <#
-    A job for a chat from the phone, as an alert reply's prompt makes one
-    (Invoke-ChatqReply): the text checked (not empty, 8000 characters at
-    most), the chat's own mode brought down to -Cap - a Codex chat's sandbox
-    never wider than workspace-write - and queued as rule phone with its
-    links left as text (-NoLinks). -JobHome: the chat's config dir, $null
-    for the default one; left out, the environment's. -Kind continue: the
-    words Claude Code itself sends after a limit, no text. Returns @{ Error;
-    Job; Note } - Note the words about the cap, for the answer.
+    A job for a chat from the phone - the board's send and continue, and an
+    alert reply's prompt (Invoke-ChatqReply): the text checked (not empty,
+    8000 characters at most; -Noun says what it was, message or reply), the
+    chat's own mode brought down to -Cap (keep, the default: as it is) -
+    under a cap a Codex chat's sandbox never wider than workspace-write
+    (Test-ChatqPhoneSandbox) - and queued as rule phone with its links
+    left as text (-NoLinks). -Mode: the mode to start from in place of the
+    chat's own - a reply's old job's, when it had one of its own; -OwnIfLower
+    then lets the chat's own win when it ranks lower, as it does once a
+    prompt was typed into the chat after that job. -JobHome: the chat's
+    config dir, $null for the default one; left out, the environment's.
+    -Kind continue: the words Claude Code itself sends after a limit, no
+    text. Returns @{ Error; Job; Note } - Note the words about the mode, for
+    the answer.
     #>
-    param($Row, [string]$Text, [string]$Cap = 'acceptEdits', $JobHome, [ValidateSet('prompt', 'continue')][string]$Kind = 'prompt')
+    param($Row, [string]$Text, [string]$Cap = $script:ChatqKeepMode, $JobHome, [ValidateSet('prompt', 'continue')][string]$Kind = 'prompt',
+        [string]$Mode, [switch]$OwnIfLower, [ValidateSet('message', 'reply')][string]$Noun = 'message')
     $fail = { param($t) [pscustomobject]@{ Error = $t; Job = $null; Note = '' } }
     if ($Kind -eq 'prompt') {
-        if (-not $Text.Trim()) { return (& $fail 'an empty message - nothing queued') }
-        if ($Text.Length -gt 8000) { return (& $fail "that message is $($Text.Length) characters, 8000 at most - nothing queued") }
+        if (-not $Text.Trim()) { return (& $fail "an empty $Noun - nothing queued") }
+        if ($Text.Length -gt 8000) { return (& $fail "that $Noun is $($Text.Length) characters, 8000 at most - nothing queued") }
     }
     $info = Get-ChatqJobInfo $Row
     if ($info.Error) { return (& $fail "nothing queued: $($info.Error)") }
     $note = ''
-    $mode = ''
+    # never a mode the message names: -Mode, else the chat's own
+    $jm = $Mode
     if ($Row.Provider -eq 'codex') {
-        if ($info.Sandbox -and [string]$info.Sandbox -notin $script:ChatqSafeSandboxes) {
+        if (-not (Test-ChatqPhoneSandbox ([string]$info.Sandbox) $Cap)) {
             $info.Sandbox = 'workspace-write'
             $info.Mode = 'workspace-write'
             $note = " - runs in workspace-write, the phone's limit"
         }
     }
     else {
-        $lim = Limit-ChatqPhoneMode ([string]$info.Mode) $Cap
-        if ($lim.Capped) { $mode = $lim.Mode; $note = " - runs in $($lim.Mode), the phone's limit" }
+        if ($jm -and $OwnIfLower -and (Get-ChatqModeRank ([string]$info.Mode)) -lt (Get-ChatqModeRank $jm)) {
+            $jm = [string]$info.Mode
+            $note = " - runs in $jm, the chat's own at the PC"
+        }
+        $lim = Limit-ChatqPhoneMode $(if ($jm) { $jm } else { [string]$info.Mode }) $Cap
+        if ($lim.Capped) { $jm = $lim.Mode; $note = " - runs in $($lim.Mode), the phone's limit" }
     }
-    $how = @{ Row = $Row; Info = $info; Prompt = $Text; Kind = $Kind; Rule = 'phone'; Mode = $mode; NoLinks = $true }
+    $how = @{ Row = $Row; Info = $info; Prompt = $Text; Kind = $Kind; Rule = 'phone'; Mode = $jm; NoLinks = $true }
     if ($PSBoundParameters.ContainsKey('JobHome')) { $how['JobHome'] = $JobHome }
     $r = New-ChatqJob @how
     if ($r.Error) { return (& $fail "nothing queued: $($r.Error)") }
@@ -626,10 +642,12 @@ function New-ChatqPhoneNewChat {
     <#
     A new chat from the phone, in a folder its board or list offered - never
     a path the phone typed: the folder must still be there. -Name is the
-    title (control and format characters out, 60 at most), else the text's
-    first line. It runs in reply.newMode brought down to reply.maxMode, in
-    the default config dir, as the console's new chat. Returns @{ Error;
-    Job; Mode; Capped }.
+    title (control and format characters out, 60 at most), else a neutral
+    'phone chat 14:02' - not the text's first line, since every alert about
+    the job carries its title through the push service - held until Claude
+    titles the chat (Update-ChatqHeldTitle). It runs in reply.newMode
+    brought down to reply.maxMode, in the default config dir, as the
+    console's new chat. Returns @{ Error; Job; Mode; Capped }.
     #>
     param([string]$Cwd, [string]$Name, [string]$Text, $Rc)
     $fail = { param($t) [pscustomobject]@{ Error = $t; Job = $null; Mode = $null; Capped = $false } }
@@ -644,10 +662,11 @@ function New-ChatqPhoneNewChat {
         if ([char]::IsHighSurrogate($title[$n - 1])) { $n-- }
         $title = $title.Substring(0, $n).TrimEnd()
     }
-    $cap = if ($Rc.MaxMode) { $Rc.MaxMode } else { 'acceptEdits' }
+    $cap = if ($Rc.MaxMode) { $Rc.MaxMode } else { $script:ChatqKeepMode }
     $lim = Limit-ChatqPhoneMode $(if ($Rc.NewMode) { $Rc.NewMode } else { 'default' }) $cap
     $how = @{ Kind = 'new'; Cwd = $Cwd; Prompt = $Text; Mode = $lim.Mode; Rule = 'phone'; NoLinks = $true; JobHome = $null }
     if ($title) { $how['Title'] = $title }
+    else { $how['Title'] = "phone chat $((Get-Date).ToString('HH:mm'))"; $how['Set'] = @{ titleHeld = $true } }
     $r = New-ChatqJob @how
     if ($r.Error) { return (& $fail "nothing queued: $($r.Error)") }
     return [pscustomobject]@{ Error = $null; Job = $r.Job; Mode = $lim.Mode; Capped = [bool]$lim.Capped }
@@ -820,9 +839,16 @@ function ConvertTo-ChatqPhoneBoard {
     $null for the default one. -CutInfo: session id -> reset time. -Asks:
     session id -> the question a waiting chat asks (Get-ChatqAskView), put
     on its open row as ask, and said in its what (src/ask.ps1).
+    A row whose chat's mode was read (its row's mode: an open chat's from
+    Update-ChatOverlayText, a cut-off's or a Recent one's from
+    Add-ChatqBoardModes) says it as the list does: m brought down to -Cap,
+    mc when it was, known. None is said for one not read: the page then
+    says the cap. A cut row with an auto-continue state (the row's auto,
+    Get-ChatqAutoState) has its words in full as al; d is the row's own
+    short words, the overlay's, as ever.
     #>
     param($Snap, [object[]]$Jobs, [hashtable]$Eta, [string]$From = 'overlay', [datetime]$Now = (Get-Date), $HomeDir, [hashtable]$CutInfo, [string[]]$Folders,
-        [hashtable]$Asks)
+        [hashtable]$Asks, [string]$Cap = $script:ChatqKeepMode)
     $items = [System.Collections.Generic.List[object]]::new()
     $known = @{}
     $key = {
@@ -864,6 +890,13 @@ function ConvertTo-ChatqPhoneBoard {
         if ($path) { $p['path'] = $path }
         & $key "chat|$sid" $p
     }
+    $modeOf = {
+        param($r, $row)
+        $m = [string](Get-ChatField $r 'mode')
+        if (-not $m) { return }
+        $lim = Limit-ChatqPhoneMode $m $Cap
+        $row['m'] = [string]$lim.Mode; $row['mc'] = [bool]$lim.Capped; $row['known'] = $true
+    }
     $more = 0
     $open = [System.Collections.Generic.List[object]]::new()
     $cut = [System.Collections.Generic.List[object]]::new()
@@ -880,11 +913,20 @@ function ConvertTo-ChatqPhoneBoard {
             if ($cut.Count -ge 10) { $more++; continue }
             $detail = [string](Get-ChatField $r 'detail')
             $reset = if ($CutInfo -and $CutInfo[$sid]) { & $iso $CutInfo[$sid] } else { $null }
-            $cut.Add([ordered]@{
-                    h = (& $chatKey $sid $cwd ([string](Get-ChatField $r 'title')) ([string](Get-ChatField $r 'path'))); id8 = $sid.Substring(0, [Math]::Min(8, $sid.Length)); t = $title
-                    f = [string](Get-ChatField $r 'project'); where = [string](Get-ChatField $r 'where'); why = $(if ($detail -like '529*') { 'overloaded' } else { 'limit' })
-                    d = $detail; reset = $reset; age = (& $iso $since); jobs = @(& $jobsOf $sid)
-                })
+            # the cut-off's own why where auto-continue's state carries it -
+            # its words, "#12 auto - 529" say, need not start with 529
+            $au = Get-ChatField $r 'auto'
+            $cw = if ($au) { [string](Get-ChatField $au 'cutWhy') } else { '' }
+            $crow = [ordered]@{
+                h = (& $chatKey $sid $cwd ([string](Get-ChatField $r 'title')) ([string](Get-ChatField $r 'path'))); id8 = $sid.Substring(0, [Math]::Min(8, $sid.Length)); t = $title
+                f = [string](Get-ChatField $r 'project'); where = [string](Get-ChatField $r 'where'); why = $(if ($cw -eq 'overloaded' -or (-not $cw -and $detail -like '529*')) { 'overloaded' } else { 'limit' })
+                d = $detail; reset = $reset; age = (& $iso $since); jobs = @(& $jobsOf $sid)
+            }
+            # what auto-continue does with it, in full, as the overlay's
+            # tooltip and -Print say it
+            if ($au -and [string](Get-ChatField $au 'long')) { $crow['al'] = [string](Get-ChatField $au 'long') }
+            & $modeOf $r $crow
+            $cut.Add($crow)
             continue
         }
         if ($kind -ne 'session' -or $chat -notin 'waiting', 'busy', 'idle') { continue }
@@ -902,6 +944,7 @@ function ConvertTo-ChatqPhoneBoard {
         }
         # the question it waits on, every option with its description
         if ($ask) { $row['ask'] = $ask }
+        & $modeOf $r $row
         $open.Add($row)
     }
     $queue = [System.Collections.Generic.List[object]]::new()
@@ -919,10 +962,12 @@ function ConvertTo-ChatqPhoneBoard {
         $sid = [string](Get-ChatField $r 'sessionId')
         if (-not $sid) { continue }
         if ($recent.Count -ge 15) { $more++; continue }
-        $recent.Add([ordered]@{
-                h = (& $chatKey $sid ([string](Get-ChatField $r 'cwd')) ([string](Get-ChatField $r 'title')) $null); id8 = $sid.Substring(0, [Math]::Min(8, $sid.Length))
-                t = (Format-ChatTitle ([string](Get-ChatField $r 'title')) 60); f = [string](Get-ChatField $r 'project'); age = (& $iso (Get-ChatField $r 'since'))
-            })
+        $rrow = [ordered]@{
+            h = (& $chatKey $sid ([string](Get-ChatField $r 'cwd')) ([string](Get-ChatField $r 'title')) $null); id8 = $sid.Substring(0, [Math]::Min(8, $sid.Length))
+            t = (Format-ChatTitle ([string](Get-ChatField $r 'title')) 60); f = [string](Get-ChatField $r 'project'); age = (& $iso (Get-ChatField $r 'since'))
+        }
+        & $modeOf $r $rrow
+        $recent.Add($rrow)
     }
     # where a new chat can start: folders chatq already knows, never one the
     # phone names
@@ -961,8 +1006,9 @@ function Get-ChatqBoardScan {
     <#
     The overlay's rows with no overlay running, or its snapshot older than 2
     minutes: the registry of open chats, each one's title and newest prompt
-    (Update-ChatOverlayText), the chats cut off in the last 12 hours, the
-    queue and the Recent list, turned into rows by the overlay's own
+    (Update-ChatOverlayText), the chats cut off in the last 12 hours with
+    auto-continue's state for each (Get-ChatqAutoRowStates), the queue and
+    the Recent list, turned into rows by the overlay's own
     Get-ChatOverlayRows - and usage from the tools' own caches
     (Get-ChatqUsage), never the usage endpoint. Bounded reads only; the
     same shape as data/overlay.json, plus CutInfo (session id -> reset).
@@ -992,7 +1038,20 @@ function Get-ChatqBoardScan {
     $cutRows = @(try { Get-ChatqCutOffChats @() -Hours 12 -Skip $working -Cache $script:ChatqBoardCutCache } catch { @() })
     $cutInfo = @{}
     foreach ($c in $cutRows) { if ($c.ResetsAt) { $cutInfo[[string]$c.Id] = $c.ResetsAt } }
-    $rows = @(Get-ChatOverlayRows -Sessions $live -Texts $ctx.Text -Jobs $wrapped -Eta $eta -Now $Now -CutOff $cutRows -Unread @{} -Background $bg)
+    # what auto-continue does with each, as the overlay's pass works it out
+    # (Update-ChatOverlayAuto) but queueing nothing: every job, since a
+    # marker's job that ended says failed or declined, and the markers only
+    # when the automatic mode has anything to do
+    $auto = @{}
+    try {
+        $acfg = Get-ChatqAutoConfig
+        $want = Test-ChatqAutoWanted $acfg
+        $every = if ($want) { @(Get-ChatqJobs) } else { $jobs }
+        $marks = if ($want) { Get-ChatqAutoMarkers } else { $null }
+        $auto = Get-ChatqAutoRowStates -CutOff $cutRows -Jobs $every -Live $alive -Config $acfg -Markers $marks -Now $Now -Eta $eta
+    }
+    catch {}
+    $rows = @(Get-ChatOverlayRows -Sessions $live -Texts $ctx.Text -Jobs $wrapped -Eta $eta -Now $Now -CutOff $cutRows -Unread @{} -Auto $auto -Background $bg)
     try { Update-ChatOverlayRecent $ctx (@($live | ForEach-Object { [string]$_.SessionId }) + @($rows | ForEach-Object { [string]$_.sessionId })) $Now } catch {}
     $usage = @(foreach ($u in @(try { Get-ChatqUsage } catch { @() })) {
             $ws = @(foreach ($p in @($u.Parts)) {
@@ -1007,24 +1066,70 @@ function Get-ChatqBoardScan {
     return [pscustomobject]@{ rows = $rows; recent = @($ctx.Recent); header = [pscustomobject]@{ usage = $usage }; CutInfo = $cutInfo }
 }
 
+function Add-ChatqBoardModes {
+    <#
+    The mode of each chat the board shows that the overlay has none for -
+    a cut-off no window holds, a Recent one - as the list reads it
+    (Get-ChatqPhoneChatMeta: the transcript's ends, cached by path and
+    write time; a cut-off or closed chat's transcript seldom moves), put
+    on its row as mode. An open chat's is the overlay's
+    (Update-ChatOverlayText) and not read here: its transcript moves all
+    the time. As many as the board shows: 10 cut off, 15 Recent.
+    #>
+    param($Snap)
+    $root = Join-Path $script:ChatClaudeHome 'projects'
+    $n = @{ cut = 0; recent = 0 }
+    foreach ($r in @(@($Snap.rows) + @($Snap.recent))) {
+        if (-not $r) { continue }
+        $sid = [string](Get-ChatField $r 'sessionId')
+        $kind = [string](Get-ChatField $r 'kind')
+        $part = if ($kind -eq 'recent') { 'recent' } elseif ([string](Get-ChatField $r 'status') -eq 'cutoff') { 'cut' } else { '' }
+        if (-not $sid -or -not $part) { continue }
+        $n[$part]++
+        if ($n[$part] -gt $(if ($part -eq 'cut') { 10 } else { 15 }) -or (Get-ChatField $r 'mode') -or $kind -eq 'session') { continue }
+        try {
+            $p = [string](Get-ChatField $r 'path')
+            $cwd = [string](Get-ChatField $r 'cwd')
+            if (-not $p -and $cwd) { $p = Join-Path (Join-Path $root (Get-ChatSlug $cwd)) "$sid.jsonl" }
+            if (-not $p) { continue }
+            $fi = [System.IO.FileInfo]::new($p)
+            if (-not $fi.Exists) { continue }
+            $m = (Get-ChatqPhoneChatMeta ([pscustomobject]@{ Path = $p; Mtime = $fi.LastWriteTimeUtc.Ticks; Provider = 'claude' })).Mode
+            if ($m) { Set-ChatqProp $r 'mode' ([string]$m) }
+        }
+        catch {}
+    }
+}
+
 function Get-ChatqPhoneBoard {
     <#
     The board as it is now: from data/overlay.json while the overlay keeps
     it fresh (written within 2 minutes), else from a scan, which the page
     says ("from" scan: the overlay is not running - some rows may be
-    missing). The queue always from the jobs themselves. Returns
-    ConvertTo-ChatqPhoneBoard's @{ Body; Items }.
+    missing). The queue always from the jobs themselves. -Kept: a scan
+    made before (Get-ChatqPhoneBoardAnswer keeps one 40 s), taken in place
+    of a new one - its chats' rows, with the queue and each row's jobs read
+    now. Returns ConvertTo-ChatqPhoneBoard's @{ Body; Items }, plus Scan:
+    the scan it was built from, $null for the overlay's snapshot.
     #>
-    param([datetime]$Now = (Get-Date), [switch]$Scan)
+    param([datetime]$Now = (Get-Date), [switch]$Scan, $Kept)
     $snap = $null
     $from = 'scan'
     $cutInfo = @{}
+    $scanned = $null
     if (-not $Scan) {
         $s = Read-ChatqJson $script:ChatOverlayPath
         $at = if ($s -and [int](Get-ChatField $s 'schema') -eq 1 -and (Get-ChatField $s 'at')) { [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$s.at).LocalDateTime } else { $null }
         if ($at -and [Math]::Abs(($Now - $at).TotalMinutes) -lt 2) { $snap = $s; $from = 'overlay' }
     }
-    if (-not $snap) { $snap = Get-ChatqBoardScan $Now; $cutInfo = $snap.CutInfo }
+    if (-not $snap) {
+        $scanned = if ($Kept) { $Kept } else { Get-ChatqBoardScan $Now }
+        $snap = $scanned
+        $cutInfo = $snap.CutInfo
+    }
+    # the mode of a cut-off no window holds, and of a Recent chat, for the
+    # chat view's chip
+    try { Add-ChatqBoardModes $snap } catch {}
     $jobs = @(Get-ChatqJobs)
     $blocks = try { Get-ChatqBlocks } catch { @{} }
     $eta = Get-ChatqEta $jobs $blocks
@@ -1063,16 +1168,18 @@ function Get-ChatqPhoneBoard {
         }
         catch {}
     }
-    $b = ConvertTo-ChatqPhoneBoard -Snap $snap -Jobs $jobs -Eta $eta -From $from -Now $Now -HomeDir $homeDir -CutInfo $cutInfo -Folders $folders -Asks $asks
+    $cap = if ($askRc.MaxMode) { [string]$askRc.MaxMode } else { $script:ChatqKeepMode }
+    $b = ConvertTo-ChatqPhoneBoard -Snap $snap -Jobs $jobs -Eta $eta -From $from -Now $Now -HomeDir $homeDir -CutInfo $cutInfo -Folders $folders -Asks $asks -Cap $cap
     # a folder gone since is not offered; one on another machine is not
     # asked (Test-ChatOverlayFolder), a share asleep would hold the watcher
     $gone = @{}
     foreach ($it in @($b.Items)) { if ($it.Pick.kind -eq 'folder' -and -not (Test-ChatOverlayFolder ([string]$it.Pick.cwd))) { $gone[$it.Key] = $true } }
+    $items = @($b.Items)
     if ($gone.Count) {
         $b.Body['folders'] = @(@($b.Body['folders']) | Where-Object { -not $gone[[string]$_.h] })
-        $b = [pscustomobject]@{ Body = $b.Body; Items = @(@($b.Items) | Where-Object { -not $gone[$_.Key] }) }
+        $items = @($items | Where-Object { -not $gone[$_.Key] })
     }
-    return $b
+    return [pscustomobject]@{ Body = $b.Body; Items = $items; Scan = $scanned }
 }
 
 function Complete-ChatqDownHeader {
@@ -1086,8 +1193,10 @@ function Complete-ChatqDownHeader {
     $Body['ref'] = $Cid
     $Body['ts'] = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
     $Body['host'] = $h
-    $Body['cap'] = [string]$Rc.MaxMode
-    $Body['newMode'] = [string](Limit-ChatqPhoneMode $Rc.NewMode $Rc.MaxMode).Mode
+    # no cap given is keep, as Get-ChatqReplyConfig reads an unset one
+    $cap = if ($Rc.MaxMode) { [string]$Rc.MaxMode } else { $script:ChatqKeepMode }
+    $Body['cap'] = $cap
+    $Body['newMode'] = [string](Limit-ChatqPhoneMode $Rc.NewMode $cap).Mode
     $Body['listen'] = $(if ($Rc.Listen -eq 'always' -and $st -and $st.standing) { 'always' } else { 'alerts' })
     $u = if ($st) { ConvertTo-ChatqDate $st.openUntil } else { $null }
     $Body['until'] = $(if ($u -and $u -gt (Get-Date)) { $u.ToUniversalTime().ToString('o') } else { $null })
@@ -1101,23 +1210,24 @@ function Get-ChatqPhoneBoardAnswer {
     (Register-ChatqPicks, a lock block of its own, outside the one that
     recorded the request), and its header filled in. One asked again within
     10 s is the last one sent again, handles and all, not built anew - the
-    page refreshes every 30 s, and a double tap should cost nothing. One
-    built from a scan (no overlay running) is kept 40 s: the scan reads
-    every live chat and the registry, inside a run's tick too, and the
-    page's refresh would otherwise never find one kept. An act that
-    changes the queue drops it (Invoke-ChatqCompose). Returns @{ Body;
-    Error }.
+    page refreshes every 30 s, and a double tap should cost nothing. A scan
+    (no overlay running) is kept 40 s beside it and built on again: the
+    scan reads every live chat and the registry, inside a run's tick too,
+    and the page's refresh would otherwise never find one kept - but the
+    queue, and the jobs on each chat's row, are read afresh every time, so
+    a job that starts or ends shows at the next ask. An act that changes
+    the queue drops both (Invoke-ChatqCompose). Returns @{ Body; Error }.
     #>
     param($Rc, [string]$Cid)
     $now = Get-Date
     $c = $script:ChatqBoardCache
-    $keep = if ($c -and $c.Body -and [string]$c.Body['from'] -eq 'scan') { 40 } else { 10 }
-    if ($c -and $c.Body -and [Math]::Abs(($now - $c.At).TotalSeconds) -lt $keep) {
+    if ($c -and $c.Body -and [Math]::Abs(($now - $c.At).TotalSeconds) -lt 10) {
         Complete-ChatqDownHeader $c.Body $Rc $Cid
         return [pscustomobject]@{ Body = $c.Body; Error = $null; Cached = $true }
     }
+    $kept = if ($c -and $c.Scan -and $c.ScanAt -and [Math]::Abs(($now - $c.ScanAt).TotalSeconds) -lt 40) { $c.Scan } else { $null }
     try {
-        $b = Get-ChatqPhoneBoard $now
+        $b = Get-ChatqPhoneBoard $now -Kept $kept
         $map = Register-ChatqPicks $Rc $b.Items
         Set-ChatqBoardHandles $b.Body $map
     }
@@ -1126,7 +1236,9 @@ function Get-ChatqPhoneBoardAnswer {
         return [pscustomobject]@{ Body = $null; Error = 'the PC could not build its board'; Cached = $false }
     }
     Complete-ChatqDownHeader $b.Body $Rc $Cid
-    $script:ChatqBoardCache = @{ At = $now; Body = $b.Body }
+    $scan = Get-ChatField $b 'Scan'
+    $scanAt = if (-not $scan) { $null } elseif ($kept) { $c.ScanAt } else { $now }
+    $script:ChatqBoardCache = @{ At = $now; Body = $b.Body; Scan = $scan; ScanAt = $scanAt }
     return [pscustomobject]@{ Body = $b.Body; Error = $null; Cached = $false }
 }
 
@@ -1179,7 +1291,7 @@ function Get-ChatqPhoneList {
     #>
     param($Rc, [switch]$Quick)
     if (-not $Quick) { try { $null = Sync-ChatIndex -Provider claude, codex } catch {} }
-    $cap = if ($Rc.MaxMode) { $Rc.MaxMode } else { 'acceptEdits' }
+    $cap = if ($Rc.MaxMode) { $Rc.MaxMode } else { $script:ChatqKeepMode }
     $rows = @(Get-ChatIndex | Where-Object { $_.Id -and -not ($_.Hidden -eq $true -or [string]$_.Hidden -eq 'True') -and $_.Provider -in 'claude', 'codex' } |
             Sort-Object { [int64]$_.Mtime } -Descending | Select-Object -First 30)
     $live = @(try { Get-ChatqLiveSessions $script:ChatClaudeHome -RegistryOnly | Where-Object { -not $_.Kind -or $_.Kind -eq 'interactive' } } catch { @() })
@@ -1204,7 +1316,7 @@ function Get-ChatqPhoneList {
         if ($meta.Cwd) { $cwds.Add([string]$meta.Cwd) }
         $m = $cap
         $mc = $false
-        if ($r.Provider -eq 'codex') { $m = if ($meta.Mode -and $meta.Mode -notin $script:ChatqSafeSandboxes) { $mc = $true; 'workspace-write' } elseif ($meta.Mode) { $meta.Mode } else { 'workspace-write' } }
+        if ($r.Provider -eq 'codex') { $m = if ($meta.Mode -and -not (Test-ChatqPhoneSandbox $meta.Mode $cap)) { $mc = $true; 'workspace-write' } elseif ($meta.Mode) { $meta.Mode } else { 'workspace-write' } }
         elseif ($meta.Mode) { $lim = Limit-ChatqPhoneMode $meta.Mode $cap; $m = $lim.Mode; $mc = [bool]$lim.Capped }
         $k = "chat|$sid"
         $pick = @{ kind = 'chat'; sessionId = $sid; provider = [string]$r.Provider; path = [string]$r.Path; cwd = [string]$meta.Cwd; title = [string]$r.Title }

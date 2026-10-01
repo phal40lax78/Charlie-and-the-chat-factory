@@ -27,16 +27,21 @@ function Start-ChatOverlayAuto {
     The overlay started if it should be and is not running: what a new shell
     and every VS Code window (the extension, through setup.js) do as they
     open. Prints exactly one line for the caller to read - started, running,
-    off (not to start here, or -AutoStart off) or failed - and nothing else,
-    so the launch's own words are kept off stdout. Those words say why a
-    launch failed, so they go to overlay.log instead: nobody sees a shell's
-    start or the extension's call.
+    off (not to start here, -AutoStart off, or closed by hand since this
+    sign-in) or failed - and nothing else, so the launch's own words are
+    kept off stdout. Those words say why a launch failed, so they go to
+    overlay.log instead: nobody sees a shell's start or the extension's call.
+    A close by hand is off rather than a word of its own: the extension
+    takes these four, and to it both mean the same - nothing to start.
     #>
     $say = 'failed'
     $why = $null
     try {
         if (-not (Test-ChatOverlayAutoStart)) { $say = 'off' }
         elseif (Test-ChatOverlayAlive) { $say = 'running' }
+        # the x, the tray's Quit or chatoverlay -Stop, since this sign-in:
+        # closed until the next, or until chatoverlay starts it
+        elseif (Test-ChatOverlayClosedByHand) { $say = 'off' }
         else {
             # Write-Host is the information stream: taken apart from what
             # the launch returns
@@ -214,7 +219,7 @@ function chatoverlay {
     .PARAMETER Recent
     How many of the newest chats not open are listed under the open ones: 0 to 20, 5 by default; 0 is no Recent list.
     .PARAMETER Console
-    Open the console: pick a chat, write to it, drop files on it, send now or queue; the queue beside it. It opens in the panel's own place, grown from its top-right corner; Esc, its back button or the console hotkey return it to the panel. Starts the overlay if it is not running. Windows only.
+    Open the console: pick a chat, write to it, drop files on it, send it next or queue it; the queue beside it. It opens in the panel's own place, grown from its top-right corner; Esc, its back button or the console hotkey return it to the panel. Starts the overlay if it is not running. Windows only.
     .PARAMETER ConsoleHotkey
     The key that opens the console: Ctrl+Alt+Shift+Q by default, none for no key.
     .PARAMETER UsageView
@@ -256,8 +261,21 @@ function chatoverlay {
     if ($Print) { Write-ChatOverlayPrint; return }
     $alive = Test-ChatOverlayAlive
     if ($Stop) {
-        if (-not $alive) { Write-Host '  the overlay is not running' -ForegroundColor DarkGray; return }
-        if (Stop-ChatOverlay) { Write-Host '  overlay closed' -ForegroundColor DarkGray }
+        # A close by hand, kept against this sign-in: the overlay keeps its
+        # own as it takes the stop (Invoke-ChatOverlayVerb), this one where
+        # none runs. What stays closed is said only where the auto start
+        # would otherwise have brought it back.
+        $auto = (Get-ChatOverlayConfig).autoStart
+        $until = " - it stays closed until you next sign in, or chatoverlay starts it"
+        if (-not $alive) {
+            $kept = Set-ChatOverlayClosed
+            Write-Host "  the overlay is not running$(if ($kept -and $auto) { $until })" -ForegroundColor DarkGray
+            return
+        }
+        if (Stop-ChatOverlay) {
+            $after = if (-not $auto) { '' } elseif (Test-ChatOverlayClosedByHand) { $until } else { ' - the next shell or VS Code window starts it again' }
+            Write-Host "  overlay closed$after" -ForegroundColor DarkGray
+        }
         else { Write-Host '  asked the overlay to close - it has not yet; data/logs/overlay.log may say why' -ForegroundColor Yellow }
         return
     }
@@ -304,6 +322,8 @@ function chatoverlay {
     }
     if ($set.Count) {
         Set-ChatOverlayConfig $set
+        # on asked for by name: a close by hand no longer holds it off
+        if ($set.autoStart) { Clear-ChatOverlayClosed }
         if ($set.ContainsKey('autoStart')) { Write-Host "  start with every shell and VS Code window: $AutoStart" -ForegroundColor Green }
         if ($set.ContainsKey('liveUsage')) { Write-Host "  live usage: $LiveUsage" -ForegroundColor Green }
         if ($set.ContainsKey('hotkey')) { Write-Host "  hotkey: $($set.hotkey)" -ForegroundColor Green }
@@ -369,9 +389,11 @@ function chatoverlay {
         Write-Host '  the overlay is running - shown' -ForegroundColor DarkGray
     }
     else {
-        # asked for by name: shown, even if it was hidden when it last closed
+        # asked for by name: shown, even if it was hidden when it last closed,
+        # and a close by hand holds no longer - the overlay clears that as it
+        # starts too, but a start that fails should not leave it
         $st = Read-ChatOverlayState
-        if ($st.hidden) { $st.hidden = $false; Save-ChatOverlayState $st }
+        if ($st.hidden -or $null -ne $st.closedSignIn) { $st.hidden = $false; $st.closedSignIn = $null; Save-ChatOverlayState $st }
         if (-not (Start-ChatOverlayProcess)) { return }
         $up = $false
         for ($i = 0; $i -lt 40 -and -not $up; $i++) { Start-Sleep -Milliseconds 250; $up = Test-ChatOverlayAlive }
@@ -385,7 +407,12 @@ function chatoverlay {
     if ($script:ChatqIsWindows) { Write-Host '  clicks go through it - point at it for its edges, to resize it, and its buttons: move, collapse, refresh, console, settings, hide, close' -ForegroundColor DarkGray }
     else { Write-Host '  clicks go through it - the CQ menu bar item unlocks it to drag' -ForegroundColor DarkGray }
     # what comes back by itself, as config.json has it now
-    if ((Get-ChatOverlayConfig).autoStart) {
+    # a close kept until the next sign-in is Windows' alone: a Mac's
+    # sign-in is not looked for (Get-ChatqSignInAt)
+    if ((Get-ChatOverlayConfig).autoStart -and $script:ChatqIsWindows) {
+        Write-Host "  chatoverlay -Stop, or its x, closes it until you next sign in $($script:ChatqDot) -AutoStart off keeps it to when you start it" -ForegroundColor DarkGray
+    }
+    elseif ((Get-ChatOverlayConfig).autoStart) {
         Write-Host "  chatoverlay -Stop closes it $($script:ChatqDot) it starts again with every shell and VS Code window unless -AutoStart off" -ForegroundColor DarkGray
     }
     else { Write-Host "  chatoverlay -Stop closes it $($script:ChatqDot) -AutoStart on brings it back with every shell and VS Code window" -ForegroundColor DarkGray }
@@ -394,12 +421,14 @@ function chatoverlay {
 function chatconsole {
     <#
     .SYNOPSIS
-    chatq in a window: pick a chat, write to it, drop files on it, send now or queue it.
+    chatq in a window: pick a chat, write to it, drop files on it, send it next or queue it.
     .DESCRIPTION
-    The chats cut off by the limit (Continue, or Continue all), the ones open
-    in VS Code, and the recent ones, with a search; + New chat starts one in
-    a folder. Send now runs the prompt within seconds - once the chat is idle
-    if it is working in VS Code - and In turn, At or In queue it. The queue
+    The chats cut off by the limit (Continue, or Continue all - ahead of the
+    prompts waiting), the ones open in VS Code, and the recent ones, with a
+    search; + New chat starts one in a folder. When Next, Send puts the
+    prompt at the front of the queue - within seconds, or once the job
+    running ends; once the chat is idle if it is working in VS Code - and
+    In turn, At or In queue it. The queue
     sits below: each job's outcome and log, Try now, First, Remove, Cancel,
     Requeue. It is the overlay's own window: the panel grows into it from
     its top-right corner, and Esc, the back button in its header or

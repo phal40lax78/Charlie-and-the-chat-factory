@@ -254,8 +254,9 @@ Key order as written: the page's `buildComposePayload` and the vector hold it.
 {"v":3,"kind":"ack","ref":"<cid>","ts":...,"act":"send","ok":true,
  "say":"queued #14 for Parser rewrite - runs in acceptEdits, the phone's limit","seq":14}
 ```
-`m` = the mode it would run in after the cap, `mc` = brought down; `q` = queued jobs for that
-chat; `ni` = the seq of a job of it that needs input; `more` = chats not listed.
+(With `chatnotify -ReplyMaxMode acceptEdits`; with no cap, the default, `cap` is `keep` and
+`m` the chat's own.) `m` = the mode it would run in after the cap, `mc` = brought down; `q` =
+queued jobs for that chat; `ni` = the seq of a job of it that needs input; `more` = chats not listed.
 
 ### PC side
 - **`Get-ChatqPhoneList [-Quick]`** -> `@{ Chats; Folders }` with fresh handles.
@@ -266,8 +267,8 @@ chat; `ni` = the seq of a job of it that needs input; `more` = chats not listed.
   - Per chat: title `Format-ChatTitle 60`; cwd and mode from a **bounded** read -
     `Get-ChatqPhoneChatMeta -Row` reads the transcript's first and last 256 KB only (no
     `Find-ChatqTailString` 64 MB walk), cached in `$script:ChatqPhoneMetaCache` by path +
-    `Mtime`. Mode unknown: `m` = the cap, `mc` = `$false`, and the page says `at most
-    acceptEdits`. Codex: `m` = its sandbox, `workspace-write` when wider (as `Invoke-ChatqReply`).
+    `Mtime`. Mode unknown: `m` = the cap, `mc` = `$false`, and the page says `at most <cap>`,
+    or `the chat's own mode` when `cap` is `keep`. Codex: `m` = its sandbox, `workspace-write` when wider (as `Invoke-ChatqReply`).
   - Folders: distinct existing directories from, in order, the listed chats' cwds,
     `data/console-state.json` `folders`, and the cwds of jobs in the queue; **15** at most. Only
     folders chatq already knows - never one the phone names.
@@ -309,8 +310,10 @@ chat; `ni` = the seq of a job of it that needs input; `more` = chats not listed.
     reply, nothing says the text answers it): `say` adds `- #12 still needs input`. A chat
     live and waiting: the held-at-the-PC wording `Invoke-ChatqReply` uses. A job running in it:
     `- it goes after #11, running now`. Factor the shared body out of `Invoke-ChatqReply`'s
-    `prompt` case as **`New-ChatqPhoneJob -Row -Text -Mode -Cap -JobHome -Live`** -> `@{ Error;
-    Job; Note }` and call it from both.
+    `prompt` case as **[New-ChatqPhoneJob](../src/phone-board.ps1)** -> `@{ Error;
+    Job; Note }` and call it from both. (Done after 0.10.2: the reply's case calls it with
+    `-Noun reply` and `-OwnIfLower` - a chat typed into or answered at the PC runs in its own
+    mode when that is lower - and keeps its own words about the needs-input job it answers.)
   - `new`: the folder pick's `cwd` must still exist; `New-ChatqJob -Kind new -Cwd <cwd> -Title
     <name, control and format characters stripped, 60 max> -Mode <Limit-ChatqPhoneMode
     reply.newMode cap> -Rule 'phone' -NoLinks` (default config dir, `JobHome` `$null` - as the
@@ -332,7 +335,8 @@ chat; `ni` = the seq of a job of it that needs input; `more` = chats not listed.
     `mark` - `Get-ChatqJobMark`, "<attempts>|<state>|<endedAt as epoch ms>" - and a job act on a
     job whose mark is not that any more is refused: `#12 is queued now - the list is out of
     date, refresh it`. `send`, `continue`, `retry` and `allow` read the chat's transcript too
-    (Claude only, what was written after the pick's `len`, `Get-ChatqTypedAfter`): a prompt
+    (a Claude transcript or a Codex rollout, what was written after the pick's `len`,
+    `Get-ChatqTypedAfter`): a prompt
     typed after the pick's `at` - not the phone's own jobs' - refuses them, `that chat moved on at the
     PC - the list is out of date, refresh it` (`the chat of #12 ...` for a job act); a
     needs-input job whose chat was typed into after it stopped is closed, `answered in the
@@ -371,7 +375,8 @@ at once (one POST; the user opened it to do this) and polls the down topic
 - **The list:** two groups, `Open now` (live not empty) then `Recent`. A row: title (2 lines at
   most), then `folder - provider - mode` muted; right side the age (`2m`, `3h`, `4d`) and a
   chip for `waiting on you` / `busy` / `idle` and `#12 needs input`. `mc` shows the mode as
-  `acceptEdits (phone's limit)`; unknown mode as `at most acceptEdits`.
+  the cap and `(phone's limit)`; an unknown mode as `at most <cap>`, or `the chat's own mode`
+  under keep.
 - **Search:** filters as you type over title and folder: both sides NFC-normalized,
   `toLocaleLowerCase()`, every space-separated word must occur (any order) - Hangul and English
   alike. Nothing matches: `No chat matches "<q>".` Chats beyond the list: `+14 older chats are
@@ -379,7 +384,7 @@ at once (one POST; the user opened it to do this) and polls the down topic
 - **Footer:** from the list's `listen`/`until`: `Listens all the time` or `Listens until 02:10
   (an alert is out)`; a **Status** link (act `status`, answer shown in a status box).
 - **Tap a chat -> compose view:** header `Parser rewrite`, below it `parser - claude`, a mode
-  chip `acceptEdits` (`phone's limit` when `mc`), and a line from its state:
+  chip, its mode (`phone's limit` when `mc`), and a line from its state:
   `open in VS Code - goes in when it is idle` / `waits on you at the PC - goes once that is
   answered there` / `#12 needs input - this does not answer it; that alert does` /
   `goes next`. The same textarea, byte counter (`MAX_PAYLOAD` 2900) and Send as the alert form;
@@ -673,9 +678,10 @@ green working, orange cut off, purple queued, grey idle, faint recent), mobile-f
 - Refresh budget: the page asks on open, on the Refresh button, and every 30 s while the page is
   visible for at most 10 minutes (then "Paused - tap Refresh"); never in the background. The PC
   answers at most one `board` per 10 s (a second within 10 s gets the same board again from a
-  memory cache, no new build - 40 s for a board built from a scan, with no overlay running,
-  which reads every live chat and the cut-off transcripts: kept past the page's own 30 s, and
-  its cut-off look kept by transcript between builds) and counts board answers against
+  memory cache, no new build; with no overlay running the scan itself, which reads every live
+  chat and the cut-off transcripts, is kept 40 s - past the page's own 30 s - and built on
+  again with the queue and each row's jobs read afresh, its cut-off look kept by transcript
+  between scans) and counts board answers against
   spec-down's `downPerDay`; when
   the day's budget is near, the page says "few refreshes left today (ntfy.sh's free limit)".
 - Listening: the dashboard is only useful when the watcher listens. The setup window's replies

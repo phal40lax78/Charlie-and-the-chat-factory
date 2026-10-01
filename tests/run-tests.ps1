@@ -51,7 +51,7 @@ function Invoke-Sta([string]$Name, [string]$Script) {
 # The sandbox, then every section, from tests/sections/ in this order: one
 # scope, as the one file had, so a later section uses what an earlier one
 # built - the sandbox's chats, the script it loaded, helpers and seams.
-$testSections = 'sandbox', 'bigrams', 'resolver', 'metadata', 'limits', 'classifier', 'overload', 'review-regressions', 'process-runner', 'watcher', 'job-core', 'new-chats', 'find-delete', 'retries', 'model-order', 'attachments', 'handoff', 'alert-channels', 'usage', 'archive', 'reload-safety', 'background', 'status-alerts', 'overlay', 'reset-ask', 'show-fresh', 'phone', 'phone-extras', 'permit', 'phone-board', 'ask', 'auto-continue', 'host-work', 'handover', 'ultracode'
+$testSections = 'sandbox', 'bigrams', 'resolver', 'metadata', 'limits', 'classifier', 'overload', 'review-regressions', 'process-runner', 'watcher', 'job-core', 'new-chats', 'find-delete', 'retries', 'model-order', 'attachments', 'handoff', 'alert-channels', 'usage', 'archive', 'reload-safety', 'background', 'status-alerts', 'overlay', 'reset-ask', 'show-fresh', 'phone', 'phone-extras', 'permit', 'phone-board', 'ask', 'auto-continue', 'host-work', 'reload-ask', 'handover', 'ultracode'
 foreach ($testSection in $testSections) { . (Join-Path (Join-Path $here 'sections') "$testSection.ps1") }
 
 Set-Location -LiteralPath $here

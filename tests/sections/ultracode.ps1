@@ -296,7 +296,7 @@ Check 'and says why: the history "- Ultracode left off (default mode asks before
     $ulD.Count -eq 1 -and $ulD[0] -like '*Ultracode switch chat - at effort max, as the chat had it' -and $uhD.Count -eq 1 -and
     $uhD[0] -like "*#$($ujD.seq) Ultracode left off: the chat had it, but default mode would ask before each Workflow, and no one can answer a run") "$((& $ucRunning $ujD).why -join ' / ') | $($ulD -join ' / ') | $($uhD -join ' / ')"
 # the run's mode: the job's own, else the chat's as queued, else default
-$ucCj = { param($Mode, $AtQueue) $o = [pscustomobject]@{ provider = 'claude'; kind = 'prompt'; sessionId = $idU; path = $pU }
+$ucCj = { param($Mode, $AtQueue) $o = [pscustomobject]@{ provider = 'claude'; kind = 'prompt'; sessionId = $idU; path = $pU; home = $claudeHome }
     if ($Mode) { $o | Add-Member -NotePropertyName mode -NotePropertyValue $Mode }
     if ($AtQueue) { $o | Add-Member -NotePropertyName modeAtQueue -NotePropertyValue $AtQueue }
     Get-ChatqRunCarry $o }
@@ -447,14 +447,171 @@ $ucCx = [pscustomobject]@{ provider = 'codex'; kind = 'prompt'; sessionId = 'cx'
 $ucFresh = [pscustomobject]@{ provider = 'claude'; kind = 'new'; sessionId = 'nx'; path = (Join-Path $ucDir 'not-yet.jsonl'); mode = 'auto' }
 $ucCxC = Get-ChatqRunCarry $ucCx
 $ucFrC = Get-ChatqRunCarry $ucFresh
-$ucMod = Get-ChatqRunCarry ([pscustomobject]@{ provider = 'claude'; kind = 'prompt'; sessionId = $idU; path = $pU; runModel = 'claude-sonnet-9'; mode = 'auto' })
-$ucOwn = Get-ChatqRunCarry ([pscustomobject]@{ provider = 'claude'; kind = 'prompt'; sessionId = $idU; path = $pU; mode = 'auto' })
+$ucMod = Get-ChatqRunCarry ([pscustomobject]@{ provider = 'claude'; kind = 'prompt'; sessionId = $idU; path = $pU; home = $claudeHome; runModel = 'claude-sonnet-9'; mode = 'auto' })
+$ucOwn = Get-ChatqRunCarry ([pscustomobject]@{ provider = 'claude'; kind = 'prompt'; sessionId = $idU; path = $pU; home = $claudeHome; mode = 'auto' })
 Check 'a new chat''s first run starts it with --session-id and neither; Codex, a fresh chat and a -Model are never judged on' (
     $ua6 -contains '--session-id' -and $ua6 -notcontains '--effort' -and $ua6 -notcontains '--settings' -and
     -not $ucCxC.Ultracode -and -not $ucCxC.Effort -and -not $ucFrC.Ultracode -and -not $ucFrC.Effort -and -not $ucMod.Ultracode -and -not $ucMod.Effort -and
     -not $ucCxC.UltracodeHeld -and -not $ucMod.UltracodeHeld -and -not (Test-ChatqRunUltracode $ucCx) -and -not (Test-ChatqRunUltracode $ucFresh) -and $ucOwn.Ultracode -and
-    (Test-ChatqRunUltracode ([pscustomobject]@{ provider = 'claude'; kind = 'prompt'; sessionId = $idU; path = $pU; mode = 'auto' })) -and
-    -not (Test-ChatqRunUltracode ([pscustomobject]@{ provider = 'claude'; kind = 'prompt'; sessionId = $idU; path = $pU }))) ($ua6 -join ' ')
+    (Test-ChatqRunUltracode ([pscustomobject]@{ provider = 'claude'; kind = 'prompt'; sessionId = $idU; path = $pU; home = $claudeHome; mode = 'auto' })) -and
+    -not (Test-ChatqRunUltracode ([pscustomobject]@{ provider = 'claude'; kind = 'prompt'; sessionId = $idU; path = $pU; home = $claudeHome }))) ($ua6 -join ' ')
+
+# The settings the run loads (Get-ChatqRunRules): the user's in the job's
+# config dir, the project's and the local one in its folder. A Workflow
+# allow carries Ultracode in a mode that would ask; a deny or an ask holds
+# it back in any; a level an env there sets drops --effort. The chat at max
+# for its session again first, Ultracode still on.
+& $ucAdd ((& $ucCmd 'effort' 'max' $ucSayMax) + (& $ucTurnU 'max'))
+$ucRH = Join-Path $ucDir 'rules-home'
+$ucRH2 = Join-Path $ucDir 'rules-home-2'
+$ucRP = Join-Path $ucDir 'rules-proj'
+foreach ($d0 in $ucRH, $ucRH2, (Join-Path $ucRP '.claude')) { $null = New-Item -ItemType Directory -Path $d0 -Force }
+$ucRSet = {
+    param([string]$Where, $Obj)
+    $f = switch ($Where) { 'user' { Join-Path $ucRH 'settings.json' } 'project' { Join-Path (Join-Path $ucRP '.claude') 'settings.json' } default { Join-Path (Join-Path $ucRP '.claude') 'settings.local.json' } }
+    if ($null -eq $Obj) { Remove-Item -LiteralPath $f -Force -EA SilentlyContinue }
+    elseif ($Obj -is [string]) { [System.IO.File]::WriteAllText($f, $Obj, $utf8) }
+    else { [System.IO.File]::WriteAllText($f, ($Obj | ConvertTo-Json -Depth 5), $utf8) }
+}
+$ucRC = {
+    param([string]$Mode = 'default', [string]$Home0 = $ucRH)
+    Get-ChatqRunCarry ([pscustomobject]@{ provider = 'claude'; kind = 'prompt'; sessionId = $idU; path = $pU; home = $Home0; cwd = $ucRP; mode = $Mode })
+}
+$ucRW = { param($c) "$($c.Ultracode)|$($c.UltracodeHeld)|$($c.HeldBy)|$($c.RuleIn)|$($c.Effort)" }
+$ucR0 = & $ucRC
+& $ucRSet 'user' @{ permissions = @{ allow = @('Bash(git *)', 'Workflow') } }
+$ucR1 = & $ucRC
+$ucR1h = & $ucRC 'default' $ucRH2
+$ucR1p = & $ucRC 'plan'
+& $ucRSet 'user' @{ permissions = @{ allow = @('Workflow(review)') } }
+$ucR2 = & $ucRC
+& $ucRSet 'user' @{ permissions = @{ allow = @('Workflow(*)') } }
+$ucR2s = & $ucRC
+& $ucRSet 'project' @{ permissions = @{ deny = @('Workflow(release)') } }
+$ucR3 = & $ucRC
+$ucR3a = & $ucRC 'auto'
+& $ucRSet 'project' $null
+& $ucRSet 'local' @{ permissions = @{ ask = @('Workflow') } }
+$ucR4 = & $ucRC 'bypassPermissions'
+& $ucRSet 'local' '{"permissions":{"deny":['
+$ucR5 = & $ucRC
+& $ucRSet 'local' $null
+& $ucRSet 'project' @{ env = @{ CLAUDE_CODE_EFFORT_LEVEL = 'high' } }
+$ucR6 = & $ucRC 'auto'
+# which file set it: the project's alone, then the user's too - the first
+# file read (user, project, local) names it; then the user's alone
+$ucRR = { (Get-ChatqRunRules ([pscustomobject]@{ provider = 'claude'; home = $ucRH; cwd = $ucRP })).EffortEnv }
+$ucR6p = & $ucRR
+& $ucRSet 'user' @{ env = @{ CLAUDE_CODE_EFFORT_LEVEL = 'low' } }
+$ucR6u = & $ucRR
+& $ucRSet 'project' $null
+$ucR7 = & $ucRC 'auto'
+$ucR7u = & $ucRR
+& $ucRSet 'user' $null
+$ucR7n = & $ucRR
+$ucRBad = @()
+foreach ($x in @(
+        @('none, default', $ucR0, 'False|default|mode||max'), @('user allow, default', $ucR1, 'True||allow|user|max'), @('allow in another home', $ucR1h, 'False|default|mode||max'),
+        @('allow, plan', $ucR1p, 'False|plan|mode||max'), @('allow of one workflow', $ucR2, 'False|default|mode||max'), @('allow Workflow(*)', $ucR2s, 'True||allow|user|max'),
+        @('project deny over user allow', $ucR3, 'False|default|deny|project|max'), @('project deny, auto', $ucR3a, 'False|auto|deny|project|max'),
+        @('local ask, bypass', $ucR4, 'False|bypassPermissions|ask|local|max'), @('spoilt local, the user allow', $ucR5, 'True||allow|user|max'), @('env level, auto', $ucR6, 'True||||'),
+        @('user env level, auto', $ucR7, 'True||||'))) {
+    if ((& $ucRW $x[1]) -ne $x[2]) { $ucRBad += "$($x[0]) -> $(& $ucRW $x[1])" }
+}
+if (-not ($ucR6p -eq 'project' -and $ucR6u -eq 'user' -and $ucR7u -eq 'user' -and $null -eq $ucR7n)) { $ucRBad += "EffortEnv: [$ucR6p] [$ucR6u] [$ucR7u] [$ucR7n]" }
+Check 'Get-ChatqRunCarry by the settings the run loads: a Workflow allow carries Ultracode in default mode, not in plan, not one workflow''s; a deny or ask anywhere holds it in any mode; the job''s own config dir; a settings env level - the project''s or the user''s, the first file read named - drops --effort' (
+    -not $ucRBad.Count) ($ucRBad -join ' | ')
+Check 'and says why in words: the settings that deny it, that ask, or the mode - plan''s own, since an allow means it asks nothing' (
+    (Format-ChatqUltracodeHeld $ucR3) -eq 'the project settings deny Workflow' -and (Format-ChatqUltracodeHeld $ucR4) -eq 'the local settings ask before a Workflow' -and
+    (Format-ChatqUltracodeHeld $ucR1p) -eq "plan mode changes nothing, and a workflow's agents would" -and
+    (Format-ChatqUltracodeHeld $ucR0) -eq 'default mode asks before each Workflow' -and (Format-ChatqUltracodeHeld $ucR1) -eq '') "$(Format-ChatqUltracodeHeld $ucR3) | $(Format-ChatqUltracodeHeld $ucR4)"
+# through the watcher: the project's allow, the run in default mode
+$ucProjSet = Join-Path (Join-Path $projU '.claude') 'settings.json'
+$null = New-Item -ItemType Directory -Path (Split-Path $ucProjSet) -Force
+[System.IO.File]::WriteAllText($ucProjSet, '{"permissions":{"allow":["Workflow"]}}', $utf8)
+$ujA = & $ucRun 'allowed by the project'
+$uaA = & $ucArgv
+# the run's --settings copy, read now: the next run, with none, removes it
+$ucUA = & $ucUltra $uaA
+[System.IO.File]::WriteAllText($ucProjSet, '{"permissions":{"deny":["Workflow"]}}', $utf8)
+$ujN = & $ucRun 'denied by the project' 'auto'
+$uaN = & $ucArgv
+Remove-Item -LiteralPath (Split-Path $ucProjSet) -Recurse -Force
+$ulA = @([System.IO.File]::ReadAllLines($ucLog, $utf8) | Where-Object { $_ -like "*#$($ujA.seq) Ultracode carried in default mode: the project settings allow Workflow" })
+Check 'a run in default mode with the project''s Workflow allow: Ultracode carried, and watcher.log says by what; a deny there holds it in auto mode, and says so' (
+    $ujA.state -eq 'done' -and $ucUA -and $ujA.ultracode -eq $true -and $ulA.Count -eq 1 -and
+    $ujN.state -eq 'done' -and $uaN -notcontains '--settings' -and @(& $ucRunning $ujN | Where-Object { $_.why -like '*Ultracode left off (the project settings deny Workflow)' }).Count -eq 1 -and
+    @(& $ucHeldLine $ujN | Where-Object { $_ -like '*but the project settings deny Workflow, and no one can answer a run' }).Count -eq 1) "$($uaA -join ' ') | $($uaN -join ' ')"
+
+# What the run took, from its own records as it ends (Get-ChatqRunTook):
+# Claude Code writes a notice only when the state differs from the last it
+# sees, so the run's exit says not taken, its enter or no notice under an
+# enter says taken; its first turn's effort is the level it ran at
+$env:FAKE_TOOK_INTO = $pU
+$ucTook = {
+    param([string]$Say, [string]$Took)
+    $env:FAKE_TOOK = $Took
+    try { & $ucRun $Say 'auto' } finally { Remove-Item env:FAKE_TOOK -EA SilentlyContinue }
+}
+$ucEnd = { param($j) [string]@($j.history)[-1].why }
+$ucTookLine = { param($j) @([System.IO.File]::ReadAllLines($ucLog, $utf8) | Where-Object { $_ -like "*#$($j.seq) * - the run's own records say so" }) }
+$ujT1 = & $ucTook 'took exit' ((& $ucNotice 'exit' 'sdk-cli') + (& $ucAsst 'max' 'sdk-cli'))
+$ujT2 = & $ucTook 'took nothing after the exit' (& $ucAsst 'max' 'sdk-cli')
+$ujT3 = & $ucTook 'took enter' ((& $ucNotice 'enter' 'sdk-cli') + (& $ucAsst 'max' 'sdk-cli'))
+$ujT4 = & $ucTook 'took nothing after the enter' (& $ucAsst 'max' 'sdk-cli')
+Check 'the run wrote an exit: the job''s ultracode cleared, its end in the history says "Ultracode not taken", watcher.log too' (
+    $ujT1.state -eq 'done' -and -not (Get-ChatField $ujT1 'ultracode') -and (& $ucEnd $ujT1) -like '* - Ultracode not taken' -and
+    @(& $ucRunning $ujT1 | Where-Object { $_.why -like '* - with Ultracode, at effort max, as the chat had them' }).Count -eq 1 -and
+    @(& $ucTookLine $ujT1 | Where-Object { $_ -like '*Ultracode not taken - *' }).Count -eq 1) "$(& $ucEnd $ujT1) | $(& $ucTookLine $ujT1)"
+Check 'no notice of its own after a run''s exit: not taken either; its enter, or none after it: taken - nothing said' (
+    -not (Get-ChatField $ujT2 'ultracode') -and (& $ucEnd $ujT2) -like '* - Ultracode not taken' -and
+    $ujT3.ultracode -eq $true -and (& $ucEnd $ujT3) -notlike '*taken*' -and -not (& $ucTookLine $ujT3).Count -and
+    $ujT4.ultracode -eq $true -and (& $ucEnd $ujT4) -notlike '*taken*') "$(& $ucEnd $ujT2) | $(& $ucEnd $ujT3) | $(& $ucEnd $ujT4)"
+# a level carried and another run at: the job keeps the one it ran at
+$ujT5 = & $ucTook 'took a lower level' (& $ucAsst 'high' 'sdk-cli')
+Check 'carried --effort max, its turn at high: the job says high, its end "ran at effort high, not max"' (
+    (& $ucEffort (& $ucArgv)) -eq 'max' -and $ujT5.effort -eq 'high' -and $ujT5.ultracode -eq $true -and (& $ucEnd $ujT5) -like '* - ran at effort high, not max') "$($ujT5.effort) | $(& $ucEnd $ujT5)"
+# Get-ChatqRunTook itself: a turn of the chat's own, a subagent's, one with
+# no effort are not the run's; a turn that only talks of a notice is; past
+# a stretch over 1 MB; cut off before a turn, nothing
+$ucTk = { param([string[]]$Parts) $f = & $ucFile 'took' $Parts; $n = [int64](Get-Item -LiteralPath $f).Length; $f, $n }
+$ucTkBase = (& $ucHuman 'a') + (& $ucNotice 'enter') + (& $ucAsst 'max')
+$f0, $n0 = & $ucTk @($ucTkBase)
+$ucSide = (& $ucAsst 'low' 'sdk-cli').Replace('"isSidechain":false', '"isSidechain":true')
+$ucTalk = (& $ucAsst 'medium' 'sdk-cli').Replace('"text":"done"', '"text":"it wrote \"ultra_effort_exit\""')
+[System.IO.File]::AppendAllText($f0, (& $ucNotice 'exit' 'sdk-cli') + (& $ucAsst 'xhigh') + $ucSide + (& $ucAsst '' 'sdk-cli') + (& $ucResult '@PAD@' 1100000) + $ucTalk, $utf8)
+$ucTk1 = Get-ChatqRunTook $f0 $n0
+$f1, $n1 = & $ucTk @($ucTkBase)
+[System.IO.File]::AppendAllText($f1, (& $ucNotice 'exit' 'sdk-cli'), $utf8)
+$ucTk2 = Get-ChatqRunTook $f1 $n1
+$ucTk3 = Get-ChatqRunTook $f1 ((Get-Item -LiteralPath $f1).Length)
+Check 'Get-ChatqRunTook: the run''s exit and its first own turn - past the chat''s turn, a subagent''s, one with no effort and 1 MB of output, a turn that names a notice counts; no turn yet, or nothing after, says nothing' (
+    $ucTk1.Ultracode -eq $false -and $ucTk1.Effort -eq 'medium' -and $null -eq $ucTk2.Ultracode -and $null -eq $ucTk2.Effort -and $null -eq $ucTk3.Ultracode -and $null -eq $ucTk3.Effort -and
+    (Confirm-ChatqRunCarry ([pscustomobject]@{ ultracode = $true; effort = 'max' }) $ucTk2) -eq '' -and
+    (Confirm-ChatqRunCarry ([pscustomobject]@{ ultracode = $true; effort = 'medium' }) $ucTk1) -eq 'Ultracode not taken') "$($ucTk1 | ConvertTo-Json -Compress) | $($ucTk2 | ConvertTo-Json -Compress)"
+# no notice of the run's, so the scan back from -From: a compaction after
+# the chat's enter is met first - off; a notice line over 1 MB that began
+# before the first stretch back is read whole in a longer one - on; one
+# further back than -Budget is not reached - not known, the level still is
+$ucBound = & $ucLine ([ordered]@{ parentUuid = $null; logicalParentUuid = (& $ucId); isSidechain = $false; type = 'system'; subtype = 'compact_boundary'; content = 'Conversation compacted'
+        isMeta = $false; timestamp = (& $ucAt); uuid = (& $ucId); level = 'info'; compactMetadata = [ordered]@{ trigger = 'auto'; preTokens = 170000 } })
+$f2, $n2 = & $ucTk @($ucTkBase + $ucBound)
+[System.IO.File]::AppendAllText($f2, (& $ucAsst 'high' 'sdk-cli'), $utf8)
+$ucTk4 = Get-ChatqRunTook $f2 $n2
+$ucBig = (& $ucLine ([ordered]@{ parentUuid = '@PAD@'; isSidechain = $false; attachment = [ordered]@{ type = 'ultra_effort_enter'; reminderType = 'full' }; type = 'attachment'; uuid = (& $ucId)
+            timestamp = (& $ucAt) })).Replace('@PAD@', 'y' * 1100000)
+$f3, $n3 = & $ucTk @((& $ucHuman 'a'), $ucBig, (& $ucAsst 'max'))
+[System.IO.File]::AppendAllText($f3, (& $ucAsst 'high' 'sdk-cli'), $utf8)
+$ucTk5 = Get-ChatqRunTook $f3 $n3
+$f4, $n4 = & $ucTk @((& $ucHuman 'a'), (& $ucNotice 'enter'), (& $ucResult '@PAD@' 300000), (& $ucAsst 'max'))
+[System.IO.File]::AppendAllText($f4, (& $ucAsst 'high' 'sdk-cli'), $utf8)
+$ucTk6 = Get-ChatqRunTook $f4 $n4 -Budget 200000
+$ucTk6w = Get-ChatqRunTook $f4 $n4
+Check 'Get-ChatqRunTook with no notice of the run''s: a compact_boundary met first is off; a notice line over 1 MB across the first stretch back is read whole - on; one past -Budget is not known, its level still read' (
+    (& $ucIs $ucTk4.Ultracode $false) -and $ucTk4.Effort -eq 'high' -and (& $ucIs $ucTk5.Ultracode $true) -and $ucTk5.Effort -eq 'high' -and
+    $null -eq $ucTk6.Ultracode -and $ucTk6.Effort -eq 'high' -and (& $ucIs $ucTk6w.Ultracode $true) -and
+    (Confirm-ChatqRunCarry ([pscustomobject]@{ ultracode = $true; effort = 'high' }) $ucTk6) -eq '') "$($ucTk4 | ConvertTo-Json -Compress) | $($ucTk5 | ConvertTo-Json -Compress) | $($ucTk6 | ConvertTo-Json -Compress) | $($ucTk6w | ConvertTo-Json -Compress)"
+Remove-Item env:FAKE_TOOK_INTO
 
 # back as the other sections expect it
 $script:ChatRunStateSeam = $null

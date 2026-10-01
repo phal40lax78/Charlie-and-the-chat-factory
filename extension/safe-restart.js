@@ -56,6 +56,7 @@ const LATER = 'Later';
 const AGAIN = 'Try again';
 
 const WHY = { turn: '', prompt: ' (waiting on you)', background: ' (background work running)', run: ' (a queued prompt running)', '': '' };
+const WRITTEN = ' (written in the last minute)';
 
 const texts = {
     short: v => 'Charlie and the Chat Factory ' + v + ' is installed - reload the window to load it.',
@@ -157,12 +158,24 @@ function apiNow() {
 // the Claude home this window's Claude extension uses, printed as one line.
 // Scripts older than 0.9.0 have no Get-ChatHostWork, and PowerShell would
 // only say so on stderr and exit 0: they say so on stdout instead.
+// Every look also leaves its note of what works here (Save-ChatHostWorkNote,
+// data/host-work/<host pid>.json), with when this host started (hostStart,
+// epoch ms) so the note is not read for another process given its pid: a
+// reload that goes ahead under working chats - Reload now, Reload anyway -
+// leaves the note behind, and the overlay offers to continue what it cut
+// off. Scripts without that function look as before.
 const TOO_OLD = 'chatq: no Get-ChatHostWork';
-function hostWorkCommand(hostPid, home) {
+function hostWorkCommand(hostPid, home, hostStart) {
+    const start = Number.isFinite(hostStart) && hostStart > 0 ? Math.trunc(hostStart) : 0;
     return 'if (-not (Get-Command Get-ChatHostWork -EA SilentlyContinue)) { [Console]::Out.WriteLine(\'' + TOO_OLD + '\') } else { ' +
         'Remove-Variable r -EA SilentlyContinue; $r = Get-ChatHostWork -HostPid ' + Math.trunc(hostPid) +
-        (home ? ' -ConfigDir ' + ext()._psQuote(home) : '') + '; [Console]::Out.WriteLine((ConvertTo-ChatHostWorkJson $r)) }';
+        (home ? ' -ConfigDir ' + ext()._psQuote(home) : '') + '; [Console]::Out.WriteLine((ConvertTo-ChatHostWorkJson $r)); ' +
+        'if (Get-Command Save-ChatHostWorkNote -EA SilentlyContinue) { Save-ChatHostWorkNote $r -HostStart ' + start + ' } }';
 }
+
+// When this extension host started, in epoch ms: what the note names it by
+// beside its pid (Test-ChatHostAlive allows 5 s either way)
+function hostStart() { return Math.round(Date.now() - process.uptime() * 1000); }
 
 // Why a look gave nothing, for the log and the status bar: the tool
 // folder's scripts too old to have Get-ChatHostWork - one set up before
@@ -201,7 +214,7 @@ function hostWork(hostPid) {
     if (!io.exists(loader)) { log('the chats here cannot be checked: no ' + loader); return Promise.resolve(null); }
     const exe = io.powershell(io.platform());
     if (!exe) { log('the chats here cannot be checked: no PowerShell found'); return Promise.resolve(null); }
-    const args = setup._psArgs(loader, hostWorkCommand(hostPid, ext()._claudeHome()));
+    const args = setup._psArgs(loader, hostWorkCommand(hostPid, ext()._claudeHome(), hostStart()));
     return new Promise(resolve => {
         cp.execFile(exe, args, { timeout: timing.look, windowsHide: true, maxBuffer: 1024 * 1024 }, (err, stdout, stderr) => {
             const v = parseHostWork(stdout);
@@ -236,7 +249,10 @@ async function namesOf(chats) {
                 title = d && !d.skip ? d.title : '';
             }
         } catch (e) { }
-        return (title ? '"' + x._formatTitle(title, 40) + '"' : 'a chat (' + c.sessionId.slice(0, 8) + ')') + (WHY[c.why] || '');
+        // one only written names that, never nothing: a chat named working
+        // with no reason looks like a mistake
+        const why = WHY[c.why] || (!c.why && c.written ? WRITTEN : '');
+        return (title ? '"' + x._formatTitle(title, 40) + '"' : 'a chat (' + c.sessionId.slice(0, 8) + ')') + why;
     };
     const shown = await Promise.all(chats.slice(0, 3).map(one));
     const more = chats.length - shown.length;
@@ -349,9 +365,30 @@ function movedSince(v, since) {
     }
     for (const c of (v && v.chats) || []) {
         if (!c.file) continue;
-        try { if (fs.statSync(c.file).mtimeMs > since) return c.sessionId.slice(0, 8) + ' written'; } catch (e) { }
+        try { if (lastWritten(c.file) > since) return c.sessionId.slice(0, 8) + ' written'; } catch (e) { }
     }
     return '';
+}
+
+// When a transcript was last written by a chat at work, in ms: its newest
+// record's timestamp, as Get-ChatLastWritten (src/chatrm.ps1) reads it - a
+// tab a reload brought back touches its file with records that carry none,
+// and read as written it held the reload for nothing. The last 64 KB only;
+// no timestamp there, the file's own time. Never later than that. Throws
+// when the file cannot be read.
+function lastWritten(file, size = 65536) {
+    const st = fs.statSync(file);
+    const n = Math.min(size, st.size);
+    const buf = Buffer.alloc(n);
+    const fd = fs.openSync(file, 'r');
+    let got = 0;
+    try { got = fs.readSync(fd, buf, 0, n, st.size - n); } finally { fs.closeSync(fd); }
+    const re = /"timestamp"\s*:\s*"([^"]+)"/g;
+    const text = buf.toString('utf8', 0, got);
+    let m, last = null;
+    while ((m = re.exec(text))) last = m[1];
+    const at = last ? Date.parse(last) : NaN;
+    return Number.isFinite(at) ? Math.min(at, st.mtimeMs) : st.mtimeMs;
 }
 
 // One look while waiting. Every chat idle - no turn, no prompt, no
@@ -427,7 +464,9 @@ async function guardReload(auto, except, named) {
     try { if (busy) msg = texts.reloadBusy(busy.length, await namesOf(busy)); } catch (e) { }
     log('reload ' + (auto ? 'by itself' : 'asked for') + ': ' + (busy ? busy.length + ' chats working here' : 'the chats here not checked') + ' - asking');
     const go = 'Reload anyway';
-    Promise.resolve(vs().window.showWarningMessage(msg, go, 'Not now'))
+    // on the overlay too, as extension.js's own reload asks are
+    const say = busy ? 'it would stop ' + busy.length + ' working chat' + (busy.length === 1 ? '' : 's') : 'its chats could not be checked';
+    Promise.resolve(x._askReload(true, msg, go, say))
         .then(pick => { if (pick === go) return x._reloadWindow(); log('reload: not now'); })
         .catch(e => log('the reload question failed: ' + (e && e.message)));
     return 'asked';
@@ -454,9 +493,9 @@ function activate(context) {
 module.exports = {
     activate, texts, timing, ID, WAIT, NOW, GO, LATER, AGAIN, CANCEL, RESTART, TOO_OLD,
     _readInstalled: readInstalled, _entryOf: entryOf, _installKey: installKey, _noteRunning: noteRunning,
-    _parseHostWork: parseHostWork, _hostWorkCommand: hostWorkCommand, _lookFailure: lookFailure, _workingOf: workingOf, _namesOf: namesOf,
+    _parseHostWork: parseHostWork, _hostWorkCommand: hostWorkCommand, _hostStart: hostStart, _lookFailure: lookFailure, _workingOf: workingOf, _namesOf: namesOf,
     _checkInstall: checkInstall, _notice: notice, _startWait: startWait, _stopWait: stopWait, _poll: poll, _cancel: cancel,
     _guardReload: guardReload, _said: said, _wait: () => wait, _running: () => running,
     // replaced by the tests, which start no PowerShell and keep their own clock
-    _hostWork: hostWork, _movedSince: movedSince, _now: () => Date.now()
+    _hostWork: hostWork, _movedSince: movedSince, _lastWritten: lastWritten, _now: () => Date.now()
 };

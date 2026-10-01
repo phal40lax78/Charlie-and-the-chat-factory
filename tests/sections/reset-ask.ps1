@@ -234,7 +234,17 @@ $rc2 = @($raScan | Where-Object { $_.Id -eq $raC2 })[0]
 $rc3 = @($raScan | Where-Object { $_.Id -eq $raC3 })[0]
 $rGh = [pscustomobject]@{ Id = $raGh; Title = 'Ghost chat'; Why = 'limit'; ResetsAt = $rc1.ResetsAt; At = (Get-Date).AddHours(-1.5); Path = $null; Cwd = $projA; LimitUuid = 'c5c5dead-0000-4000-8000-00000000dead' }
 $script:RaSpawns = 0
+# older than the continues: a prompt waiting in turn for another chat, and
+# one put first
+$raRow3 = Get-ChatqRowById $raC3 'claude' $rc3.Path $rc3.Cwd
+$raWait = (New-ChatqJob -Row $raRow3 -Prompt 'waiting in turn').Job
+$raFirst = (New-ChatqJob -Row $raRow3 -Prompt 'put first' -First).Job
 $ic1 = Invoke-ChatqContinueChats -Items @($rc1, $rc2, $rGh)
+$raIds = @($raWait.id, $raFirst.id) + @($ic1.Queued | ForEach-Object { $_.id })
+$raOrder = @(Get-ChatqJobs | Where-Object { $_.id -in $raIds } | ForEach-Object { [int]$_.seq }) -join ','
+$raWant = "$($raFirst.seq),$(@($ic1.Queued | ForEach-Object { $_.seq }) -join ','),$($raWait.seq)"
+Check 'continues go ahead of a prompt waiting for another chat, in the order Continue all named them; a job put first stays ahead of them' ($raWait -and $raFirst -and $raOrder -eq $raWant) "$raOrder, want $raWant"
+foreach ($j in @($raWait, $raFirst)) { if ($j) { $null = Remove-ChatqJob (Find-ChatqJob $j.id) 'test' } }
 $ic2 = Invoke-ChatqContinueChats -Items @($rc1, $rc2)
 Check 'Invoke-ChatqContinueChats: a continue job a chat, one not found named in Fails; again, the chats that have one in Had and none queued - and the watcher left to the caller' (
     @($ic1.Queued).Count -eq 2 -and (@($ic1.Queued | ForEach-Object { $_.kind }) -join ',') -eq 'continue,continue' -and (@($ic1.Queued | ForEach-Object { $_.sessionId }) -join ',') -eq "$raC1,$raC2" -and
@@ -263,7 +273,7 @@ Check 'continue: a continue for each, the watcher asked once; marked continued w
     $crM1.answer -eq 'continue' -and $crM1.source -eq 'overlay' -and (@($crM1.seq) -join ',') -eq "$crSeq1" -and $ctxC.CutAt -eq [datetime]::MinValue -and $null -eq $ctxC.JobsSig) "$(@($cr.Queued).Count) $($crJobs.Count) $($script:RaSpawns) $(& $msKeys $crState)"
 $crLog = @(& $raLog | Where-Object { $_ -like '*ask: continued*' })
 Check 'and says so in the console''s words, the failure too - in AskSaid for the host, and in overlay.log' (
-    $cr.Text -eq 'queued 2 continues - one at a time, each when its limit is over; Ghost chat: not found' -and $ctxC.AskSaid -eq $cr.Text -and
+    $cr.Text -eq 'queued 2 continues ahead of the prompts waiting - one at a time, each when its limit is over; Ghost chat: not found' -and $ctxC.AskSaid -eq $cr.Text -and
     $crLog.Count -ge 1 -and $crLog[-1].EndsWith("ask: continued 2 - #$crSeq1 #$crSeq2; failed: Ghost chat: not found")) "$($cr.Text) / $($crLog -join ' | ')"
 $cr2 = Complete-ChatqResetAsk $ctxC 'continue' $askK
 Check 'a second answer finds nothing to answer' ($cr2.Stale -and @(Get-ChatqJobs | Where-Object { $_.sessionId -in $raC1, $raC2 }).Count -eq 2 -and $script:RaSpawns -eq 1)
@@ -478,7 +488,7 @@ $script:ChatOverlayMacNotifySeam = { param($n) $script:RaNotes.Add($n) }
 $macAt = (Get-Date).AddMinutes(-20)
 $macItems = @('Say "hi" \ there', 'Beta chat', 'Gamma chat', 'Delta chat') | ForEach-Object { [pscustomobject]@{ Id = 'x'; Title = $_ } }
 $macCtx = [pscustomobject]@{ AskNews = [pscustomobject]@{ Ask = [pscustomobject]@{ Count = 4; ResetsAt = $macAt; Items = @($macItems); Keys = @() }; Keys = @() }
-    AskSaid = 'queued 4 continues - one at a time, each when its limit is over' }
+    AskSaid = 'queued 4 continues ahead of the prompts waiting - one at a time, each when its limit is over' }
 Update-ChatOverlayMacAsk $macCtx
 Update-ChatOverlayMacAsk $macCtx
 $script:ChatOverlayMacNotifySeam = $null
@@ -486,7 +496,7 @@ $macText = "limit over at $(& $raAt $macAt) - 4 chats it cut off can continue: S
 Check 'macOS: a new ask said once as a notification - three titles and the rest counted, pointing at the CQ menu, escaped for AppleScript - then what an answer did' (
     $script:RaNotes.Count -eq 2 -and $script:RaNotes[0].Text -eq $macText -and $script:RaNotes[0].Title -eq 'chatq' -and
     $script:RaNotes[0].Script -eq ('display notification "' + ($macText -replace '\\', '\\' -replace '"', '\"') + '" with title "chatq"') -and
-    $script:RaNotes[1].Text -eq 'queued 4 continues - one at a time, each when its limit is over' -and $null -eq $macCtx.AskNews -and $null -eq $macCtx.AskSaid) "$(@($script:RaNotes | ForEach-Object { $_.Script }) -join ' // ')"
+    $script:RaNotes[1].Text -eq 'queued 4 continues ahead of the prompts waiting - one at a time, each when its limit is over' -and $null -eq $macCtx.AskNews -and $null -eq $macCtx.AskSaid) "$(@($script:RaNotes | ForEach-Object { $_.Script }) -join ' // ')"
 
 # the console's list with overlay.cutOff off: no cut-off rows in the
 # snapshot, but the ask's balloon sends you there - its chats listed from the
@@ -637,10 +647,10 @@ Update-ChatOverlayAsk `$H
 `$newsOk = `$script:RaBalloons.Count -eq 1 -and `$bn.Title -eq ('Charlie - limit over at ' + (& `$hm `$askAt)) -and
     `$bn.Text -eq '4 chats it cut off can continue: Alpha chat, Beta chat, Gamma chat and 1 more. Click to see them.' -and `$bn.Kind -eq 'ask' -and
     (@(`$bn.Keys) -join ',') -eq 'k_1,k_2,k_3,k_4' -and `$null -eq `$H.Ctx.AskNews
-`$H.Ctx.AskSaid = 'queued 1 continue - it goes when its limit is over'
+`$H.Ctx.AskSaid = 'queued 1 continue ahead of the prompts waiting - it goes when its limit is over'
 Update-ChatOverlayAsk `$H
 Update-ChatOverlayAsk `$H
-`$newsOk = `$newsOk -and `$script:RaBalloons.Count -eq 2 -and `$script:RaBalloons[1].Text -eq 'queued 1 continue - it goes when its limit is over' -and `$script:RaBalloons[1].Kind -eq '' -and `$null -eq `$H.Ctx.AskSaid
+`$newsOk = `$newsOk -and `$script:RaBalloons.Count -eq 2 -and `$script:RaBalloons[1].Text -eq 'queued 1 continue ahead of the prompts waiting - it goes when its limit is over' -and `$script:RaBalloons[1].Kind -eq '' -and `$null -eq `$H.Ctx.AskSaid
 `$newsSay = "`$(@(`$script:RaBalloons | ForEach-Object { "`$(`$_.Title): `$(`$_.Text) [`$(`$_.Kind)]" }) -join ' // ')"
 # the tray's two answers: shown while an ask is out, hidden once it is gone -
 # by Available, since a closed menu's items read Visible false
@@ -680,7 +690,13 @@ Enter-ChatOverlayConsoleMode `$H
 `$conAsk = & `$headOf
 `$H.Ctx.Ask = `$null
 `$conNone = & `$headOf
-`$conOk = `$conAsk -eq ('Cut off (1) ' + `$dot + ' limit over at ' + (& `$hm `$askAt) + ' - 4 can continue|Leave them,Continue all|k_1,k_2,k_3,k_4') -and `$conNone -eq 'Cut off (1)|Continue all|'
+# an answer to the ask that is gone, given in the console: nothing done, the
+# console kept, and its status line says why
+Set-ChatConsoleStatus `$H '' 'dim'
+Invoke-ChatOverlayAskAnswer `$H 'leave' @('k_1')
+`$conStale = "`$(`$H.Mode)|`$(`$C.Status.Text)"
+`$conOk = `$conAsk -eq ('Cut off (1) ' + `$dot + ' limit over at ' + (& `$hm `$askAt) + ' - 4 can continue|Leave them,Continue all|k_1,k_2,k_3,k_4') -and `$conNone -eq 'Cut off (1)|Continue all|' -and
+    `$conStale -eq 'console|the chats changed - here they are now' -and -not (Test-Path -LiteralPath (Join-Path `$script:ChatqAutoDir 'k_1.json'))
 Exit-ChatOverlayConsoleMode `$H
 # an answer: held through a drag and run once it ends, then a continue queued
 # through the seams, marked, and said in a balloon; one about an ask gone does nothing
@@ -701,7 +717,7 @@ Invoke-ChatOverlayHeldVerbs `$H
 `$wcJobs = @(Get-ChatqJobs | Where-Object { `$_.sessionId -eq '$raWc' -and `$_.kind -eq 'continue' -and `$_.state -eq 'queued' })
 `$mark = Read-ChatqJson (Join-Path `$script:ChatqAutoDir ('$kWc' + '.json'))
 `$answerOk = `$heldOk -and `$null -eq `$H.AskHeld -and (`$wcKeys -join ',') -eq '$kWc' -and `$wcJobs.Count -eq 1 -and `$mark.answer -eq 'continue' -and `$mark.source -eq 'overlay' -and
-    (@(`$mark.seq) -join ',') -eq "`$(`$wcJobs[0].seq)" -and `$H.AskRequest -and @(`$script:RaBalloons | Where-Object { `$_.Text -eq 'queued 1 continue - it goes when its limit is over' }).Count -eq 1
+    (@(`$mark.seq) -join ',') -eq "`$(`$wcJobs[0].seq)" -and `$H.AskRequest -and @(`$script:RaBalloons | Where-Object { `$_.Text -eq 'queued 1 continue ahead of the prompts waiting - it goes when its limit is over' }).Count -eq 1
 `$nb = `$script:RaBalloons.Count
 Invoke-ChatOverlayAskAnswer `$H 'leave' @('a5a5ffff-0000-4000-8000-00000000ffff_zz')
 `$answerOk = `$answerOk -and `$script:RaBalloons.Count -eq `$nb -and -not (Test-Path -LiteralPath (Join-Path `$script:ChatqAutoDir 'a5a5ffff-0000-4000-8000-00000000ffff_zz.json'))
@@ -709,7 +725,7 @@ Invoke-ChatOverlayAskAnswer `$H 'leave' @('a5a5ffff-0000-4000-8000-00000000ffff_
 Invoke-ChatOverlayVerb 'stop'
 [IO.File]::WriteAllText(`$script:ChatqConfigPath, `$cfgWas)
 '{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}|{9}|{10}|{11}|{12}|{13}' -f `$usageOk, `$weekOk, `$bannerOk, `$foldOk, `$chipAsk, `$chipOpen, `$setOk, `$balloonOk, `$newsOk, `$conOk, `$answerOk,
-    (`$script:RaErr -join ' / '), ("line1 [`$line1] line2 [`$line2] `$bannerSay fold [`$one] `$setSay news [`$newsSay] con [`$conAsk] [`$conNone] `$answerSay" -replace '\|', '/'), `$trayOk
+    (`$script:RaErr -join ' / '), ("line1 [`$line1] line2 [`$line2] `$bannerSay fold [`$one] `$setSay news [`$newsSay] con [`$conAsk] [`$conNone] [`$conStale] `$answerSay" -replace '\|', '/'), `$trayOk
 "@
 $raOut = Invoke-Sta 'reset-ask-test' $raWpf
 $ra = "$raOut" -split '\|'
@@ -723,7 +739,7 @@ Check 'the chip on a Claude row: open and delete, open still the text that says 
 Check 'the settings box''s seventh row: Cut off, Ask or Leave, the one in force filled; Leave saves off at config.json''s top level, and a fresh look follows' ($ra.Count -gt 6 -and $ra[6] -eq 'True') $raSay
 Check 'balloons go through Show-ChatOverlayBalloon: cut to 250, what a click means kept' ($ra.Count -gt 7 -and $ra[7] -eq 'True') $raSay
 Check 'a new ask is ballooned once - title, count, three titles and the rest counted - then what an answer did' ($ra.Count -gt 8 -and $ra[8] -eq 'True') $raSay
-Check 'the console: the Cut off header says the ask while it is pending, with Leave them beside Continue all' ($ra.Count -gt 9 -and $ra[9] -eq 'True') $raSay
+Check 'the console: the Cut off header says the ask while it is pending, with Leave them beside Continue all; an answer to an ask gone stays in the console and says the chats changed' ($ra.Count -gt 9 -and $ra[9] -eq 'True') $raSay
 Check 'an answer held through a drag runs once it ends: a continue queued, marked, the watcher followed, said in a balloon; one about an ask gone does nothing' ($ra.Count -gt 10 -and $ra[10] -eq 'True') $raSay
 Check 'the panel''s script ran without an error' ($ra.Count -gt 11 -and -not $ra[11]) $raSay
 Check 'the tray''s Continue N and Leave them: there while an ask is out, gone once it is answered - never left behind by a closed menu' ($ra.Count -gt 13 -and $ra[13] -eq 'True') $raSay

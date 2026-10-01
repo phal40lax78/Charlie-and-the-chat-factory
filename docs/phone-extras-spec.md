@@ -819,8 +819,9 @@ opens the page can have it *used*. An alert link is not secret:
 If a link could send, then anyone who saw one alert's id could build
 `#v=2&a=<aid>&...&text=<any prompt>&send=1`, get the phone to open it
 once, and the page would seal and post a prompt with the phone's own
-key. The MAC would check out, and the prompt would run on the PC, in
-`acceptEdits`. The MAC proves that this phone's page sealed the
+key. The MAC would check out, and the prompt would run on the PC in the
+chat's own mode - `bypassPermissions`, if that is what the chat runs in,
+since no cap is set by default (`reply.maxMode` keep). The MAC proves that this phone's page sealed the
 message. It does not prove that the person meant it. The tap on
 **Send** is the only thing that does. A reload or a restored tab would
 also send again (with a new nonce, so the replay check would not

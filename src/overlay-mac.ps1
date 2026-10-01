@@ -442,11 +442,9 @@ function Update-ChatOverlayMacAsk {
             $titles = @(@($a.Items) | Select-Object -First 3 | ForEach-Object { Format-ChatTitle $_.Title 40 })
             $list = $titles -join ', '
             if ($n -gt $titles.Count) { $list += " and $($n - $titles.Count) more" }
-            # the day too once it is not today, as the note and the Windows balloon say it
-            $at = Format-ChatOverlayAskAt $a.ResetsAt
-            $chats = if ($n -eq 1) { '1 chat' } else { "$n chats" }
-            $head = if ($at) { "limit over at $at - " } else { '' }
-            Show-ChatOverlayMacNotice "$head$chats it cut off can continue: $list. Continue or leave them from the CQ menu."
+            # the day too once it is not today, as the note and the Windows
+            # balloon say it (Format-ChatqAskHead)
+            Show-ChatOverlayMacNotice "$(Format-ChatqAskHead $a) - $(Format-ChatqAskCount $a) can continue: $list. Continue or leave them from the CQ menu."
         }
         catch { Write-ChatOverlayLog "ask: $($_.Exception.Message)" }
     }
@@ -479,6 +477,10 @@ function Start-ChatOverlayMacHost {
         $old = if (Test-Path -LiteralPath $script:ChatOverlayMacJsPath) { [System.IO.File]::ReadAllText($script:ChatOverlayMacJsPath) } else { '' }
         if ($old -ne $js) { Save-ChatqText $script:ChatOverlayMacJsPath $js }
         $ctx = New-ChatOverlayContext
+        # the code as this process loaded it: changed on disk, a restart on
+        # it, as on Windows (Test-ChatOverlayCodeChanged)
+        $ctx.CodeStamp = Get-ChatOverlayCodeStamp
+        $ctx.CodeLookAt = Get-Date
         # the panel here draws rows alone: a Recent list would be built, and
         # its transcripts listed and read, for nothing
         $ctx.WantRecent = $false
@@ -511,6 +513,7 @@ function Start-ChatOverlayMacHost {
                     Write-ChatOverlayLog "the panel exited ($($S.Child.ExitCode)) - starting it again"
                     & $launch
                 }
+                if (Test-ChatOverlayCodeChanged $ctx) { Write-ChatOverlayLog 'the code on disk changed - restarting on it'; return 'restart' }
                 return $null
             }
         }

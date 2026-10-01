@@ -2,7 +2,7 @@
     "name": "charlie-and-the-chat-factory",
     "displayName": "Charlie and the Chat Factory - Claude Code & Codex",
     "description": "Mission control for your AI chats: every Claude Code chat on one always-on-top board and your phone, prompts queued for the usage reset. Codex and Copilot too.",
-    "version": "0.10.2",
+    "version": "0.10.3",
     "publisher": "redaechan",
     "license": "MIT",
     "icon": "icon.png",
@@ -83,6 +83,11 @@
             {
                 "command": "chatManager.watchRun",
                 "title": "Watch the running queued prompt",
+                "category": "Chat Manager"
+            },
+            {
+                "command": "chatManager.showQueue",
+                "title": "Show the queue",
                 "category": "Chat Manager"
             }
         ],

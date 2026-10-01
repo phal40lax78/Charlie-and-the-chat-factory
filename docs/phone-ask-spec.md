@@ -361,7 +361,7 @@ page can say it.
 | a registry entry for `session_id`, read from `$env:CLAUDE_CONFIG_DIR`'s `sessions/`, else `~/.claude/sessions/` (the hook inherits the CLI's environment), alive by [Test-ChatqSessionAlive](../src/live-chats.ps1) | silent (logged): a session chatq cannot find there. A `-p` run registers too, and takes its entrypoint from the environment it inherits (S46 item 9), so the entrypoint gate below is what keeps other hosts out, not this one | `hook` | - |
 | its `entrypoint` is `claude-vscode` | declined | `term` | `Answer it in the terminal.` This gate is dropped only once S46 item 4 passes |
 | its `version` is `$script:ChatqAskMin` (`2.1.283`) or newer | declined | `cli` | `Answer it at the PC - Claude Code 2.1.2xx is too old for answers from the phone.` |
-| `permission_mode` from stdin is at or below `reply.maxMode` on `$script:ChatqModeLadder`, as [Limit-ChatqPhoneMode](../src/phone.ps1) judges | declined | `mode` | `Answer it at the PC - that chat runs in bypassPermissions, above the phone's limit (acceptEdits).` |
+| `permission_mode` from stdin is at or below `reply.maxMode` on `$script:ChatqModeLadder`, as [Limit-ChatqPhoneMode](../src/phone.ps1) judges (always passes under `keep`) | declined | `mode` | `Answer it at the PC - that chat runs in bypassPermissions, above the phone's limit (acceptEdits).` |
 | fewer than `ask.maxOpen` (5) open requests, and fewer than 30 made in the last hour (counted from every request's `at`, whatever its state, since they are kept 1 h after `until`) | declined | `busy` | `Answer it at the PC - too many questions wait on the phone right now.` |
 
 The view uses two more `why` values of its own:
@@ -375,8 +375,11 @@ The view uses two more `why` values of its own:
 
 **Why the mode gate.** An answer is your word to a chat, and the chat then
 acts on it in its own mode.
+- Under `keep`, the default, there is no cap and the gate lets every mode
+  through: a phone prompt already runs in the chat's own mode, so an answer
+  adds nothing.
 - chatq has never let the phone drive a turn above `reply.maxMode`. A phone
-  prompt to a live chat queues a job capped there
+  prompt to a live chat queues a job capped there once a cap is set
   ([Invoke-ChatqReply](../src/phone.ps1), act `prompt`).
 - A question in a `bypassPermissions` chat would be the one way round that.
   Raise `reply.maxMode` to allow it.

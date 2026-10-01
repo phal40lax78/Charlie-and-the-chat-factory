@@ -5,6 +5,8 @@
 #                  replaced; absent means a plain success
 #   FAKE_LAND      a transcript to append the prompt to as a user record, the
 #                  way a real run does before the limit cuts it off
+#   FAKE_TOOK      .jsonl lines to append to FAKE_TOOK_INTO (a transcript),
+#                  {{SESSION}} replaced: the run's own notice and turn
 #   FAKE_STDERR    bytes of noise to write to stderr first (pipe-deadlock test)
 #   FAKE_SLEEP     seconds to hang before answering (timeout test)
 #   FAKE_AGENTS    what `claude agents --json` prints (live chats)
@@ -165,6 +167,12 @@ if ($env:FAKE_LAND -and (Test-Path -LiteralPath $env:FAKE_LAND)) {
         sessionId = $session
     } | ConvertTo-Json -Compress -Depth 5
     [IO.File]::AppendAllText($env:FAKE_LAND, $rec + "`n", $utf8)
+}
+# what the run itself wrote into the chat, as a real claude -p does after its
+# prompt: the Ultracode notice when it changed, then its turn with the effort
+# it ran at (Get-ChatqRunTook reads them back)
+if ($env:FAKE_TOOK -and $env:FAKE_TOOK_INTO -and (Test-Path -LiteralPath $env:FAKE_TOOK_INTO)) {
+    [IO.File]::AppendAllText($env:FAKE_TOOK_INTO, $env:FAKE_TOOK.Replace('{{SESSION}}', $session).TrimEnd("`n") + "`n", $utf8)
 }
 
 if (($env:FAKE_PERMIT -or $env:FAKE_PERMIT_SELF) -and $argv -contains '--permission-prompt-tool' -and $argv -contains '--mcp-config') {

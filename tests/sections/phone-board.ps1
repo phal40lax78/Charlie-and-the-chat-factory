@@ -79,6 +79,7 @@ $null = New-Item -ItemType Directory -Path $bdProj -Force
 $idBa = 'b0b0b0b0-b0b0-4b0b-8b0b-b0b0b0b0b0b0'
 $idBb = 'b1b1b1b1-b1b1-4b1b-8b1b-b1b1b1b1b1b1'
 $idBc = 'b2b2b2b2-b2b2-4b2b-8b2b-b2b2b2b2b2b2'
+$idBr = 'b4b4b4b4-b4b4-4b4b-8b4b-b4b4b4b4b4b4'
 $pBa = New-FakeChat $bdProj $idBa (U 'Parser \uD55C\uAE00 rewrite') 0.2 @('first question') -Mode 'bypassPermissions'
 $pBb = New-FakeChat $bdProj $idBb 'Radar viewer' 0.3 @('look at the radar') -Mode 'default'
 $pBc = New-FakeChat $bdProj $idBc 'Plugin unification' 0.4 @('unify the plugins') -CutOff -ResetsAt ([DateTimeOffset]::UtcNow.AddHours(2).ToUnixTimeSeconds())
@@ -131,7 +132,10 @@ Remove-Item -LiteralPath (Join-Path $script:ChatqLogDir 'bdlogjob1.jsonl'), (Joi
 $bdD = New-ChatqRandomBytes 32
 $bdKey = ConvertTo-ChatqB64Url $bdD
 $cfg = Get-ChatqConfig
-Set-ChatqProp $cfg 'reply' ([pscustomobject]@{ on = $true; topic = [pscustomobject](Protect-ChatqSecret 'chatq-boardtopicboardtopicboar'); key = [pscustomobject](Protect-ChatqSecret $bdKey); phone = 'Board phone'; pairedAt = (Get-ChatqStamp) })
+# under a cap of acceptEdits, so the board's caps show: there is none by
+# default (keep, tests/sections/phone.ps1)
+Set-ChatqProp $cfg 'reply' ([pscustomobject]@{ on = $true; topic = [pscustomobject](Protect-ChatqSecret 'chatq-boardtopicboardtopicboar'); key = [pscustomobject](Protect-ChatqSecret $bdKey); phone = 'Board phone'; pairedAt = (Get-ChatqStamp)
+        maxMode = 'acceptEdits' })
 foreach ($k in 'ntfy') { if ($cfg.PSObject.Properties[$k]) { $cfg.PSObject.Properties.Remove($k) } }
 Save-ChatqJson $script:ChatqConfigPath $cfg
 $null = Set-ChatqNotifyConfig @{ ApiKey = '0123456789abcdef0123456789abcdef'; Device = 'group.phone' }
@@ -261,12 +265,17 @@ $snap = [ordered]@{
                 windows = @([ordered]@{ label = '5h'; percent = 37; resetsAt = $nowMs + 7200000; severity = 'normal'; limited = $false }, [ordered]@{ label = 'week'; percent = 18; resetsAt = $null; severity = 'normal'; limited = $false }) }) }
     counts = @{}; config = @{}; commands = @()
     rows = @(
-        [ordered]@{ key = "s:$idBb"; kind = 'session'; provider = 'claude'; status = 'waiting'; chat = 'waiting'; rank = 0; project = 'projBoard'; title = 'Radar viewer'; prompt = 'look at the radar'; detail = 'permission (Bash)'; since = $nowMs - 180000; sessionId = $idBb; cwd = $bdProj; job = $null; where = 'vscode'; unread = $false }
-        [ordered]@{ key = "s:$idBa"; kind = 'session'; provider = 'claude'; status = 'busy'; chat = 'busy'; rank = 1; project = 'projBoard'; title = (U 'Parser \uD55C\uAE00 rewrite'); prompt = "fix the tokenizer`nsecond line"; detail = $null; since = $nowMs - 720000; sessionId = $idBa; cwd = $bdProj; job = $null; where = 'terminal'; unread = $true }
-        [ordered]@{ key = "c:$idBc"; kind = 'cutoff'; provider = 'claude'; status = 'cutoff'; chat = 'cutoff'; rank = 0.5; project = 'projBoard'; title = 'Plugin unification'; prompt = $null; detail = 'cut off - resets 13:00'; since = $nowMs - 3600000; sessionId = $idBc; cwd = $bdProj; path = $pBc; job = $null; where = ''; unread = $false }
+        [ordered]@{ key = "s:$idBb"; kind = 'session'; provider = 'claude'; status = 'waiting'; chat = 'waiting'; rank = 0; project = 'projBoard'; title = 'Radar viewer'; prompt = 'look at the radar'; detail = 'permission (Bash)'; since = $nowMs - 180000; sessionId = $idBb; cwd = $bdProj; job = $null; where = 'vscode'; unread = $false; mode = 'default' }
+        [ordered]@{ key = "s:$idBa"; kind = 'session'; provider = 'claude'; status = 'busy'; chat = 'busy'; rank = 1; project = 'projBoard'; title = (U 'Parser \uD55C\uAE00 rewrite'); prompt = "fix the tokenizer`nsecond line"; detail = $null; since = $nowMs - 720000; sessionId = $idBa; cwd = $bdProj; job = $null; where = 'terminal'; unread = $true; mode = 'bypassPermissions' }
+        [ordered]@{ key = "c:$idBc"; kind = 'cutoff'; provider = 'claude'; status = 'cutoff'; chat = 'cutoff'; rank = 0.5; project = 'projBoard'; title = 'Plugin unification'; prompt = $null; detail = 'cut off - resets 13:00'; since = $nowMs - 3600000; sessionId = $idBc; cwd = $bdProj; path = $pBc; job = $null; where = ''; unread = $false
+            auto = [ordered]@{ state = 'ready'; words = 'cut off - resets 13:00'; long = "cut off - resets 13:00 $script:ChatqDot auto-continue queues it"; why = 'x'; seq = $null; jobId = $null } }
     )
-    recent = @([ordered]@{ key = 'recent:x'; kind = 'recent'; provider = 'claude'; status = 'recent'; project = 'projGone'; title = 'Old chat'; sessionId = 'ffffffff-0000-4000-8000-000000000000'; cwd = $bdGone; since = $nowMs - 7200000 })
+    recent = @([ordered]@{ key = 'recent:x'; kind = 'recent'; provider = 'claude'; status = 'recent'; project = 'projGone'; title = 'Old chat'; sessionId = 'ffffffff-0000-4000-8000-000000000000'; cwd = $bdGone; since = $nowMs - 7200000 }
+        [ordered]@{ key = "recent:$idBr"; kind = 'recent'; provider = 'claude'; status = 'recent'; project = 'projBoard'; title = 'Recent plan chat'; sessionId = $idBr; cwd = $bdProj; since = $nowMs - 5400000 })
 }
+# a Recent row carries no path: its transcript is found by its folder's slug
+# under the Claude home, as Add-ChatqBoardModes builds it
+$pBr = New-FakeChat $bdProj $idBr 'Recent plan chat' 1.5 @('plan it') -Mode 'plan'
 Save-ChatqText $script:ChatOverlayPath ($snap | ConvertTo-Json -Depth 8 -Compress)
 
 $b1 = & $bdSend (& $bdSeal 'board' $null)
@@ -275,7 +284,40 @@ $openT = @($bp.open | ForEach-Object { "$($_.state):$($_.t)" }) -join '|'
 Check 'board: the answer on the down topic under the request''s id - the overlay''s rows, its usage, where each chat runs, the new-turn dot' ($b1.N -eq 1 -and $bp.kind -eq 'board' -and
     $bp.from -eq 'overlay' -and $openT -eq "waiting:Radar viewer|busy:$(U 'Parser \uD55C\uAE00 rewrite')" -and @($bp.cut).Count -eq 1 -and $bp.cut[0].d -eq 'cut off - resets 13:00' -and
     $bp.usage[0].p -eq 'Claude' -and $bp.usage[0].parts[0].pct -eq 37 -and $bp.open[1].where -eq 'terminal' -and $bp.open[1].new -eq $true -and $bp.open[0].what -eq 'permission (Bash)' -and
-    $bp.open[1].prompt -eq 'fix the tokenizer' -and @($bp.recent).Count -eq 1 -and $bp.host -and $bp.cap -eq 'acceptEdits' -and $bp.newMode -eq 'default' -and $bp.listen -eq 'alerts') "$openT / $($bp | ConvertTo-Json -Compress -Depth 6)"
+    $bp.open[1].prompt -eq 'fix the tokenizer' -and @($bp.recent).Count -eq 2 -and $bp.host -and $bp.cap -eq 'acceptEdits' -and $bp.newMode -eq 'default' -and $bp.listen -eq 'alerts') "$openT / $($bp | ConvertTo-Json -Compress -Depth 6)"
+# each chat's own mode, as the list says it: an open chat's from the
+# overlay's row, a cut-off's from its transcript (auto, so capped), a
+# Recent one's from the transcript its folder's slug names, none for a chat
+# with no transcript - the page then says the cap; a cut-off's auto-continue
+# words in full beside the row's short ones
+$bpOld = @($bp.recent | Where-Object { $_.t -eq 'Old chat' })[0]
+$bpRec = @($bp.recent | Where-Object { $_.t -eq 'Recent plan chat' })[0]
+Check 'board: a chat''s own mode once capped - an open one''s from the overlay, a cut-off''s and a Recent one''s from its transcript, none unread; a cut-off''s auto-continue words in full' (
+    $bp.open[0].m -eq 'default' -and $bp.open[0].mc -eq $false -and $bp.open[0].known -and $bp.open[1].m -eq 'acceptEdits' -and $bp.open[1].mc -eq $true -and
+    $bp.cut[0].m -eq 'acceptEdits' -and $bp.cut[0].mc -eq $true -and $bp.cut[0].known -and $bpOld -and -not $bpOld.known -and
+    $bpRec.m -eq 'plan' -and $bpRec.mc -eq $false -and $bpRec.known -and
+    $bp.cut[0].al -eq "cut off - resets 13:00 $script:ChatqDot auto-continue queues it" -and $bp.cut[0].d -eq 'cut off - resets 13:00') (
+    (@($bp.open) + @($bp.cut) + @($bp.recent) | ForEach-Object { "$($_.t)=$($_.m)/$($_.mc)/$($_.known)" }) -join ' | ')
+Remove-Item -LiteralPath $pBr -Force -EA SilentlyContinue
+# as many as the board shows, 10 cut off and 15 Recent, and none whose row
+# has its mode already - an open chat's, the overlay's: an 11th cut-off with
+# a transcript is not read, the 10th is, and a cut-off that has one keeps it
+$cmProj = Join-Path (Join-Path $sb 'work') 'projModeCap'
+$null = New-Item -ItemType Directory -Path $cmProj -Force
+$cm10 = 'c0c0c0c0-c0c0-4c0c-8c0c-c0c0c0c0c0c0'
+$cm11 = 'c1c1c1c1-c1c1-4c1c-8c1c-c1c1c1c1c1c1'
+$cmOwn = 'c2c2c2c2-c2c2-4c2c-8c2c-c2c2c2c2c2c2'
+$cmReset = [DateTimeOffset]::UtcNow.AddHours(2).ToUnixTimeSeconds()
+$pCm = @(foreach ($i in @($cmOwn, $cm10, $cm11)) { New-FakeChat $cmProj $i "Cap $i" 1 @('x') -Mode 'plan' -CutOff -ResetsAt $cmReset })
+$cmRow = { param($id, $cwd) [pscustomobject]@{ kind = 'cutoff'; status = 'cutoff'; sessionId = $id; cwd = $cwd } }
+$cmFirst = [pscustomobject]@{ kind = 'cutoff'; status = 'cutoff'; sessionId = $cmOwn; cwd = $cmProj; mode = 'default' }
+$cmEmpty = @(2..9 | ForEach-Object { & $cmRow "e0e0e0e0-0000-4000-8000-0000000000$('{0:d2}' -f $_)" '' })
+$cmSnap = [pscustomobject]@{ rows = @(@($cmFirst) + $cmEmpty + @((& $cmRow $cm10 $cmProj), (& $cmRow $cm11 $cmProj))); recent = @() }
+Add-ChatqBoardModes $cmSnap
+$cmM = @($cmSnap.rows | ForEach-Object { [string](Get-ChatField $_ 'mode') })
+Check 'board modes: the 10th cut-off is read and an 11th is not, a row with its mode already keeps it' (
+    $cmM[0] -eq 'default' -and $cmM[9] -eq 'plan' -and $cmM[10] -eq '') ($cmM -join ',')
+Remove-Item -LiteralPath $pCm -Force -EA SilentlyContinue
 $st = Get-ChatqReplyState
 $hA = $bp.open[1].h
 Check 'its handles: six letters each, in replies.json picks - the chat, its folder, its config dir - and nothing of a session id or path on the wire' ($hA -cmatch '^[a-z2-7]{6}$' -and
@@ -300,7 +342,7 @@ Check 'board: a job the watcher holds back says why, as the panel does - its tab
 # asked again within 10 s: the same board, not built again
 $bdBuildFn = ${function:Get-ChatqPhoneBoard}
 $script:BdBuilds = 0
-${function:Get-ChatqPhoneBoard} = { param([datetime]$Now = (Get-Date), [switch]$Scan) $script:BdBuilds++; & $script:BdBuildFnRef -Now $Now -Scan:$Scan }
+${function:Get-ChatqPhoneBoard} = { param([datetime]$Now = (Get-Date), [switch]$Scan, $Kept) $script:BdBuilds++; & $script:BdBuildFnRef -Now $Now -Scan:$Scan -Kept $Kept }
 $script:BdBuildFnRef = $bdBuildFn
 try { $b2 = & $bdSend (& $bdSeal 'board' $null) } finally { ${function:Get-ChatqPhoneBoard} = $bdBuildFn }
 Check 'a board asked within 10 s is the last one again - not built, the same handles, its own ref' ($script:BdBuilds -eq 0 -and $b2.Payload.kind -eq 'board' -and $b2.Payload.open[1].h -eq $hA -and
@@ -379,6 +421,39 @@ Check 'and says where and how it runs' ($r.Payload.say -like 'new chat "Docs*pas
 $newPush = (& $bdLastJoin).Q['text']
 Check 'its push says neither the title nor the folder: the phone sent them sealed, and a push is not' ($newPush -like 'new chat queued as #* - runs in default' -and
     $newPush -notlike '*Docs*' -and $newPush -notlike '*projBoard*') "$newPush"
+# no name: a neutral title, not the text - every later alert about the job
+# carries its title through the push service - until Claude titles the chat
+$r = & $bdSend (& $bdSeal 'new' ([ordered]@{ h = $fBoard.h; name = ''; text = 'rotate the prod keys' }))
+$jHeld = @(Get-ChatqJobs | Where-Object { $_.kind -eq 'new' -and $_.rule -eq 'phone' })[-1]
+Check 'new with no name: "phone chat" and the time for a title, never the text, held for Claude''s own' ($r.Payload.ok -and
+    $jHeld.title -match '^phone chat \d\d:\d\d$' -and $jHeld.titleHeld -eq $true -and $r.Payload.say -notlike '*prod keys*') "$($jHeld.title) $($jHeld.titleHeld) / $($r.Payload.say)"
+# the run made the chat, with no title of Claude's yet: as its row has it,
+# the prompt's first line is the chat's title
+$pHeld = New-FakeChat $jHeld.cwd $jHeld.sessionId '' 0.01 @('rotate the prod keys')
+Set-ChatqProp $jHeld 'path' $pHeld
+$upH0 = Update-ChatqHeldTitle $jHeld
+$rowH0 = Get-ChatqRowById $jHeld.sessionId -Path $pHeld
+$jH2 = (New-ChatqJob -Row $rowH0 -Prompt 'and the staging ones' -Kind prompt).Job
+Check 'until then: the job keeps it, and a later job into that chat takes it too, not the row''s first line' (-not $upH0 -and $jHeld.title -like 'phone chat *' -and
+    $rowH0.Titled -eq 'first message' -and $jH2.title -eq $jHeld.title -and $jH2.titleHeld -eq $true) "$upH0 $($rowH0.Titled) $($jH2.title)"
+# chatqrm -Finished or the console's Remove takes every job of the chat: its
+# mark in data/held-titles.json keeps the title, for a job and a live alert
+foreach ($x in $jHeld, $jH2) { $null = Remove-ChatqJob (Find-ChatqJob $x.id) 'test' }
+$jH2b = (New-ChatqJob -Row $rowH0 -Prompt 'and the test ones' -Kind prompt).Job
+$liveH = Get-ChatqHeldTitle ([pscustomobject]@{ Provider = 'claude'; Id = $jHeld.sessionId; Titled = $null })
+Check 'with its jobs all removed, a later job and a live alert still go by the neutral title, not the prompt' (@(Get-ChatqJobs | Where-Object { $_.sessionId -eq $jHeld.sessionId -and $_.id -ne $jH2b.id }).Count -eq 0 -and
+    $jH2b.title -eq $jHeld.title -and $jH2b.titleHeld -eq $true -and $liveH -eq $jHeld.title) "$($jH2b.title) $($jH2b.titleHeld) / $liveH"
+[System.IO.File]::AppendAllText($pHeld, (([ordered]@{ type = 'ai-title'; aiTitle = 'Key rotation'; sessionId = $jHeld.sessionId } | ConvertTo-Json -Compress) + "`n"), $utf8)
+$upH1 = Update-ChatqHeldTitle $jHeld
+$rowH1 = Get-ChatqRowById $jHeld.sessionId -Path $pHeld
+$jH3 = (New-ChatqJob -Row $rowH1 -Prompt 'and the dev ones' -Kind prompt).Job
+Check 'once Claude titles the chat, the job takes that title and holds no more; a job made after takes the chat''s' ($upH1 -and $jHeld.title -eq 'Key rotation' -and
+    $jHeld.titleHeld -eq $false -and $jH3.title -eq 'Key rotation' -and -not (Get-ChatField $jH3 'titleHeld')) "$upH1 $($jHeld.title) $($jH3.title)"
+$null = Remove-ChatqJob (Find-ChatqJob $jH2b.id) 'test'
+$liveH1 = Get-ChatqHeldTitle ([pscustomobject]@{ Provider = 'claude'; Id = $jHeld.sessionId; Titled = $null })
+Check 'and its mark goes with it: nothing holds the neutral title once Claude''s is in' (-not $liveH1) "$liveH1"
+$null = Remove-ChatqJob (Find-ChatqJob $jH3.id) 'test'
+Remove-Item -LiteralPath $pHeld -Force
 Remove-Item -LiteralPath $bdGone -Recurse -Force
 $r = & $bdSend (& $bdSeal 'new' ([ordered]@{ h = $fGone.h; name = ''; text = 'here' }))
 Check 'new in a folder deleted since: refused, nothing queued' (-not $r.Payload.ok -and $r.Payload.say -like 'that folder is gone*' -and @(Get-ChatqJobs).Count -eq $jn + 1) "$($r.Payload.say)"
@@ -553,8 +628,62 @@ $hF2 = @($b7.queue | Where-Object { [int]$_.n -eq [int]$jBf2.seq })[0].h
 $r = & $bdSend (& $bdSeal 'retry' ([ordered]@{ h = $hF2; n = [int]$jBf2.seq }))
 Check 'Retry on a failed job whose chat took a prompt since the board: refused, nothing sent into it' (-not $r.Payload.ok -and
     $r.Payload.say -eq "the chat of #$($jBf2.seq) moved on at the PC - the list is out of date, refresh it" -and (Find-ChatqJob $jBf2.id -Exact).state -eq 'failed') "$($r.Payload.say)"
+# one job maker for the board's send and an alert reply's prompt
+# (New-ChatqPhoneJob, which Invoke-ChatqReply's prompt case calls): the
+# reply's words for its text, the old job's mode in place of the chat's
+# own, that one winning when it ranks lower and a prompt went in since,
+# and the cap over both
+$pjEmpty = New-ChatqPhoneJob -Row $rowBm -Text '  ' -Cap 'acceptEdits' -Noun reply
+$pjLong = New-ChatqPhoneJob -Row $rowBm -Text ('x' * 8001) -Cap 'acceptEdits' -Noun reply
+$pjOld = New-ChatqPhoneJob -Row $rowBm -Text 'in the old job''s mode' -Cap 'acceptEdits' -Mode 'acceptEdits'
+$pjOwn = New-ChatqPhoneJob -Row $rowBm -Text 'typed into since' -Cap 'acceptEdits' -Mode 'acceptEdits' -OwnIfLower
+$pjCap = New-ChatqPhoneJob -Row $rowBm -Text 'above the cap' -Cap 'acceptEdits' -Mode 'bypassPermissions'
+Check 'New-ChatqPhoneJob, the reply''s job maker too: its words for an empty or long reply; the old job''s mode, the chat''s own when lower and typed into since, the cap over both' (
+    $pjEmpty.Error -eq 'an empty reply - nothing queued' -and $pjLong.Error -eq 'that reply is 8001 characters, 8000 at most - nothing queued' -and
+    $pjOld.Job.mode -eq 'acceptEdits' -and $pjOld.Note -eq '' -and $pjOld.Job.rule -eq 'phone' -and
+    $pjOwn.Job.mode -eq 'default' -and $pjOwn.Note -eq ' - runs in default, the chat''s own at the PC' -and
+    $pjCap.Job.mode -eq 'acceptEdits' -and $pjCap.Note -eq ' - runs in acceptEdits, the phone''s limit') (
+    "$($pjEmpty.Error) / $($pjLong.Error) / $($pjOld.Job.mode)$($pjOld.Note) / $($pjOwn.Job.mode)$($pjOwn.Note) / $($pjCap.Job.mode)$($pjCap.Note)")
 foreach ($j in @(Get-ChatqJobs | Where-Object { $_.sessionId -eq $idBm })) { $null = Remove-ChatqJob $j 'test' }
 Remove-Item -LiteralPath $pBm -Force -EA SilentlyContinue
+# an open chat's mode, read with its title and prompt
+# (Update-ChatOverlayText): the newest a typed prompt names, kept while the
+# transcript grows by records that name none; on its overlay row as mode
+$idBo = '7a7a7a7a-7a7a-47a7-87a7-7a7a7a7a7a7a'
+# a tool result after the prompt longer than the 64 KB a grown transcript is
+# read again with: the part read next names no mode
+$pBo = New-FakeChat $bdProj $idBo 'Mode chat' 0.1 @('begin') -Mode 'acceptEdits' -PadBytes 70000
+$boCtx = New-ChatOverlayContext
+$boSess = [pscustomobject]@{ SessionId = $idBo; Cwd = $bdProj; Status = 'idle'; Pid = 4848 }
+Update-ChatOverlayText $boCtx $boSess
+$boM1 = $boCtx.Text[$idBo].Mode
+[System.IO.File]::AppendAllText($pBo, (([ordered]@{ parentUuid = $null; isSidechain = $false; type = 'assistant'; uuid = [guid]::NewGuid().ToString(); timestamp = (Get-Date).ToUniversalTime().ToString('o')
+                message = [ordered]@{ role = 'assistant'; content = @([ordered]@{ type = 'text'; text = 'more' }) }; cwd = $bdProj; sessionId = $idBo }) | ConvertTo-Json -Compress -Depth 6) + "`n", $utf8)
+Update-ChatOverlayText $boCtx $boSess
+$boM2 = $boCtx.Text[$idBo].Mode
+[System.IO.File]::AppendAllText($pBo, (([ordered]@{ parentUuid = $null; isSidechain = $false; type = 'user'; message = [ordered]@{ role = 'user'; content = 'into plan' }
+                uuid = [guid]::NewGuid().ToString(); timestamp = (Get-Date).ToUniversalTime().ToString('o'); permissionMode = 'plan'; cwd = $bdProj; sessionId = $idBo }) | ConvertTo-Json -Compress -Depth 6) + "`n", $utf8)
+Update-ChatOverlayText $boCtx $boSess
+$boM3 = $boCtx.Text[$idBo].Mode
+$boRow = @(Get-ChatOverlayRows -Sessions @($boSess) -Texts $boCtx.Text -Now (Get-Date))[0]
+Check 'an open chat''s mode: read with its title, kept while the transcript grows by records naming none, the newest a prompt names, on its overlay row' (
+    $boM1 -eq 'acceptEdits' -and $boM2 -eq 'acceptEdits' -and $boM3 -eq 'plan' -and $boRow.mode -eq 'plan') "$boM1 $boM2 $boM3 / $($boRow.mode)"
+Remove-Item -LiteralPath $pBo -Force -EA SilentlyContinue
+# a turn mid-way when the overlay starts: over 256 KB of tool output since
+# the prompt, and the last-prompt record near the end - the first block has
+# the prompt and the title but no mode, and the read goes on for it; the
+# other readers stop at the prompt and title as ever
+$idBl = '7b7b7b7b-7b7b-47b7-87b7-7b7b7b7b7b7b'
+$pBl = New-FakeChat $bdProj $idBl 'Long turn' 0.1 @('build it all') -Mode 'plan' -PadBytes 300000
+[System.IO.File]::AppendAllText($pBl, (([ordered]@{ type = 'last-prompt'; lastPrompt = 'build it all'; sessionId = $idBl } | ConvertTo-Json -Compress) + "`n"), $utf8)
+$blPlain = Find-ChatTailRecords $pBl
+$blCtx = New-ChatOverlayContext
+Update-ChatOverlayText $blCtx ([pscustomobject]@{ SessionId = $idBl; Cwd = $bdProj; Status = 'busy'; Pid = 4849 })
+$blT = $blCtx.Text[$idBl]
+Check 'an open chat''s mode on the first read past 256 KB of tool output after its prompt; a read not asking for it stops at prompt and title' (
+    $blT.Mode -eq 'plan' -and $blT.Prompt -eq 'build it all' -and $blPlain.Prompt -eq 'build it all' -and -not $blPlain.Mode -and $blPlain.Scanned -le 262144) (
+    "$($blT.Mode) $($blT.Prompt) / $($blPlain.Mode) $($blPlain.Scanned)")
+Remove-Item -LiteralPath $pBl -Force -EA SilentlyContinue
 & $bdQuiet
 
 # --- read on an alert, and the scan with no overlay --------------------------------------
@@ -589,22 +718,53 @@ $sessDir = Join-Path $claudeHome 'sessions'
 $null = New-Item -ItemType Directory -Path $sessDir -Force
 Save-ChatqText (Join-Path $sessDir '4747.json') (@{ pid = 4747; sessionId = $idBb; cwd = $bdProj; status = 'waiting'; waitingFor = 'permission'; kind = 'interactive'; entrypoint = 'claude-vscode'; updatedAt = $nowMs } | ConvertTo-Json -Compress)
 $script:ChatqAliveSeam = { param($e) [string]$e.SessionId -eq $idBb }
-try { $scan = (Get-ChatqPhoneBoard).Body } finally { $script:ChatqAliveSeam = $bdWas.Alive; Remove-Item -LiteralPath (Join-Path $sessDir '4747.json') -Force -EA SilentlyContinue }
+# auto-continue on, as the overlay's pass would word it: the scan's cut-off
+# rows carry its state too (Get-ChatqAutoRowStates)
+$bdAutoWas = (Get-ChatqAutoConfig -Fresh).Mode
+$null = Set-ChatqAutoContinue -Value on
+$null = Update-ChatqAutoState { param($v) $v.Since = (Get-Date).AddHours(-3) }
+try { $scan = (Get-ChatqPhoneBoard).Body }
+finally {
+    $script:ChatqAliveSeam = $bdWas.Alive; Remove-Item -LiteralPath (Join-Path $sessDir '4747.json') -Force -EA SilentlyContinue
+    $null = Set-ChatqAutoContinue -Value $bdAutoWas
+}
 $scanOpen = @($scan.open | ForEach-Object { "$($_.state):$($_.t)" }) -join '|'
+$scanCut = @($scan.cut | Where-Object { $_.t -eq 'Scan cut chat' })[0]
 Check 'no fresh snapshot: the scan - the registry''s open chats with their titles, the chats the limit cut off, and "from" scan for the page to say so' ($scan.from -eq 'scan' -and
     $scanOpen -eq 'waiting:Radar viewer' -and @($scan.cut | Where-Object { $_.t -eq 'Scan cut chat' -and $_.reset }).Count -eq 1 -and
     -not @($scan.cut | Where-Object { $_.t -eq 'Plugin unification' }).Count -and $scan.open[0].where -eq 'vscode') "$scanOpen / cut $(@($scan.cut | ForEach-Object { "$($_.t) $($_.reset)" }) -join ',')"
-# a board from a scan is kept past the page's 30 s refresh, and its cut-off
-# look reads no transcript twice
+Check 'the scan''s cut-off says what auto-continue does with it, as the overlay''s row does: short on the row, in full for the chat view' (
+    $scanCut.d -like 'resets *' -and $scanCut.d -notlike 'cut off*' -and $scanCut.al -like "cut off - resets * $($script:ChatqDot) auto-continue queues it") "$($scanCut.d) / $($scanCut.al)"
+# a scan is kept 40 s and built on again: its chats' rows as they were, but
+# the queue, and each row's jobs, read afresh at every ask past the 10 s a
+# board is sent again as it is; its cut-off look reads no transcript twice
 $script:ChatqBoardCache = $null
-$sa1 = Get-ChatqPhoneBoardAnswer $bdRc 'scanaaaaaa'
-$reads1 = $script:ChatqCutOffReads
-$script:ChatqBoardCache.At = (Get-Date).AddSeconds(-25)
-$sa2 = Get-ChatqPhoneBoardAnswer $bdRc 'scanbbbbbb'
-$script:ChatqBoardCache = $null
-$sa3 = Get-ChatqPhoneBoardAnswer $bdRc 'scancccccc'
-Check 'a board from a scan: sent again 25 s on, past the page''s 30 s refresh; built again, no transcript read twice' ($sa1.Body.from -eq 'scan' -and -not $sa1.Cached -and
-    $sa2.Cached -and $sa2.Body.ref -eq 'scanbbbbbb' -and -not $sa3.Cached -and $script:ChatqCutOffReads -eq $reads1) "$($sa1.Cached) $($sa2.Cached) $($sa3.Cached) / reads $reads1 then $($script:ChatqCutOffReads)"
+$script:BdScans = 0
+$bdScanFn = ${function:Get-ChatqBoardScan}
+$script:BdScanFnRef = $bdScanFn
+${function:Get-ChatqBoardScan} = { param([datetime]$Now = (Get-Date)) $script:BdScans++; & $script:BdScanFnRef -Now $Now }
+try {
+    $sa1 = Get-ChatqPhoneBoardAnswer $bdRc 'scanaaaaaa'
+    $reads1 = $script:ChatqCutOffReads
+    $sa1b = Get-ChatqPhoneBoardAnswer $bdRc 'scanabbbbb'
+    # a job queued by itself since - no act from the phone drops the board
+    $jK = (New-ChatqJob -Row (Get-ChatqRowById -Id $idBd -Provider claude -Path $pBd) -Prompt 'queued after the scan' -Kind prompt).Job
+    $script:ChatqBoardCache.At = (Get-Date).AddSeconds(-25)
+    $script:ChatqBoardCache.ScanAt = (Get-Date).AddSeconds(-25)
+    $sa2 = Get-ChatqPhoneBoardAnswer $bdRc 'scanbbbbbb'
+    $scans2 = $script:BdScans
+    $script:ChatqBoardCache.At = (Get-Date).AddSeconds(-45)
+    $script:ChatqBoardCache.ScanAt = (Get-Date).AddSeconds(-45)
+    $sa3 = Get-ChatqPhoneBoardAnswer $bdRc 'scancccccc'
+}
+finally { ${function:Get-ChatqBoardScan} = $bdScanFn }
+$sa2Cut = @($sa2.Body.cut | Where-Object { $_.t -eq 'Scan cut chat' })[0]
+Check 'a board from a scan: sent again within 10 s; 25 s on built again from the same scan with the queue as it is now - a job queued since on its chat''s row; 45 s on scanned again, no transcript read twice' (
+    $sa1.Body.from -eq 'scan' -and -not $sa1.Cached -and $sa1b.Cached -and -not $sa2.Cached -and $scans2 -eq 1 -and $sa2.Body.ref -eq 'scanbbbbbb' -and
+    @($sa2.Body.queue | Where-Object { [int]$_.n -eq [int]$jK.seq }).Count -eq 1 -and @($sa2Cut.jobs | Where-Object { [int]$_.n -eq [int]$jK.seq }).Count -eq 1 -and
+    -not @($sa1.Body.queue | Where-Object { [int]$_.n -eq [int]$jK.seq }).Count -and -not $sa3.Cached -and $script:BdScans -eq 2 -and $script:ChatqCutOffReads -eq $reads1) (
+    "$($sa1.Cached) $($sa1b.Cached) $($sa2.Cached) $($sa3.Cached) / scans $scans2 then $($script:BdScans) / reads $reads1 then $($script:ChatqCutOffReads)")
+$null = Remove-ChatqJob (Find-ChatqJob $jK.id -Exact) 'test'
 $script:ChatqBoardCache = $null
 Remove-Item -LiteralPath $script:ChatOverlayPath -Force -EA SilentlyContinue
 # the list's folders: one on another machine is offered, never looked at -
@@ -668,6 +828,44 @@ $said = (chatnotify 6>&1 | Out-String)
 Check 'a new chat''s mode above the cap is brought down to it; chatnotify lists the three settings' ($rcS.NewMode -eq 'bypassPermissions' -and (Limit-ChatqPhoneMode $rcS.NewMode $rcS.MaxMode).Mode -eq 'acceptEdits' -and
     $said -like '*whole answers on*board and new chats on*listen while an alert is out*') $said
 $null = Set-ChatqNotifyConfig @{ NewMode = 'default' }
+
+# --- no cap set: keep, the default, on the board's side too ---------------------------------
+# every check above runs under acceptEdits; this one takes reply.maxMode out
+$kpC = Get-ChatqConfig
+$kpC.reply.PSObject.Properties.Remove('maxMode')
+Save-ChatqJson $script:ChatqConfigPath $kpC
+$null = Set-ChatqNotifyConfig @{ NewMode = 'auto' }
+$rcK = Get-ChatqReplyConfig
+$rowKp = Get-ChatqRowById -Id $idBa -Provider claude -Path $pBa
+$hKp = (Register-ChatqPicks $rcK @(@{ Key = "chat|$idBa"; Pick = @{ kind = 'chat'; sessionId = $idBa; provider = 'claude'; cwd = $bdProj; title = 'Parser'; home = $claudeHome; path = $pBa } }))["chat|$idBa"]
+& $bdQuiet
+$kpS = & $bdSend (& $bdSeal 'send' ([ordered]@{ h = $hKp; id = $idBa.Substring(0, 8); text = 'in its own mode' }))
+$kpJ = @(Get-ChatqJobs | Where-Object { $_.rule -eq 'phone' -and $_.sessionId -eq $idBa })[-1]
+$kpPj = New-ChatqPhoneJob -Row $rowKp -Text 'no -Cap given' -Mode 'bypassPermissions'
+$kpL = Get-ChatqPhoneListAnswer $rcK 'kpref1' -Quick
+$kpLa = @($kpL.Body.chats | Where-Object { $_.id -eq $idBa.Substring(0, 8) })[0]
+$rcE = $rcK.PSObject.Copy()
+$rcE.MaxMode = ''
+$kpH = @{}
+Complete-ChatqDownHeader $kpH $rcE 'kpref2'
+$kpN = New-ChatqPhoneNewChat -Cwd $bdProj -Name 'Kept' -Text 'start here' -Rc $rcK
+# what chatnotify -Compose on says, not saved
+$kpSaid = [System.Collections.Generic.List[string]]::new()
+$null = Set-ChatqDownChanges (Get-ChatqConfig) @{ Compose = $true } { param($m, $c) $kpSaid.Add($m) }
+Check 'no cap set (keep): -Compose on says the chat''s own mode, not keep at most' (
+    @($kpSaid | Where-Object { $_ -like "*in the chat's own mode" }).Count -eq 1 -and -not @($kpSaid | Where-Object { $_ -like '*at most*' }).Count) ($kpSaid -join ' | ')
+Check 'no cap set (keep): a board send into a bypassPermissions chat keeps its mode, no limit said; the list and the header say keep, a new chat starts in auto' (
+    $rcK.MaxMode -eq 'keep' -and $kpS.Payload.ok -and $kpJ -and -not $kpJ.mode -and $kpJ.modeAtQueue -eq 'bypassPermissions' -and $kpS.Payload.say -notlike "*the phone's limit*" -and
+    $kpPj.Job.mode -eq 'bypassPermissions' -and $kpPj.Note -eq '' -and $kpL.Body.cap -eq 'keep' -and $kpL.Body.newMode -eq 'auto' -and
+    $kpLa.m -eq 'bypassPermissions' -and $kpLa.mc -eq $false -and $kpH['cap'] -eq 'keep' -and $kpH['newMode'] -eq 'auto' -and
+    $kpN.Mode -eq 'auto' -and -not $kpN.Capped) (
+    "$($rcK.MaxMode) / $($kpS.Payload.say) / $($kpJ.mode) $($kpJ.modeAtQueue) / $($kpPj.Job.mode)$($kpPj.Note) / $($kpL.Body.cap) $($kpL.Body.newMode) $($kpLa.m) $($kpLa.mc) / $($kpH['cap']) $($kpH['newMode']) / $($kpN.Mode) $($kpN.Capped)")
+foreach ($j in @($kpJ, $kpPj.Job, $kpN.Job)) { if ($j) { $null = Remove-ChatqJob (Find-ChatqJob $j.id -Exact) 'test' } }
+$kpC = Get-ChatqConfig
+Set-ChatqProp $kpC.reply 'maxMode' 'acceptEdits'
+Save-ChatqJson $script:ChatqConfigPath $kpC
+$null = Set-ChatqNotifyConfig @{ NewMode = 'default' }
+$script:ChatqBoardCache = $null
 
 # --- the setup window's three boxes, drawn off-screen ----------------------------------------
 if ($script:ChatqIsWindows) {

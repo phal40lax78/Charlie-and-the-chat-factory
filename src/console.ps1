@@ -26,16 +26,18 @@ $script:ChatConsoleModels = @('opus', 'sonnet', 'haiku')
 
 function ConvertFrom-ChatConsoleWhen {
     <#
-    The When choice to what a job holds. now: the front of the queue - next,
-    not beside a run in progress: the watcher runs one job at a time - and a
-    chat busy in VS Code looked at every 30 s. turn: behind what is queued.
-    at / in: -Value, as chatq -At 13:00 or -In 2h reads it. Send's alone:
-    Continue and Continue all queue in turn. Pure.
+    The When choice to what a job holds. next: the front of the queue - not
+    beside a run in progress: the watcher runs one job at a time - and a
+    chat busy in VS Code looked at every 30 s. Called Now until 0.10.2,
+    which read as the word "now" sent; 'now' is still read as next, from a
+    draft kept then. turn: behind what is queued. at / in: -Value, as
+    chatq -At 13:00 or -In 2h reads it. Send's alone: Continue and Continue
+    all go ahead of the prompts waiting (Get-ChatqJobs). Pure.
     #>
     param([string]$When, [string]$Value)
     $ok = { param($nb, $first, $now) [pscustomobject]@{ Error = $null; NotBefore = $nb; First = $first; SendNow = $now } }
     switch ($When) {
-        'now' { return & $ok $null $true $true }
+        { $_ -in 'next', 'now' } { return & $ok $null $true $true }
         'turn' { return & $ok $null $false $false }
     }
     $v = ([string]$Value).Trim()
@@ -68,7 +70,7 @@ function Get-ChatConsoleSendPreview {
     -Plan: ConvertFrom-ChatConsoleWhen's answer. -Block: its provider's
     limit, @{ Until; Type }. -Ahead: jobs queued in front of it. -Running:
     the number of the job running now, 0 for none - the watcher runs one at
-    a time, so even Now waits for it to end. Pure.
+    a time, so even Next waits for it to end. Pure.
     #>
     param($Target, $Plan, $Block, [int]$Ahead, [bool]$Watcher, [datetime]$Now = (Get-Date), [int]$Running = 0)
     if (-not $Target) { return 'pick a chat on the left, or + New chat' }
@@ -137,18 +139,23 @@ function Get-ChatConsolePlacement {
     <#
     Where the console goes, all in screen pixels: grown from the panel's
     top-right corner (-Panel x y width height), its right edge and top held,
-    at the size it was last left (-Saved w and h) or else -Width by -Height,
-    never under -MinWidth by -MinHeight, and kept on -Area, the working
-    area of the panel's screen - no bigger than it, and pushed left, or up,
-    where it would run off. The minimum is the window's own, in this
-    screen's pixels: a size saved on a screen at a lower scale can be under
-    it here, and the window, made bigger by Windows from its left edge,
-    would no longer end at the panel's right. Pure.
+    at the size it was last left (-Saved w and h: in units, turned into this
+    screen's pixels by -Scale, when Saved.units says so, else pixels as an
+    older console-state.json kept them) or else -Width by -Height, never
+    under -MinWidth by -MinHeight, and kept on -Area, the working area of
+    the panel's screen - no bigger than it, and pushed left, or up, where
+    it would run off. The minimum is the window's own, in this screen's
+    pixels: an older size in pixels, saved on a screen at a lower scale,
+    can be under it here, and the window, made bigger by Windows from its
+    left edge, would no longer end at the panel's right. Pure.
     #>
-    param([int[]]$Panel, $Saved, $Area, [double]$Width = 980, [double]$Height = 680, [double]$MinWidth = 0, [double]$MinHeight = 0)
+    param([int[]]$Panel, $Saved, $Area, [double]$Width = 980, [double]$Height = 680, [double]$MinWidth = 0, [double]$MinHeight = 0, [double]$Scale = 1.0)
     $w = $Width
     $h = $Height
-    if ($Saved -and [double]$Saved.w -ge 400 -and [double]$Saved.h -ge 300) { $w = [double]$Saved.w; $h = [double]$Saved.h }
+    if ($Saved -and [double]$Saved.w -ge 400 -and [double]$Saved.h -ge 300) {
+        $k = if (Get-ChatField $Saved 'units') { $Scale } else { 1.0 }
+        $w = [double]$Saved.w * $k; $h = [double]$Saved.h * $k
+    }
     $w = [Math]::Max($w, $MinWidth)
     $h = [Math]::Max($h, $MinHeight)
     $w = [Math]::Min($w, [double]$Area.Width)
@@ -159,14 +166,17 @@ function Get-ChatConsolePlacement {
 }
 
 function Read-ChatConsoleState {
-    # console-state.json: its size, and the draft - what was being written,
-    # to which chat, with which files - so a restart keeps it. Where it was
-    # and whether it was maximized are an older console's, a window of its
-    # own: where it goes comes from the panel now.
+    # console-state.json: its size, whether it was maximized, and the draft
+    # - what was being written, to which chat, with which files - so a
+    # restart keeps it. Where it was is an older console's, a window of its
+    # own: where it goes comes from the panel now. units: w and h are in
+    # WPF's units (Save-ChatConsoleDraft); an older file, without it, has
+    # them in pixels, and they are taken as pixels until it is saved again.
     $s = Read-ChatqJson $script:ChatConsoleStatePath
     if (-not $s) { $s = [pscustomobject]@{} }
-    foreach ($k in 'x', 'y', 'max') { if ($s.PSObject.Properties[$k]) { $s.PSObject.Properties.Remove($k) } }
+    foreach ($k in 'x', 'y') { if ($s.PSObject.Properties[$k]) { $s.PSObject.Properties.Remove($k) } }
     foreach ($k in 'w', 'h', 'draft') { if (-not $s.PSObject.Properties[$k]) { Set-ChatqProp $s $k $null } }
+    foreach ($k in 'max', 'units') { Set-ChatqProp $s $k ([bool]$(if ($s.PSObject.Properties[$k]) { $s.$k })) }
     foreach ($k in @(@('left', 300), @('queue', 230))) { if (-not $s.PSObject.Properties[$k[0]]) { Set-ChatqProp $s $k[0] $k[1] } }
     if (-not $s.PSObject.Properties['folders']) { Set-ChatqProp $s 'folders' @() }
     return $s
@@ -219,8 +229,8 @@ function New-ChatConsoleInput {
 
 function New-ChatConsoleChips {
     # a row of choices, the one in force filled; a click hands the chip to
-    # -OnClick, whose Tag is its value
-    param([string[]]$Values, [string[]]$Labels, [string]$Current, [scriptblock]$OnClick)
+    # -OnClick, whose Tag is its value; -Tips, a tooltip each
+    param([string[]]$Values, [string[]]$Labels, [string]$Current, [scriptblock]$OnClick, [string[]]$Tips)
     $row = [System.Windows.Controls.WrapPanel]::new()
     for ($i = 0; $i -lt $Values.Count; $i++) {
         $on = $Values[$i] -eq $Current
@@ -233,6 +243,7 @@ function New-ChatConsoleChips {
         $c.BorderBrush = Get-ChatOverlayBrush $(if ($on) { 'accent' } else { 'inputEdge' })
         $c.Cursor = [System.Windows.Input.Cursors]::Hand
         $c.Tag = $Values[$i]
+        if ($Tips -and $Tips[$i]) { $c.ToolTip = $Tips[$i] }
         $c.Child = New-ChatOverlayText $Labels[$i] $(if ($on) { 'onAccent' } else { 'text' }) 11.5
         $c.add_MouseLeftButtonUp($OnClick)
         [void]$row.Children.Add($c)
@@ -333,8 +344,11 @@ function New-ChatConsole {
     param($H)
     $C = @{
         # Sigs, not Keys: $C.Keys is the hashtable's own list of its keys
-        Win = $H.Win; Hwnd = $H.Hwnd; Root = $null; BackBtn = $null; State = (Read-ChatConsoleState); Sigs = @{}; Target = $null
-        Staged = [System.Collections.Generic.List[object]]::new(); When = 'now'; WhenValue = ''; Mode = ''; Model = ''
+        # Max: filling its screen (Set-ChatConsoleMax), Restore the rect it
+        # goes back to
+        Win = $H.Win; Hwnd = $H.Hwnd; Root = $null; BackBtn = $null; MaxBtn = $null; Max = $false; Restore = $null
+        State = (Read-ChatConsoleState); Sigs = @{}; Target = $null
+        Staged = [System.Collections.Generic.List[object]]::new(); When = 'next'; WhenValue = ''; Mode = ''; Model = ''
         Text = ''; NewCwd = ''; NewName = ''; Search = ''; Sel = $null; ShowLog = $false; Jobs = @(); JobsSig = $null
         Index = @(); IndexStamp = $null; IndexParsed = $false; IndexRead = $null; Sync = $null; SyncAt = [datetime]::MinValue; Info = @{}
         Request = $null; WatchSays = ''; TypedAt = $null; Skips = 0; Dirty = $null; Modal = $false; Confirm = @{}; Blocks = $null; BlocksAt = [datetime]::MinValue
@@ -371,10 +385,11 @@ function Initialize-ChatConsoleContent {
         $root.RowDefinitions.Add($rd)
     }
     # the header: a grip, usage and the queue's counts, the panel's look -
-    # opacity and theme, the same settings as the panel's box - and the way
-    # back to the panel at the corner the panel comes back to. The window
-    # has no title bar: a press anywhere on the header but its controls
-    # moves it, padding included, so the strip to grab is the whole bar.
+    # opacity and theme, the same settings as the panel's box - maximize,
+    # and the way back to the panel at the corner the panel comes back to.
+    # The window has no title bar: a press anywhere on the header but its
+    # controls moves it, padding included, so the strip to grab is the
+    # whole bar.
     $bar = [System.Windows.Controls.Border]::new()
     $bar.Padding = [System.Windows.Thickness]::new(8, 6, 8, 6)
     $bar.Background = [System.Windows.Media.Brushes]::Transparent
@@ -385,6 +400,10 @@ function Initialize-ChatConsoleContent {
     $C.BackBtn.Margin = [System.Windows.Thickness]::new(8, 0, 0, 0)
     [System.Windows.Controls.DockPanel]::SetDock($C.BackBtn, [System.Windows.Controls.Dock]::Right)
     [void]$head.Children.Add($C.BackBtn)
+    $C.MaxBtn = New-ChatConsoleButton (Get-ChatConsoleMaxLabel $C.Max) { param($s, $e) $e.Handled = $true; $X = $script:ChatOverlayHost; Set-ChatConsoleMax $X (-not $X.Con.Max) } -Tip 'Fill the screen, or back to its size (double-click the header)'
+    $C.MaxBtn.Margin = [System.Windows.Thickness]::new(8, 0, 0, 0)
+    [System.Windows.Controls.DockPanel]::SetDock($C.MaxBtn, [System.Windows.Controls.Dock]::Right)
+    [void]$head.Children.Add($C.MaxBtn)
     $C.Look = New-ChatConsoleLook $H
     [System.Windows.Controls.DockPanel]::SetDock($C.Look, [System.Windows.Controls.Dock]::Right)
     [void]$head.Children.Add($C.Look)
@@ -405,8 +424,12 @@ function Initialize-ChatConsoleContent {
     $bar.add_MouseLeftButtonDown({
             param($s, $e)
             $X = $script:ChatOverlayHost
-            if ($X.Mode -ne 'console' -or -not (Test-ChatConsoleDragFrom $e.OriginalSource $s @($X.Con.BackBtn, $X.Con.Look))) { return }
+            if ($X.Mode -ne 'console' -or -not (Test-ChatConsoleDragFrom $e.OriginalSource $s @($X.Con.BackBtn, $X.Con.MaxBtn, $X.Con.Look))) { return }
             $e.Handled = $true
+            # a double-click fills the screen, or gives the size back, as a
+            # title bar's does; a maximized console is not moved
+            if ($e.ClickCount -eq 2) { Set-ChatConsoleMax $X (-not $X.Con.Max); return }
+            if ($X.Con.Max) { return }
             # DragMove runs a loop of its own, which the timer would fire in
             $X.Dragging = $true
             try { $X.Win.DragMove() } catch {}
@@ -531,7 +554,7 @@ function Initialize-ChatConsoleContent {
     [void]$foot.Children.Add($C.Opts)
     $sendRow = [System.Windows.Controls.DockPanel]::new()
     $sendRow.Margin = [System.Windows.Thickness]::new(0, 6, 0, 0)
-    $C.SendBtn = New-ChatConsoleButton 'Send now' { Invoke-ChatConsoleSend $script:ChatOverlayHost } -Accent -Tip 'Ctrl+Enter'
+    $C.SendBtn = New-ChatConsoleButton 'Send' { Invoke-ChatConsoleSend $script:ChatOverlayHost } -Accent -Tip 'Ctrl+Enter'
     $C.SendBtn.Margin = [System.Windows.Thickness]::new(8, 0, 0, 0)
     [System.Windows.Controls.DockPanel]::SetDock($C.SendBtn, [System.Windows.Controls.Dock]::Right)
     [void]$sendRow.Children.Add($C.SendBtn)
@@ -634,6 +657,56 @@ function Initialize-ChatConsoleContent {
     }
 }
 
+function Get-ChatConsoleMaxLabel {
+    # the header's maximize button's words: what a click does. Pure.
+    param([bool]$Max)
+    if ($Max) { return "$([char]0x2750) Restore" }
+    return "$([char]0x25A1) Maximize"
+}
+
+function Set-ChatConsoleMax {
+    <#
+    The console maximized - the working area of the screen it is on, the
+    taskbar left clear - or back to the size and place it had. Done by
+    hand, not by WindowState: the panel's window has no frame
+    (AllowsTransparency, WindowStyle None), and WPF maximizes such a window
+    over the taskbar. Maximized, the grip is gone and the header does not
+    move it. -NoSave: the state is not written - Enter-ChatOverlayConsoleMode
+    putting back what console-state.json already says.
+    #>
+    param($H, [bool]$On, [switch]$NoSave)
+    $C = $H.Con
+    if (-not $C -or $H.Mode -ne 'console' -or [bool]$C.Max -eq $On) { return }
+    $w = $C.Win
+    # Windows' own maximize (Win+Up, the taskbar's menu) undone first: the
+    # rect read after it is the size the console had, so a Restore - and
+    # the save before the maximize - keep that, never the full screen
+    if ($w.WindowState -ne [System.Windows.WindowState]::Normal) { $w.WindowState = [System.Windows.WindowState]::Normal }
+    $r = [ChatOverlayNative]::GetRect($C.Hwnd)
+    if (-not $r) { return }
+    $px = Get-ChatOverlayScale $H $r -Device
+    if ($On) {
+        # the size it has now kept first: it is the one a restore, or the
+        # next start, gives back
+        if (-not $NoSave) { Save-ChatConsoleDraft $H }
+        $C.Restore = $r
+        $a = Get-ChatOverlayWorkArea $r
+        $at = @([int]$a.X, [int]$a.Y, [int]$a.Width, [int]$a.Height)
+        $w.ResizeMode = [System.Windows.ResizeMode]::NoResize
+    }
+    else {
+        $at = if ($C.Restore) { $C.Restore } else { $r }
+        $C.Restore = $null
+        $w.ResizeMode = [System.Windows.ResizeMode]::CanResizeWithGrip
+    }
+    $C.Max = $On
+    $w.Width = $at[2] / $px
+    $w.Height = $at[3] / $px
+    [ChatOverlayNative]::Place($C.Hwnd, $at[0], $at[1], $at[2], $at[3])
+    if ($C.MaxBtn) { $C.MaxBtn.Child.Text = Get-ChatConsoleMaxLabel $On }
+    if (-not $NoSave) { Save-ChatConsoleDraft $H }
+}
+
 function Set-ChatConsoleStatus {
     # what the last action did, in the status line; tone warn for a refusal
     param($H, [string]$Text, [string]$Tone = 'dim')
@@ -650,12 +723,22 @@ function Save-ChatConsoleDraft {
     if (-not $C) { return }
     try {
         $s = $C.State
-        # Its size in screen pixels, while it shows and is not minimized - a
-        # minimized one keeps the last. Not where it is: it grows from the
-        # panel's corner each time.
-        if ($H.Mode -eq 'console' -and $C.Win.WindowState -eq [System.Windows.WindowState]::Normal) {
-            $r = [ChatOverlayNative]::GetRect($C.Hwnd)
-            if ($r -and $r[2] -gt 0 -and $r[3] -gt 0) { $s.w = $r[2]; $s.h = $r[3] }
+        # Its size in WPF's units, while it shows and is neither minimized
+        # nor maximized - either keeps the last, the size a restore goes
+        # back to. Units, not pixels: a console sized on a 150% screen holds
+        # as much on a 100% one (Get-ChatConsolePlacement). Not where it is:
+        # it grows from the panel's corner each time.
+        if ($H.Mode -eq 'console') {
+            $s.max = [bool]$C.Max
+            if ($C.Win.WindowState -eq [System.Windows.WindowState]::Normal -and -not $C.Max) {
+                $r = [ChatOverlayNative]::GetRect($C.Hwnd)
+                if ($r -and $r[2] -gt 0 -and $r[3] -gt 0) {
+                    $px = Get-ChatOverlayScale $H $r -Device
+                    $s.w = [Math]::Round($r[2] / $px)
+                    $s.h = [Math]::Round($r[3] / $px)
+                    $s.units = $true
+                }
+            }
         }
         if ($C.LeftCol -and $C.LeftCol.ActualWidth -gt 0) { $s.left = [Math]::Round($C.LeftCol.ActualWidth) }
         if ($C.QueueRow -and $C.QueueRow.ActualHeight -gt 0) { $s.queue = [Math]::Round($C.QueueRow.ActualHeight) }
@@ -690,7 +773,8 @@ function Restore-ChatConsoleDraft {
                 $keep[([string]$f.Dir).ToLowerInvariant()] = $true
             }
         }
-        if ($d.when) { $C.When = [string]$d.when }
+        # 'now' is a draft from before Next had its name
+        if ($d.when) { $C.When = if ([string]$d.when -eq 'now') { 'next' } else { [string]$d.when } }
         $C.WhenValue = [string]$d.whenValue
         $C.Mode = [string]$d.mode
         $C.Model = [string]$d.model
@@ -946,10 +1030,7 @@ function Update-ChatConsoleChats {
     # header, with Leave them beside Continue all.
     $ask = $H.Ctx.Ask
     $askSays = ''
-    if ($ask) {
-        $at = Format-ChatOverlayAskAt $ask.ResetsAt
-        $askSays = " $($script:ChatqDot) limit over$(if ($at) { " at $at" }) - $([int]$ask.Count) can continue"
-    }
+    if ($ask) { $askSays = " $($script:ChatqDot) $(Format-ChatqAskHead $ask) - $([int]$ask.Count) can continue" }
     # how many of them auto-continue will continue (src/auto-continue.ps1)
     $autoN = @($cut | Where-Object { (Get-ChatField $_.Row 'auto') -and $_.Row.auto.state -in 'armed', 'due' }).Count
     if ($autoN) { $askSays += " $($script:ChatqDot) $autoN auto-continue$(if ($autoN -eq 1) { 's' })" }
@@ -973,10 +1054,14 @@ function Update-ChatConsoleChats {
         foreach ($i in $items) { [void]$C.Chats.Children.Add((New-ChatConsoleChatItem $H $i)) }
     }
     $cutButtons = {
-        $all = New-ChatConsoleButton 'Continue all' { Invoke-ChatConsoleContinue $script:ChatOverlayHost @($script:ChatOverlayHost.Con.ChatItems | Where-Object { $_.Kind -eq 'cutoff' }) } -Small -Tip 'Queue "Continue from where you left off." for each of them - the watcher runs one job at a time, so they go one after another, in the queue''s order. When, under the prompt, is for Send only'
+        # a chat a VS Code restart cut off gets a prompt that says what it
+        # ended (Invoke-ChatConsoleContinue), and the tooltip says so
+        $rn = @($cut | Where-Object { Test-ChatConsoleRestartItem $H $_ }).Count
+        $all = New-ChatConsoleButton 'Continue all' { Invoke-ChatConsoleContinue $script:ChatOverlayHost @($script:ChatOverlayHost.Con.ChatItems | Where-Object { $_.Kind -eq 'cutoff' }) } -Small `
+            -Tip "$(Format-ChatqContinueTip @($cut).Count $rn), ahead of the prompts waiting - the watcher runs one job at a time, so they go one after another, in this list's order. When, under the prompt, is for Send only"
         if (-not $ask) { return $all }
         # the ask's own keys, as drawn: the answer is for the chats it said
-        $leave = New-ChatConsoleButton 'Leave them' { param($s, $e) $e.Handled = $true; Invoke-ChatOverlayAskAnswer $script:ChatOverlayHost 'leave' @($s.Tag) } -Small -Tag @($ask.Keys) -Tip 'Leave them as they are - their rows stay orange; Continue all in the console still continues them'
+        $leave = New-ChatConsoleButton 'Leave them' { param($s, $e) $e.Handled = $true; Invoke-ChatOverlayAskAnswer $script:ChatOverlayHost 'leave' @($s.Tag) } -Small -Tag @($ask.Keys) -Tip (Format-ChatqAskLeaveTip $ask)
         $both = [System.Windows.Controls.StackPanel]::new()
         $both.Orientation = [System.Windows.Controls.Orientation]::Horizontal
         [void]$both.Children.Add($leave)
@@ -1019,13 +1104,15 @@ function New-ChatConsoleChatItem {
     $au = Get-ChatField $Item.Row 'auto'
     if ($Item.Kind -eq 'cutoff' -and $au -and $au.state -in 'armed', 'due') {
         $cb = New-ChatConsoleButton "Don't continue" { param($s, $e) $e.Handled = $true; Invoke-ChatConsoleDontContinue $script:ChatOverlayHost ([string]$s.Tag.Row.auto.jobId) ([string]$s.Tag.Id) } -Small -Tag $Item `
-            -Tip "$($au.long). Don't send ""continue"" to this chat after this reset; the next time the limit cuts it off, it is continued again."
+            -Tip $(if ([string](Get-ChatField $au 'cutWhy') -eq 'overloaded') { "$($au.long). Don't send ""continue"" to this chat for this 529; the next time it is cut off, it is continued again." }
+                else { "$($au.long). Don't send ""continue"" to this chat after this reset; the next time the limit cuts it off, it is continued again." })
         $cb.Margin = [System.Windows.Thickness]::new(6, 0, 0, 0)
         [System.Windows.Controls.DockPanel]::SetDock($cb, [System.Windows.Controls.Dock]::Right)
         [void]$g.Children.Add($cb)
     }
     elseif ($Item.Kind -eq 'cutoff') {
-        $cb = New-ChatConsoleButton 'Continue' { param($s, $e) $e.Handled = $true; Invoke-ChatConsoleContinue $script:ChatOverlayHost @($s.Tag) } -Small -Tag $Item -Tip 'Queue "Continue from where you left off." for this chat'
+        $cb = New-ChatConsoleButton 'Continue' { param($s, $e) $e.Handled = $true; Invoke-ChatConsoleContinue $script:ChatOverlayHost @($s.Tag) } -Small -Tag $Item `
+            -Tip "$(Format-ChatqContinueTip 1 $(if (Test-ChatConsoleRestartItem $H $Item) { 1 } else { 0 })), ahead of the prompts waiting"
         $cb.Margin = [System.Windows.Thickness]::new(6, 0, 0, 0)
         [System.Windows.Controls.DockPanel]::SetDock($cb, [System.Windows.Controls.Dock]::Right)
         [void]$g.Children.Add($cb)
@@ -1146,10 +1233,16 @@ function Update-ChatConsoleOptions {
         $wb.add_TextChanged({ $H = $script:ChatOverlayHost; $H.Con.WhenValue = $H.Con.WhenBox.Text; $H.Con.Dirty = Get-Date; Update-ChatConsolePreview $H })
     }
     $C.WhenBox = $wb
-    & $row 'When' (New-ChatConsoleChips @('now', 'turn', 'at', 'in') @('Now', 'In turn', 'At', 'In') $C.When {
+    $whenTips = @(
+        'At the front of the queue: it goes next - within seconds, or once the job running now ends'
+        'Behind what is queued - the continues, then the prompts waiting'
+        'Not before a time of day: 13:00'
+        'Not before so long from now: 90m, 2h, 1d'
+    )
+    & $row 'When' (New-ChatConsoleChips @('next', 'turn', 'at', 'in') @('Next', 'In turn', 'At', 'In') $C.When {
             param($s, $e) $H = $script:ChatOverlayHost; $H.Con.When = [string]$s.Tag; $H.Con.Dirty = Get-Date; Update-ChatConsoleOptions $H
             if ($H.Con.WhenBox) { [void]$H.Con.WhenBox.Focus() }
-        }) $wb
+        } -Tips $whenTips) $wb
     $isNew = $C.Target -and $C.Target.Kind -eq 'new'
     if ($C.Target -and $C.Target.Provider -eq 'codex') {
         # Codex runs in the sandbox it last used, on its own model: Claude's
@@ -1233,7 +1326,7 @@ function Update-ChatConsolePreview {
     $text = Get-ChatConsoleSendPreview $t $plan (Get-ChatConsoleBlock $H $prov) $ahead ([bool]$H.Ctx.Watcher) -Running $(if ($run) { [int]$run.seq } else { 0 })
     $C.Preview.Text = $text
     $C.Preview.Foreground = Get-ChatOverlayBrush $(if ($plan.Error -or -not $t) { 'warn' } else { 'dim' })
-    $C.SendBtn.Child.Text = if ($C.When -eq 'now') { 'Send now' } else { 'Queue' }
+    $C.SendBtn.Child.Text = if ($C.When -eq 'next') { 'Send' } else { 'Queue' }
 }
 
 function Update-ChatConsoleWatcher {
@@ -1491,6 +1584,26 @@ function Get-ChatConsoleMissingSay {
     return "that chat is not in the index yet - chatindex in a shell, or wait for the console's own sync"
 }
 
+function Get-ChatConsoleRestartRows {
+    # by session id, the collector's rows of the chats a VS Code window's
+    # restart cut off (Get-ChatRestartCutOffs) - the orange rows and the
+    # ask's alike
+    param($H)
+    $out = @{}
+    foreach ($c in @(@($H.Ctx.CutOff) + @(if ($H.Ctx.Ask) { $H.Ctx.Ask.Items }))) {
+        if ($c -and [string](Get-ChatField $c 'Why') -eq 'restart') { $out[[string]$c.Id] = $c }
+    }
+    return $out
+}
+
+function Test-ChatConsoleRestartItem {
+    # whether a console list item is a chat a VS Code restart cut off
+    param($H, $Item)
+    if (-not $Item -or [string](Get-ChatField $Item 'Kind') -ne 'cutoff') { return $false }
+    $id = [string](Get-ChatField $Item 'Id')
+    return [bool]($id -and (Get-ChatConsoleRestartRows $H)[$id])
+}
+
 function Invoke-ChatConsoleContinue {
     # "Continue from where you left off." for each chat the limit or a 529
     # stopped (Invoke-ChatqContinueChats: one job each, a chat that already
@@ -1500,14 +1613,18 @@ function Invoke-ChatConsoleContinue {
     # answer too: marked continued, so the panel's banner and the tray's
     # items go, and the ask is not made about them again.
     param($H, [object[]]$Items)
-    $list = @($Items | Where-Object { $_ })
+    # a chat a window's restart cut off goes as the collector's row of it,
+    # which says what the restart took (Get-ChatqRestartPrompt) - the list's
+    # item knows only the chat
+    $restart = Get-ChatConsoleRestartRows $H
+    $list = @($Items | Where-Object { $_ } | ForEach-Object { $x = $restart[[string](Get-ChatField $_ 'Id')]; if ($x) { $x } else { $_ } })
     $r = if ($list.Count) { Invoke-ChatqContinueChats -Items $list } else { [pscustomobject]@{ Queued = @(); Had = @(); Fails = @() } }
     $n = @($r.Queued | Where-Object { $_ }).Count
     $had = @($r.Had | Where-Object { $_ }).Count
     $fails = @($r.Fails | Where-Object { $_ })
     if ($n) { $H.Con.Request = Request-ChatqWatcher -Wake poke }
     $answered = Save-ChatConsoleAskAnswer $H $r
-    $say = Format-ChatqContinueSay $n $had
+    $say = Format-ChatqContinueSay $n $had -Restart:($list.Count -and @($list | Where-Object { [string](Get-ChatField $_ 'Why') -eq 'restart' }).Count -eq $list.Count)
     Set-ChatConsoleStatus $H $(if ($fails) { "$say; $($fails -join '; ')" } else { $say }) $(if ($fails) { 'warn' } else { 'dim' })
     Update-ChatConsoleNow $H
     if ($answered) { Update-ChatOverlayAsk $H }
@@ -1664,7 +1781,7 @@ function Show-ChatConsoleDetails {
             & $act 'First' 'first' 'To the front of the queue'
             # auto-continue's: one click, as in the Cut off list - the chat's
             # Continue there undoes it, so one rule for both places
-            if (Get-ChatField $j 'auto') { & $act "Don't continue" 'dont' 'Not after this reset - its cut-off is not queued again; Continue in the Cut off list queues one' }
+            if (Get-ChatField $j 'auto') { & $act "Don't continue" 'dont' "Not $(Get-ChatqAutoWhen $j) - its cut-off is not queued again; Continue in the Cut off list queues one" }
             else { & $act $(if ($asking) { 'Remove - sure?' } else { 'Remove' }) 'remove' $rmTip $(if ($asking) { 'error' }) }
         }
         'running' {
@@ -1677,9 +1794,48 @@ function Show-ChatConsoleDetails {
             & $act $(if ($asking) { 'Remove - sure?' } else { 'Remove' }) 'remove' $rmTip $(if ($asking) { 'error' })
         }
     }
+    # its chat in VS Code, as the panel's open chip opens it - once there
+    # is a transcript to open: a new chat's first run makes it
+    if ($j.state -ne 'running' -and (Test-ChatOverlayRowOpenable (Get-ChatConsoleJobRow $j)) -and $j.path -and (Test-Path -LiteralPath ([string]$j.path))) {
+        & $act 'Open in VS Code' 'open' 'Open this chat in its VS Code window'
+    }
     if ($j.sessionId) { & $act 'Write to this chat' 'write' 'Pick this chat to write to' }
     if (Test-Path -LiteralPath (Join-Path $script:ChatqLogDir "$($j.id).jsonl")) { & $act $(if ($C.ShowLog) { 'Reply' } else { 'Log' }) 'log' 'What the run did' }
     & $add $acts
+    # A waiting Claude job's mode and model, as the chips under the prompt
+    # box set them for a new one (Set-ChatqJobRunAs). One set by chatq that
+    # the chips do not list is shown as a chip of its own, so the one in
+    # force is always filled.
+    if ($j.state -eq 'queued' -and $j.provider -eq 'claude') {
+        $isNew = $j.kind -eq 'new'
+        foreach ($o in @(
+                @{ Label = 'Mode'; What = 'mode'; Now = [string]$j.mode; Values = $script:ChatConsoleModes; Own = $(if ($isNew) { 'default' } else { 'as it ran' }) },
+                @{ Label = 'Model'; What = 'model'; Now = [string]$j.runModel; Values = $script:ChatConsoleModels; Own = $(if ($isNew) { 'default' } else { 'its own' }) })) {
+            $vals = @('') + @($o.Values)
+            if ($o.Now -and $o.Now -notin $vals) { $vals += $o.Now }
+            $labels = @($o.Own) + @($vals | Select-Object -Skip 1)
+            # which of the two a chip is: its row's Tag, as the click has no
+            # closure; what went wrong is said, as the buttons' is
+            $on = {
+                param($s, $e)
+                $e.Handled = $true
+                $X = $script:ChatOverlayHost
+                $what = [string]$s.Parent.Tag
+                try { Invoke-ChatConsoleJobAction $X ([string]$X.Con.Sel) $what -Value ([string]$s.Tag) }
+                catch { Write-ChatOverlayLog "console: $($_.Exception.Message)"; Set-ChatConsoleStatus $X "$what went wrong: $($_.Exception.Message)" 'error' }
+            }
+            $d = [System.Windows.Controls.DockPanel]::new()
+            $l = New-ChatOverlayText $o.Label 'dim' 11.5
+            $l.Width = 44
+            $l.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
+            [System.Windows.Controls.DockPanel]::SetDock($l, [System.Windows.Controls.Dock]::Left)
+            [void]$d.Children.Add($l)
+            $chips = New-ChatConsoleChips $vals $labels $o.Now $on
+            $chips.Tag = $o.What
+            [void]$d.Children.Add($chips)
+            & $add $d
+        }
+    }
     if ($j.state -eq 'queued' -and $j.kind -ne 'continue' -and $j.retryAs -ne 'continue') {
         $ed = New-ChatConsoleInput -Multi -Tip 'Edits count until it sends'
         $ed.MinHeight = 60
@@ -1774,8 +1930,9 @@ function Invoke-ChatConsoleJobAction {
     # and chatq <n> call. -At: when the click came, as the mouse had it
     # (MouseButtonEventArgs.Timestamp): a pass on this thread, or reading
     # the queue, must not age a click that came in time, or bunch the two
-    # halves of a double-click into an answer.
-    param($H, [string]$Id, [string]$Act, [int64]$At = [Environment]::TickCount)
+    # halves of a double-click into an answer. -Value: the chip mode and
+    # model take, '' for the chat's own.
+    param($H, [string]$Id, [string]$Act, [int64]$At = [Environment]::TickCount, [string]$Value)
     $C = $H.Con
     $j = Find-ChatqJob $Id -Exact
     if (-not $j) { Set-ChatConsoleStatus $H 'that job is gone' 'warn'; $C.JobsSig = $null; return }
@@ -1815,6 +1972,17 @@ function Invoke-ChatConsoleJobAction {
             if ($H.OpenProc) { $say = 'an open is still going - try again in a moment'; break }
             Invoke-ChatOverlayOpen $H (Get-ChatConsoleJobRow $j)
             $say = if ($H.OpenProc) { "#$($j.seq): its live view opens in VS Code" } else { "#$($j.seq) could not be shown - data/logs/overlay.log says why" }
+        }
+        'open' {
+            # the same open, for its chat as it stands
+            if ($H.OpenProc) { $say = 'an open is still going - try again in a moment'; break }
+            Invoke-ChatOverlayOpen $H (Get-ChatConsoleJobRow $j)
+            $say = if ($H.OpenProc) { "#$($j.seq): its chat opens in VS Code" } else { "#$($j.seq)'s chat could not be opened - data/logs/overlay.log says why" }
+        }
+        { $_ -in 'mode', 'model' } {
+            $no = Set-ChatqJobRunAs $j $Act $Value
+            if ($no) { $say = $no; $tone = 'warn'; break }
+            $say = "#$($j.seq) runs $(if ($Value) { "$(if ($Act -eq 'mode') { 'in' } else { 'on' }) $Value" } else { "$(if ($Act -eq 'mode') { 'in the mode' } else { 'on the model' }) its chat has" })"
         }
         'cancel' {
             $say = switch (Stop-ChatqJobRun $j) {

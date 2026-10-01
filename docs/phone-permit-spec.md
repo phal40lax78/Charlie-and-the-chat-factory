@@ -151,8 +151,8 @@ When all hold, [Invoke-ChatqRun](src/queue.ps1) takes `-Permit $run` from
 - `--mcp-config <data/permit/<jobId>/mcp.json>` is added.
 - `--permission-prompt-tool mcp__chatqpermit__decide` is added.
 - `--settings <data/permit/<jobId>/settings.json>` is added. The files stay
-  off the command line: `claude.cmd` runs through cmd.exe (FUTURE_WORK,
-  "Every argument hardened for claude.cmd").
+  off the command line: `claude.cmd` runs through cmd.exe, which can be
+  handed no `"` at all ([Get-ChatqCmdArgRefusal](src/queue.ps1)).
 - `-SetEnv` gains `MCP_TOOL_TIMEOUT = (waitMinutes + 3) * 60000`.
 
 `settings.json` (the run's own, merged over the user's by Claude Code):
@@ -465,8 +465,9 @@ cut. If you cannot tell what it does, Deny.* Matches of these become
   phone-requeued job runs in, and still does.
 - **Why no mode cap on single calls.** A person reading one exact command
   and approving it is less than any mode above `default` grants. Capping
-  permits by `reply.maxMode` would forbid the very thing asked for: the
-  default cap `acceptEdits` does not cover a `git push`.
+  permits by `reply.maxMode` would forbid the very thing asked for: a cap
+  such as `acceptEdits` does not cover a `git push` - and with none set
+  (keep, the default) the cap is not in the way anyway.
 - **The cap on permits is what can be asked at all.** It is
   `permit.tools`, the never-list in section 5, `permit.on` off by default,
   and the rate limits.

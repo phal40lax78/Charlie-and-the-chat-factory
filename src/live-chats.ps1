@@ -295,7 +295,9 @@ function Stop-ChatIdleProcess {
     HostPids: the Code.exe each window's process runs under, taken before
     anything is ended - which window holds the chat. With -JudgeOnly they are
     taken for a held chat too, and a terminal's claude says other even while
-    it works.
+    it works. Each window a process was ended in is noted with the chat
+    (Add-ChatIdleEnded), for that window's reload to wait on a claude -p
+    going into it later (Get-ChatHostWork).
     Background work is told apart by who started it, never by when: what a
     print-mode run started died with it, what the window's process started
     is its own (Get-ChatBackgroundTasks -SkipPrint).
@@ -357,6 +359,8 @@ function Stop-ChatIdleProcess {
     # whose each one is, parent first: a window's, or a terminal's
     $ours = [System.Collections.Generic.List[object]]::new()
     $hosts = [System.Collections.Generic.List[int]]::new()
+    # each window process's host, by its pid, for the note of what was ended
+    $hostOf = @{}
     foreach ($e in $mine) {
         $pr = Get-Process -Id ([int](Get-ChatField $e 'Pid')) -EA SilentlyContinue
         if (-not $script:ChatParentSeam) {
@@ -376,6 +380,7 @@ function Stop-ChatIdleProcess {
         $ours.Add($e)
         $hp = [int](Get-ChatField $par 'Pid')
         if ($hp -and -not $hosts.Contains($hp)) { $hosts.Add($hp) }
+        if ($hp) { $hostOf[[int](Get-ChatField $e 'Pid')] = $par }
     }
     $res.HostPids = [int[]]$hosts.ToArray()
     # a terminal holds it: any refresh in VS Code would start a second writer
@@ -402,6 +407,19 @@ function Stop-ChatIdleProcess {
             if ($script:ChatGraceSleepSeam) { & $script:ChatGraceSleepSeam 250 } else { Start-Sleep -Milliseconds 250 }
         }
     }
+    # the windows each one was ended in - or left as its tab closed - noted
+    # in data/ as it returns: a side bar there may still show the chat with
+    # nothing under it, and a claude -p going into it then holds that
+    # window's reload (Get-ChatHostWork)
+    $note = {
+        $noted = @{}
+        foreach ($procId in $stopped) {
+            $par = $hostOf[$procId]
+            if (-not $par -or $noted[[int]$par.Pid]) { continue }
+            $noted[[int]$par.Pid] = $true
+            Add-ChatIdleEnded -SessionId $SessionId -HostPid ([int]$par.Pid) -HostStart (Get-ChatField $par 'StartTime')
+        }
+    }
     foreach ($e in $ours) {
         $procId = [int](Get-ChatField $e 'Pid')
         if ($procId -in $had -and -not @(Get-ChatqStillThere $ConfigDir $SessionId @($procId)).Count) {
@@ -423,7 +441,7 @@ function Stop-ChatIdleProcess {
         if (-not $re) { $kept = $true; continue }
         # the pid is another chat's now: this one's process is gone
         if ($re.SessionId -and $re.SessionId -ne $SessionId) { continue }
-        if ($re.Status -ne 'idle') { $res.OldProcess = 'held'; $res.Stopped = [int[]]$stopped.ToArray(); return $res }
+        if ($re.Status -ne 'idle') { $res.OldProcess = 'held'; $res.Stopped = [int[]]$stopped.ToArray(); & $note; return $res }
         if ($script:ChatStopSeam) {
             # tests: ended, other (not verified - kept) or gone
             switch ([string](& $script:ChatStopSeam $re)) {
@@ -441,6 +459,7 @@ function Stop-ChatIdleProcess {
     }
     $res.Stopped = [int[]]$stopped.ToArray()
     $res.OldProcess = if ($kept) { 'kept' } elseif ($stopped.Count) { 'ended' } else { 'none' }
+    & $note
     return $res
 }
 
@@ -578,7 +597,8 @@ function Repair-ChatListed {
     line there. Not while a process may be writing to it (-Live, the
     session's live processes): busy or waiting - a claude -p going into it
     reads busy, its registry kind interactive as Claude Code 2.1.283 writes
-    it - or of a kind that is not interactive. An idle one writes nothing, as
+    it - or any print-mode run, idle or not (Test-ChatPrintLive: a kind that
+    is not interactive, or an SDK's entrypoint). An idle one writes nothing, as
     Claude Code's rename appends beside it too. The file keeps its write time:
     the line is no activity, and chatq judges a chat written in the last
     minute as working - unless something else wrote meanwhile, whose time is
@@ -592,10 +612,10 @@ function Repair-ChatListed {
     $why = Get-ChatUnlistedWhy $ht.Head $ht.Tail
     if (-not $why) { return 'listed' }
     if ($why -eq 'head') { return 'unlistable' }
+    if (Test-ChatPrintLive $Live $SessionId) { return 'held' }
     foreach ($e in @($Live)) {
         if (-not $e -or [string](Get-ChatField $e 'SessionId') -ne $SessionId) { continue }
-        $k = [string](Get-ChatField $e 'Kind')
-        if (($k -and $k -ne 'interactive') -or [string](Get-ChatField $e 'Status') -in 'busy', 'waiting') { return 'held' }
+        if ([string](Get-ChatField $e 'Status') -in 'busy', 'waiting') { return 'held' }
     }
     $text = (Get-ChatListedLine $SessionId) + "`n"
     if (-not $ht.Tail.EndsWith("`n", [StringComparison]::Ordinal)) { $text = "`n" + $text }
@@ -670,7 +690,11 @@ function Show-ChatFresh {
     a tab, or bring forward the tab already showing it - or, with a queued
     prompt going into the chat, that run's live view (watch). A terminal's
     chat is still turned away, and a queued run going into it still holds
-    it.
+    it. A chat Claude Code never lists (its head, Get-ChatUnlistedWhy) is
+    asked for all the same, and says unlisted: its window offers a terminal.
+    Unlisted and not brought forward says both - unlisted-not-raised (26),
+    unlisted-no-code (42), unlisted-code-failed (43) - so the tray still
+    says why the window may be behind others.
     Returns @{ Outcome; ExitCode; Busy; OldProcess; HostPids; Stopped;
     JudgedOnly }; the chip's child exits with ExitCode, which picks the
     tray's words. An outcome that judged nothing (bad, missing) says kept:
@@ -691,7 +715,8 @@ function Show-ChatFresh {
         # -Via run: the windows the run's handover asked, and its job, for
         # the request (Write-ChatReloadRequest)
         [int[]]$HandoverPids = @(), [string]$JobId)
-    $codes = @{ ok = 0; held = 10; running = 15; watch = 16; other = 20; 'not-raised' = 25; missing = 30; 'no-code' = 40; 'code-failed' = 41; bad = 50 }
+    $codes = @{ ok = 0; held = 10; running = 15; watch = 16; other = 20; unlisted = 21; 'not-raised' = 25; 'unlisted-not-raised' = 26; missing = 30
+        'no-code' = 40; 'code-failed' = 41; 'unlisted-no-code' = 42; 'unlisted-code-failed' = 43; bad = 50 }
     $logIt = $false
     $done = {
         param([string]$Outcome, $Busy = $null, $Judged = $null)
@@ -729,9 +754,8 @@ function Show-ChatFresh {
     # own process is gone and the next job has not started.
     $runJob = if ($Via -ne 'run') { @(Get-ChatqJobs | Where-Object { $_.state -eq 'running' -and [string]$_.sessionId -eq $SessionId }) | Select-Object -First 1 } else { $null }
     # The registry has no print kind: a claude -p is there as interactive,
-    # stamped sdk-* (as Remove-ChatSessionById reads it), and counts here too
-    $printLive = (Test-ChatPrintLive $live $SessionId) -or @($live | Where-Object {
-            $_ -and [string](Get-ChatField $_ 'SessionId') -eq $SessionId -and [string](Get-ChatField $_ 'Entrypoint') -cin $script:ChatSdkEntrypoints }).Count
+    # stamped sdk-*, which Test-ChatPrintLive counts too
+    $printLive = Test-ChatPrintLive $live $SessionId
     if ($Via -ne 'run' -and ($runJob -or $printLive)) {
         # The chip on a chat a chatq job is going into: that run's live view
         # instead, in the window its handover asked (data/run-state) - else
@@ -789,6 +813,21 @@ function Show-ChatFresh {
         else {
             $c = Open-ChatCodeWindow $Cwd
             if (-not $c.Ok) { $outcome = [string]$c.Code }
+        }
+        # A chat whose head says an SDK started it - every one + New chat
+        # made - is one Claude Code never lists nor opens in a tab: the
+        # window offers it in a terminal instead (the extension's
+        # ensureListed and offerTerminal). The request still goes, for that
+        # offer; the code says unlisted, which the overlay does not take as
+        # shown, so the chat's unread dot stays until it is really read.
+        # A window not brought forward (25, 40, 41) keeps its own words,
+        # with unlisted beside them: 26, 42, 43 - the offer may be in a
+        # window behind others, and 43 still points at watcher.log.
+        if ($outcome -in 'ok', 'not-raised', 'no-code', 'code-failed') {
+            $ht = Read-ChatHeadTail $Transcript
+            if ($ht -and $ht.Length -and (Get-ChatUnlistedWhy $ht.Head $ht.Tail) -eq 'head') {
+                $outcome = if ($outcome -eq 'ok') { 'unlisted' } else { "unlisted-$outcome" }
+            }
         }
     }
     return (& $done $outcome $busy $j)

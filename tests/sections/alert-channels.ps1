@@ -56,3 +56,69 @@ ${function:Get-ChatqIdleSeconds} = { $null }
 $awayBlind = Test-ChatqUserAway $null
 ${function:Get-ChatqIdleSeconds} = $origIdle
 Check 'away only when known: not at the PC, not with quietMinutes 0, not on a clock that cannot be read' (-not $awayAt -and -not $awayZero -and $awayGone -and -not $awayBlind) "$awayAt $awayZero $awayGone $awayBlind"
+# phoneWhilePresent opens the phone gates at the PC, never the reload's
+$script:ChatqIdleSeam = 30
+$pwp = [pscustomobject]@{ quietMinutes = 1; phoneWhilePresent = $true }
+$pwpAway = Test-ChatqUserAway $pwp
+$pwpPhone = Test-ChatqPhoneAway $pwp
+$pwpPresent = Test-ChatqUserPresent $pwp
+$pwpOff = Test-ChatqPhoneAway ([pscustomobject]@{ quietMinutes = 1 })
+$script:ChatqIdleSeam = 99999
+Check 'phoneWhilePresent: the phone is sent to at the PC, a reload still waits for away' (-not $pwpAway -and $pwpPhone -and -not $pwpPresent -and -not $pwpOff) "$pwpAway $pwpPhone $pwpPresent $pwpOff"
+# the phone alert's footer: usage turned to what is left, and the queue
+$ftUsage = ${function:Get-ChatqUsage}
+$ftCounts = ${function:Get-ChatqChatCounts}
+$ftSeam = $script:ChatqFooterSeam
+$script:ChatqFooterSeam = $null
+try {
+    # Codex at 0% everywhere is not in use: left out
+    ${function:Get-ChatqUsage} = { @([pscustomobject]@{ Provider = 'Claude'; Parts = @('5h 42%', 'week 18%'); AsOf = '12:00' },
+            [pscustomobject]@{ Provider = 'Codex'; Parts = @('5h 0%', 'week 0%'); AsOf = '12:00' }) }
+    ${function:Get-ChatqChatCounts} = { [pscustomobject]@{ busy = 1; waiting = 1 } }
+    $ftBoth = Get-ChatqAlertFooter
+    ${function:Get-ChatqUsage} = { throw 'no usage' }
+    ${function:Get-ChatqChatCounts} = { [pscustomobject]@{ busy = 0; waiting = 0 } }
+    $ftNone = Get-ChatqAlertFooter
+}
+finally { ${function:Get-ChatqUsage} = $ftUsage; ${function:Get-ChatqChatCounts} = $ftCounts; $script:ChatqFooterSeam = $ftSeam }
+$ftWant = "Claude 5h 42%, week 18% $($script:ChatqDot) 1 working, 1 waiting"
+Check 'the phone alert footer: how much of each window is used and the chats at work; a provider at 0% and usage unread are left out' ($ftBoth -eq $ftWant -and $ftNone -eq '0 working') "[$ftBoth] [$ftNone]"
+# The footer's chats are the overlay's: its snapshot's counts while fresh,
+# else the registry with each chat's background work - a chat idle to Claude
+# with a background shell running is working, as on the panel (the push once
+# said 1 working where the panel showed 3)
+$ftPath = $script:ChatOverlayPath
+$ftFns = @{}
+foreach ($n in 'Read-ChatqSessionRegistry', 'Test-ChatqSessionAlive', 'Update-ChatOverlayText', 'Update-ChatOverlayBackground') { $ftFns[$n] = (Get-Item "function:$n").ScriptBlock }
+try {
+    $script:ChatOverlayPath = Join-Path $sb 'footer-overlay.json'
+    $ftNowMs = [DateTimeOffset]::new((Get-Date)).ToUnixTimeMilliseconds()
+    [System.IO.File]::WriteAllText($script:ChatOverlayPath, (@{ schema = 1; at = $ftNowMs; counts = @{ busy = 3; waiting = 2 } } | ConvertTo-Json -Compress))
+    $ftSnap = Get-ChatqChatCounts
+    # a: busy; b: busy in one window, waiting in another - waiting; c: idle
+    # to Claude with a background shell - working; d: busy but a print run;
+    # e: idle
+    ${function:Read-ChatqSessionRegistry} = {
+        @([pscustomobject]@{ SessionId = 'a'; Status = 'busy'; Kind = 'interactive'; Pid = 1 },
+            [pscustomobject]@{ SessionId = 'b'; Status = 'busy'; Kind = 'interactive'; Pid = 2 },
+            [pscustomobject]@{ SessionId = 'b'; Status = 'waiting'; Kind = 'interactive'; Pid = 3 },
+            [pscustomobject]@{ SessionId = 'c'; Status = 'idle'; Kind = 'interactive'; Pid = 4 },
+            [pscustomobject]@{ SessionId = 'd'; Status = 'busy'; Kind = 'print'; Pid = 5 },
+            [pscustomobject]@{ SessionId = 'e'; Status = 'idle'; Kind = 'interactive'; Pid = 6 })
+    }
+    ${function:Test-ChatqSessionAlive} = { $true }
+    ${function:Update-ChatOverlayText} = { }
+    ${function:Update-ChatOverlayBackground} = { @{ c = [pscustomobject]@{ Count = 1; Workflows = 0; Agents = 0; Shells = 1 } } }
+    # the snapshot 5 minutes old: the overlay is not running
+    [System.IO.File]::WriteAllText($script:ChatOverlayPath, (@{ schema = 1; at = $ftNowMs - 300000; counts = @{ busy = 3; waiting = 2 } } | ConvertTo-Json -Compress))
+    $ftScan = Get-ChatqChatCounts
+}
+finally {
+    foreach ($n in $ftFns.Keys) { Set-Item "function:$n" $ftFns[$n] }
+    Remove-Item -LiteralPath $script:ChatOverlayPath -EA SilentlyContinue
+    $script:ChatOverlayPath = $ftPath
+}
+Check 'the footer counts chats as the overlay does: its fresh snapshot, else background work counts as working' ($ftSnap.busy -eq 3 -and $ftSnap.waiting -eq 2 -and $ftScan.busy -eq 2 -and $ftScan.waiting -eq 1) "snap $($ftSnap.busy)/$($ftSnap.waiting) scan $($ftScan.busy)/$($ftScan.waiting)"
+# ... and on the reply page too, as s=, kept when the link is made again
+$ftLink = Get-ChatqReplyLink ([pscustomobject]@{ Page = 'https://x.test/reply.html' }) 'abcdefghij' 'done' $null -Status $ftWant
+Check 'the reply link carries the footer as s=' ($ftLink -match '&s=([^&]+)$' -and [Uri]::UnescapeDataString($Matches[1]) -eq $ftWant) $ftLink

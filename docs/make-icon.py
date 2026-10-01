@@ -2,7 +2,9 @@
 # - Charlie cut out of docs/icon-source.jpg by docs/cut-icon.py. The inside
 # is transparent, so the icon takes the theme's colour. A dark rounded
 # frame keeps its shape, and the same stroke runs around Charlie, a
-# sticker's outline: it covers the cutout's ragged edge with a smooth one.
+# sticker's outline: it covers the cutout's ragged edge with a smooth one,
+# the edge redrawn as a curve so it runs like a drawn line, its sharp
+# turns - the bangs' spikes, the notch at the shoulder - kept sharp.
 # Her head, hair and all, fills two thirds of the icon's width, a sixth
 # left of centre, the bow's tip near the top; the frame cuts off what
 # falls outside.
@@ -32,7 +34,10 @@ HEAD_CENTRE = 1 / 3         # where across the icon the head's centre sits: left
 BOW_ROW = 2                 # the photo's row of the bow's tip, her top
 TOP_GAP = 14                # icon pixels from the icon's top to the bow's tip
 LINE = 2.0                  # the drawing's own black edge line, in photo pixels
-SMOOTH = 2.0                # the silhouette's smoothing, in icon pixels
+SMOOTH = 6.0                # the edge's smoothing along itself, in icon pixels: 8 blunts the hair's tuft
+CORNER_SPAN = 4             # icon pixels either side a turn is measured over
+CORNER_ANGLE = 150          # degrees: a turn this sharp is a corner, kept...
+CORNER_SMOOTH = 1.5         # ...by smoothing it over this few icon pixels
 
 cut = Image.open(SRC).convert('RGBA')
 scale = HEAD_SHARE * N / (HEAD[1] - HEAD[0])
@@ -55,12 +60,58 @@ c = STROKE * SS / 2
 ImageDraw.Draw(inside).rounded_rectangle([c, c, big - 1 - c, big - 1 - c], (RADIUS - STROKE / 2) * SS, fill=255)
 inside = np.asarray(inside, np.float32) / 255
 
-# Charlie's silhouette, smoothed: the cutout's alpha blurred and cut at
-# half. In icon pixels, not the photo's: scaled up, the JPEG's steps are
-# as big as the scale, and a photo pixel's blur leaves them as wiggles.
+def smooth_shape(mask, sigma):
+    """mask with each of its edges drawn again as a curve: the edge's
+    points, a pixel apart, averaged along it over sigma pixels. A blur
+    cut at half rounds a bump off only as far as it blurs, and leaves
+    the rest as a wobble; averaging along the edge takes the wobble out
+    and keeps the shape's corners where they bend slowly."""
+    cs, hier = cv2.findContours(mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE)
+    def average(q, sigma):
+        r = int(3 * sigma)
+        k = np.exp(-0.5 * (np.arange(-r, r + 1) / sigma) ** 2)
+        k /= k.sum()
+        return np.stack([np.convolve(np.pad(q[:, i], r, mode='wrap'), k, 'valid') for i in (0, 1)], 1)
+    span = int(CORNER_SPAN * SS)
+    out = []
+    for c in cs:
+        p = c[:, 0, :].astype(np.float64)
+        closed = np.vstack([p, p[:1]])
+        s = np.concatenate([[0], np.cumsum(np.hypot(*np.diff(closed, axis=0).T))])
+        t = np.arange(0, s[-1], 1.0)
+        if len(t) < 8:              # a speck: gone, as a blur would take it
+            continue
+        q = np.stack([np.interp(t, s, closed[:, i]) for i in (0, 1)], 1)
+        # how sharply the edge turns at each point, from the points span
+        # before and after it: 0 on a gentle curve, 1 at a tip or a notch.
+        # There the short average takes over, and near it, so the tip
+        # stays a tip and the curve eases into it.
+        n = len(q)
+        if n > 4 * span:
+            a, b = np.roll(q, span, 0) - q, np.roll(q, -span, 0) - q
+            cos = (a * b).sum(1) / np.maximum(np.hypot(*a.T) * np.hypot(*b.T), 1e-6)
+            c0, c1 = np.cos(np.radians(CORNER_ANGLE + 30)), np.cos(np.radians(CORNER_ANGLE))
+            w = np.clip((cos - c0) / (c1 - c0), 0, 1)
+            w = np.clip(average(np.stack([w, w], 1), span)[:, 0] * 2, 0, 1)[:, None]
+            q = average(q, sigma) * (1 - w) + average(q, CORNER_SMOOTH * SS) * w
+        else:
+            q = average(q, sigma)
+        out.append(np.round(q).astype(np.int32).reshape(-1, 1, 2))
+    # each edge filled and laid over the others by XOR: a hole inside an
+    # outer edge comes out a hole, whichever edges were dropped as specks
+    res = np.zeros_like(mask)
+    for c in out:
+        one = np.zeros_like(mask)
+        cv2.fillPoly(one, [c], 1)
+        res ^= one
+    return res
+
+
+# Charlie's silhouette, smoothed: the cutout's alpha, cut at half, its
+# edge then drawn as a curve. In icon pixels, not the photo's: scaled up,
+# the JPEG's steps are as big as the scale.
 a = np.asarray(art.getchannel('A'), np.float32) / 255
-sil = cv2.GaussianBlur(a, (0, 0), SMOOTH * SS) > 0.5
-sil = sil.astype(np.uint8)
+sil = smooth_shape((cv2.GaussianBlur(a, (0, 0), SS) > 0.5).astype(np.uint8), SMOOTH * SS)
 
 
 def disk(r):
@@ -68,8 +119,10 @@ def disk(r):
     return cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1))
 
 
-# the outline: STROKE wide, INSIDE of it over the drawing's edge
-outer = cv2.dilate(sil, disk((STROKE - INSIDE) * SS))
+# the outline: STROKE wide, INSIDE of it over the drawing's edge; its
+# outer edge drawn as a curve too, so the notches the widening leaves
+# where the shape bends in come out round
+outer = smooth_shape(cv2.dilate(sil, disk((STROKE - INSIDE) * SS)), SMOOTH * SS)
 inner = cv2.erode(sil, disk(INSIDE * SS))
 line = cv2.GaussianBlur((outer & ~inner & 1).astype(np.float32), (0, 0), 0.5 * SS) * inside
 

@@ -264,6 +264,11 @@ function chatuninstall {
     }
     # and the overlay, whose open lock file would keep -All from deleting data/
     if ((Test-ChatOverlayAlive) -and (Stop-ChatOverlay)) { Write-Host '  stopped the overlay' -ForegroundColor DarkGray }
+    # The overlay keeps every stop as a close by hand, held until the next
+    # sign-in (Invoke-ChatOverlayVerb). An uninstall is no such close: a
+    # chatinstall after it, in this same sign-in, would leave every new
+    # shell and VS Code window saying off with nothing to say why.
+    try { Clear-ChatOverlayClosed } catch {}
 
     $lines = if (Test-Path -LiteralPath $PROFILE) { @(Get-Content -LiteralPath $PROFILE) } else { @() }
     $mine = @($lines | Where-Object { $_ -match $script:ChatProfilePattern })
@@ -486,6 +491,8 @@ $script:ChatTitleCompleter = {
     $queue = $cmd -eq 'chatq'
     # chatq 3 means job 3 - a number is not the start of a title
     if ($queue -and $w -match '^\d{1,4}$') { return }
+    # chatq -New <folder> <name>: a name for a chat not made yet, not a title
+    if ($queue -and $bound -and $bound.ContainsKey('New')) { return }
     $all = $bound -and [bool]$bound['All']
     $wide = $bound -and [bool]$bound['AllProjects']
     # (empty) are abandoned sessions; Hidden ones are subagents, which the

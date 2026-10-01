@@ -687,6 +687,47 @@ function Get-ChatProjectFiles {
     return $out
 }
 
+function Get-ChatLastWritten {
+    <#
+    When a transcript was last written by a chat at work: its newest record's
+    timestamp, not the file's LastWriteTime. Claude writes an idle chat's file
+    with no turn in it - cost-state, mode and last-prompt records, which
+    carry no timestamp, as its process starts or ends - so every tab a
+    reload brought back read as written for a minute, and the reload a
+    delete asked for next said those idle chats would be stopped. A record
+    with a turn in it carries its timestamp last, so the tail's last
+    "timestamp" is the newest even when the tail begins mid-line; one in a
+    record's text is escaped, and never read as one. Only the last -Size
+    bytes are read. -Wrote: the file's LastWriteTime, when the caller has it
+    - also the answer when the tail holds no timestamp (Codex, an old
+    format, a file that could not be read), and never exceeded: a clock set
+    back makes no record newer than the file.
+    #>
+    param([string]$Path, $Wrote = $null, [int]$Size = 65536)
+    if ($null -eq $Wrote) { try { $Wrote = (Get-Item -LiteralPath $Path -EA Stop).LastWriteTime } catch { return $null } }
+    $text = $null
+    try {
+        $fs = Open-ChatRead $Path
+        try {
+            $n = [int][Math]::Min([int64]$Size, $fs.Length)
+            $buf = [byte[]]::new($n)
+            $null = $fs.Seek(-$n, [System.IO.SeekOrigin]::End)
+            $got = 0
+            while ($got -lt $n) { $r = $fs.Read($buf, $got, $n - $got); if ($r -le 0) { break }; $got += $r }
+            $text = [System.Text.Encoding]::UTF8.GetString($buf, 0, $got)
+        }
+        finally { $fs.Dispose() }
+    }
+    catch { return $Wrote }
+    $m = [regex]::Matches($text, '"timestamp"\s*:\s*"([^"]+)"')
+    if (-not $m.Count) { return $Wrote }
+    $at = [DateTimeOffset]::MinValue
+    if (-not [DateTimeOffset]::TryParse($m[$m.Count - 1].Groups[1].Value, [cultureinfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AssumeUniversal, [ref]$at)) { return $Wrote }
+    $t = $at.LocalDateTime
+    if ($t -gt $Wrote) { return $Wrote }
+    return $t
+}
+
 function Test-ChatTranscriptBusy {
     # Whether a transcript is parked mid-turn. $true mid-turn, $false finished,
     # $null cannot tell.
@@ -996,29 +1037,7 @@ function Get-ChatSessionSettings {
     $none = @{ Ultracode = $null; Effort = $null }
     if (-not $Path -or $Budget -lt 0) { return $none }
     if ($Chunk -lt 1) { $Chunk = 1048576 }
-    $x = $script:ChatSessionRx
-    if (-not $x) {
-        # JSON by pattern, one line at a time: a string; a number, true, false
-        # or null; an object or array to its closing bracket, strings whole;
-        # each taken whole, never given back
-        $q = '"(?>[^"\\\x00-\x1f]*(?:\\(?:["\\/bfnrt]|u[0-9A-Fa-f]{4})[^"\\\x00-\x1f]*)*)"'
-        $lit = '(?>-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?(?![0-9.eE+-])|true|false|null)'
-        $one = "(?>$q|$lit)"
-        $nest = '(?>[\{\[](?>(?:' + $q + '|[^"\{\}\[\]]+|(?<o>[\{\[])|(?<-o>[\}\]]))*)(?(o)(?!))[\}\]])'
-        $any = "(?>$q|$nest|$lit)"
-        $x = @{
-            # the keys before the first that holds an object or array; that
-            # key; and a tool's result, as the first block of the content
-            Head = [regex]('\A[ \t\r]*\{(?:(?:"type":(?<ty>' + $one + ')|"isSidechain":(?<sc>' + $one + ')|"entrypoint":(?<ep>' + $one + ')|"effort":(?<ef>' + $one +
-                ')|' + $q + ':' + $one + '),)*(?:(?<nk>' + $q + '):(?<tr>\{(?:' + $q + ':' + $one + ',)*"content":\[\{(?:' + $q + ':' + $one + ',)*"type":"tool_result")?)?')
-            # an assistant record's keys from its type to the end
-            Tail = [regex]('\A"type":"assistant"(?:,(?:"isSidechain":(?<sc>' + $any + ')|"entrypoint":(?<ep>' + $any + ')|"effort":(?<ef>' + $any + ')|' + $q + ':' + $any + '))*\}[ \t\r]*\z')
-            Obj = [regex]('\A[ \t\r]*\{(?:(?<k>' + $q + '):(?<v>' + $any + ')(?:,(?<k>' + $q + '):(?<v>' + $any + '))*)?\}[ \t\r]*\z')
-            Arr = [regex]('\A\[(?:(?<e>' + $any + ')(?:,(?<e>' + $any + '))*)?\]\z')
-            Out = [regex]'<local-command-stdout>([\s\S]*?)</local-command-stdout>'
-        }
-        $script:ChatSessionRx = $x
-    }
+    $x = Get-ChatSessionRx
     try { $fs = Open-ChatRead $Path } catch { return $none }
     try {
         $size = $fs.Length
@@ -1221,6 +1240,35 @@ function Get-ChatSessionSettings {
     }
     catch { return $none }
     finally { $fs.Dispose() }
+}
+
+function Get-ChatSessionRx {
+    # Get-ChatSessionSettings' patterns, made once: Get-ChatSessionRecord,
+    # Find-ChatJsonKey and Get-ChatqRunTook read by them too
+    $x = $script:ChatSessionRx
+    if (-not $x) {
+        # JSON by pattern, one line at a time: a string; a number, true, false
+        # or null; an object or array to its closing bracket, strings whole;
+        # each taken whole, never given back
+        $q = '"(?>[^"\\\x00-\x1f]*(?:\\(?:["\\/bfnrt]|u[0-9A-Fa-f]{4})[^"\\\x00-\x1f]*)*)"'
+        $lit = '(?>-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?(?![0-9.eE+-])|true|false|null)'
+        $one = "(?>$q|$lit)"
+        $nest = '(?>[\{\[](?>(?:' + $q + '|[^"\{\}\[\]]+|(?<o>[\{\[])|(?<-o>[\}\]]))*)(?(o)(?!))[\}\]])'
+        $any = "(?>$q|$nest|$lit)"
+        $x = @{
+            # the keys before the first that holds an object or array; that
+            # key; and a tool's result, as the first block of the content
+            Head = [regex]('\A[ \t\r]*\{(?:(?:"type":(?<ty>' + $one + ')|"isSidechain":(?<sc>' + $one + ')|"entrypoint":(?<ep>' + $one + ')|"effort":(?<ef>' + $one +
+                ')|' + $q + ':' + $one + '),)*(?:(?<nk>' + $q + '):(?<tr>\{(?:' + $q + ':' + $one + ',)*"content":\[\{(?:' + $q + ':' + $one + ',)*"type":"tool_result")?)?')
+            # an assistant record's keys from its type to the end
+            Tail = [regex]('\A"type":"assistant"(?:,(?:"isSidechain":(?<sc>' + $any + ')|"entrypoint":(?<ep>' + $any + ')|"effort":(?<ef>' + $any + ')|' + $q + ':' + $any + '))*\}[ \t\r]*\z')
+            Obj = [regex]('\A[ \t\r]*\{(?:(?<k>' + $q + '):(?<v>' + $any + ')(?:,(?<k>' + $q + '):(?<v>' + $any + '))*)?\}[ \t\r]*\z')
+            Arr = [regex]('\A\[(?:(?<e>' + $any + ')(?:,(?<e>' + $any + '))*)?\]\z')
+            Out = [regex]'<local-command-stdout>([\s\S]*?)</local-command-stdout>'
+        }
+        $script:ChatSessionRx = $x
+    }
+    return $x
 }
 
 function Get-ChatSessionRecord {
@@ -1581,15 +1629,20 @@ function Update-ChatBackgroundScan {
 }
 
 function Test-ChatPrintLive {
-    # Is a print-mode claude of this chat alive - one not interactive, a
-    # claude -p going into it right now? While one is, what it starts is not
-    # dead work, and a window shown the chat fresh would load it part way.
-    # An entry naming no kind is taken for interactive, as everywhere else.
+    # Is a print-mode claude of this chat alive - a claude -p going into it
+    # right now? While one is, what it starts is not dead work, and a window
+    # shown the chat fresh would load it part way. Told by a kind that is not
+    # interactive, or by an SDK's entrypoint (sdk-cli, sdk-ts, sdk-py) under
+    # the kind interactive: Claude Code 2.1.283 registers a claude -p that
+    # way (S38 item 5), whoever started it - a queued run, a phone reply, or
+    # someone's own script. An entry naming neither is taken for
+    # interactive, as everywhere else.
     param([object[]]$Live, [string]$SessionId)
     foreach ($e in @($Live)) {
         if (-not $e -or [string](Get-ChatField $e 'SessionId') -ne $SessionId) { continue }
         $k = [string](Get-ChatField $e 'Kind')
         if ($k -and $k -ne 'interactive') { return $true }
+        if ([string](Get-ChatField $e 'Entrypoint') -cin $script:ChatSdkEntrypoints) { return $true }
     }
     return $false
 }
@@ -1632,10 +1685,12 @@ function Test-ChatIdle {
     }
 
     # then the transcripts themselves - all there is to go on for Codex, or a
-    # Claude too old to keep that list. Anything written just now is live
+    # Claude too old to keep that list. Anything written just now is live -
+    # by a record of a turn: a tab a reload brought back touches its file
+    # with none (Get-ChatLastWritten)
     if ($Except) { $files = @($files | Where-Object { $_.FullName -ne $Except }) }
     $cut = (Get-Date).AddSeconds(-$Seconds)
-    foreach ($f in $files) { if ($f.LastWriteTime -gt $cut) { return $false } }
+    foreach ($f in $files) { if (Test-ChatWrittenSince $f.FullName $f.LastWriteTime $cut) { return $false } }
 
     # quiet on disk is not the same as finished, though. Only a recently
     # touched transcript can still be live, so the rest are not worth opening.
@@ -1688,7 +1743,9 @@ function Write-ChatReloadRequest {
     # Stop-ChatIdleProcess) and the VS Code windows that held it (-HostPids),
     # and its transcript where known (-Transcript), which the window mends
     # before it opens the chat, if Claude Code has left it out of its lists.
-    # Without -SessionId the request is what 0.5.0 wrote, byte for byte.
+    # Without -SessionId the request's own fields are what 0.5.0 wrote; the
+    # file may also carry the few written just before it under earlier
+    # (Save-ChatRequest), which an older extension never reads.
     # -Auto: the run was auto-continue's, and the window words its offer so
     # -HandoverPids: the windows a handover asked to close the chat's tab as
     # the run began (Invoke-ChatqHandover). Its process gone since, the end
@@ -1718,7 +1775,7 @@ function Write-ChatReloadRequest {
         if ($JobId) { $req.jobId = $JobId }
     }
     $req.at = (Get-Date).ToString('o')
-    Save-ChatSignal $script:ChatReloadPath $req
+    Save-ChatRequest $script:ChatReloadPath $req
 }
 
 function Write-ChatOpenRequest {
@@ -1742,7 +1799,7 @@ function Write-ChatOpenRequest {
     }
     if ($Transcript) { $req.file = $Transcript }
     $req.at = (Get-Date).ToString('o')
-    Save-ChatSignal $script:ChatOpenPath $req
+    Save-ChatRequest $script:ChatOpenPath $req
 }
 
 function Write-ChatWatchRequest {
@@ -1764,7 +1821,7 @@ function Write-ChatWatchRequest {
         hostPids  = [int[]]@($HostPids | Where-Object { $_ })
         at        = (Get-Date).ToString('o')
     }
-    Save-ChatSignal $script:ChatOpenPath $req
+    Save-ChatRequest $script:ChatOpenPath $req
 }
 
 function Write-ChatRunState {
@@ -1783,8 +1840,11 @@ function Write-ChatRunState {
     Away (the idle clock), Beside - why the run goes in beside a view of the
     chat still open: background (a command it runs, whose tab is left
     alone), unsure (no window closed it), timed-out (its process outlived
-    the close) - and HandoverId. ultracode and effort are the job's own
-    fields. runnerPid lets the extension tell a
+    the close) - and HandoverId, which ended carries only when a window
+    closed the tab (Get-ChatShowHold), or for a watcher killed mid-run,
+    whose next start keeps it as it was (Repair-ChatqInterrupted).
+    ultracode and effort are the job's own fields. runnerPid lets the
+    extension tell a
     watcher killed mid-run, which never writes ended: the next one does
     (Repair-ChatqInterrupted). UTF-8, swapped in whole. Returns the id.
     #>
@@ -1841,6 +1901,67 @@ function Read-ChatRunAck {
     try { return ([System.IO.File]::ReadAllText($f).TrimStart([char]0xFEFF) | ConvertFrom-Json) } catch { return $null }
 }
 
+function Read-ChatReloadPending {
+    # The reloads VS Code windows are asking about, unanswered, one entry a
+    # window: @{ pid; window; id; state; say; text; count } - id, state
+    # (offered: go is Reload; anyway: Reload anyway), say and text of its
+    # newest ask, count of all it has open. The extension keeps the file
+    # (extension.js askReload) while a notice is up; one whose host pid is
+    # gone - a crash, or a reload that never took its file - is removed,
+    # and so is one whose pid is alive but was started well after the file
+    # says, a pid reused. A BOM is let past.
+    param([string]$Dir = $script:ChatReloadPendingDir)
+    if (-not (Test-Path -LiteralPath $Dir)) { return @() }
+    $out = New-Object System.Collections.Generic.List[object]
+    foreach ($f in @(Get-ChildItem -LiteralPath $Dir -Filter '*.json' -File -EA SilentlyContinue)) {
+        if ($f.Name -notmatch '^(\d+)\.json$') { continue }
+        $hostPid = [int]$Matches[1]
+        $p = Get-Process -Id $hostPid -EA SilentlyContinue
+        # read sharing delete: the extension renames over the file, or
+        # removes it, as a notice is answered - which a plain read would
+        # refuse on Windows, the file then left naming an ask gone
+        $r = try {
+            $fs = [System.IO.FileStream]::new($f.FullName, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read,
+                ([System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete))
+            try { [System.IO.StreamReader]::new($fs, [System.Text.Encoding]::UTF8).ReadToEnd().TrimStart([char]0xFEFF) | ConvertFrom-Json } finally { $fs.Dispose() }
+        }
+        catch { $null }
+        $reused = $false
+        if ($p -and $r -and (Get-ChatField $r 'started')) {
+            try {
+                $began = [DateTimeOffset]::FromUnixTimeMilliseconds([int64](Get-ChatField $r 'started')).LocalDateTime
+                $reused = [math]::Abs(($p.StartTime - $began).TotalSeconds) -gt 300
+            } catch {}
+        }
+        if (-not $p -or $reused) { Remove-Item -LiteralPath $f.FullName -Force -EA SilentlyContinue; continue }
+        if (-not $r) { continue }   # mid-write: the next look has it
+        $asks = @(Get-ChatField $r 'asks' | Where-Object { $_ -and (Get-ChatField $_ 'id') })
+        if (-not $asks.Count) { continue }
+        $last = $asks[-1]
+        $out.Add([pscustomobject]@{
+                pid    = $hostPid
+                window = [string](Get-ChatField $r 'window')
+                id     = [string](Get-ChatField $last 'id')
+                state  = [string](Get-ChatField $last 'state')
+                say    = [string](Get-ChatField $last 'say')
+                text   = [string](Get-ChatField $last 'text')
+                count  = $asks.Count
+            })
+    }
+    # unrolled: callers take it as @(Read-ChatReloadPending), which a
+    # comma-wrapped array would reach as one element holding them all
+    return $out.ToArray()
+}
+
+function Write-ChatReloadAnswer {
+    # The overlay's answer to a window's reload ask: reload-answer/<its ext
+    # host pid>.json, @{ id; answer; at }, which the extension reads once and
+    # removes (extension.js onReloadAnswer). reload is the notice's own
+    # button; later takes the ask off the overlay, the notice left up.
+    param([int]$HostPid, [string]$Id, [ValidateSet('reload', 'later')][string]$Answer)
+    Save-ChatSignal (Join-Path $script:ChatReloadAnswerDir "$HostPid.json") ([ordered]@{ id = $Id; answer = $Answer; at = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ') })
+}
+
 function Get-ChatShowHold {
     # Until when a window may still be showing this chat fresh on a request
     # just written for it - a run's (ran) or the chip's (open) - or $null.
@@ -1849,18 +1970,24 @@ function Get-ChatShowHold {
     # run into it waits that out (Invoke-ChatqJob). A handed-over run's end
     # (data/run-state 'ended' with a handoverId) counts as one too: the window
     # that closed the chat's tab puts it back then, however the run ended -
-    # a cancel or a requeue writes no 'ran' request to wait on.
+    # a cancel or a requeue writes no 'ran' request to wait on. An end whose
+    # handover closed no tab - in use, not told apart - carries no
+    # handoverId, and holds nothing. Every request a file carries counts
+    # (Read-ChatRequests): one written after the chat's - a delete, another
+    # chat's run - leaves it under earlier.
     param([string]$SessionId, [datetime]$Now = (Get-Date))
     if (-not $SessionId -or $script:ChatShowHoldSeconds -le 0) { return $null }
     $until = $null
-    foreach ($f in $script:ChatReloadPath, $script:ChatOpenPath, $script:ChatRunStatePath) {
-        if (-not (Test-Path -LiteralPath $f)) { continue }
-        $r = try { [System.IO.File]::ReadAllText($f).TrimStart([char]0xFEFF) | ConvertFrom-Json } catch { $null }
-        if (-not $r -or [string](Get-ChatField $r 'sessionId') -ne $SessionId) { continue }
-        if ($f -eq $script:ChatRunStatePath) {
-            if ([string](Get-ChatField $r 'phase') -ne 'ended' -or -not (Get-ChatField $r 'handoverId')) { continue }
+    $held = New-Object System.Collections.Generic.List[object]
+    foreach ($f in $script:ChatReloadPath, $script:ChatOpenPath) {
+        foreach ($r in @(Read-ChatRequests $f)) {
+            if ([string](Get-ChatField $r 'kind') -in 'ran', 'open') { $held.Add($r) }
         }
-        elseif ([string](Get-ChatField $r 'kind') -notin 'ran', 'open') { continue }
+    }
+    $rs = Read-ChatRunState
+    if ($rs -and [string](Get-ChatField $rs 'phase') -eq 'ended' -and (Get-ChatField $rs 'handoverId')) { $held.Add($rs) }
+    foreach ($r in $held) {
+        if ([string](Get-ChatField $r 'sessionId') -ne $SessionId) { continue }
         $at = ConvertTo-ChatqDate (Get-ChatField $r 'at')
         if (-not $at) { continue }
         $end = $at.AddSeconds($script:ChatShowHoldSeconds)
@@ -1869,15 +1996,66 @@ function Get-ChatShowHold {
     return $until
 }
 
+function Read-ChatRequests {
+    # A signal file's requests, oldest first: those under earlier, then the
+    # file's own. A file an older script wrote is its one request; none, or
+    # one that is not a JSON object, is none. A BOM is let past. Looked at
+    # as text first: pwsh's ConvertFrom-Json hands back a one-element array
+    # as the element itself.
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) { return @() }
+    $raw = try { [System.IO.File]::ReadAllText($Path).TrimStart([char]0xFEFF).Trim() } catch { '' }
+    if (-not $raw.StartsWith('{')) { return @() }
+    $top = try { $raw | ConvertFrom-Json } catch { $null }
+    if ($top -isnot [System.Management.Automation.PSCustomObject]) { return @() }
+    $out = New-Object System.Collections.Generic.List[object]
+    foreach ($e in @(Get-ChatField $top 'earlier')) {
+        if ($e -is [System.Management.Automation.PSCustomObject] -and (Get-ChatField $e 'id')) { $out.Add($e) }
+    }
+    $out.Add(($top | Select-Object -Property * -ExcludeProperty earlier))
+    return $out.ToArray()
+}
+
+function Save-ChatRequest {
+    <#
+    A request for the extension: data/reload-request or data/open-request.
+    The file is this request, whole, as it has always been one - so an
+    older extension, or the old chatManagerReload one, reads it as before
+    and misses only what it always missed - and under earlier the few
+    written just before it, oldest first: at most ChatSignalCarryMax, none
+    older than ChatSignalCarrySeconds. The extension polls every 2 s, and
+    two requests inside one poll - a delete right after a queued run - left
+    the first overwritten unseen; it now takes every id it has not seen
+    (extension.js requestsOf). data/signal.lock is held from the read to
+    the write, so two writers never drop each other's; not had within 3 s,
+    the request is written alone. -Now: what the minute counts back from.
+    #>
+    param([string]$Path, $Request, [datetime]$Now = (Get-Date))
+    $save = {
+        $cut = $Now.AddSeconds(-$script:ChatSignalCarrySeconds)
+        $keep = @(Read-ChatRequests $Path | Where-Object {
+                $at = ConvertTo-ChatqDate (Get-ChatField $_ 'at')
+                $at -and $at -ge $cut -and [string](Get-ChatField $_ 'id') -ne [string](Get-ChatField $Request 'id')
+            })
+        if ($keep.Count -gt $script:ChatSignalCarryMax) { $keep = @($keep[($keep.Count - $script:ChatSignalCarryMax)..($keep.Count - 1)]) }
+        $o = [ordered]@{}
+        foreach ($k in @($Request.Keys)) { $o[$k] = $Request[$k] }
+        if ($keep.Count) { $o.earlier = [object[]]$keep }
+        Save-ChatSignal $Path $o
+    }
+    try { $null = Invoke-ChatqLocked $script:ChatSignalLockPath $save }
+    catch { Save-ChatSignal $Path $Request }
+}
+
 function Save-ChatSignal {
-    # One request, replacing the last: the extension reads the whole file.
+    # One JSON object, replacing the file: the extension reads it whole.
     param([string]$Path, $Request)
     try {
         $dir = Split-Path $Path -Parent
         if (-not (Test-Path -LiteralPath $dir)) {
             New-Item -ItemType Directory -Path $dir -Force | Out-Null
         }
-        $json = $Request | ConvertTo-Json -Compress
+        $json = $Request | ConvertTo-Json -Compress -Depth 6
         # NOT Set-Content -Encoding UTF8: that writes a BOM on 5.1 and
         # JSON.parse rejects a BOM outright, so the extension would see nothing
         [System.IO.File]::WriteAllText($Path, $json, (New-Object System.Text.UTF8Encoding $false))

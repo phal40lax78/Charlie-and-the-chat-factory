@@ -63,6 +63,7 @@ body {
 .permit .code { font-size: 15px; font-weight: 500; max-height: 40vh; overflow: auto; -webkit-user-select: text; user-select: text; }
 .permit .fine { text-align: left; }
 .meta { color: var(--muted); font-size: 14px; }
+.usage { margin: 4px 0 0; font-size: 13px; }
 .title {
     margin: 0; font-size: 22px; line-height: 1.3; font-weight: 650;
     word-break: keep-all; overflow-wrap: anywhere;
@@ -331,6 +332,7 @@ button:disabled { opacity: .45; cursor: default; }
     <header class="top">
         <div class="line1"><span id="ev" class="chip"></span><span id="meta" class="meta"></span></div>
         <h1 id="title" class="title"></h1>
+        <p id="usage" class="meta usage" hidden></p>
     </header>
     <!-- a permission request: the call as the card says, opened on this phone -->
     <section id="permit" class="permit" hidden>
@@ -696,7 +698,10 @@ var ChatqPage = (function () {
                 // f=1: the whole answer went to the down topic; o: when, in
                 // unix seconds, so the page knows how far back to look
                 full: q.f === '1',
-                at: /^[0-9]{9,11}$/.test(q.o || '') ? +q.o : 0
+                at: /^[0-9]{9,11}$/.test(q.o || '') ? +q.o : 0,
+                // s: usage and the chats at work as the alert went - shown
+                // under the title, as text only
+                status: clean(q.s, 200)
             }
         };
     }
@@ -1453,19 +1458,24 @@ var ChatqBoard = (function () {
         if (type === 'open' && row.state === 'waiting') return 'waits on you at the PC - a message goes once that is answered there' + also;
         if (type === 'open' && row.state === 'busy') return 'working now - a message goes when this turn ends' + also;
         if (q) return queued;
-        if (type === 'cut') return (row.d || 'cut off') + ' - a message goes after the reset';
+        // what auto-continue does with it, in full, when the PC says (al)
+        if (type === 'cut') return (row.al || row.d || 'cut off') + ' - a message goes after the reset';
         if (type === 'open') return 'open in ' + (whereText(row.where) || 'a window') + ' - a message goes in when it is idle';
         return 'a message goes next';
     }
     // The mode chip: the PC gives the phone's cap, and a mode above it is
-    // brought down to it. A chat of the list says its own mode, once capped
+    // brought down to it. A chat whose own mode the PC read (known) - the
+    // list's, and the board's open chats - says it, once capped
     function modeText(b, isNew, row) {
         if (isNew) {
             var m = (b && b.newMode) || 'default';
             return m === 'default' ? 'default - anything that would ask is denied' : m;
         }
         if (row && row.known && row.m) return row.m + (row.mc ? ' (phone\'s limit)' : '');
-        return 'at most ' + ((b && b.cap) || 'acceptEdits');
+        // keep: no cap - the chat's own mode, as at the PC. Every PC sends its
+        // cap; none (a body built without one) is keep, as the PC reads it
+        var cap = (b && b.cap) || 'keep';
+        return cap === 'keep' ? 'the chat\'s own mode' : 'at most ' + cap;
     }
     function listenText(b) {
         if (!b) return '';
@@ -2056,6 +2066,8 @@ var ChatqBoard = (function () {
         if (f.job === 'live') meta.push('a chat you run');
         else if (f.job && P.normEvent(f.job) !== f.event) meta.push('job ' + f.job);
         $('meta').textContent = meta.join(' \u00b7 ');
+        $('usage').textContent = f.status || '';
+        $('usage').hidden = !f.status;
         // a permission request shows the call itself, from its card
         var pv = f.event === 'permission' ? P.permitView(f.permit, f, Date.now()) : null;
         $('permit').hidden = !pv;
@@ -2721,7 +2733,7 @@ var ChatqBoard = (function () {
             if (B.whereText(row.where)) meta.push(B.whereText(row.where));
         }
         $('cMeta').textContent = meta.join(' \u00b7 ');
-        $('cMode').textContent = B.modeText(b, false, type === 'older' ? row : null);
+        $('cMode').textContent = B.modeText(b, false, chat);
         $('cState').textContent = B.stateLine(type, row);
         if (type === 'open' && row.prompt) { $('cPrompt').textContent = row.prompt; $('cPrompt').hidden = false; }
         // the question it waits on, every option with its description

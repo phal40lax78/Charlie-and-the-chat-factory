@@ -77,9 +77,15 @@ Add-ChatNotification 'aagent0001' 8
 Add-ChatLaunch 'Bash' ([ordered]@{ stdout = ''; stderr = ''; interrupted = $false; backgroundTaskId = 'bshell0001' }) 5
 Set-Quiet
 Check 'a background shell does not count - it may be a server that never ends' ((Test-ChatIdle -Cwd $projW) -eq $true)
+# a tab a reload brought back: Claude writes its transcript as the process
+# starts or ends - records with no timestamp, no turn. Not live
+[System.IO.File]::AppendAllText($pW1, '{"type":"cost-state","sessionId":"' + $idW1 + '"}' + "`n", $utf8)
+(Get-Item -LiteralPath $pW1).LastWriteTime = Get-Date
+Check 'a chat only touched this minute, by a record with no turn in it, is not live' ((Test-ChatIdle -Cwd $projW) -eq $true)
 # the chat a queued run just wrote reads live for a minute; that alone must
 # not stop its window reloading by itself
-(Get-Item -LiteralPath $pW1).LastWriteTime = Get-Date
+Add-ChatRecord $pW1 ([ordered]@{ type = 'assistant'; message = [ordered]@{ role = 'assistant'; stop_reason = 'end_turn'
+            content = @([ordered]@{ type = 'text'; text = 'Answered.' }) } }) 0
 Check 'a chat written this minute is live - unless it is the one the run wrote' ((Test-ChatIdle -Cwd $projW) -eq $false -and (Test-ChatIdle -Cwd $projW -Except $pW1) -eq $true)
 # but what Claude says of that chat's own open process still counts: after
 # the run it can only be a window's, and that may be mid-answer
@@ -89,6 +95,12 @@ Remove-Item env:FAKE_AGENTS
 # a chat written minutes ago is someone's, at the PC or from the phone
 $pW2 = Join-Path (Join-Path (Join-Path $claudeHome 'projects') (Get-Slug $projW)) "$idW2.jsonl"
 $w2Was = (Get-Item -LiteralPath $pW2).LastWriteTime
+# its turn, asked and answered, so its transcript alone reads finished
+$w2At = (Get-Date).ToUniversalTime().AddMinutes(-3).ToString('o')
+$w2Turn = [ordered]@{ type = 'user'; message = [ordered]@{ role = 'user'; content = 'from the phone' }; sessionId = $idW2; timestamp = $w2At } | ConvertTo-Json -Compress -Depth 6
+$w2Done = [ordered]@{ type = 'assistant'; message = [ordered]@{ role = 'assistant'; stop_reason = 'end_turn'; content = @([ordered]@{ type = 'text'; text = 'Done.' }) }
+    sessionId = $idW2; timestamp = $w2At } | ConvertTo-Json -Compress -Depth 6
+[System.IO.File]::AppendAllText($pW2, $w2Turn + "`n" + $w2Done + "`n", $utf8)
 (Get-Item -LiteralPath $pW2).LastWriteTime = (Get-Date).AddMinutes(-3)
 Check 'a neighbour written 3 min ago is live over quietMinutes, not over one minute' ((Test-ChatIdle -Cwd $projW -Except $pW1 -Seconds 300) -eq $false -and (Test-ChatIdle -Cwd $projW -Except $pW1) -eq $true)
 (Get-Item -LiteralPath $pW2).LastWriteTime = $w2Was

@@ -198,6 +198,51 @@ Check 'an unknown event name saves nothing' (-not (Get-ChatqConfig).PSObject.Pro
 $status = (chatnotify 6>&1 | Out-String -Width 400)
 Check 'chatnotify alone shows the replies line' ($status -like '*replies from the phone: paired - Pixel 8*') $status
 
+# config.json's lock (Lock-ChatqConfig). Another process - a pairing
+# confirmed there - holds it and saves: chatnotify waits, then reads the
+# file afresh, so what that process wrote stays. Held for good: nothing saved.
+$cfgProbe = @"
+`$h = [System.IO.File]::Open('$($script:ChatqConfigLockPath)', 'OpenOrCreate', 'ReadWrite', 'None')
+Start-Sleep -Milliseconds 500
+`$t = [System.IO.File]::ReadAllText('$($script:ChatqConfigPath)')
+`$i = `$t.IndexOf('{')
+[System.IO.File]::WriteAllText('$($script:ChatqConfigPath)', `$t.Substring(0, `$i + 1) + '"lockProbe":"kept",' + `$t.Substring(`$i + 1))
+`$h.Dispose()
+"@
+$psiLk = New-Object System.Diagnostics.ProcessStartInfo((Get-Process -Id $PID).Path, "-NoProfile -NonInteractive -EncodedCommand $([Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($cfgProbe)))")
+$psiLk.UseShellExecute = $false
+$psiLk.CreateNoWindow = $true
+$prLk = [System.Diagnostics.Process]::Start($psiLk)
+$heldLk = $false
+$untilLk = (Get-Date).AddSeconds(20)
+while (-not $heldLk -and -not $prLk.HasExited -and (Get-Date) -lt $untilLk) {
+    try { ([System.IO.File]::Open($script:ChatqConfigLockPath, 'OpenOrCreate', 'ReadWrite', 'None')).Dispose(); Start-Sleep -Milliseconds 20 } catch { $heldLk = $true }
+}
+$rLk = Set-ChatqNotifyConfig @{ Toast = 'on' }
+$null = $prLk.WaitForExit(10000)
+$cfgLkNow = Get-ChatqConfig
+Check 'config.json''s lock held by another process that saves meanwhile: chatnotify waits, and what that process wrote stays' ($heldLk -and -not $rLk.Error -and
+    (Get-ChatField $cfgLkNow 'lockProbe') -eq 'kept' -and (Get-ChatField $cfgLkNow 'toast') -eq $true -and (Get-ChatqReplyConfig).Paired) "$heldLk $($rLk.Error) $(Get-ChatField $cfgLkNow 'lockProbe')"
+$cfgLk = [System.IO.File]::Open($script:ChatqConfigLockPath, 'OpenOrCreate', 'ReadWrite', 'None')
+$t0Lk = Get-Date
+try { $rLk2 = Set-ChatqNotifyConfig @{ Toast = 'off' } }
+finally { $cfgLk.Dispose() }
+$waitedLk = ((Get-Date) - $t0Lk).TotalSeconds
+Check 'held for good: chatnotify saves nothing after 3 s of tries and says config.json is busy' ($rLk2.Error -eq 'config.json is busy' -and $waitedLk -ge 2.5 -and
+    (Get-ChatField (Get-ChatqConfig) 'toast') -eq $true -and @($rLk2.Messages | Where-Object { $_.Text -like 'config.json is busy*' }).Count -eq 1) "$($rLk2.Error) $waitedLk"
+Lock-ChatqConfig
+try {
+    Set-ChatOverlayConfig @{ theme = (Get-ChatOverlayConfig).theme }
+    $cfgN = Get-ChatqConfig
+    $cfgN.PSObject.Properties.Remove('lockProbe')
+    Save-ChatqConfig $cfgN
+    $depthLk = $script:ChatqConfigLockDepth
+}
+finally { Unlock-ChatqConfig }
+$freeLk = try { ([System.IO.File]::Open($script:ChatqConfigLockPath, 'OpenOrCreate', 'ReadWrite', 'None')).Dispose(); $true } catch { $false }
+Check 'the lock taken again inside itself - by hand, around the overlay''s settings save; no code path nests it today - only counts, and lets go with the outer one' ($depthLk -eq 1 -and $freeLk -and
+    $script:ChatqConfigLockDepth -eq 0 -and $null -eq (Get-ChatField (Get-ChatqConfig) 'lockProbe')) "$depthLk $freeLk $($script:ChatqConfigLockDepth)"
+
 # replies off: the key stays, the window shuts, every alert out there is
 # forgotten, and a push goes out as it did before replies; on again, polling
 # starts over - nothing sent while off runs
@@ -297,6 +342,27 @@ $idBy = '2c2c2c2c-2c2c-42c2-82c2-2c2c2c2c2c2c'
 $pBy = New-FakeChat $projA $idBy 'Bypass chat' 1 @('go wild') -Mode 'bypassPermissions'
 $rowBy = Get-ChatqRowById -Id $idBy -Provider claude -Path $pBy
 $jby = (New-ChatqJob -Row $rowBy -Prompt 'carry on' -Kind prompt).Job
+Complete-ChatqJob $jby 'needs-input' ([pscustomobject]@{ kind = 'needs-input'; reason = 'asked' }) 'asked'
+# none by default: keep - the chat's own mode, as at the PC, a Codex
+# chat's sandbox too
+$null = Send-ChatqAlert 'needs input' 'x' 2 -Job $jby
+$txt = & $phSay 'phkeep1' (Protect-ChatqReplyMessage -Key $rc.Key -Aid (& $phLastJoin).F['a'] -Act prompt -Text 'keep going')
+$nkp = @(Get-ChatqJobs | Where-Object { $_.rule -eq 'phone' -and $_.sessionId -eq $idBy })[0]
+Check 'no cap by default (keep): a prompt into a bypassPermissions chat keeps its mode, a Codex chat its sandbox, and nothing says a limit' (
+    (Get-ChatqReplyConfig).MaxMode -eq 'keep' -and $nkp -and $nkp.modeAtQueue -eq 'bypassPermissions' -and -not $nkp.mode -and $txt -notlike "*the phone's limit*" -and
+    (Test-ChatqPhoneSandbox 'danger-full-access' 'keep') -and -not (Test-ChatqPhoneSandbox 'danger-full-access' 'auto') -and
+    -not (Limit-ChatqPhoneMode 'bypassPermissions' 'keep').Capped) "$((Get-ChatqReplyConfig).MaxMode) / $($nkp.mode) $($nkp.modeAtQueue) / $txt"
+# no cap given is keep too, and a hand-typed ' Keep' or 'Plan ' is read
+# as written; a value not on the ladder is still acceptEdits
+$kpCfg = { param($m) (Get-ChatqReplyConfig ([pscustomobject]@{ reply = [pscustomobject]@{ maxMode = $m } })).MaxMode }
+Check 'an empty cap is keep; a hand-typed Keep or Plan is read as written, a mode not on the ladder acceptEdits' (
+    -not (Limit-ChatqPhoneMode 'bypassPermissions' '').Capped -and (Test-ChatqPhoneSandbox 'danger-full-access' '') -and
+    (& $kpCfg ' Keep') -ceq 'keep' -and (& $kpCfg 'Plan ') -ceq 'plan' -and (& $kpCfg 'yolo') -eq 'acceptEdits' -and (& $kpCfg '') -eq 'keep') "$(& $kpCfg ' Keep') $(& $kpCfg 'Plan ') $(& $kpCfg 'yolo')"
+if ($nkp) { $null = Remove-ChatqJob $nkp }
+# the rest of the phone's tests run under a cap, as one set
+$null = Set-ChatqNotifyConfig @{ ReplyMaxMode = 'acceptEdits' }
+# a job of its own: the reply above answered - skipped - the first one
+$jby = (New-ChatqJob -Row $rowBy -Prompt 'carry on again' -Kind prompt).Job
 Complete-ChatqJob $jby 'needs-input' ([pscustomobject]@{ kind = 'needs-input'; reason = 'asked' }) 'asked'
 $null = Send-ChatqAlert 'needs input' 'x' 2 -Job $jby
 $aby = (& $phLastJoin).F['a']
@@ -731,6 +797,56 @@ $aLt2 = (& $phLastJoin).F['a']
 $txt = & $phSay 'phlate2' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $aLt2 -Act status -Ts ([DateTimeOffset]::UtcNow.AddMinutes(-11).ToUnixTimeMilliseconds()))
 $txt2 = & $phSay 'phlate3' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $aLt2 -Act prompt -Text 'on the way' -Ts ([DateTimeOffset]::UtcNow.AddMinutes(-29).ToUnixTimeMilliseconds()))
 Check 'a status 11 minutes old is too old; a prompt 29 minutes old still goes' ($txt -like '*too old*' -and $txt2 -like 'queued #*') "$txt / $txt2"
+# a Codex chat goes on at the PC too: its rollout read as a Claude transcript
+# is - a prompt typed in the Codex panel since, never Codex's own preamble,
+# its environment block or a compaction's copies of old messages
+$cxSid = '019a0000-0000-7000-8000-00000000c0de'
+$cxMv = Join-Path $sb "codex-moved\rollout-2026-09-30T10-00-00-$cxSid.jsonl"
+$null = New-Item -ItemType Directory -Path (Split-Path $cxMv) -Force
+$cxRec = {
+    param([string]$Type, $Payload, [datetime]$At = (Get-Date))
+    Start-Sleep -Milliseconds 30
+    ([ordered]@{ timestamp = $At.ToUniversalTime().ToString('o'); type = $Type; payload = $Payload } | ConvertTo-Json -Compress -Depth 8) + "`n"
+}
+$cxMsg = { param([string]$Role, [string]$Text) [ordered]@{ type = 'message'; role = $Role; content = @([ordered]@{ type = $(if ($Role -eq 'user') { 'input_text' } else { 'output_text' }); text = $Text }) } }
+$cxOld = (Get-Date).AddMinutes(-20)
+[System.IO.File]::WriteAllText($cxMv, (& $cxRec 'session_meta' ([ordered]@{ id = $cxSid; cwd = $projA }) $cxOld) +
+    (& $cxRec 'response_item' (& $cxMsg 'user' '# AGENTS.md instructions for the project') $cxOld) +
+    (& $cxRec 'response_item' (& $cxMsg 'user' 'fix the parser') $cxOld) +
+    (& $cxRec 'response_item' (& $cxMsg 'assistant' 'done, the parser is fixed') $cxOld), $utf8)
+$cxSince = Get-Date
+$cxLen = (Get-Item -LiteralPath $cxMv).Length
+Start-Sleep -Milliseconds 30
+$cxQuiet = (& $cxRec 'turn_context' ([ordered]@{ cwd = $projA })) +
+    (& $cxRec 'response_item' (& $cxMsg 'user' '<environment_context><cwd>x</cwd></environment_context>')) +
+    (& $cxRec 'event_msg' ([ordered]@{ type = 'agent_message'; message = 'thinking it over' })) +
+    (& $cxRec 'compacted' ([ordered]@{ message = 'summary'; replacement_history = @((& $cxMsg 'user' 'fix the parser')) })) +
+    (& $cxRec 'response_item' (& $cxMsg 'user' ('<environment_context>' + ('x' * 300000) + '</environment_context>')))
+[System.IO.File]::AppendAllText($cxMv, $cxQuiet, $utf8)
+$mvCx0 = Get-ChatqMovedOn -Since $cxSince -SinceLen $cxLen -Path $cxMv -Provider codex -SessionId $cxSid
+$mvCx0b = Get-ChatqMovedOn -Since $cxSince -Path $cxMv -Provider codex -SessionId $cxSid
+[System.IO.File]::AppendAllText($cxMv, (& $cxRec 'response_item' (& $cxMsg 'user' 'now also the tests')), $utf8)
+$mvCx1 = Get-ChatqMovedOn -Since $cxSince -SinceLen $cxLen -Path $cxMv -Provider codex -SessionId $cxSid
+$mvCx1b = Get-ChatqMovedOn -Since $cxSince -Path $cxMv -Provider codex -SessionId $cxSid
+Check 'a Codex chat: its own preamble, environment block and compaction are not the chat going on; a prompt typed in the panel since is - read from the length kept or back from the end' (
+    -not $mvCx0.Why -and -not $mvCx0b.Why -and $mvCx1.Why -eq 'typed' -and $mvCx1b.Why -eq 'typed' -and $mvCx1.TypedAt -gt (ConvertTo-ChatOverlayMs $cxSince)) "$($mvCx0.Why) $($mvCx0b.Why) $($mvCx1.Why) $($mvCx1b.Why)"
+$cxJob = [pscustomobject]@{ id = 'cx-test'; state = 'needs-input'; provider = 'codex'; sessionId = $cxSid; path = $cxMv; endedAt = $cxSince.ToString('o'); endLen = $cxLen; history = @() }
+$mvCx2 = Get-ChatqMovedOn -Job $cxJob -Path $cxMv -Provider codex
+$mvCx3 = Get-ChatqMovedOn -Job $cxJob -Path $cxMv -Provider codex -JobOnly
+Check 'a Codex job waiting on input whose chat was typed into since is answered; -JobOnly still reads nothing' ($mvCx2.Why -eq 'answered' -and -not $mvCx3.Why) "$($mvCx2.Why) $($mvCx3.Why)"
+# a line too long to keep - a pasted log - is judged by its text's start,
+# from the first and last 8 KB the reader has of it
+$cxLong = {
+    param([string]$Text)
+    $l = (& $cxRec 'response_item' (& $cxMsg 'user' $Text)).TrimEnd("`n")
+    (Get-ChatqLineRecord ($l.Substring(0, 8192) + $l.Substring($l.Length - 8192)) -Long -Provider codex).Typed
+}
+$cxPad = 'y' * 300000
+$cxL = @((& $cxLong "look at this log: $cxPad"), (& $cxLong "<environment_context>$cxPad"), (& $cxLong "# AGENTS.md instructions $cxPad"),
+    (& $cxLong "# Context from my IDE setup:`n$cxPad"), (& $cxLong "# Context from my IDE setup:`n$cxPad`n## My request for Codex:`nexplain it"))
+Check 'a Codex prompt too long to keep counts by how it starts: a pasted log is typed; the environment block, the preamble and the IDE''s wrapper with no request are not' (
+    ($cxL -join ',') -eq 'True,False,False,False,True') ($cxL -join ',')
+Remove-Item -LiteralPath (Split-Path $cxMv) -Recurse -Force
 # these chats, written to just now, out of the way of the sections after:
 # the phone's list shows the 30 newest
 $mvChats = @{ $idMv = $pMv; $idSn = $pSn }
@@ -855,6 +971,50 @@ $prHttp = Start-ChatqReplyPairing
 Check 'pairing with only ntfy over http: refused before anything changes - no push, the paired phone kept' ($prHttp.Error -like '*can carry the pairing link*' -and -not $prHttp.Sent -and
     ((Get-ChatqConfig).reply | ConvertTo-Json -Compress -Depth 5) -eq $replyBefore -and $script:PhJoins.Count -eq $n0 -and $script:Ntfys.Count -eq $nt0 -and
     (Get-ChatqReplyConfig).Paired) $prHttp.Error
+# your command given the link (chatnotify -CommandLinks on): a phone channel
+# then - CHATQ_LINK carries an alert's reply link, and the pairing's; at the
+# PC it still runs, with no link, as the phones stay quiet
+$cmdOut = Join-Path $sb 'cmdlinks.txt'
+Remove-Item -LiteralPath $cmdOut -Force -EA SilentlyContinue
+$cmdSet = Set-ChatqNotifyConfig @{ Command = "Add-Content -LiteralPath '$cmdOut' -Encoding UTF8 -Value (`$env:CHATQ_EVENT + '|' + `$env:CHATQ_LINK)"; CommandLinks = 'on' }
+$cmdOff = Set-ChatqNotifyConfig @{ CommandLinks = 'maybe' }
+Check 'chatnotify -CommandLinks on is saved, says where the command runs now, and takes only on or off' (-not $cmdSet.Error -and (Test-ChatqCommandLinks) -and
+    (Test-ChatqLinkChannel) -and (Test-ChatqPhoneChannel) -and @($cmdSet.Messages | Where-Object { $_.Text -like '*CHATQ_LINK*' }).Count -eq 1 -and
+    $cmdOff.Error -eq 'bad command links value') "$($cmdSet.Error) $($cmdOff.Error)"
+$idleCmd = $script:ChatqIdleSeam
+$script:ChatqIdleSeam = 30
+$okAtCmd = Send-ChatqAlert 'done' 'at the desk' 1
+$script:ChatqIdleSeam = 99999
+$okAwayCmd = Send-ChatqAlert 'test' 'command links' 1 -Loud
+$script:ChatqIdleSeam = $idleCmd
+$cmdLines = @(if (Test-Path -LiteralPath $cmdOut) { [System.IO.File]::ReadAllLines($cmdOut, $utf8) })
+Check 'with links on, an alert away gives the command the reply link; one at the PC runs it all the same, with none' (-not $okAtCmd -and $okAwayCmd -and
+    $cmdLines.Count -eq 2 -and $cmdLines[0] -eq 'done|' -and $cmdLines[1] -like "test|$((Get-ChatqReplyConfig).Page)#*") ($cmdLines -join ' / ')
+$prCmd = Start-ChatqReplyPairing
+$cmdLines = @(if (Test-Path -LiteralPath $cmdOut) { [System.IO.File]::ReadAllLines($cmdOut, $utf8) })
+Check 'with neither Join nor ntfy over https, the pairing goes through the command, its link in CHATQ_LINK' ($prCmd.Sent -and -not $prCmd.Error -and
+    $cmdLines.Count -eq 3 -and $cmdLines[2] -like 'pair|*#*m=pair*') "$($prCmd.Error) / $($cmdLines -join ' / ')"
+# the setup window's box for it: ticked from config.json; unticked, Save
+# has CommandLinks off to write
+if ($script:ChatqIsWindows) {
+    $cmdTool = (Join-Path $sb 'tool\Charlie-and-the-chat-factory.ps1').Replace("'", "''")
+    $cmdWin = Invoke-Sta 'cmdlinks-window' @"
+`$ErrorActionPreference = 'Stop'
+`$env:CHATQ_OVERLAY = '1'; `$env:CHATQ_WATCHER = '1'
+. '$cmdTool' *> `$null
+try {
+    `$w = New-ChatqPhoneSetupWindow -Theme light
+    `$U = `$w.Tag
+    `$a = [bool]`$U.CommandLinksBox.IsChecked
+    `$U.CommandLinksBox.IsChecked = `$false
+    Update-ChatqPhoneSetupDirty `$U
+    `$c = Get-ChatqPhoneSetupChanges `$U
+    "ok|`$a|`$(`$c.Changes['CommandLinks'])|`$(Test-ChatqPhoneSetupDirty `$U)"
+}
+catch { "error|`$(`$_.Exception.Message)" }
+"@
+    Check 'the setup window: "Give it the reply link too" ticked from config.json; unticked, Save has CommandLinks off to write' ($cmdWin -eq 'ok|True|off|True') $cmdWin
+}
 [System.IO.File]::WriteAllText($script:ChatqConfigPath, $phCfgMid, $utf8)
 # replies.json unreadable - NULs after a power cut: pairing puts it aside
 # and writes a fresh one, where anything else leaves it be
@@ -879,6 +1039,30 @@ $script:PhFeed = & $phFeedOf $six
 $h6 = Invoke-ChatqReplyPoll -Force
 $pc6 = @(Get-ChatqPairCandidates)
 Check 'six answers to one pairing: five wait as candidates, the oldest dropped' ($h6 -eq 6 -and $pc6.Count -eq 5 -and $pc6[0].Label -eq 'phone 2' -and $pc6[4].Label -eq 'phone 6') (($pc6 | ForEach-Object Label) -join ', ')
+# a pairing started elsewhere between the confirm's first read and its
+# lock (Lock-ChatqConfig): config.json read again under the lock names
+# another pairing, so the code confirms nothing - no key saved, and the
+# candidates stay as they were
+$phGcOrig = ${function:Get-ChatqConfig}
+$script:PhSwapPair = 'replacedpp'
+${function:Get-ChatqConfig} = {
+    $c = & $phGcOrig
+    if ($script:PhSwapPair -and $script:ChatqConfigLockDepth -gt 0 -and $c.reply -and $c.reply.pairing) {
+        $c.reply.pairing.id = $script:PhSwapPair
+        $script:PhSwapPair = $null
+        Save-ChatqJson $script:ChatqConfigPath $c
+    }
+    $c
+}
+try { $cGone = Confirm-ChatqPairCandidate -Code $pc6[4].Digits }
+finally { ${function:Get-ChatqConfig} = $phGcOrig }
+$cfgGone = Get-ChatqConfig
+$pcGone = @((Get-ChatqReplyState).pairCandidates)
+Check 'a pairing replaced between the confirm''s read and its lock: refused, no key saved, the candidates left as they were' ($cGone.Error -like 'that pairing was replaced meanwhile*' -and
+    -not $cfgGone.reply.PSObject.Properties['key'] -and $cfgGone.reply.pairing.id -ceq 'replacedpp' -and $pcGone.Count -eq 5 -and
+    ((@($pcGone | ForEach-Object { [string]$_.id }) | Sort-Object) -join ',') -ceq ((@($pc6 | ForEach-Object { [string]$_.Id }) | Sort-Object) -join ','))"$($cGone.Error) / $($cfgGone.reply.pairing.id) $($pcGone.Count)"
+$cfgGone.reply.pairing.id = $rc2.PairId
+Save-ChatqJson $script:ChatqConfigPath $cfgGone
 # a pairing that ran out takes no answer, and no confirmation
 $c = Get-ChatqConfig
 $c.reply.pairing.expires = (Get-Date).AddMinutes(-1).ToUniversalTime().ToString('o')
@@ -889,6 +1073,29 @@ $null = Receive-ChatqReply $rcx 'phpairexp' (New-PhPairMessage $pj2.F $phD2 'too
 Check 'a pairing past its 15 minutes: no answer taken or confirmed, nothing to listen for, and the status says not paired' (-not (Get-ChatqReplyConfig).Paired -and
     -not (Test-ChatqReplyOpen) -and -not @(Get-ChatqPairCandidates).Count -and (Confirm-ChatqPairCandidate -Code $pc6[4].Digits).Error -like '*no pairing is waiting*' -and
     (Get-ChatqPhoneStatusText) -eq 'not paired') (Get-ChatqPhoneStatusText)
+# a Save landing while a pairing starts, after its first read of
+# config.json: read again under the lock, so what that Save wrote stays
+# beside the new pairing
+$cfgBeforeKeep = Get-ChatqConfig
+$script:PhSwapPair = 'kept'
+${function:Get-ChatqConfig} = {
+    # the first read gets the file as it was, and the Save lands right after
+    $c = & $phGcOrig
+    if ($script:PhSwapPair) {
+        $c0 = & $phGcOrig
+        Set-ChatqProp $c0 'pairProbe' $script:PhSwapPair
+        Save-ChatqJson $script:ChatqConfigPath $c0
+        $script:PhSwapPair = $null
+    }
+    $c
+}
+try { $prKeep = Start-ChatqReplyPairing }
+finally { ${function:Get-ChatqConfig} = $phGcOrig }
+$cfgKeep = Get-ChatqConfig
+Check 'a Save landing after a pairing''s first read of config.json stays: the pairing reads the file again under the lock' ($prKeep.Sent -and
+    (Get-ChatField $cfgKeep 'pairProbe') -eq 'kept' -and $cfgKeep.reply.pairing.id -and $null -eq (Get-ChatField $cfgBeforeKeep 'pairProbe')) "$($prKeep.Error) $(Get-ChatField $cfgKeep 'pairProbe')"
+$cfgKeep.PSObject.Properties.Remove('pairProbe')
+Save-ChatqJson $script:ChatqConfigPath $cfgKeep
 # the pairing push that does not go out - Join answers 500, ntfy over http
 # cannot carry the link: an error, and no pairing left waiting for a tap
 $null = Set-ChatqNotifyConfig @{ NtfyServer = 'http://ntfy.example' }
@@ -1086,17 +1293,17 @@ $lvEnd = [ordered]@{ parentUuid = $null; isSidechain = $false; type = 'assistant
     message = [ordered]@{ model = 'claude-opus-5'; role = 'assistant'; content = @([ordered]@{ type = 'text'; text = "Made the build three times faster.`n`nShould I commit this?" }); stop_reason = 'end_turn' } }
 [System.IO.File]::AppendAllText($pLive, ($lvTool | ConvertTo-Json -Compress -Depth 8) + "`n" + ($lvEnd | ConvertTo-Json -Compress -Depth 8) + "`n", $utf8)
 $lvEntry = {
-    param([string]$Status, [string]$Kind = 'interactive')
+    param([string]$Status, [string]$Kind = 'interactive', [string]$Entrypoint = 'claude-vscode')
     [pscustomobject]@{ SessionId = $idLive; Pid = 4242; Status = $Status; Kind = $Kind; WaitingFor = $(if ($Status -eq 'waiting') { 'permission' } else { $null })
-        Cwd = $projA; Name = 'registry-name'; ProcStart = $null; StartedAt = $null; Entrypoint = 'claude-vscode' }
+        Cwd = $projA; Name = 'registry-name'; ProcStart = $null; StartedAt = $null; Entrypoint = $Entrypoint }
 }
 $lvCtx = { @{ ClaudeHome = $claudeHome; Text = @{}; Jobs = @(); Chains = @{} } }
 $script:LvBase = Get-Date
 $lvRun = {
     # one pass per step, @(seconds after the base, status); the alerts it made
-    param($Ctx, [object[]]$Steps, [string]$Kind = 'interactive')
+    param($Ctx, [object[]]$Steps, [string]$Kind = 'interactive', [string]$Entrypoint = 'claude-vscode')
     $n0 = $script:LvSent.Count
-    foreach ($s in $Steps) { Update-ChatqLiveAlerts $Ctx @(& $lvEntry $s[1] $Kind) $script:LvBase.AddSeconds([double]$s[0]) }
+    foreach ($s in $Steps) { Update-ChatqLiveAlerts $Ctx @(& $lvEntry $s[1] $Kind $Entrypoint) $script:LvBase.AddSeconds([double]$s[0]) }
     , @($script:LvSent | Select-Object -Skip $n0)
 }
 $lvOvLog = { $p = Join-Path $script:ChatqLogDir 'overlay.log'; if (Test-Path -LiteralPath $p) { ([System.IO.File]::ReadAllText($p, $utf8) -split "`n" | Select-Object -Last 3) -join ' | ' } else { '' } }
@@ -1123,6 +1330,37 @@ Check 'busy to idle for 5 s: one done alert, priority 1, the reply''s end as the
 $r3 = & $lvRun $c @(@(20, 'busy'), @(22, 'idle'), @(30, 'idle'), @(100, 'idle'))
 $r4 = & $lvRun $c @(, @(200, 'idle'))
 Check 'once per chat and event every 3 minutes: the next turn''s done waits, and goes once the 3 minutes are up' ($r3.Count -eq 0 -and $r4.Count -eq 1 -and $r4[0].event -eq 'done') "$($r3.Count)/$($r4.Count)"
+# a phone-made chat Claude has not titled yet, run on at the PC: its live
+# alert goes by the neutral title its job holds, not the prompt the pass
+# read as the chat's first line - until Claude's own title is there
+$idLvH = 'cccccccc-cccc-4ccc-8ccc-c0c0c0c0c0c0'
+$pLvH = New-FakeChat $projA $idLvH '' 0.05 @('rotate the prod keys')
+$jLvH = (New-ChatqJob -Row (Get-ChatqRowById $idLvH -Path $pLvH) -Prompt 'and the staging ones' -Title 'phone chat 09:41' -Set @{ titleHeld = $true }).Job
+$lvHeld = {
+    param($Tx)
+    $cx = & $lvCtx
+    $cx.Text[$idLvH] = $Tx
+    $n0 = $script:LvSent.Count
+    foreach ($s in $lvBusyIdle) {
+        Update-ChatqLiveAlerts $cx @([pscustomobject]@{ SessionId = $idLvH; Pid = 4243; Status = $s[1]; Kind = 'interactive'; WaitingFor = $null
+                Cwd = $projA; Name = 'registry-name'; ProcStart = $null; StartedAt = $null; Entrypoint = 'claude-vscode' }) $script:LvBase.AddSeconds([double]$s[0])
+    }
+    , @($script:LvSent | Select-Object -Skip $n0)
+}
+$rH0 = & $lvHeld @{ Path = $pLvH; First = 'rotate the prod keys' }
+$rH1 = & $lvHeld @{ Path = $pLvH; First = 'rotate the prod keys'; AiTitle = 'Key rotation' }
+Check 'a live alert about a phone-made chat Claude has not titled: the title its job holds, never the prompt; Claude''s own once there' ($rH0.Count -eq 1 -and
+    $rH0[0].title -eq 'phone chat 09:41' -and $rH0[0].text -notlike '*prod keys*' -and $rH1.Count -eq 1 -and $rH1[0].title -eq 'Key rotation') "$($rH0.Count) $($rH0[0].title) / $($rH1.Count) $($rH1[0].title)"
+$null = Remove-ChatqJob (Find-ChatqJob $jLvH.id) 'test'
+Remove-Item -LiteralPath $pLvH -Force
+# a claude -p into the chat - chatq's run, a phone reply, anyone's script -
+# is no chat someone types in: Claude Code 2.1.283 registers one
+# interactive, stamped sdk-cli, and an older one says another kind
+$rk = & $lvRun (& $lvCtx) ($lvBusyIdle + @(, @(60, 'idle'))) 'print' 'sdk-cli'
+$rs = & $lvRun (& $lvCtx) ($lvBusyIdle + @(, @(60, 'idle'))) 'interactive' 'sdk-cli'
+$rsw = & $lvRun (& $lvCtx) $lvWait 'interactive' 'sdk-ts'
+Check 'live alerts: a claude -p is none, by its kind or by its sdk-* entrypoint - no done, no needs input' (
+    $rk.Count -eq 0 -and $rs.Count -eq 0 -and $rsw.Count -eq 0) "$($rk.Count) $($rs.Count) $($rsw.Count)"
 $script:ChatqIdleSeam = 0
 $c = & $lvCtx
 $r1 = & $lvRun $c ($lvBusyIdle + @(, @(60, 'idle')))
@@ -1179,40 +1417,20 @@ $statusOn = (chatnotify 6>&1 | Out-String -Width 400)
 Check 'liveAlerts off (chatnotify -LiveAlerts off): no alert, and the status says so; on again; a value that is not on or off saves nothing' ($lvBad.Error -and
     $ro.Count -eq 0 -and (Get-ChatqConfig).liveAlerts -eq $true -and $said -like '*chats you run yourself: no phone alerts*' -and
     $status -like '*chats you run yourself: off*' -and $statusOn -like '*chats you run yourself: on - waiting on you or finished, while you are away 5 min*') "$said / $status / $statusOn"
-# an overlay that started before src/phone.ps1 was last written runs the old
-# code, live alerts or not: the status says to restart it. Not known: nothing
-$lvStartFn = ${function:Get-ChatqOverlayStarted}
-$script:LvPhoneAt = (Get-Item -LiteralPath (Join-Path (Join-Path $script:ChatRoot 'src') 'phone.ps1')).LastWriteTime
+# The overlay restarts on newer code by itself (Test-ChatOverlayCodeChanged),
+# so a running one is all the status names - no "older copy" any more - and
+# one not running says that alone.
 New-ChatqDir (Split-Path -Parent $script:ChatOverlayLockPath)
 $lvOvLk = [System.IO.File]::Open($script:ChatOverlayLockPath, 'OpenOrCreate', 'ReadWrite', 'None')
 try {
-    ${function:Get-ChatqOverlayStarted} = { $script:LvPhoneAt.AddMinutes(-1) }
-    $stOld = Get-ChatqLiveAlertStatusText
-    ${function:Get-ChatqOverlayStarted} = { $script:LvPhoneAt.AddMinutes(1) }
-    $stNew = Get-ChatqLiveAlertStatusText
-    ${function:Get-ChatqOverlayStarted} = { $null }
-    $stUnk = Get-ChatqLiveAlertStatusText
+    $stRun = Get-ChatqLiveAlertStatusText
+    $stExtras = (@(Get-ChatqNotifyExtrasStatus (Get-ChatqConfig)) | ForEach-Object { $_.Text }) -join ' / '
 }
-finally { $lvOvLk.Dispose(); ${function:Get-ChatqOverlayStarted} = $lvStartFn }
-${function:Get-ChatqOverlayStarted} = { $script:LvPhoneAt.AddMinutes(-1) }
-try { $stGone = Get-ChatqLiveAlertStatusText } finally { ${function:Get-ChatqOverlayStarted} = $lvStartFn }
-Check 'the overlay started before src/phone.ps1 was written: the status says it runs an older copy; after, or not known: nothing; not running says that alone' (
-    $stOld -eq 'on - waiting on you or finished, while you are away 5 min - the overlay runs an older copy - chatoverlay -Stop, then chatoverlay' -and
-    $stNew -eq 'on - waiting on you or finished, while you are away 5 min' -and $stUnk -eq $stNew -and
-    $stGone -like '*the overlay is not running*' -and $stGone -notlike '*older copy*') "$stOld / $stNew / $stUnk / $stGone"
-# its start as the OS has it, from the pid data/overlay.pid names
-$lvPidWas = if (Test-Path -LiteralPath $script:ChatOverlayPidPath) { [System.IO.File]::ReadAllText($script:ChatOverlayPidPath) } else { $null }
-try {
-    Set-Content -LiteralPath $script:ChatOverlayPidPath -Value $PID -Encoding ASCII
-    $osMine = Get-ChatqOverlayStarted
-    Set-Content -LiteralPath $script:ChatOverlayPidPath -Value 'junk' -Encoding ASCII
-    $osJunk = Get-ChatqOverlayStarted
-    Remove-Item -LiteralPath $script:ChatOverlayPidPath -Force
-    $osNone = Get-ChatqOverlayStarted
-}
-finally { if ($null -ne $lvPidWas) { [System.IO.File]::WriteAllText($script:ChatOverlayPidPath, $lvPidWas) } }
-Check 'Get-ChatqOverlayStarted: the start time of the pid overlay.pid names; none for junk or no file' ($osMine -eq (Get-Process -Id $PID).StartTime -and
-    $null -eq $osJunk -and $null -eq $osNone) "$osMine / $osJunk / $osNone"
+finally { $lvOvLk.Dispose() }
+$stGone = Get-ChatqLiveAlertStatusText
+Check 'a running overlay: the status names nothing more - it restarts on new code itself; not running says that alone' (
+    $stRun -eq 'on - waiting on you or finished, while you are away 5 min' -and $stExtras -notlike '*older copy*' -and
+    $stGone -like '*the overlay is not running*' -and $stGone -notlike '*older copy*') "$stRun / $stExtras / $stGone"
 $lvCfgMid = [System.IO.File]::ReadAllText($script:ChatqConfigPath, $utf8)
 $null = Set-ChatqNotifyConfig @{ RemoveJoin = $true; Ntfy = '' }
 $rn = & $lvRun (& $lvCtx) $lvBusyIdle

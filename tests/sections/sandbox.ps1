@@ -230,6 +230,8 @@ Set-Location -LiteralPath $projA
 # nobody were at the PC), no push service, no ghost-watch events
 $script:Toasts = [System.Collections.Generic.List[string]]::new()
 $script:ChatqToastSeam = { param($t, $x) $script:Toasts.Add("$t|$x") }
+# no alert footer: it reads this PC's real usage and chats (Get-ChatqAlertFooter)
+$script:ChatqFooterSeam = { $null }
 $script:ChatqIdleSeam = 99999
 $script:Ntfys = [System.Collections.Generic.List[object]]::new()
 $script:ChatqNtfySeam = { param($server, $body, $headers) $script:Ntfys.Add([pscustomobject]@{ Server = $server; Body = $body; Headers = $headers }) }

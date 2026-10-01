@@ -50,6 +50,7 @@ function Save-ChatqWatchState {
                 since = $o.Since.ToUniversalTime().ToString('o'); next = $o.NextCheck.ToUniversalTime().ToString('o')
                 lastProbe = $o.LastProbe.ToUniversalTime().ToString('o')
                 status = $o.Status; attempts = $o.Attempts; alerted = [bool]$o.Alerted; reminded = [bool]$o.Reminded
+                autoJob = $o.AutoJob
             }
         }
     }
@@ -93,6 +94,7 @@ function Restore-ChatqWatchState {
                 Since = $since; Attempts = [int]$v.attempts; Status = $v.status
                 Alerted = [bool]$v.alerted; Reminded = [bool]$v.reminded
                 LastProbe = if ($last) { $last } else { $since }; NextCheck = if ($next) { $next } else { Get-Date }
+                AutoJob = [string](Get-ChatField $v 'autoJob')
             }
         }
     }
@@ -179,6 +181,9 @@ function Enter-ChatqOutage {
         $o = @{ Since = $now; Attempts = 0; Status = $null; Alerted = $false; LastProbe = $now; NextCheck = $now }
         $W.outage[$lane] = $o
     }
+    # a probe met the 529 itself: no longer only an auto job's guess
+    # (Clear-ChatqAutoOutage)
+    $o.AutoJob = $null
     $o.Attempts++
     $o.LastProbe = $now
     $steps = @(1, 2, 5, 10, 15)
@@ -229,6 +234,11 @@ function Confirm-ChatqAllowed {
     param($W, $Job)
     $lane = Get-ChatqLane $Job
     $key = "$lane|$(Get-ChatqRunModel $Job)"
+    # auto-continue's continue after a 529: waits as an outage the watcher
+    # saw itself would (src/auto-continue.ps1) - and one such wait ends
+    # once the job it was for no longer waits
+    $null = Clear-ChatqAutoOutage $W $Job
+    $null = Enter-ChatqAutoOutage $W $Job
     $last = $W.lastAllowed[$key]
     if ($last -and ((Get-Date) - $last).TotalMinutes -lt 3 -and -not $W.outage[$lane]) { return $true }
     if ($W.outage[$lane] -and -not (Test-ChatqOutageOver $W $Job)) { return $false }
@@ -250,6 +260,17 @@ function Confirm-ChatqAllowed {
         # a limit reset with prompts queued: said before the first one runs
         $null = Send-ChatqUsageReset $W $Job $wasBlock
         return $true
+    }
+    # what this job alone asks for cannot be handed to the CLI - a -Model
+    # cmd.exe cannot carry (Get-ChatqCmdArgRefusal): the job fails with that
+    # said, and the lane goes on to the next one, never blocked or backed
+    # off as if the CLI were out of reach
+    if ($r.Refused) {
+        Write-ChatqWatchLog "#$($Job.seq) refused: $($r.Error)"
+        if (Complete-ChatqJob $Job 'failed' ([pscustomobject]@{ kind = 'failed'; reason = $r.Error }) 'refused' -Existing) {
+            [void](Send-ChatqAlert 'failed' "$($Job.title) $($script:ChatqDot) $($r.Error)" 2 -Job $Job)
+        }
+        return $false
     }
     if ($r.Overloaded) { Enter-ChatqOutage $W $Job 'the probe got 529 Overloaded'; return $false }
     if ($r.Auth) { Block-ChatqLogin $W $Job $r.Error $r.Detail; return $false }
@@ -314,12 +335,15 @@ function Repair-ChatqInterrupted {
         Set-ChatqJobState $j 'failed' 'interrupted'
         [void](Send-ChatqAlert 'failed' "$($j.title) $($script:ChatqDot) interrupted mid-run" 2 -Job $j)
         # the run-state it left still says it goes on: ended, so a window
-        # takes back the tab its handover closed
+        # takes back the tab its handover closed. Its handover's id kept as
+        # it was: whether a window closed the tab died with the watcher, and
+        # a 30 s hold on the chat's next run (Get-ChatShowHold) costs less
+        # than a run going in while a window puts the tab back.
         $rs = Read-ChatRunState
         if ($rs -and [string](Get-ChatField $rs 'jobId') -eq [string]$j.id -and [string](Get-ChatField $rs 'phase') -ne 'ended') {
             $null = Write-ChatRunState $j 'ended' @{
                 HostPids = [int[]]@(@(Get-ChatField $rs 'hostPids') | Where-Object { $_ }); OldProcess = [string](Get-ChatField $rs 'oldProcess')
-                Away = Get-ChatField $rs 'away'; Beside = Get-ChatField $rs 'beside'; HandoverId = Get-ChatField $rs 'handoverId'
+                Away = Get-ChatqAwayAtEnd (Get-ChatField $rs 'away'); Beside = Get-ChatField $rs 'beside'; HandoverId = Get-ChatField $rs 'handoverId'
             }
         }
     }
@@ -365,21 +389,28 @@ function Complete-ChatqJob {
 function Set-ChatqJobDeferred {
     <#
     A job put off because its chat is in use, looked at again in 5 minutes
-    - 30 s when sent "now" from the console, a minute when it waits for you
+    - 30 s when sent as Next from the console, a minute when it waits for you
     to leave its tab. -Act is Resolve-ChatqLiveAction's, or the handover's:
-    Why is what it waits for - $null a busy chat, background (with Since and
-    Note), in-use - and ShellOnly a wait on a background shell alone, which
-    is bounded (20 minutes) and so never counts towards the 2 h alert or the
-    24 h give-up; the rest do. The job keeps what it waits for (deferWhy,
-    deferSince, deferNote) for everything that shows its time
-    (Format-ChatqDeferWhy), and its history says so whenever that changes.
+    Why is what it waits for - $null a busy chat, kept as busy, background
+    (with Since and Note), in-use - and ShellOnly a wait on a background
+    shell alone, which is bounded (20 minutes) and so never counts towards
+    the 2 h alert or the 24 h give-up; the rest do. The job keeps what it
+    waits for (deferWhy, deferSince, deferNote) for everything that shows
+    its time (Format-ChatqDeferWhy), and its history says so whenever that
+    changes - a background command ending into a turn of the chat's own
+    too, which is why busy is a reason of its own and not the lack of one.
     A tab kept in use is looked at again less and less often - a minute,
     then 2, then 5 (deferTries, the same wait in a row). Returns $true when
     it gave up instead.
     #>
     param($Job, [hashtable]$Act, [datetime]$Now = (Get-Date))
-    $why = $Act.Why
+    $why = if ($Act.Why) { [string]$Act.Why } else { 'busy' }
+    # No reason kept yet - just queued, a start since, a hold of the
+    # watcher's own - reads as busy: what the chat did before was not a wait
+    # this one changes from, so a busy look says nothing new in the history
+    # or jobs.log. Only a wait that had a reason of its own going busy does.
     $was = [string](Get-ChatField $Job 'deferWhy')
+    if (-not $was) { $was = 'busy' }
     # the same wait as last time, counted; another one starts over
     $tries = if ([string]$why -eq $was) { [int](Get-ChatField $Job 'deferTries') + 1 } else { 1 }
     Set-ChatqProp $Job 'deferTries' $tries
@@ -397,7 +428,7 @@ function Set-ChatqJobDeferred {
                 'in-use' { 'its tab stayed in use for 24 h'; break }
                 default { 'the chat stayed busy for 24 h' }
             }
-            $said = if ($why) { "$r, gave up" } else { 'busy for 24 h, gave up' }
+            $said = if ($why -ne 'busy') { "$r, gave up" } else { 'busy for 24 h, gave up' }
             if (Complete-ChatqJob $Job 'failed' ([pscustomobject]@{ kind = 'failed'; reason = $r }) 'busy 24h' -Existing) {
                 [void](Send-ChatqAlert 'failed' "$($Job.title) $($script:ChatqDot) $said" 2 -Job $Job)
             }
@@ -409,7 +440,7 @@ function Set-ChatqJobDeferred {
             [void](Send-ChatqAlert 'waiting' "$($Job.title) $($script:ChatqDot) $said" 0 -Job $Job)
         }
     }
-    # sent "now" from the console: looked at again soon, not in 5 minutes.
+    # sent as Next from the console: looked at again soon, not in 5 minutes.
     # A tab in use: each look is a start taken back and the window asked
     # again, so a tab someone stays in is asked less often.
     $back = if ($why -eq 'in-use') { @(60, 120, 300)[[Math]::Min($tries, 3) - 1] } elseif ($Job.PSObject.Properties['sendNow'] -and $Job.sendNow) { 30 } else { 300 }
@@ -422,7 +453,7 @@ function Set-ChatqJobDeferred {
     $text = if ($what) { "$what$note" } else { 'chat is in use' }
     # its history says what it waits for once, not every 5 minutes; a job
     # removed during the checks that led here is left gone
-    $kept = if ($Job.state -ne 'queued' -or ($why -and $why -ne $was)) { Set-ChatqJobState $Job 'queued' $text -Existing } else { Save-ChatqJob $Job -Existing }
+    $kept = if ($Job.state -ne 'queued' -or $why -ne $was) { Set-ChatqJobState $Job 'queued' $text -Existing } else { Save-ChatqJob $Job -Existing }
     if ($kept) { Write-ChatqWatchLog "#$($Job.seq) deferred: $text" }
     return $false
 }
@@ -455,12 +486,24 @@ function Stop-ChatqCancelledStart {
     # cancelled run does. Checked before any start is taken back: left
     # there, the next pick would take the file for a crashed run's and run
     # the job after all. $true when it was cancelled.
-    param($W, $Job, [string]$Cancel)
+    param($W, $Job, [string]$Cancel, [hashtable]$Was)
     if (-not (Test-Path -LiteralPath $Cancel)) { return $false }
     Remove-Item -LiteralPath $Cancel -Force -EA SilentlyContinue
     $W.current = $null
-    # the run never went in, so it carried nothing of the chat's: the live
-    # view and the run-state must not say Ultracode or a level
+    # The run never went in: its try is not counted and its start is the
+    # one before, as for a start taken back (Undo-ChatqJobStart) - a
+    # chatqrun <n> after it says attempt 1 if it is the first to go in,
+    # and a job that never started keeps no start. A requeue's "did the
+    # prompt land" then looks from the job's end, not its start
+    # (Reset-ChatqJob): a prompt never sent is not in the chat after it,
+    # whatever an earlier turn there says. It carried
+    # nothing of the chat's either: the live view and the run-state must
+    # not say Ultracode or a level. What it waited for is not put back - a
+    # job that ended waits for nothing.
+    if ($Was) {
+        Set-ChatqProp $Job 'startedAt' $Was.StartedAt
+        Set-ChatqProp $Job 'attempts' ([int]$Was.Attempts)
+    }
     Set-ChatqProp $Job 'ultracode' $null
     Set-ChatqProp $Job 'effort' $null
     Complete-ChatqJob $Job 'failed' ([pscustomobject]@{ kind = 'failed'; reason = 'cancelled' }) 'cancelled'
@@ -499,7 +542,8 @@ function Invoke-ChatqHandover {
     judged again (Resolve-ChatqLiveAction): busy or waiting by now waits;
     idle runs beside it, Beside unsure - or timed-out, a close whose
     process stayed. Returns @{ Result (left, beside, in-use, defer); Beside;
-    Act, the deferral; Live, the registry as read again }.
+    Act, the deferral; Live, the registry as read again; Closed, a window
+    answered closing - so a tab is gone and is put back as the run ends }.
     #>
     param($Job, $Act, [hashtable]$Run)
     $sid = [string]$Job.sessionId
@@ -513,9 +557,12 @@ function Invoke-ChatqHandover {
             [string](Get-ChatField $_ 'SessionId') -eq $sid -and (-not $k -or $k -eq 'interactive')
         })
     $byHost = @{}
+    # each host's own process, for the note of a tab that closed
+    $parOf = @{}
     foreach ($e in $mine) {
         $par = Get-ChatParentProcess $e $null
         $hp = if ($par) { [int](Get-ChatField $par 'Pid') } else { 0 }
+        if ($hp -and -not $parOf.ContainsKey($hp)) { $parOf[$hp] = $par }
         if (-not $byHost.ContainsKey($hp)) { $byHost[$hp] = [System.Collections.Generic.List[int]]::new() }
         $byHost[$hp].Add([int](Get-ChatField $e 'Pid'))
     }
@@ -537,25 +584,43 @@ function Invoke-ChatqHandover {
     }
     $said = @($hosts | ForEach-Object { "$_ $(if ($answers.ContainsKey($_)) { $answers[$_].Answer } else { 'no answer' })" }) -join ', '
     Write-ChatqWatchLog "handover ${short}: $said"
+    # the windows closing their tab - each puts the chat back as the run ends
+    $closing = @($hosts | Where-Object { $answers.ContainsKey($_) -and $answers[$_].Answer -eq 'closing' })
+    $closed = [bool]$closing.Count
+    # kept on the run as soon as it is known, not only in what this returns:
+    # a throw from here on still ends the run holding the chat's next one
+    # while the window puts the tab back (Invoke-ChatqJob's finally)
+    if ($closed) { $Run.TabClosed = $true }
     if (@($answers.Values | Where-Object { $_.Answer -eq 'in-use' }).Count) {
         Write-ChatqWatchLog "handover ${short}: its tab is in use - the run waits"
-        return @{ Result = 'in-use'; Act = @{ Action = 'defer'; Why = 'in-use' } }
+        return @{ Result = 'in-use'; Act = @{ Action = 'defer'; Why = 'in-use' }; Closed = $closed }
     }
     # the tabs closing: their processes given the time to leave
-    $closing = @($hosts | Where-Object { $answers.ContainsKey($_) -and $answers[$_].Answer -eq 'closing' })
     $timedOut = $false
     if ($closing.Count) {
         $pids = @($closing | ForEach-Object { if ($byHost.ContainsKey([int]$_)) { @($byHost[[int]$_]) } })
         if (-not $pids.Count) { $pids = @($mine | ForEach-Object { [int](Get-ChatField $_ 'Pid') }) }
         $last = @($closing | ForEach-Object { $answers[$_].At } | Sort-Object -Descending)[0]
         $until = $last.AddSeconds($script:ChatHandoverLeaveSeconds)
-        while (@(Get-ChatqStillThere $Job.home $sid $pids).Count) {
+        while (($still = @(Get-ChatqStillThere $Job.home $sid $pids)).Count) {
             if ((Get-Date) -ge $until) { $timedOut = $true; break }
             Start-Sleep -Milliseconds $script:ChatHandoverPollMs
         }
+        # Each window whose processes of the chat left with its tab, noted
+        # as Show it notes one it ended (Add-ChatIdleEnded): its side bar may
+        # still show the chat with nothing of it under it, and someone's own
+        # claude -p into it after this run then holds that window's reload
+        # (Get-ChatHostWork). Not a window whose process stayed: it holds
+        # the chat itself.
+        foreach ($h in $closing) {
+            $own = if ($byHost.ContainsKey([int]$h)) { @($byHost[[int]$h]) } else { $pids }
+            if (@($own | Where-Object { $_ -in $still }).Count) { continue }
+            $par = $parOf[[int]$h]
+            Add-ChatIdleEnded -SessionId $sid -HostPid ([int]$h) -HostStart $(if ($par) { Get-ChatField $par 'StartTime' } else { $null })
+        }
         if (-not $timedOut -and $closing.Count -eq $hosts.Count) {
             Write-ChatqWatchLog "handover ${short}: tab closed after $(((Get-Date) - $t0).TotalSeconds.ToString('0.0', $inv)) s"
-            return @{ Result = 'left' }
+            return @{ Result = 'left'; Closed = $true }
         }
     }
     # not closed, or not by every window: judged again as it is now
@@ -563,16 +628,16 @@ function Invoke-ChatqHandover {
     $act2 = Resolve-ChatqLiveAction $Job $live2
     if ($act2.Action -eq 'defer') {
         Write-ChatqWatchLog "handover ${short}: the chat is in use now - the run waits"
-        return @{ Result = 'defer'; Act = $act2; Live = $live2 }
+        return @{ Result = 'defer'; Act = $act2; Live = $live2; Closed = $closed }
     }
     if ($act2.Action -eq 'run') {
         Write-ChatqWatchLog "handover ${short}: nothing holds the chat now, after $(((Get-Date) - $t0).TotalSeconds.ToString('0.0', $inv)) s"
-        return @{ Result = 'left'; Live = $live2 }
+        return @{ Result = 'left'; Live = $live2; Closed = $closed }
     }
     $beside = if ($act2.Beside) { $act2.Beside } elseif ($timedOut) { 'timed-out' } else { 'unsure' }
     $how = if ($timedOut) { "still open after $($script:ChatHandoverLeaveSeconds) s" } else { 'its tab not closed' }
     Write-ChatqWatchLog "handover ${short}: $how - running beside it"
-    return @{ Result = 'beside'; Beside = $beside; Live = $live2 }
+    return @{ Result = 'beside'; Beside = $beside; Live = $live2; Closed = $closed }
 }
 
 function Invoke-ChatqJob {
@@ -585,6 +650,7 @@ function Invoke-ChatqJob {
     $lane = Get-ChatqLane $Job
     $sendsContinue = $Job.kind -eq 'continue' -or $Job.retryAs -eq 'continue'
     Update-ChatqNewChatPath $Job
+    $null = Update-ChatqHeldTitle $Job
     # a new chat not started yet: none of the chat checks below apply
     $fresh = Test-ChatqFreshChat $Job
     # the chat as it is now, not as it was when queued. A new chat whose
@@ -612,6 +678,16 @@ function Invoke-ChatqJob {
         $checkStop = $Job.kind -eq 'continue' -or ($Job.retryAs -eq 'continue' -and $Job.autoContinue)
         if ($checkStop -and $meta.LastTurn -and -not ($meta.LastTurn.Limit -or $meta.LastTurn.Overloaded)) {
             if (Complete-ChatqJob $Job 'skipped' ([pscustomobject]@{ kind = 'skipped'; reason = 'already continued - by you or by Claude''s own auto-continue' }) 'already continued' -Existing) { Write-ChatqWatchLog "#$($Job.seq) skipped: already continued" }
+            return
+        }
+        # The same for the continue of a chat a VS Code window's restart cut
+        # off (Invoke-ChatqContinueChats): still where the restart left it -
+        # its last message the one the cut-off is named by - or moved on,
+        # and then not sent. Before its first try only: after that, the last
+        # message is its own run's.
+        $ru = [string](Get-ChatField $Job 'restartUuid')
+        if ($ru -and [int]$Job.attempts -eq 0 -and $meta.LastTurn -and $meta.LastTurn.Uuid -and [string]$meta.LastTurn.Uuid -ne $ru) {
+            if (Complete-ChatqJob $Job 'skipped' ([pscustomobject]@{ kind = 'skipped'; reason = 'already continued - the chat went on after the restart' }) 'already continued' -Existing) { Write-ChatqWatchLog "#$($Job.seq) skipped: already continued after the restart" }
             return
         }
     }
@@ -723,7 +799,8 @@ function Invoke-ChatqJob {
     $carrySay = Format-ChatqRunCarry $Job
     $ultraSay = if ($carrySay) { " - $carrySay, as the chat had $(if ($carry.Ultracode -and $carry.Effort) { 'them' } else { 'it' })" } else { '' }
     $held = [string](Get-ChatField $carry 'UltracodeHeld')
-    $heldSay = if ($held) { " - Ultracode left off ($held mode asks before each Workflow)" } else { '' }
+    $heldWhy = Format-ChatqUltracodeHeld $carry
+    $heldSay = if ($held) { " - Ultracode left off ($heldWhy)" } else { '' }
     $beside = if ($act.Beside -eq 'background') { ' - beside a background command of the chat''s, left running' } else { '' }
     # Running from here on, before the handover: the chip, Show it and the
     # picker leave a chat alone that a job is running into, so nothing opens
@@ -736,8 +813,11 @@ function Invoke-ChatqJob {
     if (-not (Save-ChatqJob $Job -Existing)) { Write-ChatqWatchLog "#$($Job.seq) removed as it was about to run - not sent"; return }
     $W.current = $Job.id
     $runStart = Get-Date
-    # what data/run-state says of this run, the same in each of its writes
-    $run = @{ HostPids = [int[]]@(); OldProcess = 'none'; Away = $null; Beside = $null; HandoverId = $null }
+    # what data/run-state says of this run, the same in each of its writes -
+    # but away, judged again for the 'ended' one (Get-ChatqAwayAtEnd)
+    # TabClosed: a window closed the chat's tab for this run, and puts it
+    # back at its end - set by Invoke-ChatqHandover the moment one answers
+    $run = @{ HostPids = [int[]]@(); OldProcess = 'none'; Away = $null; Beside = $null; HandoverId = $null; TabClosed = $false }
     if ($judge) { $run.HostPids = [int[]]@($judge.HostPids | Where-Object { $_ }); $run.OldProcess = [string]$judge.OldProcess }
     $stale = $false
     try {
@@ -748,7 +828,7 @@ function Invoke-ChatqJob {
         if ($wasLive -and $act.Beside -ne 'background' -and $judge.OldProcess -eq 'live' -and $run.HostPids.Count -and (Test-ChatqHandoverOn $cfg)) {
             $hand = Invoke-ChatqHandover $Job $act $run
             # cancelled while the windows were asked: ends here, whatever they said
-            if (Stop-ChatqCancelledStart $W $Job $cancel) { return }
+            if (Stop-ChatqCancelledStart $W $Job $cancel $was) { return }
             if ($hand.Result -in 'in-use', 'defer') {
                 # not run after all: back in the queue as it was, waiting as for
                 # a busy chat - never beside a tab someone is in
@@ -768,7 +848,7 @@ function Invoke-ChatqJob {
         # the run goes ahead as with warn.
         if ($act.Action -eq 'stop' -and -not $left -and $act.Beside -ne 'background') {
             $stop = Stop-ChatIdleProcess -SessionId $Job.sessionId -Transcript $Job.path -ConfigDir $Job.home -Live $liveNow
-            if (Stop-ChatqCancelledStart $W $Job $cancel) { return }
+            if (Stop-ChatqCancelledStart $W $Job $cancel $was) { return }
             if ($stop.OldProcess -eq 'held') {
                 Undo-ChatqJobStart $Job $was
                 $W.current = $null
@@ -784,13 +864,24 @@ function Invoke-ChatqJob {
         }
         elseif ($wasLive -and -not $left) { $stale = $true }
         # the last moment a cancel keeps the prompt out of the chat
-        if (Stop-ChatqCancelledStart $W $Job $cancel) { return }
+        if (Stop-ChatqCancelledStart $W $Job $cancel $was) { return }
+        # A view of the chat still open as the run goes in - a tab beside it,
+        # the side bar's, a terminal's - takes whatever is typed there as a
+        # second agent on the chat, working on the same files while this
+        # one does. The started alert says so up front; the done alert says
+        # how to come back. A handover that closed the tab leaves none.
+        $keepOut = if (-not $wasLive -or $left) { '' }
+        elseif ($run.OldProcess -eq 'other') { " $($script:ChatqDot) open in a terminal too: do not type there until done" }
+        else { " $($script:ChatqDot) open in VS Code: do not type in it until done" }
         # the run goes in: said now, once
         Set-ChatqJobState $Job 'running' ("attempt $($Job.attempts)$ultraSay$heldSay$beside")
         Save-ChatqWatchState $W
         Write-ChatqBoard
         Write-ChatqWatchLog "#$($Job.seq) running: $($Job.title)$ultraSay"
-        if ($held) { Write-ChatqWatchLog "#$($Job.seq) Ultracode left off: the chat had it, but $held mode would ask before each Workflow, and no one can answer a run" }
+        if ($held -and (Get-ChatField $carry 'HeldBy') -in 'deny', 'ask') { Write-ChatqWatchLog "#$($Job.seq) Ultracode left off: the chat had it, but $heldWhy, and no one can answer a run" }
+        elseif ($held -eq 'plan') { Write-ChatqWatchLog "#$($Job.seq) Ultracode left off: the chat had it, but $heldWhy" }
+        elseif ($held) { Write-ChatqWatchLog "#$($Job.seq) Ultracode left off: the chat had it, but $held mode would ask before each Workflow, and no one can answer a run" }
+        elseif ((Get-ChatField $carry 'HeldBy') -eq 'allow') { Write-ChatqWatchLog "#$($Job.seq) Ultracode carried in $(Get-ChatqPermitMode $Job) mode: the $($carry.RuleIn) settings allow Workflow" }
         $null = Write-ChatRunState $Job 'running' $run
 
         # A prompt mid-run asks the phone, when that is on and can work
@@ -825,8 +916,12 @@ function Invoke-ChatqJob {
             $m = if ($st.Mode) { $st.Mode } else { $Job.mode }
             $what = if ($prompt -eq $script:ChatqContinueText) { if (Get-ChatField $Job 'auto') { 'auto-continue' } else { 'continue' } } else { (Get-ChatqPromptStats $prompt).First }
             if ($what.Length -gt 80) { $what = $what.Substring(0, 80) + $script:ChatqEllipsis }
-            [void](Send-ChatqAlert 'started' "$($Job.title) $($script:ChatqDot) $m $($script:ChatqDot) $what" 0 -Job $Job)
+            [void](Send-ChatqAlert 'started' "$($Job.title) $($script:ChatqDot) $m $($script:ChatqDot) $what$keepOut" 0 -Job $Job)
         }
+        # the transcript's length as the run goes in: what it writes after is
+        # its own, read as it ends for what it took of the carry
+        $runLen = $null
+        if ($carry.Ultracode -or $carry.Effort) { try { $runLen = [int64][System.IO.FileInfo]::new([string]$Job.path).Length } catch { $runLen = $null } }
         $out = Invoke-ChatqRun $Job $prompt $onTick $onStart -Files $files -Permit $permitRun -Carry $carry
         $W.current = $null
         $wasCancelled = Test-Path -LiteralPath $cancel
@@ -846,9 +941,12 @@ function Invoke-ChatqJob {
         # A window that opened the chat while the run went on - a click in its
         # side bar, a Show it or the chip just before this run began - loaded it
         # part way through: as stale as one held from before, and treated so.
+        # Not someone's own claude -p into it since: registered interactive
+        # too (Claude Code 2.1.283), but stamped sdk-*, and no window.
         if (-not $wasLive -and -not $wasCancelled -and $Job.provider -eq 'claude' -and -not $fresh -and $Job.sessionId) {
             $late = @(Get-ChatqLiveSessions $Job.home -RegistryOnly | Where-Object {
                     [string]$_.SessionId -eq [string]$Job.sessionId -and (-not $_.Kind -or $_.Kind -eq 'interactive') -and
+                    [string](Get-ChatField $_ 'Entrypoint') -cnotin $script:ChatSdkEntrypoints -and
                     (Get-ChatqEntryStart $_) -ge $runStart })
             if ($late) {
                 $wasLive = $true
@@ -859,6 +957,20 @@ function Invoke-ChatqJob {
         if ($stale) { Set-ChatqProp $out 'stale' $true }
         # the new chat's transcript, if this run made it where the slug did not say
         Update-ChatqNewChatPath $Job
+        # a phone-made chat's neutral title gives way to Claude's own, so the
+        # alert this run ends with names the chat as Claude does
+        $null = Update-ChatqHeldTitle $Job
+        # What the run was given is not what it took: Claude Code refuses
+        # neither Ultracode nor a level, it only goes without - a model that
+        # cannot do xhigh, workflows off, a level capped. Its own records say
+        # (Get-ChatqRunTook): the job keeps what they say, and its history
+        # entry as it ends says what differed (after the switch below).
+        $tookSay = ''
+        if ($null -ne $runLen -and -not $wasCancelled) {
+            $tookSay = Confirm-ChatqRunCarry $Job (Get-ChatqRunTook ([string]$Job.path) $runLen)
+            if ($tookSay) { Write-ChatqWatchLog "#$($Job.seq) $tookSay - the run's own records say so" }
+        }
+        $histAt = @($Job.history).Count
         # The run stamped its records sdk-cli, which leaves a chat whose head
         # names no entrypoint out of Claude Code's lists - and out of every tab.
         # Listed again now, however the run ended (Repair-ChatListed).
@@ -1014,6 +1126,12 @@ function Invoke-ChatqJob {
                 Write-ChatqWatchLog "#$($Job.seq) failed: $($out.reason)"
             }
         }
+        # what the run took, on the entry its end wrote
+        if ($tookSay -and @($Job.history).Count -gt $histAt) {
+            $h = @($Job.history)[-1]
+            $h.why = "$($h.why) - $tookSay"
+            $null = Save-ChatqJob $Job -Existing
+        }
         # an auto-continue that finished starts its chat's streak over; one that
         # failed adds to it (a cancel is yours, and counts for nothing)
         if (-not $wasCancelled -and (Get-ChatField $Job 'auto') -and $Job.state -in 'done', 'failed') {
@@ -1029,14 +1147,33 @@ function Invoke-ChatqJob {
         # a tab opened on this is never refused. A throw leaves the job
         # running for the watch loop to fail it: said as failed already.
         # Never a throw of its own from here, which would hide the run's.
+        # Its handover's id only when a window closed the tab: that is what
+        # holds the chat's next run the 30 s the window takes to put it back
+        # (Get-ChatShowHold) - a tab in use, or one not told apart, closed
+        # nothing, and nothing is put back. Away judged again for this write
+        # (Get-ChatqAwayAtEnd); the run's own record is left as it started.
         try {
             $end = Find-ChatqJob $Job.id -Exact
             if (-not $end) { $end = $Job }
             if ($end.state -eq 'running') { Set-ChatqProp $end 'state' 'failed' }
-            $null = Write-ChatRunState $end 'ended' $run
+            $endRun = $run.Clone()
+            $endRun.Away = Get-ChatqAwayAtEnd $run.Away
+            if (-not $run.TabClosed) { $endRun.HandoverId = $null }
+            $null = Write-ChatRunState $end 'ended' $endRun
         }
         catch { Write-ChatqWatchLog "#$($Job.seq) run-state: $($_.Exception.Message)" }
     }
+}
+
+function Get-ChatqAwayAtEnd {
+    # Away as a run ends, for its 'ended' run-state: the window that closed
+    # the chat's tab for it opens the chat again on its own only while
+    # nobody is at the PC, and asks (Open chat) while someone is - so it is
+    # judged now, not kept from the start. A prompt queued for the night
+    # starts with you away and may end with you back at work. Never throws:
+    # the start's judgement stands if this one cannot be made.
+    param($AtStart)
+    try { return [bool](Test-ChatqUserAway (Get-ChatqConfig)) } catch { return $AtStart }
 }
 
 function Wait-ChatqUntil {
@@ -1114,6 +1251,7 @@ function Invoke-ChatqWatchLoop {
         $listening = $false
         $boardAt = [datetime]::MinValue
         $autoAt = [datetime]::MinValue
+        $strayAt = [datetime]::MinValue
         $W.CutCache = @{}
         while ($true) {
             if (Test-Path -LiteralPath $script:ChatqStopPath) {
@@ -1170,6 +1308,14 @@ function Invoke-ChatqWatchLoop {
             # auto-continue's scan, every 5 minutes, for when no overlay runs
             # to do it (src/auto-continue.ps1); what it queues is picked below
             if (((Get-Date) - $autoAt).TotalMinutes -ge 5) { $autoAt = Get-Date; $null = Invoke-ChatqWatchAutoScan $W }
+            # images pasted into a prompt tab that was then cancelled, a day
+            # old and linked from no prompt: at the start, then every 6 hours
+            # (Clear-ChatqStrayFiles)
+            if (((Get-Date) - $strayAt).TotalHours -ge 6) {
+                $strayAt = Get-Date
+                $swept = @(try { Clear-ChatqStrayFiles } catch { })
+                if ($swept.Count) { Write-ChatqWatchLog "removed $($swept.Count) stray file(s) and folder(s) from data/queue" }
+            }
             $queued = @(Get-ChatqJobs | Where-Object { $_.state -eq 'queued' })
             if (-not $queued -and $replyOpen) {
                 # Nothing to run, only listening: the machine may sleep - no

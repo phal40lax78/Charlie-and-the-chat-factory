@@ -9,6 +9,58 @@ function Get-ChatqConfig {
     return $c
 }
 
+<#
+One lock, data/config.lock, around every read-change-save of config.json,
+as Use-ChatqReplyState holds data/replies.lock: chatnotify, the setup
+window, a pairing confirmed from the phone, the overlay's settings, the
+ask and auto-continue switches each read the file, change their part and
+save the whole. Two of them at once - a pairing confirmed while the setup
+window saved - and the one saving last put back what the other had just
+changed: the key a phone was paired with, gone. Taken, the file is read
+again under it, so each writes over what the other saved, not what it read
+before. No caller takes it inside itself today - Set-ChatqNotifyConfig
+lets go before Set-ChatqAskChanges takes it - but one that did would not
+wait 3 s on its own handle and fail: taken again it only counts, and lets
+go with the outer one. Up to 3 s of tries, each wait a random length; then it throws. Never
+held across anything that sends or waits on the network.
+#>
+$script:ChatqConfigLockDepth = 0
+$script:ChatqConfigLockHandle = $null
+
+function Lock-ChatqConfig {
+    if ($script:ChatqConfigLockDepth -gt 0 -and $script:ChatqConfigLockHandle) { $script:ChatqConfigLockDepth++; return }
+    New-ChatqDir $script:ChatqData
+    $h = $null
+    $until = (Get-Date).AddSeconds(3)
+    while (-not $h) {
+        try { $h = [System.IO.File]::Open($script:ChatqConfigLockPath, 'OpenOrCreate', 'ReadWrite', 'None') }
+        catch {
+            if ((Get-Date) -gt $until) { break }
+            Start-Sleep -Milliseconds (Get-Random -Minimum 15 -Maximum 60)
+        }
+    }
+    if (-not $h) { throw 'data/config.lock is held by another process' }
+    $script:ChatqConfigLockHandle = $h
+    $script:ChatqConfigLockDepth = 1
+}
+
+function Unlock-ChatqConfig {
+    if ($script:ChatqConfigLockDepth -le 0) { return }
+    $script:ChatqConfigLockDepth--
+    if ($script:ChatqConfigLockDepth -gt 0) { return }
+    if ($script:ChatqConfigLockHandle) { $script:ChatqConfigLockHandle.Dispose() }
+    $script:ChatqConfigLockHandle = $null
+}
+
+function Save-ChatqConfig {
+    # config.json saved whole; off Windows it holds the keys unprotected, so
+    # the owner's alone, as every save of it keeps it. The caller holds
+    # Lock-ChatqConfig and read what it changes under it.
+    param($Cfg)
+    Save-ChatqJson $script:ChatqConfigPath $Cfg
+    if (-not $script:ChatqIsWindows) { try { & chmod 600 $script:ChatqConfigPath } catch {} }
+}
+
 function Set-ChatqProp {
     # ConvertFrom-Json objects only take assignment to properties they have
     param($Object, [string]$Name, $Value)
@@ -86,7 +138,11 @@ function Send-ChatqAlert {
     <#
     Every alert goes to logs/alerts.log, then to whichever channels are set up:
       toast    the desktop, on by default - free, local, nothing leaves the PC
-      command  your own PowerShell, with the alert in $env:CHATQ_* (chatnotify -Command)
+      command  your own PowerShell, with the alert in $env:CHATQ_* (chatnotify -Command);
+               with commandLinks on (chatnotify -CommandLinks on) it is a phone
+               channel too: it runs where Join and ntfy go, past the same
+               gates, and gets the reply link as $env:CHATQ_LINK - an alert
+               stopped short of the phone runs it all the same, with no link
       join     the phone, through Join (joaomgcd)
       ntfy     the phone, through ntfy
     The two phone channels stay quiet while you are at the PC - keyboard or
@@ -101,8 +157,9 @@ function Send-ChatqAlert {
     src/phone.ps1 - and a window opens in which the watcher listens for the
     answer. -Job is the job the alert is about: the link says which chat to
     answer, and Join shows alerts about one chat as one notification.
-      -Quick     each phone channel tried once, 8 s at most, and no command:
-                 for a push sent from inside a run, which waits on it
+      -Quick     each phone channel tried once, 8 s at most, and no command
+                 unless it carries the link, then held to 8 s as well: for
+                 a push sent from inside a run, which waits on it
       -NoReply   no link, nothing registered, no window: a refusal
       -PairLink  the link is this one, the pairing push's, and nothing is
                  registered; never through ntfy over http, which drops it
@@ -147,28 +204,42 @@ function Send-ChatqAlert {
         try { Show-ChatqToast $title $(if ($ToastText) { $ToastText } else { $Text }); $script:ChatqAlertReport.Add('toast: shown') }
         catch { $script:ChatqAlertReport.Add("toast: $($_.Exception.Message)") }
     }
-    if (-not $Quick) {
+    # your command runs on every alert, as it always has; one that carries
+    # the reply link waits for the link, and runs below with the phones -
+    # or, when the alert stops short of the phone, on the way out, linkless
+    $cmdLinks = Test-ChatqCommandLinks $cfg
+    $runCmd = {
         $e = Invoke-ChatqAlertCommand $cfg $Event $title $Text $Priority $present
         if ($e) { $script:ChatqAlertReport.Add($e) }
         elseif ($cfg.PSObject.Properties['command'] -and $cfg.command) { $script:ChatqAlertReport.Add('command: ran') }
     }
+    if (-not $Quick -and -not $cmdLinks) { & $runCmd }
+    $short = { if ($cmdLinks -and -not $Quick) { & $runCmd } }
 
     $phones = @()
     if ($cfg.PSObject.Properties['join'] -and $cfg.join) { $phones += 'join' }
     if ($cfg.PSObject.Properties['ntfy'] -and $cfg.ntfy) { $phones += 'ntfy' }
+    if ($cmdLinks) { $phones += 'command' }
     if (-not $phones) { $script:ChatqLastAlertError = 'no phone channel set up'; return $false }
     if (-not (Test-ChatqPhoneEvent $cfg $Event)) {
         $script:ChatqAlertReport.Add("phone: skipped - $Event is not among the phone's events")
         $script:ChatqLastAlertError = "the phone gets no '$Event' alerts (chatnotify -Events)"
+        & $short
         return $false
     }
     if ($present -and -not $Loud) {
         $script:ChatqAlertReport.Add('phone: skipped - you are at the PC')
         $script:ChatqLastAlertError = 'you are at the PC, so the phone was left alone'
+        & $short
         return $false
     }
-    if (Test-ChatqHoldAlert $cfg $Event $Text $Priority $Job -Loud:$Loud) { return $false }
+    if (Test-ChatqHoldAlert $cfg $Event $Text $Priority $Job -Loud:$Loud) { & $short; return $false }
     $quietIn = Test-ChatqQuietIn $cfg
+    # usage and the chats at work, read as it goes (the outbox can hold an
+    # alert a while): the push's last line and the page's s=. Not on the
+    # answers, pairing or permission pushes, which are about something else
+    $foot = $null
+    if ($Event -notin 'reply', 'pair', 'permission' -and -not $PairLink -and -not $Card) { $foot = Get-ChatqAlertFooter }
     # an answerable alert: registered before it goes, so a reply that comes
     # back at once finds it
     $rc = $null
@@ -177,7 +248,7 @@ function Send-ChatqAlert {
     elseif (-not $NoReply) {
         try {
             $rc = Get-ChatqReplyConfig $cfg
-            if ($rc.Links) { $reply = New-ChatqReplyAlert -Event $Event -Job $Job -Rc $rc -UsageKind $UsageKind -Permit $Permit -Card $Card -SeenAt $SeenAt }
+            if ($rc.Links) { $reply = New-ChatqReplyAlert -Event $Event -Job $Job -Rc $rc -UsageKind $UsageKind -Permit $Permit -Card $Card -SeenAt $SeenAt -Status $foot }
             # the whole answer to the down topic ahead of the push, and the
             # link made again to say so (src/phone-down.ps1)
             if ($reply) { Update-ChatqReplyFull $rc $reply $Event $Job -Quick:$Quick }
@@ -191,10 +262,12 @@ function Send-ChatqAlert {
     if (($Permit -or $Card) -and -not ($reply -and $reply.Aid)) {
         $script:ChatqAlertReport.Add('phone: skipped - the permission request could not be registered')
         $script:ChatqLastAlertError = 'the permission request could not be registered'
+        & $short
         return $false
     }
     $sent = $false
     $script:ChatqLastAlertError = $null
+    $phoneText = if ($foot) { "$Text`n$foot" } else { $Text }
     foreach ($ch in $phones) {
         # the pairing push is nothing without its link, which ntfy over
         # plain http leaves out: through there it would count as sent and
@@ -204,8 +277,14 @@ function Send-ChatqAlert {
             if (-not $sent -and -not $script:ChatqLastAlertError) { $script:ChatqLastAlertError = 'ntfy: not https - the pairing link cannot go that way' }
             continue
         }
-        $err = if ($ch -eq 'join') { Send-ChatqJoin $cfg $title $Text $Priority -Reply $reply -Job $Job -Quick:$Quick -Event $Event -NoSay:$quietIn -Tag $Tag }
-        else { Send-ChatqNtfy $cfg $title $Text $Priority -Click $(if ($reply) { $reply.Link } else { '' }) -Quick:$Quick }
+        $err = if ($ch -eq 'join') { Send-ChatqJoin $cfg $title $phoneText $Priority -Reply $reply -Job $Job -Quick:$Quick -Event $Event -NoSay:$quietIn -Tag $Tag }
+        elseif ($ch -eq 'command') {
+            # CHATQ_TEXT the alert's own words, as on every other run of it; a
+            # clean exit is the command's word that it sent the alert on
+            $ce = Invoke-ChatqAlertCommand $cfg $Event $title $Text $Priority $present -Link $(if ($reply) { $reply.Link } else { '' }) -Quick:$Quick
+            if ($ce) { $ce -replace '^command: ', '' } else { $null }
+        }
+        else { Send-ChatqNtfy $cfg $title $phoneText $Priority -Click $(if ($reply) { $reply.Link } else { '' }) -Quick:$Quick }
         if ($err) { $script:ChatqAlertReport.Add("${ch}: $err"); $script:ChatqLastAlertError = "${ch}: $err" }
         else { $script:ChatqAlertReport.Add("${ch}: sent"); $sent = $true }
     }
@@ -304,24 +383,39 @@ function Enable-ChatqTls12 {
     }
 }
 
+function Test-ChatqCommandLinks {
+    # Your command is set and carries the reply link (chatnotify -CommandLinks
+    # on): a phone channel then, as Join and ntfy over https are. Off unless
+    # asked for - the link goes wherever the command sends it, and chatq
+    # cannot tell whether that is private.
+    param($Cfg)
+    if (-not $Cfg) { $Cfg = Get-ChatqConfig }
+    return [bool]($Cfg.PSObject.Properties['command'] -and $Cfg.command -and $Cfg.PSObject.Properties['commandLinks'] -and $Cfg.commandLinks -eq $true)
+}
+
 function Invoke-ChatqAlertCommand {
     # Your own PowerShell per alert - Pushover, Telegram, a Tasker webhook. The
     # alert goes in as $env:CHATQ_EVENT/TITLE/TEXT/PRIORITY/JOB/PRESENT and the
     # command runs as -EncodedCommand, so no chat title ever lands on a command
     # line where cmd's %VAR% expansion or a stray & could make it code.
-    # Capped at 30 s. $null when it ran cleanly, else what went wrong.
-    param($Cfg, [string]$Event, [string]$Title, [string]$Text, [int]$Priority, [bool]$Present)
+    # -Link: the reply link, as CHATQ_LINK - '' when there is none, and only
+    # ever given with commandLinks on (Test-ChatqCommandLinks). Capped at 30
+    # s; -Quick, a push a run waits on, at 8. $null when it ran cleanly, else
+    # what went wrong.
+    param($Cfg, [string]$Event, [string]$Title, [string]$Text, [int]$Priority, [bool]$Present, [string]$Link, [switch]$Quick)
     if (-not ($Cfg.PSObject.Properties['command'] -and $Cfg.command)) { return $null }
     $exe = (Get-Process -Id $PID).Path
     $enc = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes([string]$Cfg.command))
     $env2 = @{
         CHATQ_EVENT = $Event; CHATQ_TITLE = $Title; CHATQ_TEXT = $Text; CHATQ_PRIORITY = "$Priority"
         CHATQ_JOB = [string]$script:ChatqAlertJob; CHATQ_PRESENT = $(if ($Present) { '1' } else { '0' })
+        CHATQ_LINK = $Link
     }
     # quiet hours hold the phone's alerts, not your command: it is told, and
     # a Pushover or Telegram command can hold itself
     $env2['CHATQ_QUIET'] = $(if (Test-ChatqQuietIn $Cfg) { '1' } else { '0' })
     $limit = if ($script:ChatqHookTimeoutSec) { $script:ChatqHookTimeoutSec } else { 30 }
+    if ($Quick -and $limit -gt 8) { $limit = 8 }
     try {
         $p = Invoke-ChatqProcess -Exe $exe -ArgList @('-NoProfile', '-NonInteractive', '-EncodedCommand', $enc) `
             -StdIn '' -SetEnv $env2 -TimeoutSec $limit
@@ -410,10 +504,27 @@ public static class ChatqIdle {
 function Test-ChatqUserPresent {
     # at the PC now? config quietMinutes (default 5); 0 turns the check off
     param($Cfg)
+    if (Test-ChatqPhoneWhilePresent $Cfg) { return $false }
     $m = Get-ChatqQuietMinutes $Cfg
     if ($m -le 0) { return $false }
     $s = Get-ChatqIdleSeconds
     return ($null -ne $s -and $s -lt $m * 60)
+}
+
+function Test-ChatqPhoneWhilePresent {
+    # config phoneWhilePresent: the phone is sent to at the PC too - being at
+    # the PC is not watching the job. Phone gates only: Test-ChatqUserAway,
+    # which lets a window reload, ignores it
+    param($Cfg)
+    return [bool]($Cfg -and $Cfg.PSObject.Properties['phoneWhilePresent'] -and $Cfg.phoneWhilePresent)
+}
+
+function Test-ChatqPhoneAway {
+    # away as far as the phone is concerned (Update-ChatqLiveAlerts,
+    # Send-ChatqResetAskAlert): away, or phoneWhilePresent on
+    param($Cfg)
+    if (Test-ChatqPhoneWhilePresent $Cfg) { return $true }
+    return [bool](Test-ChatqUserAway $Cfg)
 }
 
 function Get-ChatqQuietMinutes {
@@ -506,15 +617,16 @@ function Format-ChatqDeferWhy {
     # little (Set-ChatqJobDeferred): a background command its chat's own
     # process started - an agent, a workflow or a shell - since when; or you
     # leaving the chat's tab, which the handover found in use. $null for the
-    # rest. Read by the lists, the overlay, the console and the phone through
-    # Get-ChatqEta. Pure.
+    # rest - busy, auto-continue's vscode hold - whose next look's time says
+    # it. The one maker of these words: the lists and the job's history read
+    # them here (Get-ChatqEta), the overlay's rows, the console and the
+    # phone through Format-ChatOverlayDeferral. Pure.
     param($Job, [datetime]$Now = (Get-Date))
     switch ([string](Get-ChatField $Job 'deferWhy')) {
         'background' {
             $s = ConvertTo-ChatqDate (Get-ChatField $Job 'deferSince')
             if (-not $s) { return 'waits for a background command' }
-            $fmt = if ($s.Date -eq $Now.Date) { 'HH:mm' } else { 'ddd HH:mm' }
-            return "waits for a background command (since $($s.ToString($fmt, [System.Globalization.CultureInfo]::InvariantCulture)))"
+            return "waits for a background command (since $(Format-ChatOverlayWhen $s $Now))"
         }
         'in-use' { return 'waits for you to leave its tab' }
     }
@@ -639,6 +751,9 @@ function Get-ChatqUsage {
                 $parts = @(foreach ($l in @($u.utilization.limits)) {
                         if (-not $l) { continue }
                         $p = [int][Math]::Round([double]$l.percent)
+                        # reset since the fetch: empty, as the overlay has it
+                        $rs = if ($l.resets_at) { ConvertTo-ChatqDate $l.resets_at } else { $null }
+                        if ($rs -and $rs -le (Get-Date)) { $p = 0 }
                         $scoped = $l.PSObject.Properties['scope'] -and $l.scope
                         switch ([string]$l.kind) {
                             'session' { "5h $p%" }
@@ -702,6 +817,11 @@ function Get-ChatqUsage {
                         if (-not $w -or $null -eq $w.used_percent) { continue }
                         $m = [int]$w.window_minutes
                         $n = if ($m -le 300) { '5h' } elseif ($m -le 10080) { 'week' } else { 'month' }
+                        # a window whose reset passed is empty, as the overlay
+                        # reads it (ConvertTo-ChatOverlayUsage): the last
+                        # rollout can be days old, and its 3% long gone
+                        $gone = $w.resets_at -and [System.DateTimeOffset]::FromUnixTimeSeconds([int64]$w.resets_at).LocalDateTime -le (Get-Date)
+                        if ($gone) { "$n 0%"; continue }
                         $s = "$n $([int][Math]::Round([double]$w.used_percent))%"
                         if ([double]$w.used_percent -ge 100 -and $w.resets_at) {
                             $s += ", resets $(& $label ([System.DateTimeOffset]::FromUnixTimeSeconds([int64]$w.resets_at).LocalDateTime))"
@@ -718,9 +838,80 @@ function Get-ChatqUsage {
     return $out.ToArray()
 }
 
+function Get-ChatqAlertFooter {
+    # The phone alert's last line: how much of each usage window is used
+    # (Get-ChatqUsage) and how many chats are at work - "Claude 5h 42%,
+    # week 18% $ChatqDot 3 working, 1 waiting". A provider at 0% everywhere is not
+    # in use and left out.
+    # Chats are counted as the overlay counts them (Get-ChatqChatCounts), so
+    # the push and the panel agree. A part that cannot be read is left out;
+    # $null when neither can. Never throws.
+    if ($script:ChatqFooterSeam) { return (& $script:ChatqFooterSeam) }   # tests
+    $d = " $($script:ChatqDot) "
+    $parts = [System.Collections.Generic.List[string]]::new()
+    try {
+        foreach ($u in @(Get-ChatqUsage)) {
+            # a provider not in use - every window at 0% - is left out, so
+            # only what you run shows, Claude or Codex alike
+            if (-not @(@($u.Parts) | Where-Object { $_ -notmatch ' 0%$' })) { continue }
+            $parts.Add("$($u.Provider) $(@($u.Parts) -join ', ')")
+        }
+    }
+    catch {}
+    try {
+        $c = Get-ChatqChatCounts
+        if ($c) {
+            $w = [int]$c.busy
+            $n = [int]$c.waiting
+            $parts.Add($(if ($n) { "$w working, $n waiting" } else { "$w working" }))
+        }
+    }
+    catch {}
+    if (-not $parts.Count) { return $null }
+    return ($parts -join $d)
+}
+
+function Get-ChatqChatCounts {
+    # How many open chats are working and waiting, as the overlay's header
+    # has them: its snapshot's counts while it keeps data/overlay.json fresh
+    # (within 2 minutes, as the phone board reads it), else the same rows
+    # built from the registry and each chat's background work. Not Claude's registry status
+    # alone: a chat idle to Claude with a workflow, background agent or
+    # background shell still at work is working to the overlay - the push
+    # once said 1 working where the panel showed 3. @{ busy; waiting }, or
+    # $null when neither can be read.
+    param([datetime]$Now = (Get-Date))
+    try {
+        $s = Read-ChatqJson $script:ChatOverlayPath
+        $at = if ($s -and [int](Get-ChatField $s 'schema') -eq 1 -and (Get-ChatField $s 'at')) { [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$s.at).LocalDateTime } else { $null }
+        $c = if ($s) { Get-ChatField $s 'counts' } else { $null }
+        if ($at -and $c -and [Math]::Abs(($Now - $at).TotalMinutes) -lt 2) {
+            return [pscustomobject]@{ busy = [int](Get-ChatField $c 'busy'); waiting = [int](Get-ChatField $c 'waiting') }
+        }
+    }
+    catch {}
+    # Get-ChatqBoardScan's way, less what only the board needs - the cut-off
+    # look, the queue, the Recent list - which took it 20 s on a busy machine
+    try {
+        $ctx = New-ChatOverlayContext
+        $entries = @(Read-ChatqSessionRegistry (Join-Path $ctx.ClaudeHome 'sessions') @{})
+        $alive = @($entries | Where-Object { $_.SessionId -and (Test-ChatqSessionAlive $_) })
+        $live = @($alive | Where-Object { -not $_.Kind -or $_.Kind -eq 'interactive' })
+        foreach ($e in $live) { try { Update-ChatOverlayText $ctx $e } catch {} }
+        $bg = try { Update-ChatOverlayBackground @{} $live $alive $ctx.Text $null -Whole } catch { @{} }
+        $rows = @(Get-ChatOverlayRows -Sessions $live -Texts $ctx.Text -Jobs @() -Now $Now -Unread @{} -Background $bg)
+        $chats = @($rows | Where-Object { $_ -and $_.kind -eq 'session' } | ForEach-Object { [string]$_.chat })
+        return [pscustomobject]@{ busy = @($chats | Where-Object { $_ -eq 'busy' }).Count; waiting = @($chats | Where-Object { $_ -eq 'waiting' }).Count }
+    }
+    catch { return $null }
+}
+
 function Write-ChatqList {
     param([switch]$All)
     $jobs = @(Get-ChatqJobs)
+    # a job waiting on you in a chat you went on in yourself: skipped, as the
+    # overlay would, so the list does not call it waiting (Sync-ChatqAnsweredJobs)
+    if (@(Sync-ChatqAnsweredJobs $jobs)) { $jobs = @(Get-ChatqJobs) }
     $blocks = Get-ChatqBlocks
     $eta = Get-ChatqEta $jobs $blocks
     $width = Get-ChatqWidth

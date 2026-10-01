@@ -464,6 +464,7 @@ $script:ChatqPhoneSetupXaml = @'
             <TextBlock Style="{StaticResource Label}" Text="Command"/>
             <TextBox x:Name="CommandBox"/>
             <TextBlock Style="{StaticResource Hint}" Margin="0,3,0,2" Text="Your own PowerShell on every alert, given $env:CHATQ_EVENT, _TITLE, _TEXT."/>
+            <CheckBox x:Name="CommandLinksBox" Margin="0,6,0,0" Content="Give it the reply link too ($env:CHATQ_LINK)"/>
           </StackPanel>
         </Expander>
       </StackPanel>
@@ -701,11 +702,11 @@ function New-ChatqPhoneSetupWindow {
         Win = $w; Dark = $dark; Pal = $pal; Brushes = @{}; Cfg = $null; Loading = $false; Pasting = $false; Closing = $false
         Baseline = ''; Fetch = $null; FetchedKey = ''; Want = ''; Timer = $null; Job = $null; WaitPair = $false; NextLook = [datetime]::MinValue
         HasKey = $false; Device = ''; DeviceName = ''; ReplyOn = $false; EventsWas = ''; QuietWas = 5; ToastWas = $true; LiveWas = $true
-        HasTopic = $false; HasToken = $false; ServerWas = ''; CommandWas = ''; Cands = @(); CandSig = ''; PairFailed = $null
+        HasTopic = $false; HasToken = $false; ServerWas = ''; CommandWas = ''; CommandLinksWas = $false; Cands = @(); CandSig = ''; PairFailed = $null
     }
     foreach ($n in 'KeyBox', 'KeyGhost', 'KeyLink', 'DeviceBox', 'FindBtn', 'DeviceNote', 'TestBtn', 'TestNote', 'ReplySection', 'ReplyBox', 'ReplyStatus',
         'PairBtn', 'PairNote', 'CandPanel', 'CandHint', 'CandList', 'EventsPanel', 'QuietBox', 'LiveBox', 'ToastBox', 'Others', 'NtfyTopicBox', 'NtfyTopicGhost',
-        'NtfyServerBox', 'NtfyServerGhost', 'NtfyServerNote', 'NtfyTokenBox', 'NtfyTokenGhost', 'CommandBox', 'Bar', 'BarSave', 'BarDiscard', 'BarKeep',
+        'NtfyServerBox', 'NtfyServerGhost', 'NtfyServerNote', 'NtfyTokenBox', 'NtfyTokenGhost', 'CommandBox', 'CommandLinksBox', 'Bar', 'BarSave', 'BarDiscard', 'BarKeep',
         'Status', 'SaveBtn', 'CloseBtn') {
         $U[$n] = $w.FindName($n)
     }
@@ -731,6 +732,7 @@ function New-ChatqPhoneSetupWindow {
     $U.TestNote.Text = 'Saves first, then alerts the phone right away.'
     $U.QuietBox.ToolTip = 'Minutes; 0 sends to the phone even while you are at the PC'
     $U.CommandBox.ToolTip = 'Runs as -EncodedCommand with the alert in $env:CHATQ_EVENT, CHATQ_TITLE, CHATQ_TEXT, CHATQ_PRIORITY, CHATQ_JOB, CHATQ_PRESENT'
+    $U.CommandLinksBox.ToolTip = 'For a Pushover or Telegram command, with neither Join nor ntfy over https: it gets the link on an alert that reaches the phone, runs without one at the PC, and can carry the pairing. The link goes wherever your command sends it.'
     $U.PairNote.Text = $script:ChatqPhoneSetupPairHint
     $U.CandHint.Text = $script:ChatqPhoneSetupCandHint
     $U.PairBtn.ToolTip = 'Saves, then sends the phone a pairing alert. A phone paired before stops working.'
@@ -755,6 +757,7 @@ function New-ChatqPhoneSetupWindow {
     $U.PairBtn.add_Click({ param($src, $e) Invoke-ChatqPhoneSetupAction $src { param($U) Invoke-ChatqPhoneSetupPair $U } })
     $U.ToastBox.add_Click({ param($src, $e) Invoke-ChatqPhoneSetupAction $src { param($U) Update-ChatqPhoneSetupDirty $U } })
     $U.LiveBox.add_Click({ param($src, $e) Invoke-ChatqPhoneSetupAction $src { param($U) Update-ChatqPhoneSetupDirty $U } })
+    $U.CommandLinksBox.add_Click({ param($src, $e) Invoke-ChatqPhoneSetupAction $src { param($U) Update-ChatqPhoneSetupDirty $U } })
     $U.PermitBox.add_Click({ param($src, $e) Invoke-ChatqPhoneSetupAction $src { param($U) Update-ChatqPhoneSetupDirty $U } })
     $U.AskBox.add_Click({ param($src, $e) Invoke-ChatqPhoneSetupAction $src { param($U) Update-ChatqPhoneSetupDirty $U } })
     foreach ($b in $U.QuietBox, $U.NtfyServerBox, $U.CommandBox) {
@@ -930,6 +933,9 @@ function Read-ChatqPhoneSetupForm {
         $U.NtfyServerBox.Text = $U.ServerWas
         $U.CommandWas = if (& $has $cfg 'command') { [string]$cfg.command } else { '' }
         $U.CommandBox.Text = $U.CommandWas
+        # the command given the reply link: off unless the file says on
+        $U.CommandLinksWas = [bool]((& $has $cfg 'commandLinks') -and $cfg.commandLinks -eq $true)
+        $U.CommandLinksBox.IsChecked = $U.CommandLinksWas
         Update-ChatqPhoneSetupGhosts $U
         Update-ChatqPhoneSetupReplyStatus $U
         Read-ChatqPhoneSetupExtras $U $cfg
@@ -991,7 +997,7 @@ function Get-ChatqPhoneSetupSnapshot {
     $dev = if (-not $d) { '' } elseif (Test-ChatqPhoneSetupSameDevice $U $d) { '=' } else { [string]$d.Id }
     return (@($U.KeyBox.Password, $dev, (Get-ChatqPhoneSetupEventsText $U),
             $U.QuietBox.Text.Trim(), [bool]$U.LiveBox.IsChecked, [bool]$U.ToastBox.IsChecked, $U.NtfyTopicBox.Password, $U.NtfyServerBox.Text.Trim().TrimEnd('/'),
-            $U.NtfyTokenBox.Password, $U.CommandBox.Text, [bool]$U.PermitBox.IsChecked, (Get-ChatqBoardSetupSnapshot $U)) -join "`n") + "`n" + (Get-ChatqPhoneSetupExtrasSnapshot $U)
+            $U.NtfyTokenBox.Password, $U.CommandBox.Text, [bool]$U.CommandLinksBox.IsChecked, [bool]$U.PermitBox.IsChecked, (Get-ChatqBoardSetupSnapshot $U)) -join "`n") + "`n" + (Get-ChatqPhoneSetupExtrasSnapshot $U)
 }
 
 function Test-ChatqPhoneSetupDirty {
@@ -1296,6 +1302,8 @@ function Get-ChatqPhoneSetupChanges {
     }
     elseif (-not $server -and $U.ServerWas) { $c.NtfyServer = 'https://ntfy.sh' }
     if ($U.CommandBox.Text -ne $U.CommandWas) { $c.Command = $U.CommandBox.Text }
+    $links = [bool]$U.CommandLinksBox.IsChecked
+    if ($links -ne $U.CommandLinksWas) { $c.CommandLinks = if ($links) { 'on' } else { 'off' } }
     Add-ChatqBoardSetupChanges $U $c
     $xe = Add-ChatqPhoneSetupExtrasChanges $U $c
     if ($xe) { return @{ Changes = @{}; Error = $xe; Pair = $false } }
@@ -1322,9 +1330,11 @@ function Save-ChatqPhoneSetup {
     $askWant = $null
     if ($r.Changes.ContainsKey('Ask')) { $askWant = [string]$r.Changes.Ask; $r.Changes.Remove('Ask') }
     # The pairing alert needs a way to the phone - the one saved, or the one
-    # this Save saves. Without one, the rest is saved and the box stays
-    # ticked, unsaved, with the note saying what is missing.
-    $noWay = $pair -and -not ($U.HasKey -or $U.HasTopic -or ([string]$U.KeyBox.Password).Trim() -or ([string]$U.NtfyTopicBox.Password).Trim())
+    # this Save saves, your command given the link among them. Without one,
+    # the rest is saved and the box stays ticked, unsaved, with the note
+    # saying what is missing.
+    $cmdWay = [bool]$U.CommandLinksBox.IsChecked -and ([string]$U.CommandBox.Text).Trim()
+    $noWay = $pair -and -not ($U.HasKey -or $U.HasTopic -or ([string]$U.KeyBox.Password).Trim() -or ([string]$U.NtfyTopicBox.Password).Trim() -or $cmdWay)
     if ($noWay) { $pair = $false; $r.Changes.Remove('Reply') }
     # Replies on goes into the file before the pairing starts, not after, so
     # the setting stands whatever becomes of the push - the window closed

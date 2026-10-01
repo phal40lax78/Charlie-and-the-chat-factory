@@ -32,9 +32,11 @@ function Set-HLive([int]$ProcId, [string]$Sid = $idH) {
 function Clear-HLive { Remove-Item env:FAKE_AGENTS -EA SilentlyContinue; Get-ChildItem -LiteralPath $hSess -File | Remove-Item -Force }
 $script:HStates = [System.Collections.Generic.List[object]]::new()
 $script:HAnswer = $null
+$script:HAnswerBy = @{}
 $script:HLeave = $true
 $script:HBusy = $false
 $script:HThrow = $false
+$script:HBack = $false
 $script:HCancel = $false
 $script:ChatRunStateSeam = {
     param($s)
@@ -44,10 +46,13 @@ $script:ChatRunStateSeam = {
         # Cancel clicked while the windows are asked: Stop-ChatqJobRun's file,
         # as it writes it for a job it finds running under a live watcher
         if ($script:HCancel -and $jd.state -eq 'running') { Save-ChatqText (Join-Path $script:ChatqQueueDir "$($s.jobId).cancel") 'cancel' }
-        if ($script:HAnswer) {
+        # each window as HAnswerBy says, by its pid; the rest as HAnswer
+        if ($script:HAnswer -or $script:HAnswerBy.Count) {
             New-Item -ItemType Directory -Path $script:ChatRunAckDir -Force | Out-Null
             foreach ($hp in @($s.hostPids)) {
-                $ack = [ordered]@{ id = $s.id; answer = $script:HAnswer; at = (Get-Date).ToString('o') } | ConvertTo-Json -Compress
+                $say = if ($script:HAnswerBy.ContainsKey([int]$hp)) { $script:HAnswerBy[[int]$hp] } else { $script:HAnswer }
+                if (-not $say) { continue }
+                $ack = [ordered]@{ id = $s.id; answer = $say; at = (Get-Date).ToString('o') } | ConvertTo-Json -Compress
                 # with a BOM, as some writers put one: read past all the same
                 [System.IO.File]::WriteAllText((Join-Path $script:ChatRunAckDir "$hp.json"), $ack, [System.Text.UTF8Encoding]::new($true))
             }
@@ -56,6 +61,8 @@ $script:ChatRunStateSeam = {
         if ($script:HBusy) { foreach ($f in @(Get-ChildItem -LiteralPath $hSess -File)) { Set-HSession ([int]$f.BaseName) 'busy' } }
     }
     if ($s.phase -eq 'running' -and $script:HThrow) { throw 'the run-state seam threw' }
+    # back at the PC while it runs: the idle clock turned, as a key press does
+    if ($s.phase -eq 'running' -and $script:HBack) { $script:ChatqIdleSeam = 30 }
 }
 $runH = {
     param([string]$Title, [string]$Say)
@@ -72,6 +79,12 @@ $hState = { param($p) @($script:HStates | Where-Object { $_.Phase -eq $p })[-1].
 $hLog = Join-Path $script:ChatqLogDir 'watcher.log'
 $hLogFrom = { [System.IO.File]::ReadAllLines($hLog, $utf8).Count }
 $hLogSince = { param($n) @([System.IO.File]::ReadAllLines($hLog, $utf8) | Select-Object -Skip $n) }
+# the started alerts sent since a mark, from alerts.log - taken as @(& ...):
+# one line alone comes back a string, whose [0] is its first character
+$hAlerts = Join-Path $script:ChatqLogDir 'alerts.log'
+$hAlertFrom = { if (Test-Path -LiteralPath $hAlerts) { [System.IO.File]::ReadAllLines($hAlerts, $utf8).Count } else { 0 } }
+$hStartedSince = { param($n) @([System.IO.File]::ReadAllLines($hAlerts, $utf8) | Select-Object -Skip $n | Where-Object { $_ -like "*`tstarted`t*" }) }
+$hKeepOut = "*$($script:ChatqDot) open in VS Code: do not type in it until done"
 $script:ChatHandoverOff = $false
 $script:ChatHandoverAckSeconds = 1
 $script:ChatHandoverLeaveSeconds = 1
@@ -80,9 +93,14 @@ $script:ChatHandoverPollMs = 100
 # the tab closes, and its process leaves with it
 Set-HLive 2101
 $script:HAnswer = 'closing'
+Remove-Item -LiteralPath $script:ChatIdleEndedPath -Force -EA SilentlyContinue
 $n0 = & $hLogFrom
+$a0 = & $hAlertFrom
 $h1 = & $runH 'Handover chat' 'the tab closes'
 $l1 = & $hLogSince $n0
+$st1 = @(& $hStartedSince $a0)
+$hn1 = @(Read-ChatIdleEnded)
+Remove-Item -LiteralPath $script:ChatIdleEndedPath -Force -EA SilentlyContinue
 $hs1 = & $hState 'handover'
 $rs1 = & $hState 'running'
 $es1 = & $hState 'ended'
@@ -102,6 +120,26 @@ Check 'its process left: nothing stale, and watcher.log says the tab closed' (-n
     @($l1 | Where-Object { $_ -like '*handover 6a6a6a6a: 4242 closing' }).Count -eq 1 -and @($l1 | Where-Object { $_ -match 'handover 6a6a6a6a: tab closed after \d+\.\d s$' }).Count -eq 1) ($l1 -join ' | ')
 Check 'the run''s request names the window that handed over, though no process holds the chat now, and the job' (
     $rq1.kind -eq 'ran' -and $rq1.sessionId -eq $idH -and $rq1.oldProcess -eq 'none' -and (@($rq1.hostPids) -join ',') -eq '4242' -and $rq1.jobId -eq $h1.id) ($rq1 | ConvertTo-Json -Compress)
+Check 'the tab closed: its started alert warns of nothing - there is no view of the chat left to type in' (
+    $st1.Count -eq 1 -and $st1[0] -like '*Handover chat*the tab closes' -and $st1[0] -notlike '*do not type*') ($st1 -join ' | ')
+Check 'away at the end as well as the start: nobody came back, so the window opens the chat again on its own' ($es1.away -eq $true) ($es1 | ConvertTo-Json -Compress)
+# its side bar may still show the chat: the window is noted, as Show it notes
+# one whose process it ended, so someone's own claude -p into the chat later
+# holds that window's reload (Get-ChatHostWork)
+Check 'the window whose process left with its tab: noted in data/idle-ended.json with the chat, once' (
+    $hn1.Count -eq 1 -and $hn1[0].sessionId -eq $idH -and [int]$hn1[0].hostPid -eq 4242) ($hn1 | ConvertTo-Json -Compress)
+Clear-HLive
+
+# queued for the night, ended with someone at work: away is judged again
+# for the end, and the window asks (Open chat) rather than open it
+Set-HLive 2101
+$script:HBack = $true
+$h1b = & $runH 'Handover chat' 'back by the end'
+$script:HBack = $false
+$script:ChatqIdleSeam = 99999
+Check 'back at the PC by the end: the handover and the run say away, the end says not - the window asks' (
+    $h1b.state -eq 'done' -and (& $hState 'handover').away -eq $true -and (& $hState 'running').away -eq $true -and (& $hState 'ended').away -eq $false) (
+    "$((& $hState 'handover').away) $((& $hState 'running').away) $((& $hState 'ended').away)")
 Clear-HLive
 
 # in use: the tab in front of someone - never run beside it
@@ -117,6 +155,9 @@ Check 'a tab in use: not run - back in the queue for a minute, its try not count
     -not $h2.result -and $h2.deferredSince -and @($h2.history)[-1].why -eq 'waits for you to leave its tab' -and
     [System.IO.File]::ReadAllText($script:ChatReloadPath, $utf8) -eq $rqB) "$(& $hPhases) $($h2.state) $($h2.deferWhy) $($h2.deferUntil) $(@($h2.history)[-1].why)"
 Check 'and every list says what it waits for' ($eta2 -eq 'waits for you to leave its tab') $eta2
+$es2 = & $hState 'ended'
+Check 'no tab closed: its ended carries no handover id, so the next run into the chat is not held 30 s for a put-back that never comes' (
+    (& $hState 'handover').handoverId -and $null -eq $es2.handoverId) ($es2 | ConvertTo-Json -Compress)
 # asked again while the tab stays in use: running for the guards while the
 # window is asked, but a start taken back leaves no trace - and it is asked
 # less often: a minute, 2, then 5
@@ -153,9 +194,29 @@ Set-HLive 2102
 $script:HAnswer = 'in-use'
 $h2e = & $againH $h2d
 $du2e = ConvertTo-ChatqDate $h2e.deferUntil
-Check 'a busy chat in between, then the tab in use again: a minute again, and its history says so again' (
-    $null -eq $h2d.deferWhy -and $h2e.deferWhy -eq 'in-use' -and $du2e -gt (Get-Date).AddSeconds(45) -and $du2e -lt (Get-Date).AddSeconds(75) -and
-    @($h2e.history).Count -eq $hist2 + 1 -and @($h2e.history)[-1].why -eq 'waits for you to leave its tab') "$($h2d.deferWhy) $($h2e.deferWhy) $($h2e.deferUntil) $(@($h2e.history).Count)"
+Check 'a busy chat in between, then the tab in use again: a minute again, and its history says each change' (
+    $h2d.deferWhy -eq 'busy' -and @($h2d.history).Count -eq $hist2 + 1 -and @($h2d.history)[-1].why -eq 'chat is in use' -and
+    $h2e.deferWhy -eq 'in-use' -and $du2e -gt (Get-Date).AddSeconds(45) -and $du2e -lt (Get-Date).AddSeconds(75) -and
+    @($h2e.history).Count -eq $hist2 + 2 -and @($h2e.history)[-1].why -eq 'waits for you to leave its tab') "$($h2d.deferWhy) $($h2e.deferWhy) $($h2e.deferUntil) $(@($h2e.history).Count)"
+# busy is a reason of its own: a background command ending into a turn of
+# the chat's own is a change the history says, and only once
+Push-Location -LiteralPath $projH
+$jBz = New-TestJob 'Handover chat' 'background, then busy'
+Pop-Location
+$bzNow = Get-Date
+$null = Set-ChatqJobDeferred $jBz @{ Action = 'defer'; Why = 'background'; Since = $bzNow.AddMinutes(-3); Note = 'npm test' } $bzNow
+$bzH1 = @((Find-ChatqJob $jBz.id -Exact).history).Count
+$jBz = Find-ChatqJob $jBz.id -Exact
+$null = Set-ChatqJobDeferred $jBz @{ Action = 'defer' } $bzNow
+$jBz = Find-ChatqJob $jBz.id -Exact
+$bzH2 = @($jBz.history).Count
+$null = Set-ChatqJobDeferred $jBz @{ Action = 'defer' } $bzNow
+$jBz = Find-ChatqJob $jBz.id -Exact
+$bzEta = (Get-ChatqEta @($jBz) @{})[$jBz.id]
+Check 'a background wait, then a busy one: busy kept as the reason, one history line for the change, none for the same wait again, and the lists say chat busy' (
+    $jBz.deferWhy -eq 'busy' -and $null -eq $jBz.deferSince -and $null -eq $jBz.deferNote -and $bzH2 -eq $bzH1 + 1 -and @($jBz.history).Count -eq $bzH2 -and
+    @($jBz.history)[-1].why -eq 'chat is in use' -and [int]$jBz.deferTries -eq 2 -and $bzEta -like '*(chat busy)') "$($jBz.deferWhy) $bzH1 $bzH2 $(@($jBz.history).Count) $($jBz.deferTries) | $bzEta"
+$null = Remove-ChatqJob (Find-ChatqJob $jBz.id -Exact) 'test'
 $null = Remove-ChatqJob (Find-ChatqJob $h2.id) 'test'
 Clear-HLive
 
@@ -177,6 +238,23 @@ $cc = & $cancelCase 'closing' 'cancelled while its tab closes'
 foreach ($c in $cu, $cc) { Check "cancelled during the handover, the window answering $(if ($c -eq $cu) { 'in-use' } else { 'closing' }): failed as cancelled, the file gone, the prompt never sent, ended failed" (
         $c.Job.state -eq 'failed' -and $c.Job.result.reason -eq 'cancelled' -and @($c.Job.history)[-1].why -eq 'cancelled' -and -not $c.Cancel -and -not $c.Log -and
         $c.Phases -eq 'handover,ended' -and $c.Ended.state -eq 'failed' -and -not @($c.Job.history | Where-Object { $_.state -eq 'running' }).Count) "$($c.Job.state) $($c.Job.result.reason) $($c.Cancel) $($c.Log) $($c.Phases)" }
+Check 'cancelled before its run went in: its try not counted and no start kept, as for a start taken back' (
+    [int]$cu.Job.attempts -eq 0 -and -not $cu.Job.startedAt -and [int]$cc.Job.attempts -eq 0 -and -not $cc.Job.startedAt -and $cc.Job.endedAt) "$($cu.Job.attempts) $($cu.Job.startedAt) | $($cc.Job.attempts) $($cc.Job.startedAt)"
+Check 'and its ended carries the handover''s id only where the tab closed: in use, none' ($null -eq $cu.Ended.handoverId -and $cc.Ended.handoverId) "$($cu.Ended.handoverId) | $($cc.Ended.handoverId)"
+# requeued (chatqrun <n>) into a chat with an earlier turn opening with the
+# same words: its prompt was never sent, so that turn is not it landing -
+# with no start kept, looked for from its end, not from nothing
+$pHWas = [System.IO.File]::ReadAllText($pH, $utf8)
+$cuTurn = [ordered]@{ type = 'user'; timestamp = (Get-Date).ToUniversalTime().AddMinutes(-10).ToString('o'); sessionId = $idH
+    message = [ordered]@{ role = 'user'; content = 'cancelled while in use' } } | ConvertTo-Json -Compress -Depth 5
+[System.IO.File]::AppendAllText($pH, $cuTurn + "`n", $utf8)
+$cuAny = Test-ChatqPromptLanded $pH 'cancelled while in use' $null 'claude'
+$cuRq = Reset-ChatqJob (Find-ChatqJob $cu.Job.id -Exact) ''
+$cuR = Find-ChatqJob $cu.Job.id -Exact
+[System.IO.File]::WriteAllText($pH, $pHWas, $utf8)
+Check 'cancelled during its handover, then requeued into a chat whose earlier turn says the same: the prompt sent in full, not a continue' (
+    $cuAny -and -not $cuRq.Error -and -not $cuRq.Landed -and $cuR.state -eq 'queued' -and $cuR.retryAs -eq 'full') "$cuAny $($cuRq.Error) $($cuRq.Landed) $($cuR.state) $($cuR.retryAs)"
+$null = Remove-ChatqJob $cuR 'test'
 
 # After a handed-over run ends - here a cancel, which writes no ran request -
 # the next run into the chat waits while the window puts it back, as after
@@ -232,6 +310,63 @@ $j15 = & $againH $j15
 Check 'a job that starts: its old wait''s reason cleared, so no later wait is read as it' ($j15.state -eq 'done' -and $null -eq $j15.deferWhy -and $null -eq $j15.deferSince -and $null -eq $j15.deferNote) "$($j15.state) $($j15.deferWhy)"
 Clear-HLive
 
+# Cancel during the handover of a job requeued after an earlier go: its
+# start and its count are that go's again - not cleared, not this one's
+Push-Location -LiteralPath $projH
+$jRc = New-TestJob 'Handover chat' 'cancelled on its second go'
+Pop-Location
+$rcStart = (Get-Date).ToUniversalTime().AddHours(-1).ToString('o')
+Set-ChatqProp $jRc 'home' $hHome; Set-ChatqProp $jRc 'attempts' 1; Set-ChatqProp $jRc 'startedAt' $rcStart; Save-ChatqJob $jRc
+Set-HLive 2106
+$script:HAnswer = 'closing'
+$script:HCancel = $true
+$script:HStates.Clear()
+Invoke-ChatqJob (New-ChatqWatchState) (Find-ChatqJob $jRc.id)
+$script:HCancel = $false
+Clear-HLive
+$jRc = Find-ChatqJob $jRc.id -Exact
+$rcAt = ConvertTo-ChatqDate $jRc.startedAt
+Check 'cancelled during the handover of its second go: its start and its count put back to the first go''s' (
+    $jRc.state -eq 'failed' -and $jRc.result.reason -eq 'cancelled' -and [int]$jRc.attempts -eq 1 -and $rcAt -and
+    [Math]::Abs(($rcAt - (ConvertTo-ChatqDate $rcStart)).TotalSeconds) -lt 1) "$($jRc.state) $($jRc.result.reason) $($jRc.attempts) $($jRc.startedAt) / $rcStart"
+
+# Two windows hold the chat, one in use and one closing its tab: not run,
+# and its ended keeps the handover's id - the closing window puts its tab
+# back, and the chat's next run waits while it does (Get-ChatShowHold)
+Set-HSession 2108
+Set-HSession 2109
+$env:FAKE_AGENTS = '[' + (@(2108, 2109 | ForEach-Object { [ordered]@{ pid = $_; sessionId = $idH; kind = 'interactive'; status = 'idle'; startedAt = $hStart; entrypoint = 'claude-vscode' } | ConvertTo-Json -Compress }) -join ',') + ']'
+$script:ChatParentSeam = { param($e) if ([int](Get-ChatField $e 'Pid') -eq 2109) { @{ Pid = 5353; Name = 'Code'; StartTime = [datetime]::MinValue } } else { @{ Pid = 4242; Name = 'Code'; StartTime = [datetime]::MinValue } } }
+$script:HAnswer = $null
+$script:HAnswerBy = @{ 4242 = 'in-use'; 5353 = 'closing' }
+$hMx = & $runH 'Handover chat' 'two windows'
+$script:HAnswerBy = @{}
+$script:ChatParentSeam = $script:SeamsAtStart.Parent
+Clear-HLive
+$hsMx = & $hState 'handover'
+$esMx = & $hState 'ended'
+Check 'two windows, one in use and one closing: not run, waiting for the tab in use, and its ended keeps the handover''s id' (
+    (& $hPhases) -eq 'handover,ended' -and (@($hsMx.hostPids | Sort-Object) -join ',') -eq '4242,5353' -and $hMx.state -eq 'queued' -and $hMx.deferWhy -eq 'in-use' -and
+    [int]$hMx.attempts -eq 0 -and $esMx.handoverId -and $esMx.handoverId -eq $hsMx.id) "$(& $hPhases) $(@($hsMx.hostPids) -join ',') $($hMx.state) $($hMx.deferWhy) $($esMx.handoverId)"
+$null = Remove-ChatqJob (Find-ChatqJob $hMx.id -Exact) 'test'
+
+# The tab closing but its process staying, and the chat busy by the time it
+# is judged again: back in the queue as for a busy chat, and its ended keeps
+# the handover's id - the window still puts back the tab it closed
+Set-HLive 2110
+$script:HAnswer = 'closing'
+$script:HLeave = $false
+$script:HBusy = $true
+$hRj = & $runH 'Handover chat' 'closed, then busy'
+$script:HBusy = $false
+$script:HLeave = $true
+Clear-HLive
+$esRj = & $hState 'ended'
+Check 'a tab closed whose chat is busy by the second look: queued as busy, and its ended keeps the handover''s id' (
+    (& $hPhases) -eq 'handover,ended' -and $hRj.state -eq 'queued' -and $hRj.deferWhy -eq 'busy' -and [int]$hRj.attempts -eq 0 -and
+    $esRj.handoverId -and $esRj.handoverId -eq (& $hState 'handover').id) "$(& $hPhases) $($hRj.state) $($hRj.deferWhy) $($esRj.handoverId)"
+$null = Remove-ChatqJob (Find-ChatqJob $hRj.id -Exact) 'test'
+
 # unsure, no answer, a close whose process stays: beside it, and stale
 $besideCase = {
     param([string]$Answer, [bool]$Leave, [string]$Say)
@@ -239,17 +374,20 @@ $besideCase = {
     $script:HAnswer = $Answer
     $script:HLeave = $Leave
     $t = [System.Diagnostics.Stopwatch]::StartNew()
+    $a = & $hAlertFrom
     $j = & $runH 'Handover chat' $Say
     $ms = $t.ElapsedMilliseconds
     $rs = & $hState 'running'
     Clear-HLive
     $script:HLeave = $true
-    [pscustomobject]@{ Job = $j; Beside = $rs.beside; Phases = (& $hPhases); Ms = $ms }
+    [pscustomobject]@{ Job = $j; Beside = $rs.beside; Phases = (& $hPhases); Ms = $ms; Ended = (& $hState 'ended'); Started = @(& $hStartedSince $a) }
 }
 $n0 = & $hLogFrom
 $bu = & $besideCase 'unsure' $true 'unsure'
 $bn = & $besideCase $null $true 'no answer'
+Remove-Item -LiteralPath $script:ChatIdleEndedPath -Force -EA SilentlyContinue
 $bt = & $besideCase 'closing' $false 'stays'
+$hnT = @(Read-ChatIdleEnded)
 $bo = & $besideCase 'off' $true 'watch runs off'
 $lb = & $hLogSince $n0
 Check 'a window unsure of its tab, or with watchRuns off: run beside it, said so, and stale' (
@@ -261,6 +399,11 @@ Check 'no answer - an extension that knows no handover: beside it after the wait
 Check 'a tab closing whose process outlives the wait: timed out, beside it' (
     $bt.Beside -eq 'timed-out' -and $bt.Job.state -eq 'done' -and (Get-ChatField $bt.Job.result 'stale') -and
     @($lb | Where-Object { $_ -like '*handover 6a6a6a6a: still open after 1 s - running beside it' }).Count -eq 1) "$($bt.Beside) $($lb -join ' | ')"
+Check 'and no note of that window: its process still holds the chat' (-not $hnT.Count) ($hnT | ConvertTo-Json -Compress)
+Check 'beside a view of the chat, whichever way: the started alert says not to type in it until done' (
+    @(foreach ($c in $bu, $bn, $bt, $bo) { if ($c.Started.Count -eq 1 -and $c.Started[0] -like $hKeepOut) { $c } }).Count -eq 4) (@($bu, $bn, $bt, $bo | ForEach-Object { $_.Started -join ' / ' }) -join ' | ')
+Check 'and its ended carries the handover''s id only where a window closed the tab: timed out, not unsure, off or no answer' (
+    $bt.Ended.handoverId -and $null -eq $bu.Ended.handoverId -and $null -eq $bn.Ended.handoverId -and $null -eq $bo.Ended.handoverId) "$($bt.Ended.handoverId) $($bu.Ended.handoverId) $($bn.Ended.handoverId) $($bo.Ended.handoverId)"
 # unsure, and the chat started a turn meanwhile: judged again, and it waits
 Set-HLive 2104
 $script:HAnswer = 'unsure'
@@ -268,8 +411,8 @@ $script:HBusy = $true
 $h5 = & $runH 'Handover chat' 'busy by now'
 $script:HBusy = $false
 Check 'not closed, and the chat busy by now: back in the queue as for a busy chat, ended queued - never beside a turn' (
-    (& $hPhases) -eq 'handover,ended' -and $h5.state -eq 'queued' -and $null -eq $h5.deferWhy -and $h5.deferUntil -and [int]$h5.attempts -eq 0 -and
-    (& $hState 'ended').state -eq 'queued') "$(& $hPhases) $($h5.state) $($h5.deferWhy)"
+    (& $hPhases) -eq 'handover,ended' -and $h5.state -eq 'queued' -and $h5.deferWhy -eq 'busy' -and $h5.deferUntil -and [int]$h5.attempts -eq 0 -and
+    (& $hState 'ended').state -eq 'queued' -and $null -eq (& $hState 'ended').handoverId) "$(& $hPhases) $($h5.state) $($h5.deferWhy)"
 $null = Remove-ChatqJob (Find-ChatqJob $h5.id) 'test'
 Clear-HLive
 
@@ -280,16 +423,35 @@ Set-ChatqProp $cfgH 'handover' $false
 Save-ChatqJson $script:ChatqConfigPath $cfgH
 Set-HLive 2105
 $script:HAnswer = 'closing'
+$a6 = & $hAlertFrom
 $h6 = & $runH 'Handover chat' 'handover off'
+$st6 = @(& $hStartedSince $a6)
 [System.IO.File]::WriteAllText($script:ChatqConfigPath, $cfgWasH, $utf8)
 Check 'config handover false: no handover - running beside it, stale' (
     (& $hPhases) -eq 'running,ended' -and (& $hState 'running').beside -eq 'unsure' -and $h6.state -eq 'done' -and (Get-ChatField $h6.result 'stale')) "$(& $hPhases) $($h6.state)"
+Check 'and its started alert says not to type in the chat until done' ($st6.Count -eq 1 -and $st6[0] -like $hKeepOut -and $st6[0] -like '*handover off*') ($st6 -join ' | ')
+Clear-HLive
+
+# a terminal's claude holds the chat (its parent a shell, not Code): no
+# window to ask, the run beside it, and the alert names the terminal
+Set-HLive 2106
+$script:ChatParentSeam = { param($e) @{ Pid = 9; Name = 'pwsh'; StartTime = [datetime]::MinValue } }
+$script:HAnswer = $null
+$aT = & $hAlertFrom
+$hT = & $runH 'Handover chat' 'in a terminal'
+$stT = @(& $hStartedSince $aT)
+$script:ChatParentSeam = $script:SeamsAtStart.Parent
+Check 'a terminal''s claude holds the chat: no handover, and its started alert says not to type there until done' (
+    (& $hPhases) -eq 'running,ended' -and $hT.state -eq 'done' -and $stT.Count -eq 1 -and
+    $stT[0] -like "*in a terminal $($script:ChatqDot) open in a terminal too: do not type there until done" -and $stT[0] -notlike '*VS Code*') "$(& $hPhases) $($hT.state) | $($stT -join ' | ')"
 Clear-HLive
 
 # ended on every way out: a failure, the limit, a throw; and a job with no
 # chat open anywhere is only running, then ended
 $env:FAKE_SCENARIO = Join-Path $here 'fixtures\stream\error.jsonl'
+$a7 = & $hAlertFrom
 $h7 = & $runH 'Handover chat' 'fails'
+$st7 = @(& $hStartedSince $a7)
 $p7 = & $hPhases
 $e7 = (& $hState 'ended').state
 $env:FAKE_SCENARIO = Join-Path $here 'fixtures\stream\rejected.jsonl'
@@ -300,6 +462,7 @@ Remove-Item env:FAKE_SCENARIO
 Check 'nothing holding the chat: running, then ended - failed as failed, a limit back in the queue as queued' (
     $p7 -eq 'running,ended' -and $h7.state -eq 'failed' -and $e7 -eq 'failed' -and $p8 -eq 'running,ended' -and $h8.state -eq 'queued' -and $e8 -eq 'queued' -and
     $null -eq (& $hState 'running').beside) "$p7 $($h7.state) $e7 | $p8 $($h8.state) $e8"
+Check 'and with the chat open nowhere, its started alert warns of nothing' ($st7.Count -eq 1 -and $st7[0] -like '*Handover chat*fails' -and $st7[0] -notlike '*do not type*') ($st7 -join ' | ')
 $null = Remove-ChatqJob (Find-ChatqJob $h8.id) 'test'
 $script:HThrow = $true
 $thrown = $null

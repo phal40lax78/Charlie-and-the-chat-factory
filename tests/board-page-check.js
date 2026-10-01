@@ -206,6 +206,9 @@ const psPhone = fs.readFileSync(path.join(root, 'src', 'phone.ps1'), 'latin1');
         B.modeText({ cap: 'acceptEdits' }, false, ol[1]) === 'at most acceptEdits' && B.stateLine('older', ol[0]) === 'a message goes after the 2 queued for it' &&
         /^#12 needs input - a message does not answer it/.test(B.stateLine('older', ol[1])) && B.rowView('older', ol[1], Date.now()).sub === 'working',
         cxv.sub + ' / ' + B.modeText({ cap: 'acceptEdits' }, false, ol[0]) + ' / ' + B.stateLine('older', ol[0]));
+    check('no cap (keep), or none sent: an unknown mode reads as the chat\'s own',
+        B.modeText({ cap: 'keep' }, false, ol[1]) === 'the chat\'s own mode' && B.modeText({}, false, ol[1]) === 'the chat\'s own mode',
+        B.modeText({ cap: 'keep' }, false, ol[1]) + ' / ' + B.modeText({}, false, ol[1]));
     check('its acts: the last answer for a Claude chat only - the PC reads it from a Claude transcript', acts('older', ol[0]) === '' && acts('older', ol[1]) === 'read');
     // where 'run': a print-mode run - a queued prompt - is no terminal
     const runRow = { h: 'rrrrrr', id8: '7a7a7a7a', t: 'Run', f: 'proj', where: 'run', state: 'busy', jobs: [] };
@@ -224,6 +227,18 @@ const psPhone = fs.readFileSync(path.join(root, 'src', 'phone.ps1'), 'latin1');
         B.rowView('open', heldTab, Date.now()).chips[0].text === '#6 waits for you to leave its tab' &&
         B.rowView('open', Object.assign({}, heldBg, { jobs: [{ n: 7, s: 'queued', e: '14:05', k: 'prompt' }] }), Date.now()).chips[0].text === '#7 sends 14:05',
         B.rowView('open', heldBg, Date.now()).chips[0].text + ' / ' + B.stateLine('open', heldBg));
+    // a board chat whose own mode the overlay read says it, as the list does;
+    // a cut-off says what auto-continue does with it in full (al), its row
+    // the overlay's short words (d)
+    const cap = { cap: 'acceptEdits' };
+    const cutAuto = { h: 'cuauto', id8: '6c6c6c6c', t: 'Cut', f: 'proj', d: 'resets 13:00 \u00b7 by hand', al: 'cut off - resets 13:00 \u00b7 by hand', jobs: [] };
+    check('a board chat: its own mode once capped when the PC read it, else the cap; a cut-off\'s auto-continue words in full, its row\'s short',
+        B.modeText(cap, false, { m: 'plan', mc: false, known: true }) === 'plan' && B.modeText(cap, false, { m: 'acceptEdits', mc: true, known: true }) === 'acceptEdits (phone\'s limit)' &&
+        B.modeText(cap, false, { state: 'idle' }) === 'at most acceptEdits' &&
+        B.stateLine('cut', cutAuto) === 'cut off - resets 13:00 \u00b7 by hand - a message goes after the reset' &&
+        B.stateLine('cut', { d: 'cut off - resets 13:00', jobs: [] }) === 'cut off - resets 13:00 - a message goes after the reset' &&
+        B.rowView('cut', cutAuto, Date.now()).sub === 'proj \u00b7 resets 13:00 \u00b7 by hand' && acts('cut', cutAuto) === 'continue,read',
+        B.stateLine('cut', cutAuto) + ' / ' + B.rowView('cut', cutAuto, Date.now()).sub);
     check('the usage lines: the provider on its first window, the reset when limited, "as of" when stale', JSON.stringify(B.usageLines([{ p: 'Claude', stale: true, asof: '2026-09-26T01:00:00Z', parts: [{ w: '5h', pct: 100, limited: true, reset: '2026-09-26T02:10:00Z' }, { w: 'week', pct: 18 }] }]).map((l) => [l.name, l.w, l.pct, l.tone, !!l.right])) ===
         JSON.stringify([['Claude', '5h', 100, 'bad', true], ['', 'week', 18, 'ok', false]]));
     check('the footer: listens all the time, or until when', B.listenText({ listen: 'always' }) === 'Listens all the time' && /^Listens until \d\d:\d\d \(an alert is out\)$/.test(B.listenText({ listen: 'alerts', until: '2026-09-26T02:10:00Z' })));
@@ -496,7 +511,8 @@ async function drive() {
         open: [
             { h: 'hwaita', id8: '1a2b3c4d', t: 'Radar viewer', f: 'as_viewer', where: 'vscode', state: 'waiting', what: 'permission (Bash)', prompt: '', new: false, age: iso(clock - 180000), jobs: [] },
             { h: 'hbusya', id8: '2b3c4d5e', t: 'Parser ' + HANGUL + ' rewrite', f: 'parser', where: 'terminal', state: 'busy', what: '', prompt: 'fix the tokenizer', new: true, age: iso(clock - 720000), jobs: [{ h: 'hjobqa', n: 14, s: 'queued', e: 'after #13', k: 'prompt' }] },
-            { h: 'hidlea', id8: '3c4d5e6f', t: 'Notify feature', f: 'chatq', where: 'vscode', state: 'idle', what: '', prompt: 'add the board', new: true, age: iso(clock - 120000), jobs: [{ h: 'hjobni', n: 12, s: 'needs-input', e: 'needs you', k: 'prompt' }] }
+            { h: 'hidlea', id8: '3c4d5e6f', t: 'Notify feature', f: 'chatq', where: 'vscode', state: 'idle', what: '', prompt: 'add the board', new: true, age: iso(clock - 120000), jobs: [{ h: 'hjobni', n: 12, s: 'needs-input', e: 'needs you', k: 'prompt' }],
+                m: 'plan', mc: false, known: true }
         ],
         cut: [{ h: 'hcutaa', id8: '4d5e6f70', t: 'Plugin unification', f: 'plugins', where: '', why: 'limit', d: 'cut off - resets 02:10', reset: iso(clock + 3600000), age: iso(clock - 600000), jobs: [] }],
         queue: [{ h: 'hjobqa', n: 14, t: 'Parser ' + HANGUL + ' rewrite', s: 'queued', e: 'after #13', k: 'prompt', p: 'claude', f: 'parser', id8: '2b3c4d5e' },
@@ -595,6 +611,11 @@ async function drive() {
     // back, the refresh budget, a hidden page
     pg.$('cBack').fire('click');
     check('back: the board again', !pg.$('board').hidden && pg.$('chat').hidden);
+    // an open chat whose own mode the overlay read: the chip says it
+    pg.row('Notify feature').fire('click');
+    const notifyMode = pg.$('cMode')._text;
+    pg.$('cBack').fire('click');
+    check('a board chat whose mode the PC read: the chat view says its own, not the cap', notifyMode === 'plan' && !pg.$('board').hidden, notifyMode);
     let p0 = pg.posts.length;
     await pg.run(31000);
     const refreshed = pg.posts.length > p0 && pg.opened(pg.posts.length - 1).json.act === 'board';

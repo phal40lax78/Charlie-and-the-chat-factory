@@ -99,6 +99,140 @@ $rootSlug = ($driveRoot -replace '[^A-Za-z0-9]', '-')
 Check 'a new chat at a drive''s root keeps the root, and the slug Claude gives it' (
     $nroot.cwd -eq $driveRoot -and $nroot.group -eq $rootSlug -and (Get-ChatSlug 'D:\a\b\') -eq 'D--a-b' -and (Get-ChatSlug 'C:\') -eq 'C--') "$($nroot.cwd) $($nroot.group)"
 foreach ($x in $nj, $follow, $nl, $nr, $nroot) { $null = Remove-ChatqJob (Find-ChatqJob $x.id) 'test' }
+# chatq -New on the mode and model given, said as a new chat's; a model no
+# claude.cmd could be handed refused before anything is queued. Its folder,
+# -Continue and a folder not there are tests/sections/attachments.ps1's.
+$cnWatch = ${function:Start-ChatqWatcher}
+${function:Start-ChatqWatcher} = { param([string]$Wake) $true }
+$cnBefore = @(Get-ChatqJobs).Count
+try {
+    $cnSaid = (chatq -New $newDir 'Parser rewrite' -Prompt 'plan the rewrite first' -Mode plan -Model sonnet 6>&1 | Out-String -Width 400)
+    $cnWhat = (chatq -New $newDir -Prompt 'x' -WhatIf 6>&1 | Out-String -Width 400)
+    $cnModel = (chatq -New $newDir -Prompt 'x' -Model 'sonnet "4"' 6>&1 | Out-String -Width 400)
+}
+finally { ${function:Start-ChatqWatcher} = $cnWatch }
+$cnJobs = @(Get-ChatqJobs | Where-Object { $_.kind -eq 'new' -and $_.title -eq 'Parser rewrite' })
+$cn = $cnJobs[0]
+Check 'chatq -New queues a new chat''s first prompt: named, in the mode and on the model given' (
+    $cnJobs.Count -eq 1 -and $cn.cwd -eq $newDir -and $cn.mode -eq 'plan' -and $cn.runModel -eq 'sonnet' -and $cn.sessionId -match '^[0-9a-f-]{36}$' -and
+    (Read-ChatqPrompt $cn) -eq 'plan the rewrite first' -and $cnSaid -match "queued #$($cn.seq) " -and $cnSaid -like "*plan (given)*$newDir*" -and
+    $cnWhat -like "*(as a new chat starts)*$newDir*-WhatIf: nothing queued*") "$cnSaid / $cnWhat"
+Check 'chatq -New refuses a model holding a quote, and queues nothing' (
+    $cnModel -like "*-Model 'sonnet ""4""': a model's name holds no space, quote or %*" -and
+    @(Get-ChatqJobs).Count -eq $cnBefore + 1) "$cnModel"
+# the console's chips change a waiting job's mode and model through here
+$raNo = Set-ChatqJobRunAs $cn 'model' 'opus 4'
+$raMode = Set-ChatqJobRunAs $cn 'mode' 'acceptEdits'
+$raBack = Set-ChatqJobRunAs $cn 'model' ''
+$cnNow = Find-ChatqJob $cn.id -Exact
+$cxJob = [pscustomobject]@{ seq = 99; state = 'queued'; provider = 'codex'; title = 'x' }
+$doneJob = [pscustomobject]@{ seq = 98; state = 'done'; provider = 'claude'; title = 'x' }
+Check 'a waiting Claude job''s mode and model change and are kept; a Codex job, one already sent and a model with a space are refused' (
+    $raNo -like "*a model's name holds no space*" -and -not $raMode -and -not $raBack -and $cnNow.mode -eq 'acceptEdits' -and -not $cnNow.runModel -and
+    (Set-ChatqJobRunAs $cxJob 'mode' 'plan') -like '*Codex*' -and (Set-ChatqJobRunAs $doneJob 'mode' 'plan') -like '#98 is done*') "$raNo / $raMode / $($cnNow.mode) $($cnNow.runModel)"
+foreach ($x in $cnJobs) { $null = Remove-ChatqJob $x 'test' }
+# chatq -New without -Prompt: the editor tab, its slot taken for the tab
+# and given up once read - the job takes a number of its own, and a tab
+# left empty queues nothing and holds none. With -Attach the file goes into
+# the job's folder by its own name; -Paste's text goes under the prompt given.
+$cnEdFn = ${function:Invoke-ChatqEditor}
+$script:CnEdSaw = [System.Collections.Generic.List[object]]::new()
+$script:CnEdSay = 'written in the tab'
+$cnEdBefore = @(Get-ChildItem -LiteralPath $script:ChatqQueueDir -Directory -EA SilentlyContinue | ForEach-Object FullName)
+$cnAtt = Join-Path $sb 'new-chat-notes.txt'
+[System.IO.File]::WriteAllText($cnAtt, 'the notes', $utf8)
+${function:Start-ChatqWatcher} = { param([string]$Wake) $true }
+${function:Invoke-ChatqEditor} = {
+    param([string]$Path, [switch]$NoWait)
+    $noBom = New-Object System.Text.UTF8Encoding $false
+    $script:CnEdSaw.Add([pscustomobject]@{ Path = $Path; Was = (Test-Path -LiteralPath $Path)
+            Dirs = @(Get-ChildItem -LiteralPath $script:ChatqQueueDir -Directory | ForEach-Object FullName) })
+    [System.IO.File]::WriteAllText($Path, [System.IO.File]::ReadAllText($Path, $noBom) + $script:CnEdSay, $noBom)
+}
+try {
+    $cnEdOut = (chatq -New $newDir 'Edited first' -Mode plan 6>&1 | Out-String -Width 400)
+    $script:CnEdSay = ''
+    $cnEdNo = (chatq -New $newDir 'Never queued' 6>&1 | Out-String -Width 400)
+    $cnAttOut = (chatq -New $newDir 'With a file' -Prompt 'read the notes' -Attach $cnAtt 6>&1 | Out-String -Width 400)
+    $script:ChatqClipboardSeam = { [pscustomobject]@{ Image = $null; Files = @(); Text = 'from the clipboard' } }
+    $cnEdCalls = $script:CnEdSaw.Count
+    $null = (chatq -New $newDir 'Pasted under' -Prompt 'look:' -Paste 6>&1 | Out-String -Width 400)
+    $cnEdAfter = $script:CnEdSaw.Count
+}
+finally { ${function:Invoke-ChatqEditor} = $cnEdFn; ${function:Start-ChatqWatcher} = $cnWatch; $script:ChatqClipboardSeam = $null }
+$cnBy = { param($t) @(Get-ChatqJobs | Where-Object { $_.kind -eq 'new' -and $_.title -eq $t }) }
+$cnSeqOf = { param($p) if ((Split-Path $p -Leaf) -match '^#(\d+) ') { [int]$Matches[1] } else { -1 } }
+# @() at each call: a scriptblock's one-job array comes back unrolled, and
+# a lone [pscustomobject] has no .Count in Windows PowerShell 5.1
+$cnEd = @(& $cnBy 'Edited first')
+$cnS1 = $script:CnEdSaw[0]; $cnS2 = $script:CnEdSaw[1]
+$cnD1 = @($cnS1.Dirs | Where-Object { $_ -notin $cnEdBefore })
+$cnD2 = @($cnS2.Dirs | Where-Object { $_ -notin $cnEdBefore -and $_ -notin $cnD1 -and $_ -ne (Join-Path $script:ChatqQueueDir $cnEd[0].id) })
+# the job takes the slot's number back, and with the same name its prompt
+# file is the slot's path again: one file holds that number, the job's
+$cnHold = @(Get-ChildItem -LiteralPath $script:ChatqQueueDir -File -Filter "#$($cnEd[0].seq) *" -EA SilentlyContinue)
+Check 'chatq -New with no -Prompt opens the editor on a slot of its own, and queues what was written there; the slot''s folder is gone, its number the job''s alone, and no file is said missed' (
+    $cnEd.Count -eq 1 -and (Read-ChatqPrompt $cnEd[0]) -eq 'written in the tab' -and $cnEd[0].mode -eq 'plan' -and $cnS1.Was -and $cnD1.Count -eq 1 -and
+    $cnHold.Count -eq 1 -and -not (Test-Path -LiteralPath $cnD1[0]) -and $cnEd[0].seq -eq (& $cnSeqOf $cnS1.Path) -and
+    $cnEdOut -match "queued #$($cnEd[0].seq) " -and $cnEdOut -notlike '*could not take in*') "$($cnEd.Count) $($cnEd.seq) [$(Read-ChatqPrompt $cnEd[0])] $($cnEd[0].mode) $($cnS1.Was) $(($cnHold | ForEach-Object Name) -join ',') $($cnD1 -join ',') | $cnEdOut"
+$cnAj = @(& $cnBy 'With a file')
+Check 'a tab left empty queues nothing: its slot''s file and folder go, and the next job takes the number it held' (
+    -not @(& $cnBy 'Never queued').Count -and $cnEdNo -like '*cancelled - nothing queued*' -and -not (Test-Path -LiteralPath $cnS2.Path) -and $cnD2.Count -eq 1 -and
+    -not (Test-Path -LiteralPath $cnD2[0]) -and $cnAj.Count -eq 1 -and $cnAj[0].seq -eq (& $cnSeqOf $cnS2.Path)) "$cnEdNo | $($cnS2.Path) $($cnD2 -join ',') | $($cnAj.seq)"
+$cnPu = @(& $cnBy 'Pasted under')
+Check 'chatq -New -Attach keeps the file''s name in the job''s folder; -Paste''s text goes under -Prompt, the editor never opened' (
+    $cnAj.Count -eq 1 -and @(Get-ChatqAttachments $cnAj[0]).Count -eq 1 -and @(Get-ChatqAttachments $cnAj[0])[0].Name -eq 'new-chat-notes.txt' -and
+    (Read-ChatqPrompt $cnAj[0]) -eq 'read the notes' -and $cnPu.Count -eq 1 -and (Read-ChatqPrompt $cnPu[0]) -eq "look:`n`nfrom the clipboard" -and
+    $cnEdCalls -eq 2 -and $cnEdAfter -eq 2) "$cnAttOut | $($cnPu.Count) $cnEdCalls $cnEdAfter"
+foreach ($x in @($cnEd) + @($cnAj) + @($cnPu)) { if ($x) { $null = Remove-ChatqJob $x 'test' } }
+
+# a job whose -Model cmd.exe cannot carry - queued before New-ChatqJob
+# refused one, or its file edited by hand. The run fails with that said,
+# its own --settings file and the permit's folder gone, no process
+# started; the probe says Refused, and the watcher fails the job rather
+# than block its lane. The chat's own model is only named to the probe,
+# which then asks without it.
+$crJ = New-TestJob 'card redesign' 'never sent'
+Set-ChatqProp $crJ 'runModel' 'sonnet "4"'
+Save-ChatqJob $crJ
+$crProcFn = ${function:Invoke-ChatqProcess}
+$script:CrSaw = [System.Collections.Generic.List[string]]::new()
+${function:Invoke-ChatqProcess} = {
+    param([string]$Exe, [string[]]$ArgList, [string]$WorkDir, [string]$StdIn, [hashtable]$SetEnv, [string]$LogPath, [scriptblock]$OnLine, [scriptblock]$OnTick, [int]$TimeoutSec = 14400)
+    $script:CrSaw.Add($ArgList -join ' ')
+    throw 'cr: a process started'
+}
+try {
+    $crOwn = Join-Path $script:ChatqRunSettingsDir "$($crJ.id).json"
+    $crR1 = Invoke-ChatqRun $crJ 'x' $null $null -Carry ([pscustomobject]@{ Ultracode = $true; Effort = $null })
+    $crOwnLeft = Test-Path -LiteralPath $crOwn
+    $crPermit = New-ChatqPermitRun $crJ
+    $crPermitWas = Test-Path -LiteralPath $crPermit.Dir
+    $crR2 = Invoke-ChatqRun $crJ 'x' $null $null -Permit $crPermit -Carry ([pscustomobject]@{ Ultracode = $false; Effort = $null })
+    $crCx = [pscustomobject]@{ id = 'cr-codex'; seq = 0; provider = 'codex'; kind = 'prompt'; sessionId = 'cr-thread'; cwd = $sb; home = $codexHome; title = 'x'; runModel = 'o3 "x"' }
+    $crR3 = Invoke-ChatqRun $crCx 'x' $null $null
+    $crP1 = Invoke-ChatqProbe 'claude' $crJ
+    $crP2 = Invoke-ChatqProbe 'codex' $crCx
+    $crSawBefore = $script:CrSaw.Count
+    $crOwnModel = [pscustomobject]@{ id = 'cr-own'; seq = 0; provider = 'claude'; kind = 'prompt'; sessionId = $idCard; cwd = $sb; home = $claudeHome; title = 'x'; model = 'claude "old"' }
+    $crP3 = try { $null = Invoke-ChatqProbe 'claude' $crOwnModel; 'no throw' } catch { $_.Exception.Message }
+    $crW = New-ChatqWatchState
+    $crLane = Get-ChatqLane $crJ
+    $crOk = Confirm-ChatqAllowed $crW (Find-ChatqJob $crJ.id -Exact)
+}
+finally { ${function:Invoke-ChatqProcess} = $crProcFn }
+$crNow = Find-ChatqJob $crJ.id -Exact
+Check 'a run whose -Model cmd.exe cannot carry fails with that said, no process started: its own settings file and the permit''s folder gone; a Codex run the same' (
+    $crR1.kind -eq 'failed' -and $crR1.reason -like 'fake-claude.cmd runs through cmd.exe, which cannot be handed a quote - not sent: *' -and -not $crOwnLeft -and
+    $crPermitWas -and -not (Test-Path -LiteralPath $crPermit.Dir) -and $crR2.kind -eq 'failed' -and $crR3.kind -eq 'failed' -and $crR3.reason -like '*cannot be handed a quote*' -and
+    $crSawBefore -eq 0) "$($crR1.reason) | $crOwnLeft $crPermitWas | $($crR2.kind) | $($crR3.reason) | $($script:CrSaw -join ' // ')"
+Check 'the probe says Refused for such a -Model, starting nothing; a chat''s own model it cannot carry is asked without' (
+    $crP1.Refused -and -not $crP1.Allowed -and $crP1.Error -like '*cannot be handed a quote*' -and $crP2.Refused -and $crP2.Error -like '*cannot be handed a quote*' -and
+    $crP3 -eq 'cr: a process started' -and $script:CrSaw.Count -eq 1 -and $script:CrSaw[0] -notlike '*--model*') "$($crP1.Error) | $($crP2.Error) | $crP3 | $($script:CrSaw -join ' // ')"
+Check 'the watcher fails that job with the reason and leaves its lane open - not blocked, no probe miss counted' (
+    -not $crOk -and $crNow.state -eq 'failed' -and $crNow.result.reason -like '*cannot be handed a quote*' -and -not $crW.blocked[$crLane] -and
+    -not [int]$crW.probeFails[$crLane]) "$($crNow.state) $($crNow.result.reason) | $($crW.blocked[$crLane] | ConvertTo-Json -Compress)"
+$null = Remove-ChatqJob $crNow 'test'
 
 # Claude Code's lists: a chat whose head names no entrypoint - a pasted
 # screenshot first - is left out of them by the sdk-cli a claude -p run
@@ -141,12 +275,14 @@ $lIdle = & $mkL 'idle' $hidText
 $lR4 = Repair-ChatListed -Path $lHead -SessionId 'sid-head'
 $lR5 = Repair-ChatListed -Path $lBusy -SessionId 'sid-busy' -Live @([pscustomobject]@{ SessionId = 'sid-busy'; Status = 'busy'; Kind = 'interactive' })
 $lR5b = Repair-ChatListed -Path $lBusy -SessionId 'sid-busy' -Live @([pscustomobject]@{ SessionId = 'sid-busy'; Status = 'idle'; Kind = 'print' })
+# a claude -p as Claude Code 2.1.283 registers it: interactive, sdk-cli
+$lR5c = Repair-ChatListed -Path $lBusy -SessionId 'sid-busy' -Live @([pscustomobject]@{ SessionId = 'sid-busy'; Status = 'idle'; Kind = 'interactive'; Entrypoint = 'sdk-cli' })
 $lR6 = Repair-ChatListed -Path $lIdle -SessionId 'sid-idle' -Live @([pscustomobject]@{ SessionId = 'sid-idle'; Status = 'idle'; Kind = 'interactive' })
 $lR7 = Repair-ChatListed -Path (Join-Path $lDir 'gone.jsonl') -SessionId 'sid-gone'
-Check 'its last line lacking its end: the new one on a line of its own; hidden by its head: unlistable, untouched; a process busy in it, or a print-mode run: held; one idle: mended; no file: nothing made' (
+Check 'its last line lacking its end: the new one on a line of its own; hidden by its head: unlistable, untouched; a process busy in it, or a print-mode run - by its kind or its sdk-cli entrypoint: held; one idle: mended; no file: nothing made' (
     $lR3 -eq 'relisted' -and $cutOk -and $lR4 -eq 'unlistable' -and [System.IO.File]::ReadAllText($lHead, $utf8) -eq ((& $epl 'sdk-cli') + (& $epl 'sdk-cli')) -and
-    $lR5 -eq 'held' -and $lR5b -eq 'held' -and [System.IO.File]::ReadAllText($lBusy, $utf8) -eq $hidText -and $lR6 -eq 'relisted' -and
-    $lR7 -eq 'unknown' -and -not (Test-Path -LiteralPath (Join-Path $lDir 'gone.jsonl'))) "$lR3 $cutOk $lR4 $lR5 $lR5b $lR6 $lR7"
+    $lR5 -eq 'held' -and $lR5b -eq 'held' -and $lR5c -eq 'held' -and [System.IO.File]::ReadAllText($lBusy, $utf8) -eq $hidText -and $lR6 -eq 'relisted' -and
+    $lR7 -eq 'unknown' -and -not (Test-Path -LiteralPath (Join-Path $lDir 'gone.jsonl'))) "$lR3 $cutOk $lR4 $lR5 $lR5b $lR5c $lR6 $lR7"
 # the watcher: a run into such a chat lists it again as it ends; a new chat,
 # its first record an SDK's, is left - nothing can list it
 $hidId = 'a1b2c3d4-0000-4000-8000-00000000c0de'
