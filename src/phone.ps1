@@ -2230,9 +2230,14 @@ function Invoke-ChatqReply {
             $note = ''
             $m = ''
             if ($job.provider -eq 'codex') {
-                if (-not (Test-ChatqPhoneSandbox ([string]$job.sandbox) $cap)) {
-                    Set-ChatqProp $job 'sandbox' 'workspace-write'
+                # the sandbox it runs in - its own pick, else its chat's - and
+                # the cap set as its pick, its chat's left as it is on the job;
+                # the run then leaves the chat in workspace-write (spike S11),
+                # so the answer says so when that is not the chat's own
+                if (-not (Test-ChatqPhoneSandbox (Get-ChatqCodexRunSandbox $job).Sandbox $cap)) {
+                    $m = 'workspace-write'
                     $note = & $limitNote 'workspace-write'
+                    if (Get-ChatqCodexStickSay (ConvertTo-ChatqCodexSandbox ([string]$job.sandbox)).Sandbox $m) { $note += ' - and the chat keeps it for later jobs' }
                 }
             }
             else {

@@ -172,7 +172,9 @@ function chatoverlay {
     countdown to each reset. Claude's is asked live from its usage endpoint
     every five minutes while a chat works, every fifteen while all are idle,
     and on the refresh button; Copilot's through the GitHub CLI (gh) every
-    fifteen; Codex's is what Codex wrote on its last run.
+    fifteen; Codex's from codex app-server, which spends no turn on it,
+    every five minutes while Codex works and fifteen while it is idle -
+    or what Codex wrote on its last run, when that is newer.
 
     Clicks go through it and it never takes focus. On Windows the pointer
     brings up its edges, to drag as any window's (the sides for width, the
@@ -226,6 +228,8 @@ function chatoverlay {
     lines (the default): usage as one line a provider. bars: a bar and a reset countdown per window.
     .PARAMETER CopilotUsage
     off: no Copilot line, and gh is never run for it.
+    .PARAMETER CodexUsage
+    off: Codex's line only from what Codex wrote on its last run, and codex app-server is never started for it.
     .EXAMPLE
     chatoverlay
     .EXAMPLE
@@ -255,7 +259,8 @@ function chatoverlay {
         [int]$ChipDelay,
         [int]$Recent,
         [ValidateSet('lines', 'bars')][string]$UsageView,
-        [ValidateSet('on', 'off')][string]$CopilotUsage
+        [ValidateSet('on', 'off')][string]$CopilotUsage,
+        [ValidateSet('on', 'off')][string]$CodexUsage
     )
     Set-StrictMode -Off
     if ($Print) { Write-ChatOverlayPrint; return }
@@ -285,6 +290,7 @@ function chatoverlay {
     if ($Theme) { $set.theme = $Theme.ToLowerInvariant() }
     if ($UsageView) { $set.usageView = $UsageView.ToLowerInvariant() }
     if ($CopilotUsage) { $set.copilotUsage = ($CopilotUsage -eq 'on') }
+    if ($CodexUsage) { $set.codexUsage = ($CodexUsage -eq 'on') }
     # compact is the prompt line turned off: the one setting both ways
     if ($Compact) { $set.prompts = ($Compact -eq 'off') }
     if ($PSBoundParameters.ContainsKey('Opacity')) {
@@ -337,6 +343,7 @@ function chatoverlay {
         if ($set.ContainsKey('recent')) { Write-Host "  recent chats: $(if ($set.recent) { "the newest $($set.recent) not open, under the open ones" } else { 'off' })" -ForegroundColor Green }
         if ($set.ContainsKey('usageView')) { Write-Host "  usage as $($set.usageView)" -ForegroundColor Green }
         if ($set.ContainsKey('copilotUsage')) { Write-Host "  Copilot usage: $CopilotUsage$(if ($CopilotUsage -eq 'on') { ' - through the GitHub CLI, gh, when it is logged in' })" -ForegroundColor Green }
+        if ($set.ContainsKey('codexUsage')) { Write-Host "  Codex usage asked live: $CodexUsage$(if ($CodexUsage -eq 'on') { ' - through codex app-server, no turn spent' } else { ' - from what Codex wrote on its last run only' })" -ForegroundColor Green }
         if ($alive) { Send-ChatOverlayCommand 'reload' }
     }
     $verbs = @()
@@ -367,7 +374,11 @@ function chatoverlay {
             $until = [DateTimeOffset]::FromUnixTimeMilliseconds($held).LocalDateTime.ToString('HH:mm', [System.Globalization.CultureInfo]::InvariantCulture)
             Write-Host "  Claude's usage endpoint asked to wait until $until - asking earlier only gets refused again" -ForegroundColor Yellow
         }
-        elseif ($alive) { Send-ChatOverlayCommand 'refresh'; Write-Host "  asked Claude for usage now - it shows within a few seconds. Codex's moves only when Codex runs." -ForegroundColor DarkGray }
+        elseif ($alive) {
+            Send-ChatOverlayCommand 'refresh'
+            $cxSay = if ((Get-ChatOverlayConfig).codexUsage) { ' Codex is asked too.' } else { " Codex's moves only when Codex runs (-CodexUsage off)." }
+            Write-Host "  asked Claude for usage now - it shows within a few seconds.$cxSay" -ForegroundColor DarkGray
+        }
         else { Write-Host '  the overlay is not running - chatoverlay -Print asks once' -ForegroundColor DarkGray }
     }
     if ($Console) {

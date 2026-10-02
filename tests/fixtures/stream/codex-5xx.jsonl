@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"{{SESSION}}"}
+{"type":"turn.started"}
+{"type":"error","message":"Reconnecting... 5/5"}
+{"type":"turn.failed","error":{"message":"exceeded retry limit, last status: 503 Service Unavailable"}}

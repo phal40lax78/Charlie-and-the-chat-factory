@@ -2626,7 +2626,9 @@ const DEFER_WORDS = { 'in-use': 'waits for you to leave its tab', background: 'w
 // The queue in short, else null for none queued: count, and when the first
 // sends - 'now' (nothing ahead), 'after' (the run going now, seq), 'at' (a
 // time), 'waits' (no time: words, what the first one waits for), or 'back'
-// (every one waits on an overload). A job's wait is its lane's limit's end
+// (every one waits on an overload; who: the provider that is down -
+// 'Claude', 'Codex', or 'Claude and Codex' - as Get-ChatqEta names a
+// Codex lane's outage Codex's). A job's wait is its lane's limit's end
 // and a minute, its notBefore, and a deferUntil or retryAt still ahead -
 // the latest of them, as Get-ChatqEta has it; and where that latest is a
 // deferUntil for a tab in use or a background command, the board gives
@@ -2637,10 +2639,11 @@ function queueNext(jobs, blocks, now) {
     if (!queued.length) return null;
     const running = (jobs || []).find(j => j && j.state === 'running');
     let soonest = null, waits = null;
+    const down = new Set();
     for (const j of queued) {
         const lane = j.home ? j.provider + '|' + j.home : String(j.provider || '');
         const b = (blocks || {})[lane];
-        if (b && b.type === 'overloaded') continue;
+        if (b && b.type === 'overloaded') { down.add(j.provider === 'codex' ? 'Codex' : 'Claude'); continue; }
         const times = [];
         if (b && b.until) times.push(b.until + 60000);
         const du = stampOf(j.deferUntil);
@@ -2654,7 +2657,8 @@ function queueNext(jobs, blocks, now) {
         if (soonest === null || at < soonest) soonest = at;
     }
     if (soonest !== null) return { count: queued.length, next: 'at', at: soonest };
-    return waits ? { count: queued.length, next: 'waits', words: waits } : { count: queued.length, next: 'back' };
+    const who = down.size > 1 ? 'Claude and Codex' : down.has('Codex') ? 'Codex' : 'Claude';
+    return waits ? { count: queued.length, next: 'waits', words: waits } : { count: queued.length, next: 'back', who: who };
 }
 
 // a time as the board writes it: HH:mm today, else its weekday before it
@@ -2665,8 +2669,8 @@ function sendsAt(t, now) {
 }
 
 // The item's text and tooltip, else null for none queued. The board's
-// words: next, after #seq, a time, what it waits for, when Claude is back.
-// Pure.
+// words: next, after #seq, a time, what it waits for, when Claude (or
+// Codex) is back. Pure.
 function queueText(q, watcherUp, now) {
     if (!q) return null;
     const n = q.count + ' queued';
@@ -2676,10 +2680,13 @@ function queueText(q, watcherUp, now) {
             tooltip: 'chatq has ' + n + ', and its watcher is not running: nothing sends until chatqrun - or a new terminal that loads chatq - starts it. Click for the queue.' };
     }
     const seq = q.seq === undefined || q.seq === null ? '?' : q.seq;
-    const when = q.next === 'now' ? 'next' : q.next === 'after' ? 'after #' + seq : q.next === 'back' ? 'when Claude is back' :
+    // a q from before who was carried is Claude's, as it always said
+    const who = q.who || 'Claude';
+    const back = 'when ' + who + (who.indexOf(' and ') >= 0 ? ' are back' : ' is back');
+    const when = q.next === 'now' ? 'next' : q.next === 'after' ? 'after #' + seq : q.next === 'back' ? back :
         q.next === 'waits' ? q.words : sendsAt(q.at, now);
     const says = q.next === 'now' ? 'the next one sends now' : q.next === 'after' ? 'the next one sends after #' + seq + ', the run going now' :
-        q.next === 'back' ? 'they send when Claude is back from its overload' : q.next === 'waits' ? 'the next one ' + q.words + ', and has no time to send' :
+        q.next === 'back' ? 'they send ' + back + ' from ' + (who.indexOf(' and ') >= 0 ? 'their overloads' : 'its overload') : q.next === 'waits' ? 'the next one ' + q.words + ', and has no time to send' :
         'the next one sends at ' + when;
     return { text: '$(clock) chatq ' + n + dot + when, tooltip: 'chatq has ' + n + ': ' + says + '. Click for the queue.' };
 }

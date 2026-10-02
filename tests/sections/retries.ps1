@@ -33,6 +33,39 @@ $st = New-ChatqRunState
 foreach ($l in [System.IO.File]::ReadAllLines((Join-Path $here 'fixtures\stream\codex-network.jsonl'), $utf8)) { if ($l.Trim()) { Update-ChatqCodexState $st $l } }
 $o = Get-ChatqCodexOutcome $st ([pscustomobject]@{ ExitCode = 1; StdErr = ''; Stopped = $null })
 Check 'codex "stream disconnected" -> network' ($o.kind -eq 'network') "$($o.kind) $($o.reason)"
+# Codex's 5xx and capacity words, as codex-cli 0.159.2 has them: overloaded,
+# waited out as an outage - a 400 stays failed, and so does a turn that
+# failed for its own reason while stderr's noise held a 500
+$cxOut = {
+    param([string]$Name, [string]$StdErr = '', [string]$Failed)
+    $s = New-ChatqRunState
+    if ($Name) { foreach ($l in [System.IO.File]::ReadAllLines((Join-Path $here "fixtures\stream\$Name.jsonl"), $utf8)) { if ($l.Trim()) { Update-ChatqCodexState $s $l } } }
+    if ($Failed) { $s.TurnStarted = $true; $s.TurnFailed = $Failed; $s.Failed = $Failed }
+    Get-ChatqCodexOutcome $s ([pscustomobject]@{ ExitCode = 1; StdErr = $StdErr; Stopped = $null })
+}
+$ovHigh = & $cxOut 'codex-overload'
+$ovCap = & $cxOut 'codex-capacity'
+$ov5 = & $cxOut 'codex-5xx'
+Check 'codex high demand, a model at capacity, "last status: 503" -> overloaded, in Codex''s own words' (
+    $ovHigh.kind -eq 'overloaded' -and $ovHigh.reason -like 'We*re currently experiencing high demand*' -and
+    $ovCap.kind -eq 'overloaded' -and $ovCap.reason -ceq 'Selected model is at capacity. Please try a different model.' -and
+    $ov5.kind -eq 'overloaded' -and $ov5.reason -ceq 'exceeded retry limit, last status: 503 Service Unavailable') "$($ovHigh.kind) $($ovHigh.reason) / $($ovCap.kind) / $($ov5.kind) $($ov5.reason)"
+$ov400 = & $cxOut 'codex-badrequest'
+$ovCtx = & $cxOut $null 'ERROR rmcp: resource metadata probe returned unexpected status: 500 Internal Server Error; server_error' 'Codex ran out of room in the model''s context window. Start a new thread or clear earlier history before retrying.'
+$ovErr = & $cxOut $null "2026-09-30T10:00:01Z  WARN codex_core::models_manager: failed to refresh available models: timeout`nError: exceeded retry limit, last status: 502 Bad Gateway"
+# a run that failed with no turn.failed - a resume whose rollout is gone,
+# an exit before thread.started - while a models refresh logged a 503
+$ovNoise = & $cxOut $null "2026-09-30T10:00:01Z ERROR codex_core::models_manager: failed to refresh available models: unexpected status 503 Service Unavailable`nError: thread/resume failed: no rollout found for thread id 0199"
+Check 'a 400 stays failed; a context-window failure with a 500 in stderr''s noise stays failed; with no turn.failed, only stderr''s own Error: line is read, and is the reason' (
+    $ov400.kind -eq 'failed' -and $ov400.reason -like 'unexpected status 400 Bad Request*' -and
+    $ovCtx.kind -eq 'failed' -and $ovCtx.reason -like 'Codex ran out of room*' -and
+    $ovErr.kind -eq 'overloaded' -and $ovErr.reason -ceq 'exceeded retry limit, last status: 502 Bad Gateway' -and
+    $ovNoise.kind -eq 'failed') "$($ov400.kind) / $($ovCtx.kind) $($ovCtx.reason) / $($ovErr.kind) $($ovErr.reason) / $($ovNoise.kind) $($ovNoise.reason)"
+$ovAuth = & $cxOut 'codex-5xx' 'unexpected status 401 Unauthorized: {"error":{"message":"Your refresh token has expired. Please sign in again."}}'
+$ovLim = & $cxOut 'codex-limit'
+$ovStop = Get-ChatqCodexOutcome (& { $s = New-ChatqRunState; $s.Failed = 'exceeded retry limit, last status: 503'; $s }) ([pscustomobject]@{ ExitCode = 1; StdErr = ''; Stopped = 'timeout' })
+Check 'a refused login still beats a 5xx, the usage limit still beats everything, and chatq''s own stop is no overload' (
+    $ovAuth.kind -eq 'auth' -and $ovLim.kind -eq 'limited' -and $ovStop.kind -eq 'failed' -and $ovStop.reason -eq 'timeout') "$($ovAuth.kind) / $($ovLim.kind) / $($ovStop.kind) $($ovStop.reason)"
 $o = Get-ChatqClaudeOutcome (New-ChatqRunState) ([pscustomobject]@{ ExitCode = 1; StdErr = 'ECONNRESET'; Stopped = 'timeout' }) 'auto'
 Check 'chatq''s own time limit is never taken for a network drop' ($o.kind -eq 'failed' -and $o.reason -eq 'timeout') "$($o.kind) $($o.reason)"
 
@@ -116,3 +149,26 @@ $Wr.outage['claude'].NextCheck = (Get-Date).AddSeconds(-1)
 $null = Test-ChatqOutageOver $Wr $ja
 Check 'an outage past 6 h sends one reminder' ((Get-AlertCount '*still overloaded after 6 h*') -eq $r0 + 1)
 Set-FakeStatus 'operational'
+
+# end to end: a Codex run that met "high demand" goes back in the queue
+# behind an outage of its lane - its first try a minute out, no status page
+# read, and nothing it says waits on Claude
+Lock-Queue { chatq 'Codex gitignore thread' -Prompt 'through the overload' *> $null }
+$jov = @(Get-ChatqJobs | Where-Object { $_.provider -eq 'codex' -and (Read-ChatqPrompt $_) -eq 'through the overload' })[0]
+$ovRunStatusFn = ${function:Get-ChatqClaudeStatus}
+$script:OvRunReads = 0
+${function:Get-ChatqClaudeStatus} = { $script:OvRunReads++; 'major_outage' }
+$env:FAKE_SCENARIO = Join-Path $here 'fixtures\stream\codex-overload.jsonl'
+$Wov = New-ChatqWatchState
+try { Invoke-ChatqJob $Wov (Find-ChatqJob $jov.id -Exact) }
+finally { ${function:Get-ChatqClaudeStatus} = $ovRunStatusFn; Remove-Item env:FAKE_SCENARIO }
+$jov = Find-ChatqJob $jov.id -Exact
+$ovO = $Wov.outage[(Get-ChatqLane $jov)]
+$ovSaid = (@($jov.history) | ForEach-Object { [string]$_.why }) -join ' / '
+Check 'a Codex run met by an overload: queued again behind its lane''s outage, a minute out, the status page never read' (
+    $jov.state -eq 'queued' -and $jov.result.kind -eq 'overloaded' -and $ovO -and
+    [Math]::Abs(($ovO.NextCheck - (Get-Date).AddMinutes(1)).TotalSeconds) -lt 30 -and $script:OvRunReads -eq 0) "$($jov.state) $($jov.result.kind) $(if ($ovO) { $ovO.NextCheck }) reads $($script:OvRunReads)"
+Check 'and its history and alert say Codex, never Claude' (
+    $ovSaid -like '*overloaded - waiting for Codex to be back*' -and $ovSaid -notmatch 'Claude|status\.claude\.com' -and
+    (Get-AlertCount "*overloaded*$($jov.title)*high demand*resumes when Codex is back*") -eq 1) $ovSaid
+chatqrm $jov.seq -Force *> $null

@@ -686,12 +686,14 @@ Remove-Item -LiteralPath $script:ChatOverlayCmdPath -Force -EA SilentlyContinue
 Check 'a running panel is told to reload them' ($cmdsW -match ' reload\n' -and (Get-ChatOverlayConfig).width -eq 420 -and (Get-ChatOverlayConfig).maxRows -eq 6) ($cmdsW -replace "`n", ' | ')
 Set-ChatOverlayConfig @{ width = 380; maxRows = 8 }
 $uvDefault = (Get-ChatOverlayConfig).usageView
-chatoverlay -UsageView bars -CopilotUsage off *> $null
+$cxuDefault = (Get-ChatOverlayConfig).codexUsage
+chatoverlay -UsageView bars -CopilotUsage off -CodexUsage off *> $null
 $uvSet = Get-ChatOverlayConfig
 Set-ChatOverlayConfig @{ usageView = 'sideways' }
-Check 'usage as lines unless -UsageView bars; -CopilotUsage off kept; a view it does not know draws lines' (
-    $uvDefault -eq 'lines' -and $uvSet.usageView -eq 'bars' -and -not $uvSet.copilotUsage -and (Get-ChatOverlayConfig).usageView -eq 'lines') "$uvDefault $($uvSet.usageView) $($uvSet.copilotUsage)"
-Set-ChatOverlayConfig @{ usageView = 'lines'; copilotUsage = $true }
+Check 'usage as lines unless -UsageView bars; -CopilotUsage and -CodexUsage off kept; a view it does not know draws lines' (
+    $uvDefault -eq 'lines' -and $uvSet.usageView -eq 'bars' -and -not $uvSet.copilotUsage -and $cxuDefault -and -not $uvSet.codexUsage -and
+    (Get-ChatOverlayConfig).usageView -eq 'lines') "$uvDefault $($uvSet.usageView) $($uvSet.copilotUsage) $cxuDefault $($uvSet.codexUsage)"
+Set-ChatOverlayConfig @{ usageView = 'lines'; copilotUsage = $true; codexUsage = $true }
 # compact rows and the chip's rest: kept, said, a running panel told
 $cmDefault = (Get-ChatOverlayConfig).prompts
 $cmSaid = @(chatoverlay -Compact on -ChipDelay 250 6>&1 | ForEach-Object { "$_" })
@@ -1038,6 +1040,114 @@ $olPath = Join-Path $script:ChatqLogDir 'overlay.log'
 $quietLog = -not (Test-Path -LiteralPath $olPath) -or -not (Select-String -LiteralPath $olPath -SimpleMatch 'copilot usage' -Quiet)
 Check 'a Copilot line from gh''s answer; none when gh is not logged in or not there - and nothing logged' (
     $ccCop -and ($ccCop.windows.label -join ',') -eq 'chat,code' -and -not $ccOut.Count -and -not $ccNone.Count -and $cc2.CopilotWhy -eq 'no GitHub CLI' -and $quietLog) "$($ccCop.windows.label -join ',') $($ccOut.Count) $($ccNone.Count) $($cc2.CopilotWhy)"
+# Codex asked live (Start-ChatqCodexUsageFetch), through the seam: the
+# account's answer against the rollout's snapshot, the newer shown. Each
+# context gets a rollout figure of its own and no files, so nothing on
+# disk moves it and no rollout reads as busy.
+$cxSeamWas = $script:ChatOverlayCodexUsageSeam
+$script:CxAsked = [System.Collections.Generic.List[string]]::new()
+$cxMonth = @([pscustomobject]@{ Label = 'month'; Type = 'monthly'; Minutes = 43200; Percent = 7; ResetsAt = (Get-Date).AddDays(20); Severity = '' })
+$cxOkSeam = { param($h) $script:CxAsked.Add([string]$h); @{ Ok = $true; Windows = $cxMonth; PlanType = 'free'; Reached = $null } }
+$newCx = {
+    $c = New-ChatOverlayContext
+    $c.Config.liveUsage = $false
+    $c.Config.copilotUsage = $false
+    $c.CodexListAt = Get-Date
+    $c.CodexAt = Get-Date
+    $c.CodexFiles = @()
+    $c.Codex = [pscustomobject]@{ Windows = @([pscustomobject]@{ Label = 'week'; Percent = 55; ResetsAt = $null; Severity = '' }); At = (Get-Date).AddHours(-5) }
+    $c
+}
+$cxOf = { param($c, [bool]$busy) @(@(Update-ChatOverlayUsage $c $false -CodexBusy $busy) | Where-Object { $_.provider -eq 'Codex' })[0] }
+try {
+    $script:ChatOverlayCodexUsageSeam = $cxOkSeam
+    $cl = & $newCx
+    $clU = & $cxOf $cl $false
+    $clSt = Get-ChatOverlayUsageStatus $clU $false $null $null (Get-Date)
+    Check 'codex usage live: the account''s answer over an older rollout - its month, its plan, and the time it was asked, not "last run"' (
+        $clU.source -eq 'live' -and (@($clU.windows | ForEach-Object label) -join ',') -eq 'month' -and @($clU.windows)[0].percent -eq 7 -and $clU.plan -eq 'free' -and
+        $clSt -match '^\d\d:\d\d$' -and $script:CxAsked.Count -eq 1 -and $script:CxAsked[0] -eq $cl.CodexHome) "$($clU.source) $($clU.plan) $clSt / $($script:CxAsked -join ',')"
+    # a turn since: the rollout is newer, and shown; not asked again so soon
+    $cl.CodexLive.At = (Get-Date).AddHours(-6)
+    $clR = & $cxOf $cl $false
+    Check 'codex usage live: a rollout newer than the last answer wins, and an idle Codex is not asked again within 3 x usageSeconds' (
+        $clR.source -eq 'rollout' -and @($clR.windows)[0].label -eq 'week' -and $script:CxAsked.Count -eq 1) "$($clR.source) $($script:CxAsked.Count)"
+    # every usageSeconds while a Codex job works, three times that while idle
+    $cl.CodexTriedAt = (Get-Date).AddSeconds( - ($cl.Config.usageSeconds + 5))
+    $null = & $cxOf $cl $false
+    $idleAsked = $script:CxAsked.Count
+    $null = & $cxOf $cl $true
+    Check 'codex usage live: asked every usageSeconds while a Codex job works, not while idle' ($idleAsked -eq 1 -and $script:CxAsked.Count -eq 2) "$idleAsked $($script:CxAsked.Count)"
+    # and again once a window's reset passes
+    $cl.CodexTriedAt = Get-Date
+    $cl.CodexLive = [pscustomobject]@{ Windows = @([pscustomobject]@{ Label = '5h'; Percent = 100; ResetsAt = (Get-Date).AddSeconds(-10); Severity = '' }); At = (Get-Date).AddMinutes(-3); Plan = 'plus' }
+    $null = & $cxOf $cl $false
+    Check 'codex usage live: asked again once a window''s reset passes' ($script:CxAsked.Count -eq 3) "$($script:CxAsked.Count)"
+
+    # no codex, no home, too old: no news - the rollout kept, nothing
+    # logged, nothing said, and not asked again for half an hour
+    $script:ChatOverlayCodexUsageSeam = { param($h) $script:CxAsked.Add([string]$h); @{ Ok = $false; Why = 'codex app-server: no codex CLI'; Quiet = $true } }
+    $cq2 = & $newCx
+    $cq2U = & $cxOf $cq2 $false
+    $cxLog = Join-Path $script:ChatqLogDir 'overlay.log'
+    $cxQuiet = -not (Test-Path -LiteralPath $cxLog) -or -not (Select-String -LiteralPath $cxLog -SimpleMatch 'codex usage' -Quiet)
+    $cqHold = ($cq2.CodexHoldUntil - (Get-Date)).TotalMinutes
+    Check 'codex usage live: a quiet failure keeps the rollout''s figure, logs and says nothing, and waits 30 minutes' (
+        $cq2U.source -eq 'rollout' -and -not $cq2.CodexWhy -and $cxQuiet -and $cqHold -gt 29 -and $cqHold -le 30) "$($cq2U.source) $($cq2.CodexWhy) $cqHold"
+
+    # any other failure: logged, said with the last answer, 2 then 4 minutes
+    $script:ChatOverlayCodexUsageSeam = $cxOkSeam
+    $cf2 = & $newCx
+    $null = & $cxOf $cf2 $false
+    $script:ChatOverlayCodexUsageSeam = { param($h) $script:CxAsked.Add([string]$h); @{ Ok = $false; Why = 'codex app-server: timed out'; Quiet = $false } }
+    $cf2.CodexTriedAt = $null
+    $cf2U = & $cxOf $cf2 $false
+    $cfH1 = ($cf2.CodexHoldUntil - (Get-Date)).TotalMinutes
+    $cfSt = Get-ChatOverlayUsageStatus $cf2U $false $null $cf2.CodexHoldUntil (Get-Date)
+    $cf2.CodexHoldUntil = (Get-Date).AddSeconds(-1)
+    $cf2.CodexTriedAt = $null
+    $null = & $cxOf $cf2 $false
+    $cfH2 = ($cf2.CodexHoldUntil - (Get-Date)).TotalMinutes
+    $cxLogged = (Test-Path -LiteralPath $cxLog) -and (Select-String -LiteralPath $cxLog -SimpleMatch 'codex usage: codex app-server: timed out' -Quiet)
+    Check 'codex usage live: a failure is logged, said after the last answer with its retry, and waits 2 then 4 minutes' (
+        $cf2U.source -eq 'live' -and $cf2.CodexWhy -like '*timed out' -and $cfSt -match '^\d\d:\d\d, retry \d\d:\d\d$' -and $cxLogged -and
+        $cfH1 -gt 1.9 -and $cfH1 -le 2 -and $cfH2 -gt 3.9 -and $cfH2 -le 4 -and $cf2.CodexFails -eq 2) "$($cf2U.source) $cfSt $cfH1 $cfH2 $($cf2.CodexFails)"
+    # the refresh button lifts that wait: a click is how to say codex is there now
+    $cf2.CodexTriedAt = (Get-Date).AddMinutes(-1)
+    Request-ChatOverlayUsageRefresh $cf2
+    Check 'codex usage live: the refresh button clears the wait and asks on the next pass' (
+        $cf2.CodexHoldUntil -eq [datetime]::MinValue -and $null -eq $cf2.CodexTriedAt) "$($cf2.CodexHoldUntil) $($cf2.CodexTriedAt)"
+
+    # -CodexUsage off: never asked, and a live figure from before not shown
+    $script:ChatOverlayCodexUsageSeam = $cxOkSeam
+    $cOffX = & $newCx
+    $cOffX.Config.codexUsage = $false
+    $cOffX.CodexLive = [pscustomobject]@{ Windows = $cxMonth; At = (Get-Date); Plan = 'free' }
+    $askedBefore = $script:CxAsked.Count
+    $cOffU = & $cxOf $cOffX $true
+    Check 'codex usage live off: never asked, the rollout alone' ($script:CxAsked.Count -eq $askedBefore -and $cOffU.source -eq 'rollout') "$($script:CxAsked.Count) $($cOffU.source)"
+
+    # a restart keeps the last answer, and does not ask again at once
+    $cxKeep = & $newCx
+    $cxKeepU = @(Update-ChatOverlayUsage $cxKeep $false)
+    [System.IO.File]::WriteAllText($script:ChatOverlayPath, ([pscustomobject]@{ header = [pscustomobject]@{ usage = $cxKeepU } } | ConvertTo-Json -Depth 6 -Compress), $utf8)
+    $cxR = New-ChatOverlayContext
+    $cxR.Config.liveUsage = $false
+    Restore-ChatOverlayUsage $cxR
+    # one started under another CODEX_HOME: that account's figure is not its own
+    $cxROther = New-ChatOverlayContext -CodexHome (Join-Path $sb 'codex-restore-other')
+    $cxROther.Config.liveUsage = $false
+    Restore-ChatOverlayUsage $cxROther
+    Remove-Item -LiteralPath $script:ChatOverlayPath -Force -EA SilentlyContinue
+    $cxKeepLive = @($cxKeepU | Where-Object { $_.provider -eq 'Codex' })[0]
+    Check 'codex usage live: a restart keeps the last answer and its plan, and counts it as asked' (
+        $cxR.CodexLive -and @($cxR.CodexLive.Windows)[0].Label -eq 'month' -and @($cxR.CodexLive.Windows)[0].Percent -eq 7 -and $cxR.CodexLive.Plan -eq 'free' -and
+        $cxR.CodexTriedAt -and [Math]::Abs(($cxR.CodexTriedAt - $cxKeep.CodexLive.At).TotalSeconds) -lt 1) "$($cxR.CodexLive | ConvertTo-Json -Depth 4 -Compress)"
+    Check 'codex usage live: the answer names the home it was asked under, and a restart under another home leaves it' (
+        $cxKeepLive.source -eq 'live' -and $cxKeepLive.home -eq $cxKeep.CodexHome -and $null -eq $cxROther.CodexLive -and $null -eq $cxROther.CodexTriedAt) (
+        "$($cxKeepLive.home) / $($cxROther.CodexLive | ConvertTo-Json -Depth 4 -Compress)")
+}
+finally { $script:ChatOverlayCodexUsageSeam = $cxSeamWas }
 # the real answer carried Retry-After: 2867, read as $null through .Delta.Value
 Add-Type -AssemblyName System.Net.Http
 # 429 has no name in .NET Framework's HttpStatusCode, and PowerShell will not cast to it
@@ -2351,7 +2461,9 @@ if (`$cxItem) {
     `$C.Mode = 'plan'
     `$C.Model = 'opus'
     Select-ChatConsoleTarget `$H `$cxItem
-    `$codexOpts = `$C.Opts.Children.Count -eq 2
+    # its rows are When and Sandbox (no Mode, no Model), and the last line says the model is its own
+    `$cxRows = @(`$C.Opts.Children | Where-Object { `$_ -is [System.Windows.Controls.DockPanel] } | ForEach-Object { `$_.Children[0].Text }) -join ','
+    `$codexOpts = `$cxRows -eq 'When,Sandbox' -and @(`$C.Opts.Children)[-1].Text -eq 'it runs on the model it last used'
     `$C.Prompt.Text = 'to codex'
     Invoke-ChatConsoleSend `$H
     `$cj = @(Get-ChatqJobs | Where-Object { (Read-ChatqPrompt `$_) -eq 'to codex' })[0]
@@ -2568,7 +2680,7 @@ Check 'Remove clicked: asks with sure? in red and says so, a double-click does n
 Check 'a running Claude job: Watch in VS Code beside Cancel, through the chip''s own Show-ChatFresh child, one at a time' ($cp.Count -gt 35 -and $cp[34] -eq 'True') "$($cp[35])"
 Check 'Continue clicked twice queues one continue' ($cp[13] -eq 'True') "$($cp[16])"
 Check 'the index is read in a runspace of its own, never on the window''s thread, and its rows taken when ready' ($cp[17] -eq 'True') "$($cp[18])"
-Check 'a Codex chat is offered no mode or model, and is sent none' ($cp[14] -eq 'True' -and $cp[15] -eq 'True') "$conOut"
+Check 'a Codex chat is offered its Sandbox row but no mode or model, and is sent none' ($cp[14] -eq 'True' -and $cp[15] -eq 'True') "$conOut"
 
 # the whole way round, as the user goes it: the panel, the console by its
 # hotkey's verb, a draft typed, the theme switched, Esc, the panel; the

@@ -112,6 +112,9 @@ $script:ChatIndexRead = {
                 Title    = $_.Title
                 Titled   = $_.Titled
                 Group    = $_.Group
+                # an index an older build wrote has no Cwd column at all
+                Cwd      = $(if ($_.PSObject.Properties['Cwd']) { $_.Cwd } else { $null })
+                NoCwd    = $(if ($_.PSObject.Properties['NoCwd']) { $_.NoCwd -eq 'True' } else { $false })
                 Hidden   = $_.Hidden -eq 'True'
                 When     = $_.When
                 First    = @($_.First -split $Sep | Where-Object { $_ })
@@ -160,6 +163,9 @@ function Save-ChatIndex {
                 Hidden = $_.Hidden; When = $_.When
                 First = (@($_.First) -join $script:ChatIndexSep)
                 Last = (@($_.Last) -join $script:ChatIndexSep)
+                # an older build reads columns by name and passes this one by
+                Cwd = Get-ChatField $_ 'Cwd'
+                NoCwd = [bool](Get-ChatField $_ 'NoCwd')
             }
         } | Export-Csv -LiteralPath $tmp -NoTypeInformation -Encoding UTF8
         # A reader holding the index open - the overlay's console, another
@@ -206,6 +212,19 @@ function Remove-ChatIndexRow {
     catch {}
 }
 
+function Test-ChatIndexRowCurrent {
+    # Whether an unchanged file's row can be kept as it is. A Codex row from
+    # before the index kept the chat's folder has only the leaf name, which
+    # two sibling repos can share, so it is read again once even though its
+    # rollout did not move. A rollout with no cwd at all has nothing more to
+    # give, so it is kept - else it would be read on every sync. That is
+    # NoCwd, set by the read that found none: its group, 'codex', is also
+    # the leaf of a repo named codex, whose old row must be read again too.
+    param($Row)
+    if ($Row.Provider -ne 'codex') { return $true }
+    return [bool](Get-ChatField $Row 'Cwd') -or [bool](Get-ChatField $Row 'NoCwd')
+}
+
 function Sync-ChatIndex {
     # returns the index rows for $Provider, re-reading only what changed
     param([string[]]$Provider, [switch]$Force)
@@ -228,7 +247,7 @@ function Sync-ChatIndex {
         if (-not $p) { Write-Warning "unknown provider '$name'"; continue }
         foreach ($file in @(& $p.Discover)) {
             $hit = $old[$file.FullName]
-            if ($hit -and $hit.Size -eq $file.Length -and $hit.Mtime -eq $file.LastWriteTimeUtc.Ticks) {
+            if ($hit -and $hit.Size -eq $file.Length -and $hit.Mtime -eq $file.LastWriteTimeUtc.Ticks -and (Test-ChatIndexRowCurrent $hit)) {
                 $rows.Add($hit)     # unchanged since last time
                 $reused++
                 continue
@@ -245,6 +264,8 @@ function Sync-ChatIndex {
                     Title    = $rec.Title
                     Titled   = $rec.TitleSource
                     Group    = $rec.Group
+                    Cwd      = Get-ChatField $rec 'Cwd'
+                    NoCwd    = ($name -eq 'codex' -and -not (Get-ChatField $rec 'Cwd'))
                     Hidden   = [bool]$rec.Hidden
                     When     = $rec.When.ToString('o')
                     First    = @($rec.First)

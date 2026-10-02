@@ -206,6 +206,20 @@ const psPhone = fs.readFileSync(path.join(root, 'src', 'phone.ps1'), 'latin1');
         B.modeText({ cap: 'acceptEdits' }, false, ol[1]) === 'at most acceptEdits' && B.stateLine('older', ol[0]) === 'a message goes after the 2 queued for it' &&
         /^#12 needs input - a message does not answer it/.test(B.stateLine('older', ol[1])) && B.rowView('older', ol[1], Date.now()).sub === 'working',
         cxv.sub + ' / ' + B.modeText({ cap: 'acceptEdits' }, false, ol[0]) + ' / ' + B.stateLine('older', ol[0]));
+    // a queue row whose chat the board has no row of - a Codex job's - says
+    // what the job runs in, its m; a chat row found still wins
+    const cxq = { h: 'qqqqqq', n: 9, s: 'queued', p: 'codex', id8: 'ffffffff', m: 'read-only' };
+    check('a queue row with no chat row: the job\'s own sandbox, not "at most <cap>"; with no m, the cap as before; a chat row found still says its own',
+        B.modeText({ cap: 'acceptEdits' }, false, B.chatOfJob(bb, cxq), cxq) === 'read-only' &&
+        B.modeText({ cap: 'acceptEdits' }, false, null, { n: 9 }) === 'at most acceptEdits' &&
+        B.modeText({ cap: 'acceptEdits' }, false, { m: 'plan', known: true }, cxq) === 'plan',
+        B.modeText({ cap: 'acceptEdits' }, false, B.chatOfJob(bb, cxq), cxq));
+    // one the PC brought down to the cap (mc) says so, as a chat row does:
+    // the view's Retry runs that, not what the job holds
+    const cxqc = { h: 'qqqqqr', n: 10, s: 'failed', p: 'codex', id8: 'fffffffe', m: 'workspace-write', mc: true };
+    check('a queue row brought down to the cap says the phone\'s limit',
+        B.modeText({ cap: 'acceptEdits' }, false, B.chatOfJob(bb, cxqc), cxqc) === 'workspace-write (phone\'s limit)',
+        B.modeText({ cap: 'acceptEdits' }, false, B.chatOfJob(bb, cxqc), cxqc));
     check('no cap (keep), or none sent: an unknown mode reads as the chat\'s own',
         B.modeText({ cap: 'keep' }, false, ol[1]) === 'the chat\'s own mode' && B.modeText({}, false, ol[1]) === 'the chat\'s own mode',
         B.modeText({ cap: 'keep' }, false, ol[1]) + ' / ' + B.modeText({}, false, ol[1]));

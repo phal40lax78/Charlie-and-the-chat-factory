@@ -2185,6 +2185,17 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     check('queue: a wait of no time in the board\'s words - and the tooltip promises no send time',
         qtw.text === '$(clock) chatq 1 queued' + dotQ + 'waits for you to leave its tab' && /waits for you to leave its tab/.test(qtw.tooltip) && !/sends at/.test(qtw.tooltip),
         qtw.text + ' | ' + qtw.tooltip);
+    // a Codex lane's outage is Codex's, never Claude's - as Get-ChatqEta
+    // says it on the board and in chatqlist; both down, both named
+    const qcx = qn([{ state: 'queued', provider: 'codex' }], { codex: { type: 'overloaded' } });
+    const qcxh = qn([{ state: 'queued', provider: 'codex', home: '/c2' }], { 'codex|/c2': { type: 'overloaded' } });
+    const qboth = qn([{ state: 'queued', provider: 'codex' }, { state: 'queued', provider: 'claude' }], { codex: { type: 'overloaded' }, claude: { type: 'overloaded' } });
+    const qtc = qt(qcx), qtb = qt(qboth);
+    check('queue: a Codex overload says when Codex is back, text and tooltip, with no word of Claude; both down names both; a q with no who stays Claude\'s',
+        qx7.who === 'Claude' && qcx.next === 'back' && qcx.who === 'Codex' && qcxh.who === 'Codex' && qboth.who === 'Claude and Codex' &&
+        qtc.text === '$(clock) chatq 1 queued' + dotQ + 'when Codex is back' && /when Codex is back from its overload/.test(qtc.tooltip) && !/Claude/.test(qtc.text + qtc.tooltip) &&
+        qtb.text === '$(clock) chatq 2 queued' + dotQ + 'when Claude and Codex are back' && /from their overloads/.test(qtb.tooltip),
+        [JSON.stringify([qcx, qcxh, qboth]), qtc.text, qtc.tooltip, qtb.text, qtb.tooltip].join(' | '));
     // the item itself, from data/: the watcher's lock, its state, each job
     // file read again only once it changed
     const qItems = [];
@@ -4339,7 +4350,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         bj._svgImages('![a](x/demo.svg) ![b](y.png) [c](z.svg) <img alt="w" src="w.SVG">').join() === 'x/demo.svg,w.SVG');
     const realLoader = fs.readFileSync(path.join(__dirname, '..', su.LOADER), 'latin1');
     const realParts = bj._partsOf(realLoader);
-    check('build: the real loader lists 24 parts, each one in src/', realParts.length === 24 &&
+    check('build: the real loader lists 25 parts, each one in src/', realParts.length === 25 &&
         realParts.every(p => fs.existsSync(path.join(__dirname, '..', 'src', p + '.ps1'))), realParts.join());
     const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'extension', 'package.json'), 'utf8'));
     check('build: the extension\'s version is the script\'s', pkg.version === su._readVersion(realLoader), pkg.version + ' / ' + su._readVersion(realLoader));

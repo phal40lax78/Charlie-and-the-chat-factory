@@ -126,14 +126,15 @@ scripts there are another version than itself.
 | `chatnotify [-Setup] [-Pair] [-Test]` | desktop, phone and command alerts, and replies from the phone; `-Setup` has all of it in a window (Windows) |
 | `chatoverlay [-Stop] [-Collapse] [-Refresh] [-Console] [-Theme dark\|light\|system] [-Print]` | every open chat, the queue and live usage in a panel that stays on top; `-Console` opens the console |
 | `chatconsole` | all of the above in the panel, grown into a console: write, send next or queue, continue, new chats; Esc for the panel again (Windows) |
-| `chatproviders` / `chatindex` | which tools were found / rebuild the index |
+| `chatproviders` / `chatindex` | which tools were found, and the `claude` / `codex` each runs with: its path, version, and whether it came off PATH or is the VS Code extension's copy / rebuild the index |
 | `chatinstall` / `chatuninstall [-All]` | add to, or drop from, your profile |
 | `chat` | cheat sheet |
 
 `chatrm` flags: `-Force` `-AllProjects` `-NoWait` `-DropJobs` `-Archive`
 `-Provider claude|copilot|codex`. `chatfind` adds `-Deep` and `-All`.
-`chatq` flags: `-WhatIf` (show the pick only), `-Mode auto|acceptEdits|…`,
-`-Model <name>`, `-First`, `-At 13:00` / `-In 2h`, `-AllProjects`,
+`chatq` flags: `-WhatIf` (show the pick only), `-Mode auto|acceptEdits|…`
+(a Claude chat), `-Sandbox read-only|workspace-write|danger-full-access`
+(a Codex chat), `-Model <name>`, `-First`, `-At 13:00` / `-In 2h`, `-AllProjects`,
 `-Provider claude|codex`, `-Attach <files>`, `-Paste`, `-New <folder>`, and
 `-AutoContinue on|ask|off|always|never|default`, which goes alone.
 A `-Model` holding a space, `"` or `%` is refused as it is queued: no
@@ -217,8 +218,11 @@ A chat with a prompt queued for it by `chatq` is kept, and the job named;
 ### Scope
 
 Titles match chats of the directory you are standing in — Claude by its project
-slug, Copilot and Codex by the folder name — so a sibling repo never answers for
-this one. `-AllProjects` widens it. Ids skip scoping: one id is one chat.
+slug, Codex by the whole folder the chat ran in, Copilot by the folder name — so
+a sibling repo never answers for this one, not even `D:\b\app` for `D:\a\app`
+with Codex. `-AllProjects` widens it. Ids skip scoping: one id is one chat. A
+Codex chat indexed before the index kept its folder goes by the folder name
+until the next search reads it again, which it does once.
 
 ### Ghosts
 
@@ -283,6 +287,17 @@ chatrestore 'Old experiment'         # back where it was
 - **Codex:** through Codex's own `codex archive` / `codex unarchive`, since Codex
   keeps thread state in its own databases. `chatrestore` lists what chatrm
   archived, and threads in Codex's `archived_sessions` folder when it has one.
+  A thread at work is kept, as an open Claude chat is: one whose rollout got a
+  record in the last minute ("Codex is writing to it"), or whose last turn
+  started and has not ended — a turn waiting on an approval or inside a long
+  command writes nothing for minutes. Codex keeps no list another process can
+  read of which threads its panel has open, so a thread open there but idle
+  is archived all the same. A turn left open by a codex that was killed - a
+  job stopped, a window reloaded mid-turn - does not hold the thread: on
+  Windows a rollout no codex holds open has no turn going, a later turn
+  ends it, and anywhere a rollout untouched for 12 hours has none. `codex archive` runs on the
+  Codex home the thread's rollout is under, and the archive keeps that home
+  for `chatrestore` - not whatever `CODEX_HOME` says by then.
 - **Copilot:** VS Code archives those itself, from its chat list.
 
 `chatuninstall -All` refuses while the archive holds anything — it is the only
@@ -386,7 +401,13 @@ A Copilot chat is found but refused: no CLI can resume one.
   cut off, or from Codex's rate-limit snapshot.
 - **A probe goes first:** a throwaway `ok` that saves no session, asked with the
   model the run will use. Sending the real prompt while still limited would
-  plant it, and an error after it, in your chat.
+  plant it, and an error after it, in your chat. Codex's is asked at low
+  effort, whatever `config.toml` sets - and only after the account's own
+  figures, asked of `codex app-server` with no turn, leave it unclear: a
+  window still full, or a limit the server says is reached, waits with no
+  turn spent, and the watcher's log says `no turn spent`. Room left is
+  never taken as a yes on its own: an overload, a refused login or one
+  model's own limit shows only in a turn.
 - **One job at a time, in queue order** — oldest first, `-First` jumps the line.
   A continue - `-Continue`, the console's **Continue**, the reset ask,
   the phone, [auto-continue](#auto-continue) - goes ahead of the prompts
@@ -399,7 +420,10 @@ A Copilot chat is found but refused: no CLI can resume one.
   says `sends 13:01`, each of the rest `after #n`.
 - **In the permission mode the chat last used**, `-Mode` overriding it for one
   job, and on the chat's own model, `-Model` overriding that. Anything that would
-  ask a question is denied, since nobody is there to answer.
+  ask a question is denied, since nobody is there to answer. A Codex chat has
+  a sandbox instead of a mode: `-Sandbox` picks one for the job, and `-Mode`
+  on a Codex chat - or `-Sandbox` on a Claude one - is refused, nothing
+  queued (see [Codex](#codex)).
 - **With the chat's Ultracode and session-only effort.** Claude Code
   keeps Ultracode (workflows on every task), and an effort level set for
   the session only - max always, or a level `/effort` set `(this session
@@ -453,7 +477,8 @@ A Copilot chat is found but refused: no CLI can resume one.
   too.
 - **Needs input:** a denied tool, or plan mode stopping at a plan, parks the job
   and the queue moves on. `chatqrun <n> -Mode acceptEdits` sends it a "continue"
-  in a mode that allows it. Or answer it in the chat itself: once anything is
+  in a mode that allows it; `chatqrun <n> -Sandbox <word>` runs a Codex job
+  again in that sandbox. Or answer it in the chat itself: once anything is
   typed there after the job stopped - in VS Code, a terminal, or by a later
   job - the overlay skips the job, `answered in the chat`, as a reply from
   the phone skips one, and nothing says it needs you any more. With the
@@ -465,6 +490,12 @@ A Copilot chat is found but refused: no CLI can resume one.
   and chatq watches <https://status.claude.com> every minute, resuming the moment
   Claude Code is `operational` again; one the page never shows is retried after
   1, 2, 5 and 10 minutes, then every 15. One alert, and a reminder at 6 hours.
+- **A Codex overload** - a 5xx ("exceeded retry limit, last status: 503"),
+  "high demand", a model "at capacity" - goes back the same way, but with no
+  status page read it is only tried again: after 1, 2, 5 and 10 minutes, then
+  every 15, saying "when Codex is back". Only what the turn failed with counts,
+  never codex's own log noise on stderr; the wording is codex-cli 0.159.2's,
+  and an overload worded otherwise still fails the job.
 - **A dropped connection** is retried after 1, 2 and 5 minutes, then fails.
 - **A refused login** — an expired login, or a subscription that ran out, which
   the API turns down the same way — holds that account's jobs, with one alert
@@ -841,7 +872,7 @@ says it there. `chatnotify -Test` always goes through.
 | `chatq · done` | 1 | chat, how long, the end of the reply (`asks:` when it ends on a question) |
 | `chatq · failed` | 2 | chat, why — including a refused login, in the CLI's own words, or giving up |
 | `chatq · limited` | 0 | the limit came back mid-run; when it continues. Or a chat you run yourself the limit cut off, and when [auto-continue](#auto-continue) continues it - in place of its `done` |
-| `chatq · overloaded` | 0 | a 529; what status.claude.com says; a reminder after 6 h |
+| `chatq · overloaded` | 0 | a 529, or a Codex 5xx or "at capacity"; what status.claude.com says, for Claude; a reminder after 6 h |
 | `chatq · waiting` | 0 | a queued prompt's chat has been busy for 2 h - or held by an agent or workflow it started, or by its tab in front of you; chatq waits until it is free |
 | `chatq · test` | 1 | `chatnotify -Test` or the window's **Send test** |
 | `chatq · reply` | 1 | the PC's answer to a reply from the phone, or to a pairing |
@@ -916,8 +947,12 @@ is brought down to it; the ladder is `plan`, `default`, `manual`,
 `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`, and `-ReplyMaxMode
 keep` lifts the cap again. Nothing in a reply picks a mode, and the push
 says so when one was brought down: `runs in acceptEdits, the phone's
-limit`. Under a cap a Codex job never keeps a sandbox wider than
-`workspace-write`.
+limit`. Under a cap a Codex job never runs in a sandbox wider than
+`workspace-write`: the sandbox it would run in - its own `-Sandbox`, else
+the chat's - is brought down to that and set as the job's own, and the
+chat's own word is left as read. The board's queue rows carry the job's
+sandbox (or mode), so a job whose chat is not on the board still says
+what it runs in.
 
 **Only on what the phone was shown.** An alert keeps the chat and the job as
 it showed them, and the chat's transcript length then. **Send**, **Retry**
@@ -1151,8 +1186,9 @@ run on this PC. So:
   ([below](#what-passes-through-whose-servers)); serve the page from a
   site of your own (`chatnotify -ReplyPage`) before turning this on.
 
-**When it asks.** Only for a queued Claude run - Codex's `exec` cannot ask
-mid-run - in a mode that prompts at all: `default`, `manual`,
+**When it asks.** Only for a queued Claude run - chatq runs Codex's `exec`
+with approval `never`, so a Codex job never asks mid-run (FUTURE_WORK.md has
+the two ways it could) - in a mode that prompts at all: `default`, `manual`,
 `acceptEdits` or `auto`. `dontAsk` and `bypassPermissions` never prompt,
 and a `plan` run still ends `plan ready - approve it in VS Code`. Replies
 must be on, a phone paired, and Join, ntfy over https or a command given
@@ -1688,11 +1724,12 @@ The buttons, left to right, with × at the corner as on any window:
 - **the grip** (six dots): hold it and drag to move the panel;
 - **collapse** (a chevron): folds the panel to one line - how many chats wait,
   work or sit idle, and Claude's usage - and back;
-- **refresh** (a circular arrow): asks Claude and Copilot for usage now. It
-  turns while it asks, and the end of Claude's line reads `asking...`, then
-  `checked 22:22:01` - or why it did not ask. Codex has nothing to ask: its
-  figure is what Codex wrote on its last run (`last run Mar 13`), so it moves
-  only when Codex runs;
+- **refresh** (a circular arrow): asks Claude, Codex and Copilot for usage
+  now. It turns while it asks, and the end of Claude's line reads
+  `asking...`, then `checked 22:22:01` - or why it did not ask. Codex is
+  asked through `codex app-server`, a wait after a failure lifted; with
+  `-CodexUsage off`, or no answer yet, its figure is what Codex wrote on
+  its last run (`last run Mar 13`), and moves only when Codex runs;
 - **console** (a speech bubble): turns the panel into
   [the console](#the-console), in its place; Esc brings the panel back;
 - **settings** (two sliders): a box of seven rows - opacity on a slider;
@@ -1853,8 +1890,29 @@ It uses the login Claude Code saved. The token is read for that one request and
 is never stored, logged or refreshed: a refresh would sign Claude Code out. If
 the login has expired, the overlay shows the cached figure with its age until
 Claude Code next runs and renews it. `chatoverlay -LiveUsage off` keeps it to
-the cache. Codex's figure comes from its newest session file, which it rewrites
-every turn.
+the cache.
+
+Codex's figure is asked live too, of `codex app-server` - the server the
+Codex panel itself runs - with `account/rateLimits/read`. That starts no
+model turn and spends nothing: codex reads its own login and asks, so the
+overlay never sees a token, and the login file is left as it was. It is
+asked every five minutes while a Codex job of chatq's runs or a Codex chat
+wrote in the last five, every fifteen while Codex is idle, straight after a
+window resets, and on refresh. The line ends in the time it was asked, not
+`last run`, and the snapshot carries the plan (`free`, `plus`...); a free
+plan's one window is a month, and reads `month`. Each Codex home is asked
+under its own name. The newest usage snapshot in the session files Codex
+wrote to last - it writes one every turn - stays the fallback: shown when it
+is newer than the last answer, or when there is none. With no `codex`, no
+Codex home, or a codex older than the app-server floor, the overlay asks
+again only every half hour or on refresh, and says nothing; another failure
+waits 2, 4, 8, 16, then 30 minutes and is logged; a codex updated in place
+is seen on the next ask. `chatoverlay -CodexUsage off` never starts it, and
+ends an ask already out. `chatqlist`, the phone and the alerts take the
+overlay's live figure where it is newer than the rollout's, and only when it
+was asked under their own Codex home - the overlay keeps the `CODEX_HOME` of
+the shell that started it; the limit check asks for itself
+([When it sends](#when-it-sends)).
 
 Copilot's comes from GitHub, through the GitHub CLI: `gh api
 copilot_internal/user`, the answer VS Code's own Copilot status shows, every
@@ -1869,8 +1927,8 @@ where it last stopped. The first look at a 20 MB chat reads the last 256 KB.
 
 Settings live in `data/config.json` under `overlay`. `chatoverlay -Theme`,
 `-Opacity`, `-Width`, `-Rows`, `-Compact`, `-ChipDelay`, `-Recent`,
-`-UsageView`, `-Hotkey`, `-ConsoleHotkey`, `-AutoStart`, `-LiveUsage` and
-`-CopilotUsage` set theirs and apply them at once; after editing the file
+`-UsageView`, `-Hotkey`, `-ConsoleHotkey`, `-AutoStart`, `-LiveUsage`,
+`-CopilotUsage` and `-CodexUsage` set theirs and apply them at once; after editing the file
 by hand, `chatoverlay -Stop` and start it again. `-Width`, `-Rows`,
 `-ChipDelay` and `-Recent` refuse a value out of range and save nothing
 from that line, as `-Opacity` does; one out of range in the file is held
@@ -1909,7 +1967,8 @@ chatoverlay -Recent 10            # ten chats not open under the rest; 0 for non
 | `usageView` | `lines` | `bars` for a bar and reset countdown per window; the settings box, or `chatoverlay -UsageView bars` |
 | `liveUsage` | `true`, `false` on macOS | `chatoverlay -LiveUsage off` |
 | `copilotUsage` | `true` | `chatoverlay -CopilotUsage off`: no Copilot line, and `gh` never run for it |
-| `usageSeconds` | 300 | how often usage is asked while a chat works (three times that while idle, and for Copilot); 60 at least |
+| `codexUsage` | `true` | `chatoverlay -CodexUsage off`: Codex's line only from its rollouts, and `codex app-server` never started for it |
+| `usageSeconds` | 300 | how often usage is asked while a chat works - Codex's while Codex works (three times that while idle, and for Copilot); 60 at least |
 
 - **Only Claude chats get live rows.** Codex and Copilot write nothing that says a
   chat is open or working, so theirs show only as queued prompts.
@@ -2581,7 +2640,21 @@ chat a run has gone into.
 
 - A thread is found by its name in `~/.codex/session_index.jsonl`, the name the
   panel shows.
-- It is resumed with `codex exec resume <id>` in its own folder and sandbox mode.
+- It is resumed with `codex exec resume <id>` in its own folder and sandbox
+  mode, or the one `chatq -Sandbox` / `chatqrun -Sandbox` (the console's
+  **Sandbox** chips) gave the job: `read-only`, `workspace-write` or
+  `danger-full-access`. The network flag goes only with `workspace-write`.
+- A chat whose last turn recorded a sandbox no `codex exec` takes - the
+  desktop app's `managed`, say - runs in `workspace-write`, and the job's
+  history says so. Without that, `codex` would refuse the run at config load.
+- **A wider sandbox sticks.** Codex writes the sandbox a run had into the
+  chat's next turn, so a job given a wider one than the chat's leaves the
+  chat in it, and later jobs for it run there too unless given `-Sandbox`.
+  `chatq`, `chatqrun` and the console warn when that happens; nothing undoes it.
+- The model and reasoning effort the chat last ran on are shown with the
+  pick (`gpt-5.6 at effort medium (as the chat last ran)`) and in the job's
+  history. They are shown only: the run is not given the effort, so it
+  takes whatever `codex exec resume` picks.
 - `codex exec` never asks for approval, so a Codex job ends done or failed, never
   needs-input.
 
@@ -2591,8 +2664,8 @@ chat a run has gone into.
 |---|---|
 | Claude Code | `~/.claude/projects/<slug>/<uuid>.jsonl` (`CLAUDE_CONFIG_DIR` honoured) |
 | Copilot Chat | `<Code user>/workspaceStorage/<hash>/chatSessions/<uuid>.json` |
-| Codex | `~/.codex/sessions/**/rollout-*.jsonl` (`CODEX_HOME` honoured) |
-| the CLIs | `claude` / `codex` on PATH, else the copy bundled in the VS Code extension; `CHATQ_CLAUDE` / `CHATQ_CODEX` override |
+| Codex | `~/.codex/sessions/**/rollout-*.jsonl` (`CODEX_HOME` honoured, as it was when chatq loaded: the index, the Codex usage and the archive all read that one home) |
+| the CLIs | `claude` / `codex` on PATH, else the copy bundled in the VS Code extension; `CHATQ_CLAUDE` / `CHATQ_CODEX` override. PATH wins even when the copy there is older than the extension's - an npm install left behind, say - so `chatinstall` and `chatproviders` name the one picked, its version and where it came from, and warn when a PATH one is older than the extension's |
 | running chats (overlay) | `~/.claude/sessions/<pid>.json`, the list Claude Code keeps of what runs; the `<pid>.<hash>.key` beside each is never opened |
 | usage (overlay) | Claude's usage endpoint, with the login in `~/.claude/.credentials.json` (the keychain on macOS); the `cachedUsageUtilization` block of `~/.claude.json` as the fallback. Copilot's through `gh api copilot_internal/user` - `gh` with its own login (`CHATQ_GH` names another `gh`) |
 
@@ -2635,7 +2708,10 @@ As of September 2026 — corrections welcome.
 - **API keys:** `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `OPENAI_API_KEY` and
   `CODEX_API_KEY` are kept out of the runs, so they use your subscription.
 - **Accounts:** a job queued from a shell with `CLAUDE_CONFIG_DIR` or
-  `CODEX_HOME` set runs, and is limited, in that account.
+  `CODEX_HOME` set runs, and is limited, in that account. Changing
+  `CODEX_HOME` in a shell after chatq loaded changes only the jobs queued
+  from it: the chats listed, their usage and their archive stay on the home
+  chatq loaded with - load it again to move them.
 - **A limit on one model** (an Opus-only weekly limit) holds up no other model.
 - **Plan mode:** a chat last in plan mode only produces a plan; `-Mode auto` lets
   it act.

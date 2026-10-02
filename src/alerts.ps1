@@ -595,9 +595,11 @@ function Get-ChatqBlocks {
         }
         if ($s.outage) {
             foreach ($p in $s.outage.PSObject.Properties) {
+                # a Codex lane's outage waits on no page, only on its backoff
+                $src = if ($p.Name -like 'codex*') { 'backoff' } else { 'status.claude.com' }
                 $out[$p.Name] = [pscustomobject]@{
                     Until = ConvertTo-ChatqDate $p.Value.next; Type = 'overloaded'; Status = $p.Value.status
-                    Since = ConvertTo-ChatqDate $p.Value.since; Source = 'status.claude.com'
+                    Since = ConvertTo-ChatqDate $p.Value.since; Source = $src
                 }
             }
         }
@@ -670,7 +672,7 @@ function Get-ChatqEta {
         $ra = ConvertTo-ChatqDate $j.retryAt
         if ($ra -and $ra -gt $now) { $times += $ra; if (-not $why) { $why = 'retry' } }
         $at = $times | Where-Object { $_ -gt $now } | Sort-Object -Descending | Select-Object -First 1
-        $eta[$j.id] = if ($why -eq 'overloaded') { 'when Claude is back' }
+        $eta[$j.id] = if ($why -eq 'overloaded') { "when $(Format-ChatqProvider $lane) is back" }
         elseif ($words -and $why -eq $words -and $at -eq $du) { $words }
         elseif ($at) {
             $fmt = if ($at.Date -eq $now.Date) { 'HH:mm' } else { 'ddd HH:mm' }
@@ -734,9 +736,14 @@ function Get-ChatqStatusLine {
 function Get-ChatqUsage {
     # How much of each window is used. Claude's comes from the utilisation it
     # caches in .claude.json, Codex's from the newest rollout's rate_limits -
-    # both only as fresh as their last fetch, so each says when that was. For
+    # each replaced by the overlay's live answer where that is newer - and
+    # all only as fresh as their last fetch, so each says when that was. For
     # chatqlist alone: the board is rewritten on every watcher pass, and
     # re-reading the file each time is not worth a number nobody looks at there.
+    # Codex's is -CodexHome's: by default the home chatq lists Codex chats
+    # from, the overlay's too - not $env:CODEX_HOME as it reads now, which a
+    # shell can point at another account after chatq loaded.
+    param([string]$CodexHome = $script:ChatCodexHome)
     $out = [System.Collections.Generic.List[object]]::new()
     $label = { param($d) if ($d.Date -eq (Get-Date).Date) { $d.ToString('HH:mm') } else { $d.ToString('ddd HH:mm', [System.Globalization.CultureInfo]::InvariantCulture) } }
     try {
@@ -800,38 +807,56 @@ function Get-ChatqUsage {
     }
     catch {}
     try {
-        $root = Join-Path (Get-ChatqHomeDir 'codex' $env:CODEX_HOME) 'sessions'
-        $files = if (Test-Path -LiteralPath $root) {
-            @(Get-ChildItem -LiteralPath $root -Filter *.jsonl -File -Recurse -EA SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 10)
+        # the newest snapshot, read as the overlay and the limit check read it
+        $cs = Find-ChatqCodexLimitSnapshot -HomeDir (Get-ChatqHomeDir 'codex' $CodexHome)
+        if ($cs) {
+            $parts = @(foreach ($w in @($cs.Limits)) {
+                    # a window whose reset passed is empty, as the overlay
+                    # reads it (ConvertTo-ChatOverlayUsage): the last
+                    # rollout can be days old, and its 3% long gone
+                    if ($w.ResetsAt -and $w.ResetsAt -le (Get-Date)) { "$($w.Label) 0%"; continue }
+                    $p = "$($w.Label) $([int][Math]::Round($w.Percent))%"
+                    if ($w.Percent -ge 100 -and $w.ResetsAt) { $p += ", resets $(& $label $w.ResetsAt)" }
+                    $p
+                })
+            $at = $cs.At
+            if ($parts) { $out.Add([pscustomobject]@{ Provider = 'Codex'; Parts = $parts; AsOf = if ($at) { & $label $at } else { $null }; AsOfAt = $at }) }
         }
-        # the newest snapshot, which need not be in the newest rollout: a
-        # thread cut off before its first reply has none
-        foreach ($f in @($files)) {
-            $t = Read-ChatqTail $f.FullName 262144
-            $i = if ($t) { $t.LastIndexOf('"rate_limits":{', [StringComparison]::Ordinal) } else { -1 }
-            $obj = if ($i -ge 0) { Read-ChatqJsonObjectAt $t ($i + 14) } else { $null }
-            $r = if ($obj) { try { $obj | ConvertFrom-Json } catch { $null } } else { $null }
-            if (-not $r) { continue }
-            if ($r) {
-                $parts = @(foreach ($w in @($r.primary, $r.secondary)) {
-                        if (-not $w -or $null -eq $w.used_percent) { continue }
-                        $m = [int]$w.window_minutes
-                        $n = if ($m -le 300) { '5h' } elseif ($m -le 10080) { 'week' } else { 'month' }
-                        # a window whose reset passed is empty, as the overlay
-                        # reads it (ConvertTo-ChatOverlayUsage): the last
-                        # rollout can be days old, and its 3% long gone
-                        $gone = $w.resets_at -and [System.DateTimeOffset]::FromUnixTimeSeconds([int64]$w.resets_at).LocalDateTime -le (Get-Date)
-                        if ($gone) { "$n 0%"; continue }
-                        $s = "$n $([int][Math]::Round([double]$w.used_percent))%"
-                        if ([double]$w.used_percent -ge 100 -and $w.resets_at) {
-                            $s += ", resets $(& $label ([System.DateTimeOffset]::FromUnixTimeSeconds([int64]$w.resets_at).LocalDateTime))"
-                        }
-                        $s
+    }
+    catch {}
+    # The overlay asks codex app-server for the account's figure every few
+    # minutes (Update-ChatOverlayUsage); the rollout moves only when a turn
+    # runs. The newer wins, as with Claude's - but only when the overlay
+    # asked under this home: it is a process of its own, with the
+    # CODEX_HOME of the shell that started it, and another account's figure
+    # under this one's name would be a wrong number, not an old one. The
+    # figure names its home; one that names none is never taken.
+    try {
+        $mine = [string](Get-ChatqHomeDir 'codex' $CodexHome)
+        $s = Read-ChatqJson $script:ChatOverlayPath
+        $h = if ($s -and $s.PSObject.Properties['header']) { $s.header } else { $null }
+        $lu = if ($h -and $h.PSObject.Properties['usage']) {
+            @($h.usage | Where-Object { $_ -and $_.provider -eq 'Codex' -and $_.source -eq 'live' -and $_.at })[0]
+        }
+        $theirs = if ($lu) { [string](Get-ChatField $lu 'home') } else { '' }
+        if ($mine -and $theirs -and (Get-ChatqFolderKey $mine) -eq (Get-ChatqFolderKey $theirs)) {
+            $parts = if ($lu -and $lu.PSObject.Properties['windows']) {
+                @(foreach ($w in @($lu.windows)) {
+                        if (-not $w -or -not $w.label) { continue }
+                        $rs = if ($w.PSObject.Properties['resetsAt'] -and $w.resetsAt) { [System.DateTimeOffset]::FromUnixTimeMilliseconds([int64]$w.resetsAt).LocalDateTime } else { $null }
+                        if ($rs -and $rs -le (Get-Date)) { "$($w.label) 0%"; continue }
+                        $p = "$($w.label) $([int][Math]::Round([double]$w.percent))%"
+                        if ([double]$w.percent -ge 100 -and $rs) { $p += ", resets $(& $label $rs)" }
+                        $p
                     })
-                $at = Get-ChatqRecordTime $t $i
-                if ($parts) { $out.Add([pscustomobject]@{ Provider = 'Codex'; Parts = $parts; AsOf = if ($at) { & $label $at } else { $null }; AsOfAt = $at }) }
             }
-            break
+            if ($parts) {
+                $at = [System.DateTimeOffset]::FromUnixTimeMilliseconds([int64]$lu.at).LocalDateTime
+                $live = [pscustomobject]@{ Provider = 'Codex'; Parts = $parts; AsOf = & $label $at; AsOfAt = $at }
+                $old = @($out | Where-Object { $_.Provider -eq 'Codex' })[0]
+                if (-not $old) { $out.Add($live) }
+                elseif (-not $old.AsOfAt -or $at -gt $old.AsOfAt) { $out[$out.IndexOf($old)] = $live }
+            }
         }
     }
     catch {}

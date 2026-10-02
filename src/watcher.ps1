@@ -25,6 +25,15 @@ function Format-ChatqLane {
     return $name
 }
 
+function Format-ChatqProvider {
+    # Claude or Codex, from a provider or a lane - the name an outage's words
+    # give, so a Codex outage never says it waits for Claude
+    param([string]$Lane)
+    $p = ([string]$Lane -split '\|', 2)[0]
+    if (-not $p) { $p = 'claude' }
+    return (Get-Culture).TextInfo.ToTitleCase($p)
+}
+
 function New-ChatqWatchState {
     @{
         blocked = @{}; lastAllowed = @{}; probeFails = @{}; scannedAt = @{}; outage = @{}; authAlerted = @{}
@@ -172,7 +181,8 @@ function Enter-ChatqOutage {
     # A 529 Overloaded, or another 5xx: the server's trouble, not the account's.
     # Wait for status.claude.com to show Claude Code operational again, and try
     # again at once when it does; a blip the page never shows is retried after
-    # 1, 2, 5, 10, then every 15 minutes.
+    # 1, 2, 5, 10, then every 15 minutes. Codex has no page read here, so its
+    # outage is that backoff alone (Test-ChatqOutageOver).
     param($W, $Job, [string]$Why)
     $lane = Get-ChatqLane $Job
     $now = Get-Date
@@ -193,7 +203,7 @@ function Enter-ChatqOutage {
     Write-ChatqWatchLog "$lane overloaded ($Why)$page - next check $($o.NextCheck.ToString('HH:mm:ss'))"
     if (-not $o.Alerted) {
         $o.Alerted = $true
-        [void](Send-ChatqAlert 'overloaded' "$($Job.title) $($script:ChatqDot) $Why$page $($script:ChatqDot) resumes when Claude is back" 0 -Job $Job)
+        [void](Send-ChatqAlert 'overloaded' "$($Job.title) $($script:ChatqDot) $Why$page $($script:ChatqDot) resumes when $(Format-ChatqProvider $lane) is back" 0 -Job $Job)
     }
     Send-ChatqOutageReminder $o $Job
 }
@@ -205,20 +215,29 @@ function Send-ChatqOutageReminder {
     if ($O.Reminded -or ((Get-Date) - $O.Since).TotalHours -lt 6) { return }
     $O.Reminded = $true
     $page = if ($O.Status) { " $($script:ChatqDot) status.claude.com: $($O.Status -replace '_', ' ')" } else { '' }
-    [void](Send-ChatqAlert 'overloaded' "still overloaded after 6 h$page $($script:ChatqDot) $($Job.title) waits, checked every minute" 1 -Job $Job)
+    # Claude's page is read every minute; Codex is only tried, every 15 by now
+    $how = if ($Job.provider -eq 'claude') { 'checked every minute' } else { 'tried again every 15 min' }
+    [void](Send-ChatqAlert 'overloaded' "$(Format-ChatqProvider $Job.provider) still overloaded after 6 h$page $($script:ChatqDot) $($Job.title) waits, $how" 1 -Job $Job)
 }
 
 function Test-ChatqOutageOver {
     # Worth a probe yet? When status.claude.com shows Claude Code operational
     # again - checked every minute during an outage - or when 15 minutes went
-    # by since the last try, in case the page lags behind the service.
+    # by since the last try, in case the page lags behind the service. Codex
+    # has no page read here: the backoff Enter-ChatqOutage set is its whole
+    # wait, and a probe is due as soon as it is up. Read as Claude's, each
+    # try waited the 15 minutes, never the 1, 2, 5 and 10 before them.
     param($W, $Job)
     $lane = Get-ChatqLane $Job
     $o = $W.outage[$lane]
     if (-not $o) { return $true }
     $now = Get-Date
     if ($now -lt $o.NextCheck) { return $false }
-    $s = if ($Job.provider -eq 'claude') { Get-ChatqClaudeStatus } else { $null }
+    if ($Job.provider -ne 'claude') {
+        Send-ChatqOutageReminder $o $Job
+        return $true
+    }
+    $s = Get-ChatqClaudeStatus
     if ($s -ne $o.Status) { Write-ChatqWatchLog "status.claude.com: Claude Code $s" }
     $o.Status = $s
     Send-ChatqOutageReminder $o $Job
@@ -272,7 +291,11 @@ function Confirm-ChatqAllowed {
         }
         return $false
     }
-    if ($r.Overloaded) { Enter-ChatqOutage $W $Job 'the probe got 529 Overloaded'; return $false }
+    if ($r.Overloaded) {
+        $what = if ($Job.provider -eq 'claude') { 'the probe got 529 Overloaded' } else { "the probe found $(Format-ChatqProvider $lane) overloaded" }
+        Enter-ChatqOutage $W $Job $what
+        return $false
+    }
     if ($r.Auth) { Block-ChatqLogin $W $Job $r.Error $r.Detail; return $false }
     if ($r.Limited) {
         $until = $r.Until
@@ -284,7 +307,9 @@ function Confirm-ChatqAllowed {
         $W.blocked[$lane] = [pscustomobject]@{ Until = $until; Type = $r.Type; Source = 'probe' }
         $W.blocked[$lane] | Add-Member -NotePropertyName At -NotePropertyValue (Get-Date) -Force
         $W.lastAllowed[$lane] = $null
-        Write-ChatqWatchLog "$lane still limited until $($until.ToString('HH:mm'))"
+        # a Codex answer that cost no turn says where it came from
+        $from = if (Get-ChatField $r 'NoTurn') { " - $($r.Detail), no turn spent" } else { '' }
+        Write-ChatqWatchLog "$lane still limited until $($until.ToString('HH:mm'))$from"
         return $false
     }
     # network, login, a CLI that will not start: back off, and say so on the
@@ -1084,7 +1109,10 @@ function Invoke-ChatqJob {
             }
             'overloaded' {
                 if ($wasCancelled) { Complete-ChatqJob $Job 'failed' $out 'cancelled'; break }
-                Set-ChatqJobState $Job 'queued' 'overloaded - waiting for status.claude.com'
+                # Codex has no status page read: it is tried again after 1, 2,
+                # 5, 10, then every 15 minutes (Test-ChatqOutageOver)
+                $wait = if ($Job.provider -eq 'claude') { 'waiting for status.claude.com' } else { "waiting for $(Format-ChatqProvider $lane) to be back" }
+                Set-ChatqJobState $Job 'queued' "overloaded - $wait"
                 Enter-ChatqOutage $W $Job $out.reason
             }
             'limited' {

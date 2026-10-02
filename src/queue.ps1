@@ -52,6 +52,9 @@ $script:ChatqStatusComponent = 'Claude Code'
 # Caches and flags, set here so a caller's Set-StrictMode -Version Latest -
 # which this dot-sourced file inherits - never meets one unset.
 $script:ChatqCliVersions = @{}
+# Where the VS Code extensions are looked for in place of $HOME, which a
+# test cannot move: the copy a PATH one is compared with (Get-ChatqCliReport)
+$script:ChatqExtHomeSeam = $null
 $script:ChatqAwake = $false
 $script:ChatqAwakeProc = $null
 $script:ChatqLastAlertError = $null
@@ -377,8 +380,12 @@ function Write-ChatqPick {
         $rs = if ($null -ne $Res.RunnerUpScore) { " $($Res.RunnerUpScore)" } else { '' }
         Write-Host "     runner-up '$($Res.RunnerUp.Title)'$ra$rs" -ForegroundColor DarkGray
     }
-    if ($Res.Wide) { Write-Host "     not in this project: $($r.Group)" -ForegroundColor DarkGray }
-    elseif ($Res.NoProject) { Write-Host "     project: $($r.Group)" -ForegroundColor DarkGray }
+    # a Codex chat's whole folder when the index has it: in D:\b\app, "not in
+    # this project: app" for a chat of D:\a\app reads as a contradiction
+    $where = Get-ChatField $r 'Cwd'
+    if (-not $where) { $where = $r.Group }
+    if ($Res.Wide) { Write-Host "     not in this project: $where" -ForegroundColor DarkGray }
+    elseif ($Res.NoProject) { Write-Host "     project: $where" -ForegroundColor DarkGray }
 }
 
 function Write-ChatqPromptHint {
@@ -487,9 +494,66 @@ function Get-ChatqClaudeMeta {
     return $meta
 }
 
+# The only words codex's sandbox_mode takes (the app-server's SandboxMode
+# enum too): a run given any other fails as its config loads, before a turn
+# - "unknown variant `managed`" - so nothing else ever reaches -c sandbox_mode=
+$script:ChatqCodexSandboxes = @('read-only', 'workspace-write', 'danger-full-access')
+
+function ConvertTo-ChatqCodexSandbox {
+    <#
+    A sandbox word as codex's sandbox_mode takes it, from whatever a rollout
+    or a job holds: the three kebab words as they are, the app-server's
+    camelCase (readOnly, workspaceWrite, dangerFullAccess) turned into them.
+    Anything else - 'managed', the permission profile newer threads keep in
+    Codex's own DB, or 'externalSandbox', which sandbox_mode refuses too -
+    runs workspace-write, and Unknown keeps the word so the caller can say
+    so. None at all is workspace-write too, as it always was, and no
+    Unknown. Returns @{ Sandbox; Unknown }. Pure.
+    #>
+    param([string]$Value)
+    $v = ([string]$Value).Trim()
+    if (-not $v) { return [pscustomobject]@{ Sandbox = 'workspace-write'; Unknown = $null } }
+    # the camelCase app-server words, the kebab ones whatever their case
+    $k = ($v -creplace '([a-z])([A-Z])', '$1-$2').ToLowerInvariant()
+    if ($k -cin $script:ChatqCodexSandboxes) { return [pscustomobject]@{ Sandbox = $k; Unknown = $null } }
+    return [pscustomobject]@{ Sandbox = 'workspace-write'; Unknown = $v }
+}
+
+function Get-ChatqCodexRunSandbox {
+    <#
+    The sandbox a Codex job runs in: its own pick in mode (-Sandbox, the
+    console's chips, the phone's cap), else the chat's, as the job read it
+    when queued. A mode that is no sandbox word - a Claude mode an older
+    chatq stored when -Mode was given for a Codex chat - is no pick. The
+    chat's own goes through ConvertTo-ChatqCodexSandbox, so a job saved
+    with 'managed' runs. Unknown: that word, from sandbox on an older job,
+    else from sandboxUnknown, where New-ChatqJobRecord keeps it now that
+    sandbox holds the workspace-write. Returns @{ Sandbox; Picked; Unknown }.
+    Pure.
+    #>
+    param($Job)
+    $m = [string](Get-ChatField $Job 'mode')
+    if ($m -cin $script:ChatqCodexSandboxes) { return [pscustomobject]@{ Sandbox = $m; Picked = $true; Unknown = $null } }
+    $c = ConvertTo-ChatqCodexSandbox ([string](Get-ChatField $Job 'sandbox'))
+    $u = if ($c.Unknown) { $c.Unknown } else { [string](Get-ChatField $Job 'sandboxUnknown') }
+    return [pscustomobject]@{ Sandbox = $c.Sandbox; Picked = $false; Unknown = $(if ($u) { $u } else { $null }) }
+}
+
+function Get-ChatqCodexSandboxRank {
+    # how wide a sandbox word is: read-only 0, workspace-write 1,
+    # danger-full-access 2; anything else -1. Pure.
+    param([string]$Sandbox)
+    return [array]::IndexOf([string[]]$script:ChatqCodexSandboxes, [string]$Sandbox)
+}
+
 function Get-ChatqCodexMeta {
+    # The chat as its rollout's last turn_context has it. Sandbox is the
+    # word as written - Get-ChatqJobInfo makes it one codex takes. Effort:
+    # the turn's own level, else the one its collaboration mode names; shown
+    # beside the model, never sent - whether exec resume keeps it is
+    # FUTURE_WORK's "Carry a Codex chat's effort into its run".
     param([string]$Path)
-    $meta = [pscustomobject]@{ Exists = $false; Cwd = $null; Sandbox = $null; Network = $false; Approval = $null; Model = $null }
+    $meta = [pscustomobject]@{ Exists = $false; Cwd = $null; Sandbox = $null; Network = $false; Approval = $null; Model = $null; Effort = $null }
     if (-not $Path -or -not (Test-Path -LiteralPath $Path)) { return $meta }
     $meta.Exists = $true
     $chunk = Read-ChatChunk $Path 262144
@@ -503,6 +567,9 @@ function Get-ChatqCodexMeta {
             $meta.Network = [bool]$o.payload.sandbox_policy.network_access
             $meta.Approval = $o.payload.approval_policy
             $meta.Model = $o.payload.model
+            $meta.Effort = if ($o.payload.effort) { [string]$o.payload.effort }
+            elseif ($o.payload.collaboration_mode.settings.reasoning_effort) { [string]$o.payload.collaboration_mode.settings.reasoning_effort }
+            else { $null }
             if ($o.payload.cwd) { $meta.Cwd = $o.payload.cwd }
         }
     }
@@ -1452,27 +1519,69 @@ $script:ChatqEnvDrop = @(
     'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'OPENAI_API_KEY', 'CODEX_API_KEY'
 )
 $script:ChatqClaudeMin = '2.1.259'   # --permission-prompts none
+# The first codex-cli whose app-server is taken to answer what the later
+# Codex work needs - thread/list, turn/start, account/rateLimits/read. Only
+# 0.159.2's schema was read, so this floor is a guess a spike has to pin
+# (FUTURE_WORK, "The Codex app-server floor is a guess"). Start-ChatqCodexRpc
+# gates on it: an older codex is never started, so the limit check falls
+# back to its codex exec turn and the overlay keeps the rollout's figure -
+# raising it turns both off for whatever falls below.
+$script:ChatqCodexAppServerMin = '0.159.0'
 
 function Find-ChatqExe {
     # Not cached: VS Code deletes the old extension folder when it updates, so a
     # path found at queue time can be gone by the time the limit resets.
     param([string]$Provider)
+    $pick = Get-ChatqExePick $Provider
+    if ($pick) { return $pick.Path }
+    return $null
+}
+
+function Get-ChatqExePick {
+    <#
+    The claude or codex chatq runs, and where it was found: {Path, From},
+    From one of CHATQ_CLAUDE / CHATQ_CODEX (the override), 'PATH', 'local'
+    (Claude Code's own installer) or 'bundled' (an editor extension's copy),
+    tried in that order. $null when there is none. Find-ChatqExe is this,
+    path only; the doctor lines (Get-ChatqCliReport) need to know which.
+    #>
+    param([string]$Provider)
     $name = if ($Provider -eq 'codex') { 'codex' } else { 'claude' }
-    $override = if ($Provider -eq 'codex') { $env:CHATQ_CODEX } else { $env:CHATQ_CLAUDE }
-    if ($override) { return $override }
-    $cmd = Get-Command $name -CommandType Application -EA SilentlyContinue | Select-Object -First 1
-    if ($cmd) { return $cmd.Source }
+    $envName = if ($name -eq 'codex') { 'CHATQ_CODEX' } else { 'CHATQ_CLAUDE' }
+    $override = if ($name -eq 'codex') { $env:CHATQ_CODEX } else { $env:CHATQ_CLAUDE }
+    if ($override) { return [pscustomobject]@{ Path = $override; From = $envName } }
     $exe = if ($script:ChatqIsWindows) { "$name.exe" } else { $name }
-    foreach ($p in @((Join-Path (Join-Path (Join-Path $HOME '.local') 'bin') $exe),
-            (Join-Path (Join-Path $script:ChatClaudeHome 'local') $exe))) {
-        if ($name -eq 'claude' -and (Test-Path -LiteralPath $p)) { return $p }
+    $local = @((Join-Path (Join-Path (Join-Path $HOME '.local') 'bin') $exe),
+        (Join-Path (Join-Path $script:ChatClaudeHome 'local') $exe))
+    $cmd = Get-Command $name -CommandType Application -EA SilentlyContinue | Select-Object -First 1
+    if ($cmd) {
+        # Claude Code's own installer puts its folder on PATH: that copy is
+        # 'local' however it was found - off PATH, it would still be the one
+        # picked, so there is no extension's copy to send anyone to
+        $isLocal = $name -eq 'claude' -and @($local | Where-Object { [string]::Equals($_, $cmd.Source, [StringComparison]::OrdinalIgnoreCase) }).Count
+        return [pscustomobject]@{ Path = $cmd.Source; From = $(if ($isLocal) { 'local' } else { 'PATH' }) }
     }
+    foreach ($p in $local) {
+        if ($name -eq 'claude' -and (Test-Path -LiteralPath $p)) { return [pscustomobject]@{ Path = $p; From = 'local' } }
+    }
+    $b = Find-ChatqBundledExe $name
+    if ($b) { return [pscustomobject]@{ Path = $b; From = 'bundled' } }
+    return $null
+}
+
+function Find-ChatqBundledExe {
     # Both VS Code extensions ship their own copy and put none on PATH - on a
     # machine that only ever used the panel this is the only one there is.
+    # The newest extension folder's, across VS Code and its forks; $null if
+    # there is none.
+    param([string]$Provider)
+    $name = if ($Provider -eq 'codex') { 'codex' } else { 'claude' }
+    $exe = if ($script:ChatqIsWindows) { "$name.exe" } else { $name }
+    $homeDir = if ($script:ChatqExtHomeSeam) { $script:ChatqExtHomeSeam } else { $HOME }
     $pattern = if ($name -eq 'claude') { 'anthropic.claude-code-*' } else { 'openai.chatgpt-*' }
     $best = $null; $bestVer = $null
     foreach ($root in '.vscode', '.vscode-insiders', '.cursor', '.windsurf') {
-        $ext = Join-Path (Join-Path $HOME $root) 'extensions'
+        $ext = Join-Path (Join-Path $homeDir $root) 'extensions'
         if (-not (Test-Path -LiteralPath $ext)) { continue }
         foreach ($d in @(Get-ChildItem -LiteralPath $ext -Directory -Filter $pattern -EA SilentlyContinue)) {
             if ($d.Name -notmatch '-(\d+(?:\.\d+){1,3})(?:-|$)') { continue }
@@ -1497,10 +1606,12 @@ function Find-ChatqExe {
 }
 
 function Get-ChatqCliVersion {
-    param([string]$Exe)
+    # Cached by path for the process's life. -Fresh asks again: an upgrade in
+    # place - npm's, which keeps the path - is otherwise never seen.
+    param([string]$Exe, [switch]$Fresh)
     if (-not $Exe) { return $null }
     if (-not $script:ChatqCliVersions) { $script:ChatqCliVersions = @{} }
-    if ($script:ChatqCliVersions.ContainsKey($Exe)) { return $script:ChatqCliVersions[$Exe] }
+    if (-not $Fresh -and $script:ChatqCliVersions.ContainsKey($Exe)) { return $script:ChatqCliVersions[$Exe] }
     $v = $null
     try {
         $out = (& $Exe --version 2>$null | Select-Object -First 1)
@@ -1509,6 +1620,50 @@ function Get-ChatqCliVersion {
     catch {}
     $script:ChatqCliVersions[$Exe] = $v
     return $v
+}
+
+function Get-ChatqCliReport {
+    <#
+    The doctor's view of one CLI: which claude or codex chatq runs, its
+    version, where it was found, and a warning when that is stale. A
+    codex installed by npm and left on PATH wins over the one the VS Code
+    extension keeps current, so every job would run on whatever the old
+    one supports - with nothing to say so. Only a PATH pick is compared with
+    the extension's copy: CHATQ_CODEX / CHATQ_CLAUDE is a choice made on
+    purpose, and the extension's own needs no comparing. A version either
+    side will not give is no warning.
+    {Provider, Path, From, Where, Version, Bundled, BundledVersion, Older,
+    Say, Warn} - Where is From in words, Say the one line chatinstall prints.
+    Path $null when there is no CLI.
+    #>
+    param([string]$Provider)
+    $name = if ($Provider -eq 'codex') { 'codex' } else { 'claude' }
+    $r = [pscustomobject]@{ Provider = $name; Path = $null; From = $null; Where = $null; Version = $null
+        Bundled = $null; BundledVersion = $null; Older = $false; Say = $null; Warn = $null
+    }
+    $pick = Get-ChatqExePick $name
+    if (-not $pick) { return $r }
+    $r.Path = $pick.Path
+    $r.From = $pick.From
+    $r.Version = Get-ChatqCliVersion $pick.Path
+    $r.Where = switch ($pick.From) {
+        'PATH' { 'on PATH' }
+        'bundled' { "the VS Code extension's copy" }
+        'local' { "Claude Code's own install" }
+        default { "from $($pick.From)" }
+    }
+    $r.Say = "$name $(if ($r.Version) { $r.Version } else { '(version unknown)' }) - $($r.Where)"
+    if ($pick.From -ne 'PATH') { return $r }
+    $b = Find-ChatqBundledExe $name
+    # PATH can lead into the extension's own folder: then it is the same one
+    if (-not $b -or [string]::Equals($b, $pick.Path, [StringComparison]::OrdinalIgnoreCase)) { return $r }
+    $r.Bundled = $b
+    $r.BundledVersion = Get-ChatqCliVersion $b
+    if ($r.Version -and $r.BundledVersion -and (Compare-ChatVersion $r.Version $r.BundledVersion) -eq -1) {
+        $r.Older = $true
+        $r.Warn = "the $name on PATH ($($r.Version)) is older than the VS Code extension's ($($r.BundledVersion)), and chatq runs the one on PATH - update it, or remove it to use the extension's"
+    }
+    return $r
 }
 
 function Test-ChatqCmdExe {
@@ -1584,24 +1739,17 @@ function Stop-ChatqTree {
     catch {}
 }
 
-function Invoke-ChatqProcess {
+function New-ChatqProcessStartInfo {
     <#
-    Run a CLI to the end, prompt on stdin, handing each stdout line to $OnLine.
-
-    stdin is where Korean went wrong on Windows PowerShell 5.1, three ways at
-    once: the console code page here is 949, $OutputEncoding is us-ascii (so
-    piping turns Hangul into ?), and 5.1's ProcessStartInfo has no
-    StandardInputEncoding at all - Process.Start builds the stdin writer from
-    Console.InputEncoding, and under chcp 65001 that writer puts a BOM on the
-    pipe the moment it is created. So: raw UTF-8 bytes onto the base stream,
-    never through the writer, with the console encoding swapped to BOM-less
-    UTF-8 for the instant Start takes and put back after.
+    How chatq starts every CLI: no window, all three pipes redirected, UTF-8
+    out, the session's own variables dropped (ChatqEnvDrop) and -SetEnv laid
+    over what is left. Invoke-ChatqProcess, which runs a CLI to the end, and
+    Invoke-ChatqCodexRpc, which holds codex app-server open for a few
+    requests, both start from this one, so a fix to either reaches both.
+    Throws what ConvertTo-ChatqArgLine throws for an argument cmd.exe
+    cannot carry.
     #>
-    param(
-        [string]$Exe, [string[]]$ArgList, [string]$WorkDir, [string]$StdIn,
-        [hashtable]$SetEnv, [string]$LogPath, [scriptblock]$OnLine, [scriptblock]$OnTick,
-        [int]$TimeoutSec = 14400
-    )
+    param([string]$Exe, [string[]]$ArgList, [string]$WorkDir, [hashtable]$SetEnv)
     $utf8 = New-Object System.Text.UTF8Encoding $false
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $Exe
@@ -1628,13 +1776,48 @@ function Invoke-ChatqProcess {
             elseif ($psi.EnvironmentVariables.ContainsKey($k)) { $psi.EnvironmentVariables.Remove($k) }
         }
     }
+    return $psi
+}
 
+function Start-ChatqProcess {
+    <#
+    Process.Start for a New-ChatqProcessStartInfo, stdin left open: what is
+    written to it goes as raw UTF-8 bytes onto StandardInput.BaseStream,
+    never through its writer.
+
+    stdin is where Korean went wrong on Windows PowerShell 5.1, three ways at
+    once: the console code page here is 949, $OutputEncoding is us-ascii (so
+    piping turns Hangul into ?), and 5.1's ProcessStartInfo has no
+    StandardInputEncoding at all - Process.Start builds the stdin writer from
+    Console.InputEncoding, and under chcp 65001 that writer puts a BOM on the
+    pipe the moment it is created. So: the bytes go onto the base stream, and
+    the console encoding is swapped to BOM-less UTF-8 for the instant Start
+    takes and put back after.
+    #>
+    param($Psi)
+    $utf8 = New-Object System.Text.UTF8Encoding $false
     $oldIn = $null
-    if (-not $hasInEnc) {
+    if (-not $Psi.PSObject.Properties['StandardInputEncoding']) {
         try { $oldIn = [Console]::InputEncoding; [Console]::InputEncoding = $utf8 } catch { $oldIn = $null }
     }
-    try { $p = [System.Diagnostics.Process]::Start($psi) }
+    try { return [System.Diagnostics.Process]::Start($Psi) }
     finally { if ($oldIn) { try { [Console]::InputEncoding = $oldIn } catch {} } }
+}
+
+function Invoke-ChatqProcess {
+    <#
+    Run a CLI to the end, prompt on stdin, handing each stdout line to $OnLine.
+    The prompt is written once and stdin closed after it (Start-ChatqProcess
+    says why as bytes): a CLI that reads to the end of its input starts then.
+    #>
+    param(
+        [string]$Exe, [string[]]$ArgList, [string]$WorkDir, [string]$StdIn,
+        [hashtable]$SetEnv, [string]$LogPath, [scriptblock]$OnLine, [scriptblock]$OnTick,
+        [int]$TimeoutSec = 14400
+    )
+    $utf8 = New-Object System.Text.UTF8Encoding $false
+    $psi = New-ChatqProcessStartInfo -Exe $Exe -ArgList $ArgList -WorkDir $WorkDir -SetEnv $SetEnv
+    $p = Start-ChatqProcess $psi
 
     $bytes = $utf8.GetBytes([string]$StdIn)
     try {
@@ -1711,6 +1894,14 @@ $script:ChatqLimitRx = '(?i)hit your (session |usage |weekly |opus |sonnet )?lim
 # the 529 as Claude Code prints it; the other 5xx it reports are the same kind
 # of trouble - on Anthropic's side, and over when the status page says so.
 $script:ChatqOverloadRx = '(?i)API Error:\s*5\d\d|\boverloaded(_error)?\b'
+# Codex's own words for the same trouble, as codex-cli 0.159.2 has them:
+# "Selected model is at capacity", "We're currently experiencing high
+# demand", "Flex capacity unavailable", "exceeded retry limit, last status:
+# 503" once its own retries ran out, "unexpected status 502 ...". A 429 is
+# left out: Codex's usage limit says so in words of its own, and a throttle
+# taken for an outage would loop. Not one of these was seen in a real run
+# yet - a wording that misses still fails the job, as before.
+$script:ChatqCodexOverloadRx = '(?i)at capacity|high demand|Flex capacity unavailable|(unexpected status|last status:?)\s*5\d\d|\boverloaded\b|server_error'
 # A dropped connection is worth another try; a refused login is not - every
 # retry would fail the same way until someone logs in again, or renews the
 # subscription, which is refused with the same 401 or 403. Both are only
@@ -2010,6 +2201,27 @@ function Get-ChatqCodexOutcome {
             $o.kind = 'auth'; $o.reason = "login refused: $(Get-ChatqAuthWords $fail)"; $o.detail = Get-ChatqAuthDetail $fail
             return [pscustomobject]$o
         }
+        # A 5xx or a model at capacity: the server's trouble, waited out as an
+        # outage of the lane (Enter-ChatqOutage). Read from what the turn
+        # failed with, and from stderr only when it said nothing - and then
+        # only from the lines that are the run's own fatal error ("Error:
+        # ...", as codex exec ends on one), the matched line the reason.
+        # The rest of stderr is codex's own log noise - a models refresh
+        # that got "unexpected status 503", an MCP probe that "returned
+        # unexpected status: 500" - which must never turn a run that failed
+        # for another reason, a resume of a rollout that is gone say, into
+        # a retry and its lane into an outage.
+        $said = if ($St.Failed) { [string]$St.Failed }
+        else {
+            $own = @(([string]$Proc.StdErr) -split '\r?\n' | Where-Object { $_ -match '^\s*(?:Error|ERROR):\s*\S' -and $_ -match $script:ChatqCodexOverloadRx })
+            if ($own.Count) { $own[0] -replace '^\s*(?:Error|ERROR):\s*', '' } else { '' }
+        }
+        if ($said -and $said -match $script:ChatqCodexOverloadRx) {
+            $why = ($said -replace '\s+', ' ').Trim()
+            if ($why.Length -gt 200) { $why = $why.Substring(0, 199) + $script:ChatqEllipsis }
+            $o.kind = 'overloaded'; $o.reason = $why
+            return [pscustomobject]$o
+        }
         if ($fail -match $script:ChatqNetworkRx) { $o.kind = 'network'; $o.reason = "network: $($Matches[0])"; return [pscustomobject]$o }
     }
     if ($Proc.Stopped) { $o.kind = 'failed'; $o.reason = $Proc.Stopped; return [pscustomobject]$o }
@@ -2165,36 +2377,158 @@ function Read-ChatqUsageCache {
     return $best
 }
 
-function Get-ChatqCodexBlock {
-    # Codex logs a rate_limits snapshot in every token_count event: used_percent
-    # and resets_at (epoch s) per window. Which window is primary varies by plan
-    # - a free plan's is 30 days - so window_minutes is what names it, and each
-    # window is judged by its own used_percent.
-    param([string]$ConfigDir)
-    $root = Join-Path (Get-ChatqHomeDir 'codex' $ConfigDir) 'sessions'
-    if (-not (Test-Path -LiteralPath $root)) { return $null }
-    $now = Get-Date
-    $best = $null
-    $files = @(Get-ChildItem -LiteralPath $root -Filter *.jsonl -File -Recurse -EA SilentlyContinue |
-        Sort-Object LastWriteTime -Descending | Select-Object -First 10)
-    foreach ($f in $files) {
-        $t = Read-ChatqTail $f.FullName 262144
-        if (-not $t) { continue }
-        $i = $t.LastIndexOf('"rate_limits":{', [StringComparison]::Ordinal)
-        if ($i -lt 0) { continue }
-        $obj = Read-ChatqJsonObjectAt $t ($i + 14)
+# The key, with whatever spacing the writer used: Codex writes compact JSON
+# today, but a key matched as the literal '"rate_limits":{' at a fixed +14
+# offset - as three readers once did - finds nothing in '"rate_limits": {'.
+# An escaped mention inside a string ('\"rate_limits\"') never matches.
+$script:ChatqCodexLimitRx = [regex]'"rate_limits"\s*:\s*\{'
+
+function ConvertFrom-ChatqCodexLimits {
+    # Codex's rate_limits: used_percent, window_minutes and resets_at (epoch s)
+    # per window - or, as codex app-server's account/rateLimits/read answers
+    # (ConvertFrom-ChatqCodexRateLimitsReply), the same in camelCase:
+    # usedPercent, windowDurationMins, resetsAt. Which window is primary
+    # varies by plan - a free plan's is 43200 minutes, 30 days - so its
+    # length is what names it: Label for what is shown, Type for a block. One
+    # that gives no length is named by its place, as the windows were before
+    # plans differed: primary 5h, secondary week. A window with no used
+    # percent is left out.
+    param($R)
+    $out = [System.Collections.Generic.List[object]]::new()
+    if (-not $R) { return $out.ToArray() }
+    $field = { param($o, [string[]]$names) foreach ($n in $names) { $pp = $o.PSObject.Properties[$n]; if ($pp -and $null -ne $pp.Value) { return $pp.Value } }; $null }
+    foreach ($k in 'primary', 'secondary') {
+        $p = $R.PSObject.Properties[$k]
+        $w = if ($p) { $p.Value } else { $null }
+        if (-not $w) { continue }
+        $used = & $field $w 'used_percent', 'usedPercent'
+        if ($null -eq $used) { continue }
+        $mv = & $field $w 'window_minutes', 'windowDurationMins'
+        $m = if ($null -ne $mv) { [int]$mv } else { 0 }
+        $short = if ($m) { $m -le 300 } else { $k -eq 'primary' }
+        $mid = if ($m) { $m -le 10080 } else { $true }
+        $label = if ($short) { '5h' } elseif ($mid) { 'week' } else { 'month' }
+        $type = if ($short) { 'five_hour' } elseif ($mid) { 'weekly' } else { 'monthly' }
+        $rs = & $field $w 'resets_at', 'resetsAt'
+        $at = if ($rs) { try { [System.DateTimeOffset]::FromUnixTimeSeconds([int64]$rs).LocalDateTime } catch { $null } } else { $null }
+        $out.Add([pscustomobject]@{ Label = $label; Type = $type; Minutes = $m; Percent = [double]$used; ResetsAt = $at; Severity = '' })
+    }
+    return $out.ToArray()
+}
+
+function ConvertFrom-ChatqCodexRateLimitsReply {
+    <#
+    What codex app-server's account/rateLimits/read answered, read as a
+    rollout's snapshot is (Read-ChatqCodexLimitSnapshot): Limits, PlanType,
+    Reached (rateLimitReachedType) - and two things only the answer has:
+    Allowed, ordinaryUsageAllowed (the server's own yes or no on the
+    plan's included use; $null when it does not say), and Credits, whether
+    credits could carry a turn past a full window. $null when the answer
+    has no window. rateLimits is the single-bucket view the rollouts
+    carry; the per-limit view's 'codex' bucket stands in for it if empty.
+    #>
+    param($Result)
+    if (-not $Result) { return $null }
+    $snap = Get-ChatField $Result 'rateLimits'
+    $w = @(ConvertFrom-ChatqCodexLimits $snap)
+    if (-not $w.Count) {
+        $by = Get-ChatField $Result 'rateLimitsByLimitId'
+        $snap = if ($by) { Get-ChatField $by 'codex' } else { $null }
+        $w = @(ConvertFrom-ChatqCodexLimits $snap)
+    }
+    if (-not $w.Count) { return $null }
+    $plan = Get-ChatField $snap 'planType'
+    $hit = Get-ChatField $snap 'rateLimitReachedType'
+    $ok = Get-ChatField $Result 'ordinaryUsageAllowed'
+    $cr = Get-ChatField $snap 'credits'
+    $credits = [bool]($cr -and ((Get-ChatField $cr 'hasCredits') -eq $true -or (Get-ChatField $cr 'unlimited') -eq $true))
+    return [pscustomobject]@{
+        Limits = $w
+        PlanType = $(if ($plan) { [string]$plan } else { $null })
+        Reached = $(if ($hit) { [string]$hit } else { $null })
+        Allowed = $(if ($ok -is [bool]) { $ok } else { $null })
+        Credits = $credits
+    }
+}
+
+function Read-ChatqCodexLimitSnapshot {
+    <#
+    The newest rate_limits snapshot in $Text - a rollout's tail - that has a
+    window in it: Limits (ConvertFrom-ChatqCodexLimits), At (the record's own
+    timestamp, $null when it has none), PlanType and Reached (Codex's
+    rate_limit_reached_type, $null while nothing is reached). $null when
+    there is none. Codex logs one in every token_count event.
+    Newest first, and on past one that cannot be read: the last line of a
+    rollout Codex is still writing can be half there, and a snapshot one
+    line up is still this thread's. One with no window at all - nothing a
+    caller could show or wait on - is passed over the same way, but for
+    -Newest: then it is the answer, Limits empty. A figure to show may be
+    an older one, with its age beside it; a lane blocked on one would wait
+    out a reset the account has since moved past (Get-ChatqCodexBlock).
+    #>
+    param([string]$Text, [switch]$Newest)
+    if (-not $Text) { return $null }
+    $ms = $script:ChatqCodexLimitRx.Matches($Text)
+    for ($k = $ms.Count - 1; $k -ge 0; $k--) {
+        $m = $ms[$k]
+        $obj = Read-ChatqJsonObjectAt $Text ($m.Index + $m.Length - 1)
         $r = if ($obj) { try { $obj | ConvertFrom-Json } catch { $null } } else { $null }
         if (-not $r) { continue }
-        foreach ($w in @($r.primary, $r.secondary)) {
-            if (-not $w -or -not $w.resets_at -or [double]$w.used_percent -lt 100) { continue }
-            $until = [System.DateTimeOffset]::FromUnixTimeSeconds([int64]$w.resets_at).LocalDateTime
-            if ($until -gt $now -and (-not $best -or $until -gt $best.Until)) {
-                $m = [int]$w.window_minutes
-                $type = if ($m -le 300) { 'five_hour' } elseif ($m -le 10080) { 'weekly' } else { 'monthly' }
-                $best = [pscustomobject]@{ Until = $until; Type = $type; Source = 'rollout'; At = (Get-ChatqRecordTime $t $i) }
-            }
+        $w = @(ConvertFrom-ChatqCodexLimits $r)
+        if (-not $w.Count -and -not $Newest) { continue }
+        $plan = $r.PSObject.Properties['plan_type']
+        $hit = $r.PSObject.Properties['rate_limit_reached_type']
+        return [pscustomobject]@{
+            Limits = $w; At = (Get-ChatqRecordTime $Text $m.Index)
+            PlanType = $(if ($plan -and $plan.Value) { [string]$plan.Value } else { $null })
+            Reached = $(if ($hit -and $hit.Value) { [string]$hit.Value } else { $null })
         }
-        break   # the newest snapshot is the current one
+    }
+    return $null
+}
+
+function Find-ChatqCodexLimitSnapshot {
+    <#
+    Read-ChatqCodexLimitSnapshot over rollouts, newest first; the first that
+    has one wins, with File the rollout it came from. That need not be the
+    newest rollout: a thread cut off before its first reply has none. With
+    -HomeDir, the ten rollouts Codex wrote to last under that home - the
+    usage line and the limit check both list them so; the overlay hands its
+    own list in, kept between passes. -Newest goes to
+    Read-ChatqCodexLimitSnapshot: a rollout whose newest snapshot has no
+    window stops the walk there too.
+    #>
+    param([object[]]$Files, [string]$HomeDir, [switch]$Newest)
+    if ($PSBoundParameters.ContainsKey('HomeDir')) {
+        $root = Join-Path $HomeDir 'sessions'
+        if (-not (Test-Path -LiteralPath $root)) { return $null }
+        $Files = @(Get-ChildItem -LiteralPath $root -Filter *.jsonl -File -Recurse -EA SilentlyContinue |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 10)
+    }
+    foreach ($f in @($Files)) {
+        if (-not $f) { continue }
+        $s = Read-ChatqCodexLimitSnapshot (Read-ChatqTail $f.FullName 262144) -Newest:$Newest
+        if ($s) { return ($s | Add-Member -NotePropertyName File -NotePropertyValue $f -PassThru) }
+    }
+    return $null
+}
+
+function Get-ChatqCodexBlock {
+    # A window of the newest rate_limits snapshot that is full and resets
+    # later than now. Each window is judged by its own used_percent. The
+    # newest one even with no window (-Newest): a turn under another login
+    # or plan logs none, and a full window from before it is no longer the
+    # account's word - waiting it out held the lane with no probe to clear it.
+    param([string]$ConfigDir)
+    $s = Find-ChatqCodexLimitSnapshot -HomeDir (Get-ChatqHomeDir 'codex' $ConfigDir) -Newest
+    if (-not $s) { return $null }
+    $now = Get-Date
+    $best = $null
+    foreach ($w in @($s.Limits)) {
+        if (-not $w.ResetsAt -or $w.Percent -lt 100) { continue }
+        if ($w.ResetsAt -gt $now -and (-not $best -or $w.ResetsAt -gt $best.Until)) {
+            $best = [pscustomobject]@{ Until = $w.ResetsAt; Type = $w.Type; Source = 'rollout'; At = $s.At }
+        }
     }
     return $best
 }
@@ -2225,9 +2559,12 @@ function Invoke-ChatqProbe {
     <#
     Is the limit really over, or the overload? A throwaway "ok" that saves no
     session - 3 s and half a cent on haiku, measured - asked before any real
-    chat is touched. Sending the real prompt while still limited would plant
-    it, and an error after it, in that chat. Asked with the chat's own model: a
-    weekly limit can be one model's alone, and haiku would sail through it.
+    chat is touched; Codex's is asked at low effort, and only once the
+    account's own figures, asked with no turn, leave it unclear
+    (Get-ChatqCodexLiveLimit). Sending the real prompt
+    while still limited would plant it, and an error after it, in that chat.
+    Asked with the chat's own model: a weekly limit can be one model's alone,
+    and haiku would sail through it.
     #>
     param([string]$Provider, $Job, [switch]$NoModel)
     $exe = Find-ChatqExe $Provider
@@ -2237,17 +2574,35 @@ function Invoke-ChatqProbe {
     # the model the run will use: one given with -Model, else the chat's own
     $model = Get-ChatqRunModel $Job
     if ($Provider -eq 'codex') {
-        $args2 = @('exec', '--ephemeral', '--skip-git-repo-check', '--json', '-s', 'read-only')
-        if ($Job.runModel) { $args2 += @('-m', $Job.runModel) }
+        # First the turn-free answer (Get-ChatqCodexLiveLimit): still limited
+        # by the account's own figures spends nothing. Asked once - not again
+        # on the -NoModel ask below, which only drops the model.
+        if (-not $NoModel) {
+            $live = Get-ChatqCodexLiveLimit (Get-ChatqHomeDir 'codex' ([string](Get-ChatField $Job 'home')))
+            if ($live) { return $live }
+        }
+        # Low effort and the chat's model: with none named, codex takes both
+        # from config.toml - xhigh on whatever model is set there - so each
+        # lane check was a full-price turn asked of the wrong model.
+        $args2 = @('exec', '--ephemeral', '--skip-git-repo-check', '--json', '-s', 'read-only', '-c', 'model_reasoning_effort=low')
+        if ($model -and -not $NoModel) { $args2 += @('-m', $model) }
         $args2 += '-'
         # a -Model cmd.exe cannot carry is this job's own failure, not its
-        # lane's: Refused, which Confirm-ChatqAllowed fails the job on
+        # lane's: Refused, which Confirm-ChatqAllowed fails the job on. The
+        # chat's own is only ever named to the probe, so it is asked without.
         $no = Get-ChatqCmdArgRefusal $exe $args2
+        if ($no -and $model -and -not $Job.runModel -and -not $NoModel) { return (Invoke-ChatqProbe $Provider $Job -NoModel) }
         if ($no) { return [pscustomobject]@{ Allowed = $false; Limited = $false; Overloaded = $false; Auth = $false; Refused = $true; Error = $no; Until = $null; Type = $null; Detail = $null } }
         $proc = Invoke-ChatqProcess -Exe $exe -ArgList $args2 -WorkDir $dir -StdIn 'Reply with one word: ok' `
             -SetEnv @{ CODEX_HOME = $Job.home } -TimeoutSec 180 -OnLine { param($l) Update-ChatqCodexState $st $l }
         $out = Get-ChatqCodexOutcome $st $proc
         $ok = $out.kind -eq 'done'
+        # the chat's model as its rollout last named it may be one the account
+        # has since lost; a resume names none, so ask again without it. Not
+        # for a -Model: the run will use exactly that, so the probe must.
+        if (-not $ok -and $out.kind -eq 'failed' -and $model -and -not $Job.runModel -and -not $NoModel) {
+            return (Invoke-ChatqProbe $Provider $Job -NoModel)
+        }
     }
     else {
         # default mode: the probe asks nothing, and a settings defaultMode of
@@ -2285,6 +2640,42 @@ function Invoke-ChatqProbe {
         Type       = $out.limitType
         Error      = if (-not $ok -and $out.kind -notin 'limited', 'overloaded') { $(if ($out.reason) { $out.reason } else { $out.kind }) } else { $null }
         Detail     = $out.detail
+    }
+}
+
+function Get-ChatqCodexLiveLimit {
+    <#
+    Whether a Codex account is still limited, asked of codex app-server
+    (account/rateLimits/read) with no model turn: a probe-shaped answer
+    (Invoke-ChatqProbe) when it clearly is, else $null and the exec probe
+    asks. Clearly is a window at 100% whose reset is ahead, a limit the
+    server says is reached (rateLimitReachedType), or included use it
+    says is not allowed (ordinaryUsageAllowed false) - each on the whole
+    account, so whatever the chat's model. Never when credits could carry
+    a turn past them, and never "allowed": a window under 100% says
+    nothing of an overload, the login, or a limit that is one model's
+    alone, which only a turn finds. No answer - no CLI, an older codex,
+    a timeout, an error - is $null too.
+    Until is the latest full window's reset; with none, $null, and
+    Confirm-ChatqAllowed falls back to the rollout's (Get-ChatqCodexBlock).
+    #>
+    param([string]$CodexHome)
+    $r = Invoke-ChatqCodexRpc -Method 'account/rateLimits/read' -CodexHome $CodexHome -TimeoutSec 10
+    $a = if ($r.Ok) { ConvertFrom-ChatqCodexRateLimitsReply $r.Results[0] } else { $null }
+    if (-not $a -or $a.Credits) { return $null }
+    $now = Get-Date
+    $full = @($a.Limits | Where-Object { $_.Percent -ge 100 -and $_.ResetsAt -and $_.ResetsAt -gt $now } | Sort-Object ResetsAt)
+    if (-not $full.Count -and -not $a.Reached -and $a.Allowed -ne $false) { return $null }
+    $last = if ($full.Count) { $full[-1] } else { $null }
+    $why = if ($full.Count) { "$($last.Label) window at 100%" } elseif ($a.Reached) { $a.Reached } else { 'included use not allowed' }
+    return [pscustomobject]@{
+        Allowed = $false; Limited = $true; Overloaded = $false; Auth = $false; Refused = $false
+        Until = $(if ($last) { $last.ResetsAt } else { $null })
+        Type = $(if ($last) { $last.Type } elseif ($a.Reached) { $a.Reached } else { $null })
+        Error = $null
+        # said where the watcher logs the probe: no turn was spent on it
+        Detail = "account/rateLimits/read: $why"
+        NoTurn = $true
     }
 }
 
@@ -2426,8 +2817,17 @@ function Test-ChatqRunUltracode {
 function Format-ChatqRunCarry {
     # What a run carries of the chat's session, in words, from the job's own
     # fields the watcher set at its start (Get-ChatqRunCarry): 'with
-    # Ultracode', 'at effort max', both, or ''. Pure.
+    # Ultracode', 'at effort max', both, or ''. A Codex run carries none of
+    # it: its words are the model and effort its chat last ran on, as read
+    # when it was queued (effortAtQueue) - 'gpt-5.6 at effort medium' - and
+    # '' on a -Model of the job's, which the chat's level may not fit. Pure.
     param($Job)
+    if ([string](Get-ChatField $Job 'provider') -eq 'codex') {
+        if (Get-ChatField $Job 'runModel') { return '' }
+        $md = [string](Get-ChatField $Job 'model')
+        $ef = [string](Get-ChatField $Job 'effortAtQueue')
+        return ((@($md, $(if ($ef) { "at effort $ef" })) | Where-Object { $_ }) -join ' ')
+    }
     $w = @()
     if (Get-ChatField $Job 'ultracode') { $w += 'with Ultracode' }
     $e = [string](Get-ChatField $Job 'effort')
@@ -2714,9 +3114,15 @@ function Invoke-ChatqRun {
     }
     elseif ($Files) { $Prompt += Format-ChatqAttachFooter $Files }
     if ($Job.provider -eq 'codex') {
-        $sandbox = if ($Job.sandbox) { $Job.sandbox } else { 'workspace-write' }
-        $a = @('exec', 'resume', '--json', '--skip-git-repo-check', '-c', "sandbox_mode=$sandbox")
-        if ($Job.network) { $a += @('-c', 'sandbox_workspace_write.network_access=true') }
+        # the job's own pick, else the chat's - never a word codex refuses:
+        # a job saved with 'managed' would fail as the config loads, so it
+        # runs workspace-write and the diary says why
+        $sb = Get-ChatqCodexRunSandbox $Job
+        if ($sb.Unknown) { Write-ChatqJobLog "#$($Job.seq) its chat's sandbox '$($sb.Unknown)' is no word codex takes - runs in workspace-write $($script:ChatqDot) $($Job.title)" }
+        $a = @('exec', 'resume', '--json', '--skip-git-repo-check', '-c', "sandbox_mode=$($sb.Sandbox)")
+        # the chat's network setting is workspace-write's alone: read-only
+        # has none, and full access has it anyway
+        if ($Job.network -and $sb.Sandbox -eq 'workspace-write') { $a += @('-c', 'sandbox_workspace_write.network_access=true') }
         if ($Job.runModel) { $a += @('-m', $Job.runModel) }
         foreach ($f in $imgs) { $a += @('-i', $f.FullName) }
         # -i can take several values, so -- keeps the thread id from being read

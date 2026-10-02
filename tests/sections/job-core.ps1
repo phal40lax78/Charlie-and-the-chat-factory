@@ -2,11 +2,12 @@
 # never on its own - it uses what the runner and the sections before it set.
 
 Section 'the job core'
-# what chatq writes is what it always wrote, plus sendNow at the end
+# what chatq writes is what it always wrote, plus sendNow, the Codex
+# chat's effort (effortAtQueue) and its unknown sandbox word at the end
 $jc = New-TestJob 'card redesign' 'field order'
 $fields = ($jc.PSObject.Properties | ForEach-Object Name) -join ','
-$want = 'v,id,seq,provider,sessionId,title,group,path,cwd,home,chatWhen,typed,rule,score,runnerUp,kind,promptFile,mode,modeAtQueue,model,runModel,first,sandbox,network,notBefore,state,attempts,retryAs,autoContinue,auto,cutUuid,deferUntil,deferWhy,deferredSince,busyAlerted,createdAt,startedAt,endedAt,runnerPid,result,history,sendNow'
-Check 'a job made by chatq has the fields it always had, in order, and sendNow' ($fields -eq $want -and $jc.sendNow -eq $false) $fields
+$want = 'v,id,seq,provider,sessionId,title,group,path,cwd,home,chatWhen,typed,rule,score,runnerUp,kind,promptFile,mode,modeAtQueue,model,runModel,first,sandbox,network,notBefore,state,attempts,retryAs,autoContinue,auto,cutUuid,deferUntil,deferWhy,deferredSince,busyAlerted,createdAt,startedAt,endedAt,runnerPid,result,history,sendNow,effortAtQueue,sandboxUnknown'
+Check 'a job made by chatq has the fields it always had, in order, then sendNow, effortAtQueue and sandboxUnknown' ($fields -eq $want -and $jc.sendNow -eq $false -and $null -eq $jc.effortAtQueue -and $null -eq $jc.sandboxUnknown) $fields
 $null = Remove-ChatqJob $jc 'test'
 $rowCard = Get-ChatqRowById $idCard
 $rowUpper = Get-ChatqRowById $idCard.ToUpperInvariant()

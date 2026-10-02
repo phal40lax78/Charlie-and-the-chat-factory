@@ -39,6 +39,9 @@ $script:ChatOverlaySpawn = $null
 $script:ChatOverlayUsageSeam = $null
 # tests: a stand-in for gh's answer about Copilot
 $script:ChatOverlayCopilotSeam = $null
+# tests: a stand-in for codex app-server's answer about Codex's windows,
+# given the Codex home it was asked under (Start-ChatqCodexUsageFetch)
+$script:ChatOverlayCodexUsageSeam = $null
 # tests: stands in for Windows' own light or dark setting
 $script:ChatOverlaySystemDarkSeam = $null
 # tests: the screen under the panel, given its rect, so the buttons can be
@@ -97,6 +100,9 @@ function Get-ChatOverlayConfig {
         usageView    = $(if ($view -in 'lines', 'bars') { $view } else { 'lines' })
         # Copilot's monthly quota through the GitHub CLI, where there is one
         copilotUsage = [bool](& $get 'copilotUsage' $true)
+        # Codex's windows asked of codex app-server, no turn spent; off, the
+        # figure only from what Codex wrote in its rollouts
+        codexUsage   = [bool](& $get 'codexUsage' $true)
         # chats the limit or a 529 stopped, marked, and a row for one not open
         cutOff       = [bool](& $get 'cutOff' $true)
         # how many of the newest chats not open go under the open ones; 0 is
@@ -292,7 +298,9 @@ function ConvertTo-ChatOverlayMs {
 # endpoint: Claude Code caches the same answer in .claude.json, but only when
 # something asks for /usage, and that copy was hours old while the account
 # climbed from 55% to 79%. The cache stays the fallback, marked with its age.
-# Codex's comes from its newest rollout, which it rewrites every turn.
+# Codex's comes live from codex app-server (account/rateLimits/read: no
+# model turn, and Codex's own login, never handed to chatq), or from the
+# snapshot Codex writes into its rollout every turn - the newer of the two.
 
 function ConvertFrom-ChatqUtilization {
     <#
@@ -329,22 +337,6 @@ function ConvertFrom-ChatqUtilization {
         $v = if ($U.PSObject.Properties[$w.Name]) { $U.($w.Name) } else { $null }
         if (-not $v -or $null -eq $v.utilization) { continue }
         $out.Add([pscustomobject]@{ Label = $w.Label; Percent = [double]$v.utilization; ResetsAt = (ConvertTo-ChatqDate $v.resets_at); Severity = '' })
-    }
-    return $out.ToArray()
-}
-
-function ConvertFrom-ChatqCodexLimits {
-    # Codex's rate_limits: used_percent, window_minutes and resets_at (epoch s)
-    # per window. Which window is primary varies by plan, so its length is
-    # what names it.
-    param($R)
-    $out = [System.Collections.Generic.List[object]]::new()
-    foreach ($w in @($R.primary, $R.secondary)) {
-        if (-not $w -or $null -eq $w.used_percent) { continue }
-        $m = [int]$w.window_minutes
-        $label = if ($m -le 300) { '5h' } elseif ($m -le 10080) { 'week' } else { 'month' }
-        $at = if ($w.resets_at) { [System.DateTimeOffset]::FromUnixTimeSeconds([int64]$w.resets_at).LocalDateTime } else { $null }
-        $out.Add([pscustomobject]@{ Label = $label; Percent = [double]$w.used_percent; ResetsAt = $at; Severity = '' })
     }
     return $out.ToArray()
 }
@@ -433,6 +425,49 @@ function Complete-ChatqCopilotFetch {
     }
     catch { $res = @{ Ok = $false; Status = 0; Why = "gh: $($_.Exception.Message)" } }
     finally { try { $p.Dispose() } catch {} }
+    return $res
+}
+
+function Start-ChatqCodexUsageFetch {
+    <#
+    Ask codex app-server for Codex's windows - account/rateLimits/read,
+    which starts no model turn - under -CodexHome. codex reads its own
+    login and asks; this process never sees the token, and auth.json was
+    left as it was across reads (TESTING.md, S-A4). Not waited on, as the
+    Copilot one is not: Start-ChatqCodexRpc starts the server and says
+    initialize, and each pass takes in what has come since.
+    #>
+    param([string]$CodexHome)
+    # both keys always there: a caller's StrictMode throws on a missing one
+    if ($script:ChatOverlayCodexUsageSeam) { return @{ Done = (& $script:ChatOverlayCodexUsageSeam $CodexHome); Rpc = $null } }   # tests
+    return @{ Done = $null; Rpc = (Start-ChatqCodexRpc -Method 'account/rateLimits/read' -CodexHome $CodexHome -TimeoutSec 20) }
+}
+
+function Complete-ChatqCodexUsageFetch {
+    <#
+    $null while codex app-server is still at it; else @{ Ok; Windows;
+    PlanType; Reached | Why; Quiet }. -WaitMs waits up to that long first;
+    the server is ended 20 s after it started, answered or not. Quiet is a
+    failure that is no news and will not change by itself soon - no codex,
+    no Codex home, a codex older than the app-server floor - which the
+    panel neither logs nor says, and keeps the rollout's figure for.
+    #>
+    param($Fetch, [int]$WaitMs = 0)
+    if ($Fetch.Done) { return $Fetch.Done }
+    # a pass ends the server with little wait: the panel draws on this thread
+    $r = Step-ChatqCodexRpc $Fetch.Rpc -WaitMs $WaitMs -ExitWaitMs 300
+    if (-not $r) { return $null }
+    $res = if (-not $r.Ok) {
+        $quiet = [bool]("$($r.Why)" -match '^(no codex CLI|no Codex home at |codex \S+ is older than )')
+        @{ Ok = $false; Why = "codex app-server: $($r.Why)"; Quiet = $quiet }
+    }
+    elseif ($r.Errors[0]) { @{ Ok = $false; Why = "codex app-server: $($r.Errors[0])"; Quiet = $false } }
+    else {
+        $a = ConvertFrom-ChatqCodexRateLimitsReply $r.Results[0]
+        if ($a) { @{ Ok = $true; Windows = @($a.Limits); PlanType = $a.PlanType; Reached = $a.Reached } }
+        else { @{ Ok = $false; Why = 'codex app-server: no window in its answer'; Quiet = $false } }
+    }
+    $Fetch.Done = $res
     return $res
 }
 
@@ -572,23 +607,13 @@ function Read-ChatqClaudeUsageCache {
 }
 
 function Read-ChatqCodexUsage {
-    # the newest rate_limits snapshot among the rollouts Codex wrote to last -
-    # which need not be in the newest one: a thread cut off before its first
-    # reply has none
+    # the newest rate_limits snapshot among the rollouts Codex wrote to last
+    # (Find-ChatqCodexLimitSnapshot). A record with no timestamp is as old as
+    # its file: the panel has to say some age, and the file's is the nearest.
     param([object[]]$Files)
-    foreach ($f in @($Files)) {
-        if (-not $f) { continue }
-        $t = Read-ChatqTail $f.FullName 262144
-        $i = if ($t) { $t.LastIndexOf('"rate_limits":{', [StringComparison]::Ordinal) } else { -1 }
-        $obj = if ($i -ge 0) { Read-ChatqJsonObjectAt $t ($i + 14) } else { $null }
-        $r = if ($obj) { try { $obj | ConvertFrom-Json } catch { $null } } else { $null }
-        if (-not $r) { continue }
-        $w = @(ConvertFrom-ChatqCodexLimits $r)
-        if (-not $w) { continue }
-        $at = Get-ChatqRecordTime $t $i
-        return [pscustomobject]@{ Windows = $w; At = $(if ($at) { $at } else { $f.LastWriteTime }) }
-    }
-    return $null
+    $s = Find-ChatqCodexLimitSnapshot -Files $Files
+    if (-not $s) { return $null }
+    return [pscustomobject]@{ Windows = $s.Limits; At = $(if ($s.At) { $s.At } else { $s.File.LastWriteTime }) }
 }
 
 function ConvertTo-ChatOverlayUsage {
@@ -619,6 +644,13 @@ function ConvertTo-ChatOverlayUsage {
     [pscustomobject]@{
         provider = $Provider; source = $Source; at = (ConvertTo-ChatOverlayMs $Data.At)
         stale = (($Now - $Data.At).TotalMinutes -ge $StaleMinutes); why = $(if ($Why) { $Why } else { $null }); windows = @($ws)
+        # the plan the figure is for, where the source names one - Codex's
+        # live answer does ('free', 'plus'...): which windows there are
+        # follows from it, a free plan's one being a month
+        plan = $(if (Get-ChatField $Data 'Plan') { [string]$Data.Plan } else { $null })
+        # the home a Codex live figure was asked under: what Get-ChatqUsage
+        # and the next start (Restore-ChatOverlayUsage) match their own on
+        home = $(if (Get-ChatField $Data 'Home') { [string]$Data.Home } else { $null })
         # the end of its line in the panel, filled in by the pass
         status = $null
     }
@@ -634,8 +666,9 @@ function Update-ChatOverlayUsage {
     it refused after about an hour, for 48 minutes. So a 429 waits as long as
     its Retry-After says, or backs off 5, 10, 20, then 30 minutes without
     one; a refusal for the login waits for Claude Code to renew it.
+    Codex is asked as its own: -CodexBusy is a Codex job of chatq's at work.
     #>
-    param($Ctx, [bool]$Busy, [int]$WaitMs = 0, [hashtable]$Blocks)
+    param($Ctx, [bool]$Busy, [int]$WaitMs = 0, [hashtable]$Blocks, [bool]$CodexBusy)
     $now = Get-Date
     $cfg = $Ctx.Config
     if ($cfg.liveUsage) {
@@ -694,10 +727,13 @@ function Update-ChatOverlayUsage {
         $stamp = try { if (Test-Path -LiteralPath $p) { $fi = [System.IO.FileInfo]::new($p); "$($fi.Length)|$($fi.LastWriteTimeUtc.Ticks)" } else { '' } } catch { '' }
         if ($stamp -ne $Ctx.CacheStamp) { $Ctx.CacheStamp = $stamp; $Ctx.Cache = Read-ChatqClaudeUsageCache $p }
     }
-    # Codex: the rollouts listed every 5 minutes, the newest re-read as it grows
+    # Codex: the rollouts listed every 5 minutes, the newest re-read as it
+    # grows - under the context's own home (New-ChatOverlayContext)
     if (($now - $Ctx.CodexListAt).TotalMinutes -ge 5) {
         $Ctx.CodexListAt = $now
-        $root = Join-Path $script:ChatCodexHome 'sessions'
+        $cxHome = [string](Get-ChatField $Ctx 'CodexHome')
+        if (-not $cxHome) { $cxHome = $script:ChatCodexHome }
+        $root = Join-Path $cxHome 'sessions'
         # @() around the if, not inside it: an if whose branch yields an empty
         # array assigns $null, and then Codex-less machines fail right here
         $Ctx.CodexFiles = @(if (Test-Path -LiteralPath $root) {
@@ -710,6 +746,64 @@ function Update-ChatOverlayUsage {
         $f = $Ctx.CodexFiles[0]
         $stamp = try { $f.Refresh(); "$($f.Length)|$($f.LastWriteTimeUtc.Ticks)" } catch { '' }
         if ($stamp -ne $Ctx.CodexStamp) { $Ctx.CodexStamp = $stamp; $Ctx.Codex = Read-ChatqCodexUsage $Ctx.CodexFiles }
+    }
+    # Codex, asked live (Start-ChatqCodexUsageFetch) under the same home:
+    # the rollout's figure is only as new as Codex's last turn - days, on
+    # an account used now and then. Every usageSeconds while Codex works -
+    # a job of chatq's, or a rollout written that recently, the panel's own
+    # turns too - three times less often while it is idle, again once a
+    # window's reset passes, and on the refresh button. A failure waits 2,
+    # 4, 8, 16, then 30 minutes; a quiet one - no codex, no home, a codex
+    # too old - 30 at once: none of that changes by itself in a minute.
+    # The home goes with the figure into overlay.json: Get-ChatqUsage, in
+    # another process that may have another CODEX_HOME, takes it only for
+    # its own home.
+    $cxAsk = [string](Get-ChatField $Ctx 'CodexHome')
+    $cxAsk = Get-ChatqHomeDir 'codex' $(if ($cxAsk) { $cxAsk } else { $script:ChatCodexHome })
+    if ($cfg.codexUsage) {
+        $cxHold = if ($Ctx.CodexHoldUntil -is [datetime]) { $Ctx.CodexHoldUntil } else { [datetime]::MinValue }
+        if (-not $Ctx.CodexFetch -and $now -ge $cxHold) {
+            $newest = if ($Ctx.CodexFiles.Count) { $Ctx.CodexFiles[0] } else { $null }
+            $cxBusy = $CodexBusy -or ($newest -and ($now - $newest.LastWriteTime).TotalSeconds -lt $cfg.usageSeconds)
+            $every = if ($cxBusy) { $cfg.usageSeconds } else { 3 * $cfg.usageSeconds }
+            $due = -not $Ctx.CodexTriedAt -or ($now - $Ctx.CodexTriedAt).TotalSeconds -ge $every
+            if (-not $due -and $Ctx.CodexLive) {
+                foreach ($w in @($Ctx.CodexLive.Windows)) {
+                    if ($w.ResetsAt -and $w.ResetsAt -gt $Ctx.CodexLive.At -and $w.ResetsAt.AddSeconds(5) -le $now) { $due = $true }
+                }
+            }
+            if ($due) {
+                $Ctx.CodexTriedAt = $now
+                $Ctx.CodexFetch = Start-ChatqCodexUsageFetch $cxAsk
+            }
+        }
+        if ($Ctx.CodexFetch) {
+            $res = Complete-ChatqCodexUsageFetch $Ctx.CodexFetch $WaitMs
+            if ($res) {
+                $Ctx.CodexFetch = $null
+                if ($res.Ok) {
+                    $Ctx.CodexLive = [pscustomobject]@{ Windows = @($res.Windows); At = (Get-Date); Plan = $res.PlanType; Home = $cxAsk }
+                    $Ctx.CodexWhy = $null
+                    $Ctx.CodexFails = 0
+                }
+                else {
+                    $Ctx.CodexFails = [int]$Ctx.CodexFails + 1
+                    $wait = if ($res.Quiet) { 1800 } else { [Math]::Min(1800, 120 * [Math]::Pow(2, [Math]::Min(4, $Ctx.CodexFails - 1))) }
+                    $Ctx.CodexHoldUntil = (Get-Date).AddSeconds($wait)
+                    # quiet: no live line to say it on, and nothing to log
+                    $Ctx.CodexWhy = if ($res.Quiet) { $null } else { [string]$res.Why }
+                    if (-not $res.Quiet) { Write-ChatOverlayLog "codex usage: $($res.Why)" }
+                }
+            }
+        }
+    }
+    elseif ($Ctx.CodexFetch) {
+        # turned off with an ask out: nothing above takes it in any more, so
+        # it is ended here - else the server lives as long as the overlay,
+        # the refresh icon turns for good, and a reply come in keeps every
+        # hover tick running a pass for it
+        if ($Ctx.CodexFetch.Rpc) { $null = Close-ChatqCodexRpc $Ctx.CodexFetch.Rpc 'turned off' -ExitWaitMs 300 }
+        $Ctx.CodexFetch = $null
     }
     # Copilot: a monthly quota, so every 3 x usageSeconds (15 minutes) and on
     # the refresh button. gh not there or not logged in: no line, no fuss.
@@ -740,7 +834,11 @@ function Update-ChatOverlayUsage {
     $liveStale = [Math]::Max(15, 3 * $cfg.usageSeconds / 60 + 5)
     if ($cfg.liveUsage -and $Ctx.Live -and (-not $Ctx.Cache -or $Ctx.Live.At -ge $Ctx.Cache.At)) { $out.Add((ConvertTo-ChatOverlayUsage 'Claude' 'live' $Ctx.Live $now $why $Blocks $liveStale)) }
     elseif ($Ctx.Cache) { $out.Add((ConvertTo-ChatOverlayUsage 'Claude' 'cache' $Ctx.Cache $now $why $Blocks)) }
-    if ($Ctx.Codex) { $out.Add((ConvertTo-ChatOverlayUsage 'Codex' 'rollout' $Ctx.Codex $now $null $Blocks)) }
+    # Codex: the newer of the live answer and the rollout's snapshot - a turn
+    # run since the last ask has the fresher figure. Off, the rollout alone.
+    $cxLive = if ($cfg.codexUsage) { $Ctx.CodexLive } else { $null }
+    if ($cxLive -and (-not $Ctx.Codex -or $cxLive.At -ge $Ctx.Codex.At)) { $out.Add((ConvertTo-ChatOverlayUsage 'Codex' 'live' $cxLive $now $Ctx.CodexWhy $Blocks $liveStale)) }
+    elseif ($Ctx.Codex) { $out.Add((ConvertTo-ChatOverlayUsage 'Codex' 'rollout' $Ctx.Codex $now $null $Blocks)) }
     if ($cfg.copilotUsage -and $Ctx.Copilot) { $out.Add((ConvertTo-ChatOverlayUsage 'Copilot' 'live' $Ctx.Copilot $now $Ctx.CopilotWhy @{} $liveStale)) }
     return $out.ToArray()
 }
@@ -748,7 +846,8 @@ function Update-ChatOverlayUsage {
 function Request-ChatOverlayUsageRefresh {
     <#
     The refresh button, or chatoverlay -Refresh: ask the endpoint on this
-    pass, and read Claude Code's and Codex's own copies again. Not inside a
+    pass, ask codex app-server and gh again, and read Claude Code's and
+    Codex's own copies again. Not inside a
     wait the endpoint itself named - asking early only earns another
     refusal - and not twice in 20 s. What came of it is kept in
     $Ctx.Refresh for the panel to say (Get-ChatOverlayRefreshNote): a click
@@ -760,6 +859,13 @@ function Request-ChatOverlayUsageRefresh {
     $Ctx.CodexAt = [datetime]::MinValue
     $Ctx.CodexListAt = [datetime]::MinValue
     if (-not $Ctx.CopilotFetch -and -not ($Ctx.CopilotTriedAt -and ($now - $Ctx.CopilotTriedAt).TotalSeconds -lt 20)) { $Ctx.CopilotTriedAt = $null }
+    # Codex's ask, its backoff too: none of its waits is one a server named,
+    # and a click is the way to say "try now" after codex was installed or
+    # logged in
+    if (-not $Ctx.CodexFetch -and -not ($Ctx.CodexTriedAt -and ($now - $Ctx.CodexTriedAt).TotalSeconds -lt 20)) {
+        $Ctx.CodexTriedAt = $null
+        $Ctx.CodexHoldUntil = [datetime]::MinValue
+    }
     $kind = if (-not $Ctx.Config.liveUsage) { 'off' }
     elseif ($Ctx.Fetch) { 'asked' }
     elseif ($Ctx.HoldKind -eq 'server' -and $now -lt $Ctx.HoldUntil) { 'held' }
@@ -828,11 +934,30 @@ function Restore-ChatOverlayUsage {
     # and any wait the endpoint named, and ask again at once: refused again
     # inside that wait, or the older cached figure shown until the next ask.
     # The last snapshot saved has both. The overlay's start and -Print only.
+    # Codex's last live figure too, so a restart does not start codex
+    # app-server again for a figure minutes old - only one asked under this
+    # context's own home: a start from a shell with another CODEX_HOME would
+    # show that account's windows as this one's, as live, for 15 minutes.
     param($Ctx)
-    if (-not $Ctx.Config.liveUsage) { return }
+    if (-not $Ctx.Config.liveUsage -and -not $Ctx.Config.codexUsage) { return }
     $s = Read-ChatqJson $script:ChatOverlayPath
     if (-not $s -or -not $s.PSObject.Properties['header'] -or -not $s.header) { return }
     $local = { param($ms) [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$ms).LocalDateTime }
+    $cx = if ($Ctx.Config.codexUsage) { @($s.header.usage | Where-Object { $_ -and $_.provider -eq 'Codex' -and $_.source -eq 'live' -and $_.at })[0] } else { $null }
+    $cxHome = [string](Get-ChatField $Ctx 'CodexHome')
+    $cxHome = Get-ChatqHomeDir 'codex' $(if ($cxHome) { $cxHome } else { $script:ChatCodexHome })
+    $was = if ($cx) { [string](Get-ChatField $cx 'home') } else { '' }
+    if ($cx -and $was -and (Get-ChatqFolderKey $was) -eq (Get-ChatqFolderKey $cxHome)) {
+        $ws = @($cx.windows | Where-Object { $_ } | ForEach-Object {
+                [pscustomobject]@{ Label = [string]$_.label; Percent = [double]$_.percent; Severity = ''
+                    ResetsAt = $(if ($_.resetsAt) { & $local $_.resetsAt } else { $null }) }
+            })
+        if ($ws) {
+            $Ctx.CodexLive = [pscustomobject]@{ Windows = $ws; At = (& $local $cx.at); Plan = [string](Get-ChatField $cx 'plan'); Home = $cxHome }
+            $Ctx.CodexTriedAt = $Ctx.CodexLive.At
+        }
+    }
+    if (-not $Ctx.Config.liveUsage) { return }
     $u = @($s.header.usage | Where-Object { $_ -and $_.provider -eq 'Claude' -and $_.source -eq 'live' -and $_.at })[0]
     if ($u) {
         $ws = @($u.windows | Where-Object { $_ } | ForEach-Object {
@@ -2141,11 +2266,13 @@ function Format-ChatOverlayReloadText {
 }
 
 function New-ChatOverlayContext {
-    # everything the collector keeps between passes
-    param([string]$ClaudeHome = $script:ChatClaudeHome)
+    # everything the collector keeps between passes. -CodexHome is the home
+    # Codex usage is read under, the one chatq lists Codex chats from unless
+    # told otherwise.
+    param([string]$ClaudeHome = $script:ChatClaudeHome, [string]$CodexHome = $script:ChatCodexHome)
     $never = [datetime]::MinValue
     return @{
-        ClaudeHome = $ClaudeHome; Config = (Get-ChatOverlayConfig); Cycle = 0; Verbs = @()
+        ClaudeHome = $ClaudeHome; CodexHome = $CodexHome; Config = (Get-ChatOverlayConfig); Cycle = 0; Verbs = @()
         Registry = @{}; Alive = @{}; PidSig = $null; AliveAt = $never
         Text = @{}; Missing = @{}
         # each open chat's transcript as far as its background work has been
@@ -2157,6 +2284,9 @@ function New-ChatOverlayContext {
         CopilotFetch = $null; Copilot = $null; CopilotWhy = $null; CopilotTriedAt = $null
         Cache = $null; CacheStamp = $null; CacheAt = $never
         Codex = $null; CodexFiles = @(); CodexListAt = $never; CodexStamp = $null; CodexAt = $never
+        # Codex asked live (Update-ChatOverlayUsage): the ask out, its last
+        # answer, why the last one failed, how many in a row, and the wait
+        CodexFetch = $null; CodexLive = $null; CodexWhy = $null; CodexFails = 0; CodexTriedAt = $null; CodexHoldUntil = $never
         Commands = [System.Collections.Generic.List[object]]::new(); CommandId = 0
         CutOff = @(); CutCache = @{}; CutAt = $never; CutSig = $null
         # The reset ask: CutScan is the whole cut-off look, which CutOff (the
@@ -2339,8 +2469,11 @@ function Invoke-ChatOverlayCycle {
 
     # usage
     $busy = [bool](@($live | Where-Object { $_.Status -in 'busy', 'waiting' }).Count -or @($jobs | Where-Object { $_.state -eq 'running' }).Count)
+    # the live chats above are Claude's alone: Codex's own at work is a job
+    # of chatq's running, or - seen inside - a rollout written lately
+    $cxBusy = [bool]@($jobs | Where-Object { $_.state -eq 'running' -and [string](Get-ChatField $_ 'provider') -eq 'codex' }).Count
     $usage = @()
-    try { $usage = @(Update-ChatOverlayUsage $Ctx $busy -WaitMs $(if ($Sync) { 15000 } else { 0 }) -Blocks $Ctx.Blocks) }
+    try { $usage = @(Update-ChatOverlayUsage $Ctx $busy -WaitMs $(if ($Sync) { 15000 } else { 0 }) -Blocks $Ctx.Blocks -CodexBusy $cxBusy) }
     catch { $err = "usage: $($_.Exception.Message)" }
 
     # Chats the limit or a 529 cut off, a minute apart, reading only the
@@ -2510,6 +2643,7 @@ function Invoke-ChatOverlayCycle {
         $u.status = switch ($u.provider) {
             'Claude' { Get-ChatOverlayUsageStatus $u ([bool]$Ctx.Fetch) $short $(if ($Ctx.HoldKind) { $Ctx.HoldUntil } else { $null }) $now }
             'Copilot' { Get-ChatOverlayUsageStatus $u ([bool]$Ctx.CopilotFetch) $null $null $now }
+            'Codex' { Get-ChatOverlayUsageStatus $u ([bool]$Ctx.CodexFetch) $null $(if ($Ctx.CodexWhy) { $Ctx.CodexHoldUntil } else { $null }) $now }
             default { Get-ChatOverlayUsageStatus $u $false $null $null $now }
         }
     }

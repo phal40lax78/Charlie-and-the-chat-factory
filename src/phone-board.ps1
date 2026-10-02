@@ -563,7 +563,13 @@ function Invoke-ChatqJobAct {
             $note = ''
             $m = ''
             if ($job.provider -eq 'codex') {
-                if (-not (Test-ChatqPhoneSandbox ([string]$job.sandbox) $Cap)) { Set-ChatqProp $job 'sandbox' 'workspace-write'; $note = & $limitNote 'workspace-write' }
+                # its own pick, else its chat's; capped as its pick, and said
+                # to stick when the chat's own is other (Invoke-ChatqReply's retry)
+                if (-not (Test-ChatqPhoneSandbox (Get-ChatqCodexRunSandbox $job).Sandbox $Cap)) {
+                    $m = 'workspace-write'
+                    $note = & $limitNote 'workspace-write'
+                    if (Get-ChatqCodexStickSay (ConvertTo-ChatqCodexSandbox ([string]$job.sandbox)).Sandbox $m) { $note += ' - and the chat keeps it for later jobs' }
+                }
             }
             else {
                 $lim = Limit-ChatqPhoneMode $(if ($job.mode) { [string]$job.mode } else { [string]$job.modeAtQueue }) $Cap
@@ -617,10 +623,23 @@ function New-ChatqPhoneJob {
     # never a mode the message names: -Mode, else the chat's own
     $jm = $Mode
     if ($Row.Provider -eq 'codex') {
-        if (-not (Test-ChatqPhoneSandbox ([string]$info.Sandbox) $Cap)) {
-            $info.Sandbox = 'workspace-write'
-            $info.Mode = 'workspace-write'
+        # -Mode is a sandbox word here - an old job's own pick; anything
+        # else (a Claude mode an older chatq stored) is none. The sandbox
+        # it runs in is that, else the chat's own; under a cap one wider
+        # than workspace-write is capped as the job's pick, and the chat's
+        # stays as it is on the job (Get-ChatqCodexRunSandbox). The run
+        # then leaves the chat in workspace-write (spike S11), so the
+        # answer says so when the chat's own was wider.
+        if ($jm -cnotin $script:ChatqCodexSandboxes) { $jm = '' }
+        $own = [string]$info.Sandbox
+        if ($jm -and $OwnIfLower -and (Get-ChatqCodexSandboxRank $own) -lt (Get-ChatqCodexSandboxRank $jm)) {
+            $jm = $own
+            $note = " - runs in $jm, the chat's own at the PC"
+        }
+        if (-not (Test-ChatqPhoneSandbox $(if ($jm) { $jm } else { $own }) $Cap)) {
+            $jm = 'workspace-write'
             $note = " - runs in workspace-write, the phone's limit"
+            if (Get-ChatqCodexStickSay $own $jm) { $note += ' - and the chat keeps it for later jobs' }
         }
     }
     else {
@@ -845,7 +864,11 @@ function ConvertTo-ChatqPhoneBoard {
     mc when it was, known. None is said for one not read: the page then
     says the cap. A cut row with an auto-continue state (the row's auto,
     Get-ChatqAutoState) has its words in full as al; d is the row's own
-    short words, the overlay's, as ever.
+    short words, the overlay's, as ever. A queue row's m is what its job
+    runs in - for a Codex job its sandbox (Get-ChatqCodexRunSandbox) -
+    brought down to -Cap as a Retry from the phone brings it, mc when it
+    was: the page says it when the board has no row of the job's chat, as
+    for a Codex chat it never has.
     #>
     param($Snap, [object[]]$Jobs, [hashtable]$Eta, [string]$From = 'overlay', [datetime]$Now = (Get-Date), $HomeDir, [hashtable]$CutInfo, [string[]]$Folders,
         [hashtable]$Asks, [string]$Cap = $script:ChatqKeepMode)
@@ -950,10 +973,19 @@ function ConvertTo-ChatqPhoneBoard {
     $queue = [System.Collections.Generic.List[object]]::new()
     foreach ($j in $boardJobs) {
         if ($queue.Count -ge 30) { $more++; continue }
+        # what the job itself runs in, for a chat view the board has no row
+        # of its chat for - a Codex job's always: its sandbox. Brought down
+        # to -Cap as the view's Retry brings it (Invoke-ChatqJobAct), mc
+        # when it was, so the chip never names one the phone will not run.
+        $qm = if ($j.provider -eq 'codex') { (Get-ChatqCodexRunSandbox $j).Sandbox } elseif ($j.mode) { [string]$j.mode } elseif ($j.modeAtQueue) { [string]$j.modeAtQueue } else { 'default' }
+        $qc = $false
+        if ($j.provider -eq 'codex') { if (-not (Test-ChatqPhoneSandbox $qm $Cap)) { $qm = 'workspace-write'; $qc = $true } }
+        else { $ql = Limit-ChatqPhoneMode $qm $Cap; $qm = [string]$ql.Mode; $qc = [bool]$ql.Capped }
         $queue.Add([ordered]@{
                 h = (& $jobKey $j); n = [int]$j.seq; t = (Format-ChatTitle ([string]$j.title) 60); s = [string]$j.state; e = (& $sendsOf $j)
                 k = [string]$j.kind; p = [string]$j.provider; f = $(if ($j.cwd) { Split-Path ([string]$j.cwd).TrimEnd('\', '/') -Leaf } else { '' })
                 id8 = $(if ($j.sessionId) { ([string]$j.sessionId).Substring(0, [Math]::Min(8, ([string]$j.sessionId).Length)) } else { '' })
+                m = $qm; mc = $qc
             })
     }
     $recent = [System.Collections.Generic.List[object]]::new()
@@ -1260,7 +1292,8 @@ function Get-ChatqPhoneChatMeta {
         if ($Row.Provider -eq 'codex') {
             $m = Get-ChatqCodexMeta $Row.Path
             $cwd = $m.Cwd
-            $mode = if ($m.Sandbox) { [string]$m.Sandbox } else { 'workspace-write' }
+            # as a job for it would run: a word codex does not take is workspace-write
+            $mode = (ConvertTo-ChatqCodexSandbox ([string]$m.Sandbox)).Sandbox
         }
         else {
             $c = Read-ChatChunk $Row.Path 262144

@@ -70,37 +70,52 @@ in the chat, as the framing says.
 
 ## Deliver into a live Codex chat through `codex queue`
 
-**Why deferred:** found after v0.1.0.
+**Why deferred:** found after v0.1.0, and re-read on codex-cli 0.159.2
+(openai.chatgpt 26.928; spike S-A5 in TESTING.md).
 - **The gap today.** chatq never checks whether a Codex thread is open in a
   VS Code window, and every Codex job goes through `codex exec resume`. An open
   Codex panel then goes stale, like a Claude one, and nothing says so.
 - **The official way in.** `codex queue --thread <uuid|exact name> --message
-  <text>` is in the bundled codex-cli 0.154.0-alpha. It sends
-  `thread/queue/add` to Codex's shared local app-server daemon, as a user
-  message. It needs no per-session token, and the message is not framed as
-  coming from a peer. Claude's inbox pipe (above) has both problems.
+  <text>` sends `thread/queue/add` as a user message. It needs no
+  per-session token, and the message is not framed as coming from a peer.
+  Claude's inbox pipe (above) has both problems.
 - **It doesn't replace the wait.** It queues at once, so chatq still holds the
   prompt until the reset and only then hands it over.
 
-Open questions, from `codex-rs/tui/src/session_queue_commands.rs`:
-- Does the VS Code extension's chat run on that shared daemon? If not, the
-  message lands in a thread nobody is looking at.
-- With no daemon running, it falls back to an embedded app server. Does the
-  turn then run, or is it only recorded?
-- An older daemon answers "does not support thread/queue/add", so the method
-  may still be experimental.
-- There is no `--json` event stream. The outcome would have to be read from the
-  thread's rollout file.
+What 0.159.2 settled:
+- **The panel is not on the shared daemon.** Each VS Code window runs a
+  private `codex app-server` over stdio, and no daemon runs. `codex queue`
+  refuses `--no-daemon` and, with no daemon, writes through an app server
+  it starts for itself. So the message reaches the panel only through the
+  store they share, `queue_1.sqlite`.
+- **That pickup is likely.** The binary watches that file for changes
+  (`PRAGMA data_version`), and the app server has a `thread/queue/changed`
+  notification to tell its client. Not seen working yet.
+- **The method exists.** `thread/queue/add`, `list`, `update`, `delete`,
+  `reorder` and `start` are in the app-server's experimental schema
+  (`generate-json-schema --experimental`), not the stable one; an older
+  server answers "does not support thread/queue/add". chatq's own
+  app-server client ([Invoke-ChatqCodexRpc](src/codex-appserver.ps1), read
+  only today) could send it with `experimentalApi` rather than run `codex
+  queue`.
+
+The one open question: **does a panel open and idle on the thread run the
+queued item by itself, or show it and wait for a click on "send now"?**
+There is no `--json` event stream either way, so the outcome would be read
+from the rollout, or from `thread/turns/list`.
 
 **To close:**
-1. Spike: with a Codex chat open and idle in the panel, run
-   `codex queue --thread <id> --message ok`. Does the panel show it and run it?
-   Repeat with VS Code closed.
-2. Detect a live Codex thread, through the daemon's thread list or the
-   extension's process. Deliver to it with `codex queue`, and use
-   `codex exec resume` otherwise.
-3. Classify the run from the rollout: after the queued message, tail it until
-   the turn completes or errors.
+1. Spike (the owner's, as it spends a turn): with a Codex chat open and idle
+   in the panel, queue `ok` into it. Does the panel run it with no click?
+   Repeat mid-turn, and with VS Code closed.
+2. If it runs: queue through the app-server client when the thread is live,
+   keep the item's id on the job, and if it is not taken in time delete it
+   and only then fall back to `codex exec resume`, so the prompt is never
+   sent twice. That needs a way to tell the thread is live - see "A Codex
+   thread open in the panel" below.
+3. If it waits for a click: leave this, and keep the headless run with a
+   busy check and a stale-panel cue instead ("A Codex panel left stale by a
+   chatq run", below).
 
 ## Attachments: what 0.3.0 left out
 
@@ -303,10 +318,19 @@ panel has never run (S24 in TESTING.md). There is no overlay on Linux.
   `NSWindow` from the same host, or the console as a small local web page
   the pwsh host serves on 127.0.0.1.
 - **New Codex chats.** + New chat starts Claude chats only. **Why deferred:**
-  a new Codex thread's id comes back in `thread.started` rather than being
-  given up front, so a retry after a limit could start a second thread.
-  **To close:** capture the id from `thread.started` as the run begins, save
-  it on the job, and resume it from then on.
+  a new Codex thread's id is never given up front: it comes back in
+  `thread.started` from `codex exec`, or in the reply to the app-server's
+  `thread/start`. Unsaved, a retry after a limit could start a second
+  thread. And a thread `codex exec` makes may never show in the panel: the
+  panel's list asks for interactive sources by default (`thread/list`
+  `sourceKinds`), and `exec --thread-source` only sets an analytics string,
+  not that kind. **To close:** a spike that spends a turn, then one of two
+  routes. (A) Run `codex exec --json` with no `--ephemeral`, save the id
+  from the first `thread.started` on the job at once, and resume it from
+  then on. (B) Call `thread/start` at queue time through the app-server
+  client, so the id is known before any run - if a thread started that way
+  with no turn can then be resumed by `codex exec resume`. Either way, check
+  whether the panel lists the thread, and name it with `thread/name/set`.
 - **Answering a permission prompt from the console.** A run that asks is
   parked as needs-input, or since 0.9.0 asks the phone. **Why deferred:**
   see "Approve permission prompts: what 0.9.0 left out", below. **To
@@ -1134,12 +1158,19 @@ says it went, and offer it again on the new alert's page.
 ## The overlay: what 0.4.0 left out
 
 - **Codex and Copilot chats as live rows.** **Why deferred:** only Claude Code
-  writes a list of what runs (`~/.claude/sessions/`). Codex's panel keeps a
-  rollout open while a thread is shown, and Copilot records nothing at all.
-  **To close:** for Codex, ask the shared app-server daemon for its threads
-  (the one `codex queue` talks to; see the Codex entry above), or treat a
-  rollout written in the last minute as working. Copilot waits on something
-  that says a chat is running.
+  writes a list of what runs (`~/.claude/sessions/`). Codex keeps none that
+  another process can read: each VS Code window runs a private app server,
+  not the shared daemon (spike S-A5), so `thread/loaded/list` and a thread's
+  status read `notLoaded` from outside. Copilot records nothing at all.
+  **To close:** for Codex, two signals from disk, once a spike that spends
+  a turn has watched a panel open and idle, mid-turn, closed, and with its
+  window gone: the rollout's tail (a `task_started` with no `task_complete`
+  or `turn_aborted`, which [Get-ChatCodexBusy](src/chatrm.ps1) already
+  reads), and Codex's per-thread writer lock (`thread-writer-locks/`), if
+  it turns out to be held while a thread is open. Recent rows come first
+  and need only a walk of recent `sessions/` day folders in
+  [Update-ChatOverlayRecent](src/overlay-data.ps1). Copilot waits on
+  something that says a chat is running.
 - **Linux.** **Why deferred:** nothing here runs Linux (see CI below), and each
   desktop has its own tray. **To close:** a GTK or tray-icon renderer reading
   the same `overlay.json`. `chatoverlay -Print` is the view until then.
@@ -1195,15 +1226,13 @@ says it went, and offer it again on the new alert's page.
   with VS Code's GitHub login, which sits encrypted in VS Code's own secret
   store - not something another program should pry out. **To close:** if VS
   Code starts keeping the quota snapshot in its state, read it there.
-- **Codex usage on demand.** Codex's figure is the `rate_limits` snapshot
-  Codex writes into its own rollout during a run, so the refresh button
-  cannot move it: it is as old as Codex's last run, and the panel says so.
-  **Why deferred:** a fresh figure means asking OpenAI with the login Codex
-  saved in `~/.codex/auth.json`, through an endpoint that is not documented
-  and has not been looked into here. **To close:** find what Codex's own
-  `/status` asks, and treat that token as the Claude one is treated - read
-  for the one request, never stored, logged or refreshed - with the same
-  waits on a refusal.
+- **Codex's plan on the panel.** Codex's live answer carries the plan
+  (`free`, `plus`...), and the snapshot keeps it as the usage entry's
+  `plan` ([ConvertTo-ChatOverlayUsage](src/overlay-data.ps1)), but neither
+  the Windows panel nor the macOS one draws it. **Why deferred:** a word
+  more on a line that is already full at 260 units wide, for a fact that
+  changes once in a long while. **To close:** show it in the usage line's
+  tooltip, or after the name only in the bars view where there is room.
 - **Usage without asking the endpoint.** Claude Code hands a status-line
   command `rate_limits.five_hour` / `seven_day` (`used_percentage`,
   `resets_at`) after every reply (code.claude.com/docs/en/statusline). That
@@ -1237,6 +1266,20 @@ can find Copilot chats, but nothing could deliver a prompt to one.
 
 **To close:** a headless resume path from GitHub.
 
+## Copilot chats scoped by the folder's leaf name
+
+**Why deferred:** Codex chats are scoped by their whole folder now
+([Test-ChatInProject](src/chatrm.ps1)), but Copilot's still go by the leaf:
+[Get-CopilotWorkspaceName](src/providers.ps1) reads the full folder from
+`workspace.json` and keeps only its last part, so `D:\a\app` and `D:\b\app`
+share a scope. Nothing can be queued to a Copilot chat, so the cost is a
+sibling's chat in `chatfind` and `chatrm` lists, not a prompt sent to it.
+
+**To close:** have the Copilot `Describe` put the folder on the row's `Cwd`,
+match it in [Test-ChatInProject](src/chatrm.ps1) as Codex rows are, and widen
+[Test-ChatIndexRowCurrent](src/core.ps1) so old Copilot rows are read again
+once.
+
 ## Start at boot
 
 **Why deferred:** nothing is registered with the OS, on purpose. After a reboot
@@ -1261,12 +1304,128 @@ Windows-only checks (DPAPI, the echo exe) a skip on Unix.
 **Why deferred:** `chatrestore` lists what `chatrm -Archive` archived, from its
 own records, plus any rollout under `~/.codex/archived_sessions/` - which spike
 S16 showed is where `codex archive` moves one. Whether Codex's panel archives
-the same way, rather than only in its sqlite state, has not been watched.
-`chatrestore <id>` hands any id to `codex unarchive` either way.
+the same way, rather than only in its sqlite state, has not been watched, so
+there may be no gap at all. `chatrestore <id>` hands any id to `codex
+unarchive` either way.
 
 **To close:** archive a throwaway thread from the Codex panel and look for it
-under `archived_sessions/`. If it is not there, read the thread list from
-Codex's app-server instead.
+under `archived_sessions/`. If it is there, close this: today's scan already
+finds it. If not, list the panel's archive with `thread/list` and
+`archived: true` through the app-server client
+([Invoke-ChatqCodexRpc](src/codex-appserver.ps1), which always sends
+`useStateDbOnly: true` so a listing never repairs Codex's database), paged
+by cursor, merged into [Get-ChatArchive](src/chatrm.ps1) so a thread found
+both ways shows once, and cached for a minute for the Tab completer.
+
+## A Codex thread open in the panel, or a turn that ended in an error
+
+**Why deferred:** `chatrm -Archive` keeps a Codex thread at work
+([Get-ChatCodexBusy](src/chatrm.ps1)), read from the rollout alone: a record
+in the last minute, or a last `task_started` with no `task_complete` or
+`turn_aborted` after it, in a rollout a codex still holds open to write (on
+Windows; elsewhere the hold cannot be seen, so a killed codex's turn waits
+out the 12-hour bound). Two things it cannot see. A thread open in
+the panel but idle: unlike Claude's session registry, nothing another process
+can read says which threads Codex has loaded - `thread/loaded/list` is per
+app-server process and read `notLoaded` from outside - so such a thread is
+archived, and the panel is left holding a moved rollout. And how a turn ends
+when it fails: the one real rollout sampled had three turns, all closed by
+`task_complete`; `turn_aborted` is a name in the 0.159.2 binary, not a record
+seen. If a failed turn writes neither while the panel keeps the thread
+loaded - and so its rollout held - its thread reads as mid-turn until its
+next turn starts or the 12-hour stale bound (`ChatCodexTurnStaleHours`).
+
+**To close:** for the second, take a rollout from a turn that failed (an
+overload, a refused model) and one stopped from the panel, and check which
+record closes each; add whatever it is to the closers. For the first, look
+for a cross-process signal once the shared app-server client exists - or ask
+`codex archive` itself, if a later codex refuses a loaded thread.
+
+## A Codex panel left stale by a chatq run
+
+**Why deferred:** a Codex job runs `codex exec resume` beside whatever the
+panel shows, so a thread open in a Codex tab does not show the run until it
+is opened again, and nothing says so; there is no Open chat for a Codex job
+either ([openFromWatch](extension/extension.js) and
+[restoreHandover](extension/extension.js) return `none` for one). The hook
+for both exists: the Codex extension (openai.chatgpt 26.928) opens a thread
+as an editor tab of its custom editor `chatgpt.conversationEditor`, at
+`openai-codex://route/local/<threadId>`, with `vscode.openWith` - so a tab is
+found by the thread's own id, more surely than a Claude tab by its title.
+What is not known is whether a thread `codex exec` made, with no panel
+history, draws anything in that tab, and what a tab open during a run
+shows after it.
+
+**To close:** a spike with no turn: `vscode.openWith` on that URI from the
+extension's dev host, for an exec-made thread and a panel one. If both draw,
+an Open chat for Codex ([Write-ChatOpenRequest](src/chatrm.ps1) with the
+provider, a Codex branch in `openFromWatch`), then, once a run has been seen
+to leave a tab stale, close or reopen that tab around the run as the Claude
+handover does. If exec-made threads come up empty, offer it only for
+threads the panel made.
+
+## Deleting a Codex chat leaves Codex's own records
+
+**Why deferred:** [Remove-ChatSession](src/chatrm.ps1) deletes a Codex
+rollout with `Remove-Item`, and the codex `Extras` in `$script:ChatProviders`
+([src/providers.ps1](src/providers.ps1)) is empty, so the thread's row in
+Codex's `state_5.sqlite` and its title in `session_index.jsonl` stay behind
+- [Get-CodexThreadNames](src/providers.ps1) keeps serving the dead title,
+and the row is an orphan whose rollout is gone. `codex delete --force <uuid>`
+(S16; still there in 0.159.2, S-A5) would keep Codex's records whole, but it
+is not known whether it clears the row itself: two such orphans on this
+machine may have come from it.
+
+**To close:** a spike: `codex delete --force` on a throwaway thread, then
+read the `threads` row and `session_index.jsonl`. If both are cleaned, have
+`Remove-ChatSession` call it for Codex; if the row stays, keep `Remove-Item`
+and say which records are left.
+
+## Codex threads found from its database
+
+**Why deferred:** chatq finds Codex threads by their rollouts
+(`sessions/**/*.jsonl`). Codex also keeps every thread in
+`state_5.sqlite`, and two of the three threads there have no rollout. A
+Discover that read that list - straight from SQLite, or through the
+app-server's `thread/list` - was weighed and set aside: src has no SQLite
+reader, `state_5` is a private schema whose version is in its name, and
+the rollout-less threads look like chats deleted on purpose (both from
+codex-cli 0.154, their date folders empty, one with about 38 KB of
+rollout once written), which chatq's tombstones are there to keep out. An
+`exec --ephemeral` probe leaving a database row is a second suspect, not
+checked. `thread/list` likely hides them anyway: it returned one thread
+where the database holds more.
+
+**To close:** only if a thread with no rollout is ever seen that nobody
+deleted. List `thread/list` ids by `sourceKinds` through the app-server
+client to see whether they show at all; if they do, a stand-in row for
+each, and a guard in every reader that takes a row's `Path` for a file.
+
+## Codex's own goals and queue, deliberately unused
+
+**Not planned.** Codex has goals of its own (`thread/goal/set`, `get`,
+`clear`, kept in `goals_1.sqlite`) and a queue of its own (`codex queue`,
+`thread/queue/*`, kept in `queue_1.sqlite`). chatq keeps its own queue
+instead: it is the same for Claude and Codex, it waits for a limit's reset
+and probes before it runs, and it reports to the phone - none of which
+Codex's queue does. Codex's queue may still be the way *into* an open
+panel ("Deliver into a live Codex chat through `codex queue`", above), as a
+delivery route under chatq's queue, not in its place. Written down so the
+absence reads as a choice.
+
+## Context % for Codex chats
+
+**Folded into** "model, context and cost per row" in "What the new name
+promises", below, to be built for both providers at once. **Why
+deferred:** a rollout's `token_count` records carry the context window and
+the last call's tokens, so a figure is there to read, but no Codex row
+exists where it would matter: the overlay and the board show no Codex
+chats, and a stale figure on a list of past chats is near-trivia beside the
+panel's own gauge. Claude rows show none either. The database's
+`tokens_used` is a running total, not the context's fill, and must not be
+used. **To close:** with that item; take the newest `token_count` whose
+`info` is set (the thread's first is a zero seed), and its
+`model_context_window`.
 
 ## Sponsorship
 
@@ -1309,25 +1468,76 @@ Then decide whether a job should wait days, or alert and park.
 
 ## Overloads on Codex
 
-**Why deferred:** the 529 handling watches status.claude.com, which covers
-Claude only. A dropped Codex connection ("stream disconnected", "error sending
-request") is retried like Claude's, but a Codex server error worded any other
-way still fails the job.
+**Closed, by backoff alone:** a Codex turn that failed on a 5xx, "high
+demand", a model "at capacity" or "Flex capacity unavailable" is now
+`overloaded` ([Get-ChatqCodexOutcome](src/queue.ps1),
+`$script:ChatqCodexOverloadRx`), and waits as an outage of its lane: tried
+again after 1, 2, 5, 10, then every 15 minutes
+([Test-ChatqOutageOver](src/watcher.ps1)), with no status page read and no
+word of Claude in what it says.
 
-**To close:** capture a real Codex 5xx/overload event. Then either watch
-status.openai.com the same way, or just retry with the same backoff.
+**Why deferred:** two things are left. The wording comes from the strings
+in the codex-cli 0.159.2 binary, not from a run that met an overload, so
+the exact `turn.failed` text - whether "last status: 503" carries its
+reason phrase, say - is inferred; a wording that misses still fails the
+job, as before. And status.openai.com is not watched: a Codex outage ends
+on the next try that gets through, which after the first hour is up to 15
+minutes late.
+
+**To close:** on the next real Codex overload, keep the `codex exec
+--json` stdout as a fixture under `tests/fixtures/stream/` and check its
+`turn.failed` message against the regex. Separately, a spike on whether
+status.openai.com serves a statuspage-style JSON with a Codex component; if
+it does, read it in [Test-ChatqOutageOver](src/watcher.ps1) the way
+status.claude.com is read for Claude, else leave the backoff alone.
+
+## Codex limits that are not a full window
+
+Codex's `rate_limits` snapshot says more than how full each window is:
+`rate_limit_reached_type` (`rate_limit_reached`, or a workspace's credits
+or usage limit spent), `spend_control_reached`, `credits` and `plan_type`.
+[Read-ChatqCodexLimitSnapshot](src/queue.ps1) hands the first and the last
+back as Reached and PlanType, but nothing uses them:
+[Get-ChatqCodexBlock](src/queue.ps1) still blocks a lane only on a window at
+100% with a reset ahead, and the usage rows do not name the plan.
+
+**Why deferred:** no rollout seen so far has `rate_limit_reached_type` set,
+so which value comes with which wall - and whether a credits limit has any
+reset to wait for - is unknown. A Codex job that meets one is still read
+by what its probe or its turn failed with
+([Get-ChatqCodexOutcome](src/queue.ps1)): a "usage limit" waits as a
+limit, and any other wording fails the job, as before.
+
+**To close:** on a real one, keep the rollout's tail as a fixture; block
+the lane on Reached where it names the account's own limit, with the
+window's reset or, lacking one, the probe's; and add the plan to the
+Codex usage row if it earns the room.
 
 ## Auto-continue for Codex chats chatq did not run
 
-**Why deferred:** there is no cut-off scan for Codex rollouts
+**Why deferred:** there is no cut-off scan for Codex
 ([Get-ChatqCutOffChats](src/queue.ps1) reads Claude's transcripts only). A
 Codex job chatq ran is already continued by the watcher after a limit.
+Three things stand in the way:
+- **Where to read a cut-off.** `turn.failed` is a record of the `codex exec
+  --json` stream, not of the rollout, so a rollout reader has nothing to
+  find. The app-server's `thread/turns/list` gives each turn's status and a
+  typed error (`codexErrorInfo`: `usageLimitExceeded`, `serverOverloaded`,
+  ...), but no limited turn has been seen yet, on any build.
+- **Check 3** - is the chat held open somewhere - has nothing to go on,
+  since Codex keeps no registry of what runs; it waits on a busy check for
+  Codex threads ("A Codex thread open in the panel", above).
+- **The free plan's window is a month** (43200 minutes), so its reset falls
+  past `$script:ChatqAutoMaxResetHours` and such a cut-off would be by hand
+  anyway.
 
-**To close:** a cut-off reader for rollouts - a `turn.failed` on the usage
-limit as the last event, its reset from `ConvertFrom-ChatqLimitText` - and
-the same checks; Codex writes no registry of what runs, so check 3 has
-nothing to go on and a chat open in the Codex panel would need another way
-to be told.
+**To close:** read the last turn of each thread that moved through
+`thread/list` (`useStateDbOnly: true`, by `updated_at`) and
+`thread/turns/list`, cached on `updatedAt`; count only `usageLimitExceeded`
+as a limit, its reset from
+[ConvertFrom-ChatqLimitText](src/queue.ps1) or else the window's
+`resetsAt`; and offer those rows to the reset ask and the manual Continue,
+never the automatic one, until a real limited turn has been checked.
 
 ## Auto-continue: spikes A1 and A2
 
@@ -1465,10 +1675,33 @@ no title) is the fallback.
   the `//c/...` form does not hold, drop those rules from
   [New-ChatqPermitRun](src/permit.ps1) - the bridge's own rule and the
   phone's MAC hold without them.
-- **"Always allow", an edited command, a plan, Codex.**
-  Out of scope by design (the spec's section 11); `codex exec` cannot ask
-  mid-run at all. (A question is the phone's now, in chats you run
-  yourself; the next section has what is left of it.)
+- **"Always allow", an edited command, a plan.**
+  Out of scope by design (the spec's section 11). (A question is the
+  phone's now, in chats you run yourself; the next section has what is
+  left of it.)
+- **Codex.** A Codex job runs `codex exec` with approval policy `never`, so
+  a call that would need approval is refused and the job never asks. That
+  was written down as out of scope by design, on the belief that Codex
+  cannot ask mid-run at all; codex-cli 0.159.2 has two ways it can. **Why
+  deferred:** neither has been run, and each needs a turn to try. (B) A
+  `PermissionRequest` hook - an event in the binary's hook list and in the
+  app-server's hook schema - on a run given
+  `-c approval_policy=on-request`, scoped to that run the way the ask hook
+  is ([Start-ChatqAskHook](src/ask.ps1)), checking the phone's sealed
+  answer itself. (A) The app-server's own approval requests
+  (`item/commandExecution/requestApproval`,
+  `item/fileChange/requestApproval`, `item/tool/requestUserInput`), on a
+  runner that drives turns through the app server rather than `codex
+  exec`, answered `accept` or `decline` only; a permissions request or a
+  `grantRoot` would always be declined, since they widen the run the way
+  "always allow" would. **To close:** a spike: does the hook fire under
+  `exec`, and does its allow take without a hook-trust bypass? If so, B;
+  if not, A, once that runner exists and its requests are seen to arrive
+  after the item they ask about and to wait while unanswered. Then a
+  "Codex" section in [phone-permit-spec.md](docs/phone-permit-spec.md),
+  [Test-ChatqPermitReady](src/permit.ps1) letting Codex through except under
+  `danger-full-access`, and a `needs-input` outcome for a Codex job whose
+  ask went unanswered.
 
 ## Claude's questions on the phone: what the first release left out
 
@@ -1584,22 +1817,138 @@ TESTING.md on a Mac.
 Recent rows are all Claude chats: the registry the overlay reads is
 Claude's, [Update-ChatOverlayRecent](src/overlay-data.ps1) lists Claude
 transcripts only, and [ConvertTo-ChatqPhoneBoard](src/phone-board.ps1)
-keys every row as `claude`. Each of them now says its own mode
-([Update-ChatOverlayText](src/overlay-data.ps1),
-[Add-ChatqBoardModes](src/phone-board.ps1)). A Codex chat shows up only
-as a queued job, and its chat view finds the chat's mode through the row
-of the same chat (`chatOfJob` in `docs/reply.html`) - there is none, so
-under a cap it reads `at most <cap>` - `at most acceptEdits` - which is
-not even Codex's word: a Codex rollout keeps a sandbox, not a permission
-mode. Nothing acts on it; the words are only less exact. With no cap, the
-default, it reads `the chat's own mode`, which holds for a Codex chat too.
+keys every row as `claude`. A Codex chat shows up only as a queued job.
+Its chat view no longer reads `at most acceptEdits`: the queue row
+carries the sandbox the job runs in (`m`, from
+[Get-ChatqCodexRunSandbox](src/queue.ps1)), and `modeText` in
+`docs/reply.html` says it when `chatOfJob` finds no row. What is left is
+a Codex chat with no job queued, which the board does not show at all.
 
-**To close:** carry the job's own sandbox to the page - the job already
-holds the mode it runs in - and have the queue's chat view say it when
-`chatOfJob` finds no row; or give the board Codex chat rows, read as
-**Older chats** does ([Get-ChatqPhoneChatMeta](src/phone-board.ps1) with
+**To close:** give the board Codex chat rows, read as **Older chats**
+does ([Get-ChatqPhoneChatMeta](src/phone-board.ps1) with
 `Provider = 'codex'`, capped at `workspace-write`), which a live state
 would need a Codex registry of open chats for, and there is none today.
+
+## Map Codex's managed sandbox back to a sandbox word
+
+**Why deferred:** a chat whose last turn recorded a sandbox no
+`codex exec` takes - the desktop app's `managed`, or a camelCase or
+`external-sandbox` shape - runs in `workspace-write`
+([ConvertTo-ChatqCodexSandbox](src/queue.ps1)), with a line in the job's
+history and in the pick. That keeps the run from failing at config load,
+but `workspace-write` may be narrower or wider than what the app ran it
+in: what `managed` stands for is settled by the app's own policy, which
+no rollout seen so far spells out.
+
+**To close:** a spike that runs one turn each under the app's managed
+choices and reads what the rollout's `turn_context` keeps beside
+`sandbox_policy` (writable roots, network). If it names the policy, map
+it to the nearest word in [ConvertTo-ChatqCodexSandbox](src/queue.ps1);
+if not, keep `workspace-write` and say so.
+
+## Carry a Codex chat's effort into its run
+
+**Why deferred:** [Get-ChatqCodexMeta](src/queue.ps1) reads the effort
+the chat last ran at (`turn_context.effort`, else the collaboration
+mode's `reasoning_effort`), and chatq shows it beside the model
+([Write-ChatqJobInfo](src/commands.ps1),
+[Format-ChatqRunCarry](src/queue.ps1)) - but the run is not given it.
+Whether `codex exec resume` keeps a thread's effort, or falls back to
+`model_reasoning_effort` from `config.toml`, has not been checked, and
+checking needs a model turn.
+
+**To close:** a spike: resume a thread last run at an effort other than
+the config's and read the new `turn_context.effort`. If resume drops it,
+send `-c model_reasoning_effort=<effortAtQueue>` from
+[Invoke-ChatqRun](src/queue.ps1) when the job has no `-Model`, as the
+Claude side carries `--effort`.
+
+## A wider Codex sandbox sticks to the chat
+
+**Why deferred:** a run given `-c sandbox_mode=` writes that sandbox into
+the chat's next `turn_context` (spike S11), so a job given a wider
+sandbox than the chat's leaves the chat in it, and later jobs that pick
+none run there too. chatq only warns
+([Get-ChatqCodexWiderSay](src/commands.ps1), from `chatq`, `chatqrun`
+and the console); nothing puts the chat back.
+
+**To close:** after a run whose sandbox was its own pick, have the next
+job for that chat that picks none run in the sandbox the chat had before
+it - the job record keeps that as `sandbox` - rather than reading the
+rollout's latest; or run the wider job as a fork. Either changes what
+"the chat's own sandbox" means and wants a decision first.
+
+## A Codex all-clear still spends a turn
+
+**Why deferred:** the Codex branch of [Invoke-ChatqProbe](src/queue.ps1)
+now asks `account/rateLimits/read` first
+([Get-ChatqCodexLiveLimit](src/queue.ps1)) and spends nothing while the
+account is clearly still limited: a window at 100% whose reset is ahead,
+`rateLimitReachedType` set, or `ordinaryUsageAllowed` false. Any other
+answer still runs the low-effort exec turn. Room left in every window
+says nothing about an overload, a refused login, or a limit on the chat's
+model alone, and only a turn shows those. Credits (`hasCredits`,
+`unlimited`) also leave it to the turn, since they can carry one past a
+full window.
+
+**To close:** only if a turn-free signal for those turns up. Candidates:
+an app-server method that reports a model's own limit, or the server's
+status. Check it against a real limited account before trusting it as a
+yes.
+
+## The Codex app-server floor is a guess
+
+**Why deferred:** `$script:ChatqCodexAppServerMin` in
+[src/queue.ps1](src/queue.ps1) is `0.159.0` because only codex-cli
+0.159.2's app-server schema was read; no older build was tried. The client
+now gates on it ([Start-ChatqCodexRpc](src/codex-appserver.ps1), by
+[Get-ChatqCliVersion](src/queue.ps1)): an older codex is not started,
+the limit check falls back to `codex exec`, and the overlay keeps the
+rollout's figure without a word. A floor set too high costs older
+builds the live figure and the turn-free check; one set too low only
+costs a start that answers "unknown variant". The doctor lines
+([Get-ChatqCliReport](src/queue.ps1)) still say a codex's version without
+judging it against the floor.
+
+**To close:** check `initialize` and `account/rateLimits/read` against
+an older codex-cli - 0.154.0-alpha, which the earlier Codex spikes in
+TESTING.md ran on, is one - and move the floor to the first build that answers them. Then have
+`chatinstall` and `chatproviders` say when the codex found is below it,
+and what it misses.
+
+## A Codex job's home, and a second Codex account
+
+**Why deferred:** usage, archive and restore now take their Codex home
+as a parameter and default to `$script:ChatCodexHome`, the home chatq
+loaded with ([Get-ChatqUsage](src/alerts.ps1),
+[Get-ChatArchive](src/chatrm.ps1)); an archive goes to the rollout's
+own home ([Get-ChatCodexHomeOf](src/chatrm.ps1)). Three places still
+read one home only, or another one:
+- A Codex job's `home` is set from `$env:CODEX_HOME` as it is when the
+  job is queued ([New-ChatqJobRecord](src/commands.ps1)), while
+  the chat was found in `$script:ChatCodexHome`'s index. A shell that
+  changed `CODEX_HOME` after loading queues a run against a home the
+  thread is not in. Nobody is known to do that, and moving it changes
+  what an existing job record means.
+- The index and `chatfind` read Codex's threads from
+  `$script:ChatCodexHome` alone ([src/providers.ps1](src/providers.ps1)),
+  so a second account's threads are not listed at all.
+- The overlay's usage line reads one home, its rollouts and its live
+  answer alike; a job on a second account shows the first account's
+  windows. The live answer in `overlay.json` names the home it was asked
+  under ([Update-ChatOverlayUsage](src/overlay-data.ps1)), and
+  [Get-ChatqUsage](src/alerts.ps1) and a restarted overlay
+  ([Restore-ChatOverlayUsage](src/overlay-data.ps1)) take it only for
+  their own home - so a shell on the other account sees its rollout's
+  figure, not the overlay's. The limit check already asks under the
+  job's own `home`.
+
+**To close:** decide whether a second Codex account is supported. If
+it is: take a job's `home` from the home its chat was listed under, let
+the provider list several homes with the home on each row, and read
+usage per home - the app-server client already takes `-CodexHome`. If
+it is not, set a job's `home` from `$script:ChatCodexHome` and say
+`CODEX_HOME` is read once, at load.
 
 ## A permission request bound to the stream's own input
 

@@ -64,13 +64,17 @@ function Invoke-ChatqEditor {
 }
 
 function Get-ChatqJobInfo {
-    # what the run needs to know about the chat: where it ran, in which mode
+    # what the run needs to know about the chat: where it ran, in which mode.
+    # A Codex chat's sandbox only as a word codex takes: one it does not -
+    # 'managed' - is workspace-write, and SandboxUnknown keeps the word for
+    # Write-ChatqJobInfo to say (ConvertTo-ChatqCodexSandbox)
     param($Row)
     if ($Row.Provider -eq 'codex') {
         $m = Get-ChatqCodexMeta $Row.Path
-        $sb = if ($m.Sandbox) { $m.Sandbox } else { 'workspace-write' }
+        $c = ConvertTo-ChatqCodexSandbox ([string]$m.Sandbox)
+        $sb = $c.Sandbox
         return @{
-            Cwd = $m.Cwd; Mode = $sb; Sandbox = $sb; Network = $m.Network; Model = $m.Model; CutOff = $false
+            Cwd = $m.Cwd; Mode = $sb; Sandbox = $sb; SandboxUnknown = $c.Unknown; Network = $m.Network; Model = $m.Model; Effort = $m.Effort; CutOff = $false
             Error = if (-not $m.Cwd) { "can't tell which folder this Codex chat ran in" } else { $null }
         }
     }
@@ -84,8 +88,25 @@ function Get-ChatqJobInfo {
     }
 }
 
+function Get-ChatqCodexStickSay {
+    # The words for a Codex job given a sandbox other than its chat's, or
+    # $null: exec resume writes the run's sandbox into the turn_context it
+    # adds (spike S11), whatever its rank, and that is what the next job
+    # reads as the chat's own (Get-ChatqCodexMeta) - so the pick stays, for
+    # every job after it that picks none: a wider one leaves the chat wider,
+    # a narrower one - read-only, or the phone's cap - leaves it unable to
+    # do what it did. A chat whose own is not known yet (rank -1: a console
+    # target whose row did not load) says nothing rather than guess. Pure.
+    param([string]$Chat, [string]$Run)
+    $r = Get-ChatqCodexSandboxRank $Run
+    $c = Get-ChatqCodexSandboxRank $Chat
+    if ($r -lt 0 -or $c -lt 0 -or $r -eq $c) { return $null }
+    return "a sandbox picked sticks: the chat keeps $Run after this run, not its $Chat, so later jobs for it run in $Run too unless given -Sandbox"
+}
+
 function Write-ChatqJobInfo {
-    # -New: a chat not made yet, which has no last run to go by
+    # -New: a chat not made yet, which has no last run to go by. -Mode: the
+    # one given - for a Codex chat the sandbox -Sandbox gave.
     param($Info, [string]$Mode, [switch]$Continue, [string]$Provider, [switch]$New)
     $m = if ($Mode) { $Mode } else { $Info.Mode }
     $src = if ($Mode) { 'given' } elseif ($New) { 'as a new chat starts' } else { 'as the chat last ran' }
@@ -98,6 +119,22 @@ function Write-ChatqJobInfo {
                 Write-Host '     anything that would ask is denied unattended - -Mode auto or acceptEdits lets it edit' -ForegroundColor DarkGray
             }
         }
+    }
+    if ($Provider -eq 'codex') {
+        # A Codex chat's mode is its sandbox. The model and effort it last
+        # ran on beside it: shown, not sent - a resume runs on the thread's
+        # own (Get-ChatqCodexMeta).
+        $on = (@($Info.Model, $(if ($Info.Effort) { "at effort $($Info.Effort)" })) | Where-Object { $_ }) -join ' '
+        if ($on) { Write-Host "     $on (as the chat last ran)" -ForegroundColor DarkGray }
+        if ($Info.SandboxUnknown -and -not $Mode) {
+            Write-Host "     its sandbox reads '$($Info.SandboxUnknown)', which codex does not take - it runs in workspace-write; -Sandbox picks another" -ForegroundColor Yellow
+        }
+        switch ($m) {
+            'read-only' { Write-Host '     read-only: it can read, not edit - -Sandbox workspace-write lets it edit' -ForegroundColor DarkGray }
+            'danger-full-access' { Write-Host '     danger-full-access: it runs everything with no sandbox, and nobody is there to stop it' -ForegroundColor Yellow }
+        }
+        $stick = Get-ChatqCodexStickSay ([string]$Info.Sandbox) $Mode
+        if ($stick) { Write-Host "     $stick" -ForegroundColor Yellow }
     }
     if ($Continue -and -not $Info.CutOff) {
         Write-Host '     this chat was not cut off by the limit or a 529 - "continue" is sent anyway' -ForegroundColor Yellow
@@ -183,6 +220,8 @@ function New-ChatqJobRecord {
         runnerUp = if ($Resolve -and $Resolve.RunnerUp) { $Resolve.RunnerUp.Title } else { $null }
         kind = $Kind
         promptFile = $Slot.File
+        # for a Codex chat a sandbox word: the job's own pick, while sandbox
+        # below stays the chat's (Get-ChatqCodexRunSandbox)
         mode = if ($Mode) { $Mode } else { $null }
         modeAtQueue = $Info.Mode
         # the chat's own model - what the probe asks with - and, apart from it,
@@ -222,6 +261,14 @@ function New-ChatqJobRecord {
         # sent as Next from the console: a chat busy in VS Code is looked at
         # again every 30 s rather than every 5 minutes
         sendNow = [bool]$SendNow
+        # the effort a Codex chat last ran at, for the words beside its model
+        # (Format-ChatqRunCarry) - never sent; a Claude chat's is read at
+        # its run's start instead (Get-ChatqRunCarry)
+        effortAtQueue = if ($Info.Effort) { [string]$Info.Effort } else { $null }
+        # the word a Codex chat's sandbox read that codex does not take -
+        # 'managed' - while sandbox above holds the workspace-write it runs
+        # in: kept so the run can say so in jobs.log (Get-ChatqCodexRunSandbox)
+        sandboxUnknown = if ($Info.SandboxUnknown) { [string]$Info.SandboxUnknown } else { $null }
     }
 }
 
@@ -291,14 +338,33 @@ function Get-ChatqModelRefusal {
     return $null
 }
 
+function Get-ChatqModeRefusal {
+    # Why a job for a chat of -Provider cannot run in -Mode, or $null: a
+    # Codex chat's mode is its sandbox, one of the three words codex takes,
+    # and a Claude chat's is never one of those. An older chatq stored a
+    # Claude mode for a Codex job and the run ignored it; now it is turned
+    # away as it is given. None given is the chat's own. Pure.
+    param([string]$Provider, [string]$Mode)
+    $m = ([string]$Mode).Trim()
+    if (-not $m) { return $null }
+    if ($Provider -eq 'codex' -and $m -cnotin $script:ChatqCodexSandboxes) {
+        return "a Codex chat runs in a sandbox - -Sandbox read-only, workspace-write or danger-full-access - not in mode $m"
+    }
+    if ($Provider -ne 'codex' -and $m -cin $script:ChatqCodexSandboxes) {
+        return "$m is a Codex sandbox - a Claude chat takes -Mode"
+    }
+    return $null
+}
+
 function New-ChatqJob {
     <#
     A job from a chat already picked, a prompt and files, in one call and
     without a word to the host - what chatq does once it knows the chat,
     and what the console does on Send. Returns @{ Error; Code; Job; Files;
     Missed }: Error is the line chatq prints, and nothing is left behind.
-    Code: provider, kind, empty, info, copy, model. The watcher is not
-    started.
+    Code: provider, kind, empty, info, copy, model, mode. The watcher is not
+    started. -Mode: a permission mode for a Claude chat, a sandbox word for
+    a Codex one (Get-ChatqModeRefusal).
     -Sources: what Read-ChatqAttachSources gives, or @{ Files; Images }.
     -MoveSources: those files are the console's staged copies; they move in.
     -Kind new, with -Cwd and no -Row: a brand-new Claude chat in that
@@ -335,6 +401,8 @@ function New-ChatqJob {
     if (-not $Row -or $Row.Provider -notin 'claude', 'codex') {
         return & $fail 'provider' "only a Claude or Codex chat can take a prompt - nothing can resume a $(if ($Row) { $Row.Provider } else { 'missing' }) chat"
     }
+    $no = Get-ChatqModeRefusal $Row.Provider $Mode
+    if ($no) { return & $fail 'mode' "$no - nothing queued" }
     $hasFiles = $Sources -and (@($Sources.Files | Where-Object { $_ }).Count -or $Sources.Image -or ($Sources -is [hashtable] -and @($Sources['Images']).Count))
     if ($Kind -eq 'continue' -and $hasFiles) { return & $fail 'kind' '-Continue sends "continue" and nothing else - give the files with -Prompt instead' }
     if ($Kind -ne 'continue' -and -not ([string]$Prompt).Trim()) { return & $fail 'empty' 'empty prompt - nothing queued' }
@@ -513,12 +581,13 @@ function Set-ChatqJobFirst {
 
 function Set-ChatqJobRunAs {
     <#
-    A waiting Claude job's permission mode (-What mode) or model (-What
-    model) changed before it sends, as the console's chips in its details
-    pane do: '' puts back the chat's own - the mode it last ran in, its own
-    model. Returns why it could not, or $null. Only while it waits: the
-    watcher reads both as the run starts. Not for Codex, whose run keeps
-    the sandbox and model the thread last had (Get-ChatqJobInfo).
+    A waiting job's permission mode (-What mode) or model (-What model)
+    changed before it sends, as the console's chips in its details pane
+    do: '' puts back the chat's own - the mode it last ran in, its own
+    model. A Codex job's mode is its sandbox: read-only, workspace-write or
+    danger-full-access (Get-ChatqModeRefusal); its model goes out as -m.
+    Returns why it could not, or $null. Only while it waits: the watcher
+    reads both as the run starts.
     #>
     param($Job, [ValidateSet('mode', 'model')][string]$What, [string]$Value)
     # its state as the file has it now, not as the caller read it: the
@@ -527,26 +596,33 @@ function Set-ChatqJobRunAs {
     $disk = Read-ChatqJson (Join-Path $script:ChatqQueueDir "$($Job.id).json")
     if ($disk -and $disk.id -eq $Job.id) { $Job = $disk }
     if ($Job.state -ne 'queued') { return "#$($Job.seq) is $($Job.state) - its $What is fixed now" }
-    if ($Job.provider -ne 'claude') { return "#$($Job.seq) is a Codex chat's - it runs in the sandbox and on the model it last used" }
     $v = ([string]$Value).Trim()
     if ($What -eq 'model') {
         $no = Get-ChatqModelRefusal $v
         if ($no) { return $no }
         Set-ChatqProp $Job 'runModel' $(if ($v) { $v } else { $null })
     }
-    else { Set-ChatqProp $Job 'mode' $(if ($v) { $v } else { $null }) }
+    else {
+        $no = Get-ChatqModeRefusal $Job.provider $v
+        if ($no) { return "#$($Job.seq) is a $(if ($Job.provider -eq 'codex') { 'Codex' } else { 'Claude' }) chat's: $no" }
+        Set-ChatqProp $Job 'mode' $(if ($v) { $v } else { $null })
+    }
     # over its file only: one removed meanwhile is not made again
     if (-not (Save-ChatqJob $Job -Existing)) { return "#$($Job.seq) is gone" }
-    Write-ChatqJobLog "#$($Job.seq) $What $(if ($v) { $v } else { 'as the chat has it' }) $($script:ChatqDot) $($Job.title)"
+    $word = if ($What -eq 'mode' -and $Job.provider -eq 'codex') { 'sandbox' } else { $What }
+    Write-ChatqJobLog "#$($Job.seq) $word $(if ($v) { $v } else { 'as the chat has it' }) $($script:ChatqDot) $($Job.title)"
     return $null
 }
 
 function Reset-ChatqJob {
     # A finished job queued again, as chatqrun <n> does. One whose prompt
     # already reached the chat goes as "continue", never the prompt twice.
-    # Returns @{ Error; Landed }.
+    # Returns @{ Error; Landed }. -Mode: a Codex job's is a sandbox word
+    # (Get-ChatqModeRefusal).
     param($Job, [string]$Mode)
     if ($Job.state -notin 'failed', 'needs-input', 'done', 'skipped') { return [pscustomobject]@{ Error = "#$($Job.seq) is $($Job.state) - nothing to requeue"; Landed = $false } }
+    $no = Get-ChatqModeRefusal $Job.provider $Mode
+    if ($no) { return [pscustomobject]@{ Error = "#$($Job.seq): $no"; Landed = $false } }
     if ($Mode) { Set-ChatqProp $Job 'mode' $Mode }
     # looked for from its start; a job that never started - cancelled during
     # its handover, given up while busy - from its end, as its prompt was
@@ -711,7 +787,13 @@ function chatq {
     .PARAMETER Continue
     Send "Continue from where you left off." - for a chat the limit cut off.
     .PARAMETER Mode
-    Run in this permission mode instead of the one the chat last used.
+    Run in this permission mode instead of the one the chat last used. A
+    Claude chat's; a Codex chat takes -Sandbox.
+    .PARAMETER Sandbox
+    A Codex chat's: run in this sandbox - read-only, workspace-write or
+    danger-full-access - instead of the one it last used. It stays with the
+    chat, wider or narrower: the run records it, and later jobs take it as
+    the chat's own.
     .PARAMETER At
     Not before this time (13:00 - tomorrow if already past).
     .PARAMETER In
@@ -763,6 +845,7 @@ function chatq {
         [string]$Prompt,
         [switch]$Continue,
         [ValidateSet('default', 'acceptEdits', 'auto', 'bypassPermissions', 'manual', 'dontAsk', 'plan')][string]$Mode,
+        [ValidateSet('read-only', 'workspace-write', 'danger-full-access')][string]$Sandbox,
         [string]$At,
         [string]$In,
         [ValidateSet('claude', 'codex')][string[]]$Provider,
@@ -791,6 +874,7 @@ function chatq {
     # shell's folder, which is not the process's (Set-Location moves only
     # the first).
     if ($PSBoundParameters.ContainsKey('New')) {
+        if ($Sandbox) { Write-Host '  -Sandbox is for a Codex chat - a new chat is a Claude chat, which takes -Mode' -ForegroundColor Yellow; return }
         $dir = if (([string]$New).Trim()) { try { $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($New) } catch { $New } } else { '' }
         $pass = @{ Folder = $dir; Name = $t; Prompt = $Prompt; PromptGiven = $PSBoundParameters.ContainsKey('Prompt'); Mode = $Mode; Model = $Model; At = $At; In = $In
             First = $First; Attach = $Attach; Paste = $Paste; WhatIf = $WhatIf; Continue = $Continue; Provider = $Provider }
@@ -853,16 +937,21 @@ function chatq {
     $res = Resolve-ChatqTarget $t $(if ($given) { $Prompt } else { '' }) $Provider -AllProjects:$AllProjects
     if ($res.Error) { Write-Host "  $($res.Error)" -ForegroundColor Yellow; return }
     Write-ChatqPick $res
+    # -Mode is a Claude chat's, -Sandbox a Codex one's: the one that does
+    # not fit the chat picked is refused, never stored and then ignored
+    $runAs = if ($res.Row.Provider -eq 'codex') { $Sandbox } else { $Mode }
+    if ($res.Row.Provider -eq 'codex' -and $Mode) { Write-Host "  a Codex chat runs in a sandbox, not a mode - -Sandbox read-only, workspace-write or danger-full-access; nothing queued" -ForegroundColor Yellow; return }
+    if ($res.Row.Provider -ne 'codex' -and $Sandbox) { Write-Host "  -Sandbox is for a Codex chat - a Claude chat takes -Mode; nothing queued" -ForegroundColor Yellow; return }
     Write-ChatqPromptHint $t $res -HasPrompt:$given -Continue:$Continue
     $info = Get-ChatqJobInfo $res.Row
     if ($info.Error) { Write-Host "     $($info.Error)" -ForegroundColor Yellow; return }
-    Write-ChatqJobInfo $info $Mode -Continue:$Continue $res.Row.Provider
+    Write-ChatqJobInfo $info $runAs -Continue:$Continue $res.Row.Provider
     if ($Model) { Write-Host "     model $Model for this run (the chat's own: $(if ($info.Model) { $info.Model } else { 'unknown' }))" -ForegroundColor DarkGray }
     if ($textNote) { Write-Host "     $textNote" -ForegroundColor DarkGray }
     Write-ChatqPendingFiles $got
     if ($WhatIf) { Write-Host '     -WhatIf: nothing queued' -ForegroundColor DarkGray; return }
 
-    $how = @{ Mode = $Mode; Model = $Model; NotBefore = $notBefore; First = $First; Typed = $t }
+    $how = @{ Mode = $runAs; Model = $Model; NotBefore = $notBefore; First = $First; Typed = $t }
     if ($Continue -or $given) {
         $made = New-ChatqJob -Row $res.Row -Prompt $Prompt -Kind $(if ($Continue) { 'continue' } else { 'prompt' }) -Info $info -Sources $got -Resolve $res @how
         if ($made.Error) { Write-Host "  $($made.Error)" -ForegroundColor Yellow; return }
@@ -894,14 +983,16 @@ function chatq {
             Write-Host '  cancelled - nothing queued' -ForegroundColor DarkGray
             return
         }
-        # relevance was scored on the title alone - now the prompt can weigh in
+        # relevance was scored on the title alone - now the prompt can weigh in.
+        # Not over to the other provider's chat with a -Mode or -Sandbox
+        # given: that one would not fit it.
         if ($res.Rule -like '*/relevance') {
             $res2 = Resolve-ChatqTarget $t $text $Provider -AllProjects:$AllProjects
-            if (-not $res2.Error -and $res2.Row.Path -ne $res.Row.Path) {
+            if (-not $res2.Error -and $res2.Row.Path -ne $res.Row.Path -and (-not $runAs -or $res2.Row.Provider -eq $res.Row.Provider)) {
                 $info2 = Get-ChatqJobInfo $res2.Row
                 if (-not $info2.Error) {
                     Write-ChatqPick $res2 '  re-picked with the prompt ->'
-                    Write-ChatqJobInfo $info2 $Mode -Continue:$Continue $res2.Row.Provider
+                    Write-ChatqJobInfo $info2 $runAs -Continue:$Continue $res2.Row.Provider
                     $res = $res2; $info = $info2
                     $slot.File = "#$($slot.Seq) $(Get-ChatqSafeName $res.Row.Title).md"
                     $new = Join-Path $script:ChatqQueueDir $slot.File
@@ -1038,7 +1129,9 @@ function Write-ChatqQueued {
     $blocks = Get-ChatqBlocks
     $eta = (Get-ChatqEta $jobs $blocks)[$job.id]
     $b = $blocks[(Get-ChatqLane $job)]
-    $why = if ($b -and $b.Type -eq 'overloaded') { ' (Claude is overloaded - watching status.claude.com)' }
+    # Codex has no status page read: its outage is a backoff alone
+    $why = if ($b -and $b.Type -eq 'overloaded' -and $job.provider -eq 'claude') { ' (Claude is overloaded - watching status.claude.com)' }
+    elseif ($b -and $b.Type -eq 'overloaded') { " ($(Format-ChatqProvider $job.provider) is overloaded - tried again after 1, 2, 5, 10, then every 15 min)" }
     elseif ($b -and $b.Until) { " ($($b.Type) limit resets $($b.Until.ToString('HH:mm')))" }
     else { ' (not limited right now)' }
     Write-Host "  queued #$seq  sends $eta$why" -ForegroundColor Green
@@ -1122,7 +1215,10 @@ function chatqrun {
     .PARAMETER Stop
     Stop the watcher. A running job is cut off and marked failed.
     .PARAMETER Mode
-    With a job number: requeue it in this permission mode.
+    With a job number: requeue it in this permission mode. A Claude job's.
+    .PARAMETER Sandbox
+    With a Codex job's number: requeue it in this sandbox - read-only,
+    workspace-write or danger-full-access.
     .PARAMETER First
     With a job number: put it at the front of the queue - a queued one moves
     up, a finished one is requeued there.
@@ -1131,6 +1227,7 @@ function chatqrun {
         [Parameter(Position = 0)][string]$Ref,
         [switch]$Now, [switch]$Foreground, [switch]$Stop,
         [ValidateSet('default', 'acceptEdits', 'auto', 'bypassPermissions', 'manual', 'dontAsk', 'plan')][string]$Mode,
+        [ValidateSet('read-only', 'workspace-write', 'danger-full-access')][string]$Sandbox,
         [switch]$First
     )
     Set-StrictMode -Off
@@ -1151,6 +1248,9 @@ function chatqrun {
     if ($Ref) {
         $j = Find-ChatqJob $Ref
         if (-not $j) { Write-Host "  no job $Ref" -ForegroundColor Yellow; return }
+        # -Mode for a Claude job, -Sandbox for a Codex one, as chatq takes them
+        if ($j.provider -eq 'codex' -and $Mode) { Write-Host "  #$($j.seq) is a Codex chat's - it runs in a sandbox: -Sandbox read-only, workspace-write or danger-full-access" -ForegroundColor Yellow; return }
+        if ($j.provider -ne 'codex' -and $Sandbox) { Write-Host "  #$($j.seq) is a Claude chat's - -Sandbox is for a Codex one; it takes -Mode" -ForegroundColor Yellow; return }
         if ($First -and $j.state -eq 'queued') {
             Set-ChatqJobFirst $j
             Write-Host "  #$($j.seq) moved to the front" -ForegroundColor Green
@@ -1160,10 +1260,12 @@ function chatqrun {
         }
         # a finished one put first is requeued there
         if ($First -and $j.state -in 'failed', 'needs-input', 'done', 'skipped') { Set-ChatqProp $j 'first' (Get-ChatqStamp) }
-        $again = Reset-ChatqJob $j $Mode
+        $again = Reset-ChatqJob $j $(if ($j.provider -eq 'codex') { $Sandbox } else { $Mode })
         if ($again.Error) { Write-Host "  $($again.Error)" -ForegroundColor DarkGray; return }
         $how = if ($again.Landed) { 'as "continue" - the prompt already reached the chat' } else { 'with its prompt' }
         Write-Host "  #$($j.seq) queued again, $how" -ForegroundColor Green
+        $stick = if ($Sandbox) { Get-ChatqCodexStickSay (ConvertTo-ChatqCodexSandbox ([string]$j.sandbox)).Sandbox $Sandbox } else { $null }
+        if ($stick) { Write-Host "     $stick" -ForegroundColor Yellow }
     }
     if ($Foreground) {
         if ($Now) { Send-ChatqWake 'now' }
@@ -1573,6 +1675,7 @@ function Write-ChatqCheatSheet {
     Write-Host '  chatconsole                 all of the above in a window: write, drop files, new chats' -ForegroundColor Cyan
     Write-Host ''
     Write-Host '  -WhatIf shows the pick only   -Mode auto|acceptEdits|...   -At 13:00 / -In 2h' -ForegroundColor DarkGray
+    Write-Host '  -Sandbox read-only|workspace-write|danger-full-access   a Codex chat''s, in place of -Mode' -ForegroundColor DarkGray
     Write-Host '  -Attach a.png, spec.pdf / -Paste   send files, a screenshot or the clipboard with it' -ForegroundColor DarkGray
     Write-Host '  Tab fills in a title from any part of it, like chatrm: chatq card red<Tab>' -ForegroundColor DarkGray
     Write-Host '  chat = every command, find and delete included' -ForegroundColor DarkGray

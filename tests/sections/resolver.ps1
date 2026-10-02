@@ -48,3 +48,70 @@ Check '5h03 apart: newest wins' ($r.Rule -eq 'contains/newest' -and $r.Row.Id -e
 Set-Location -LiteralPath $projA
 $r = Resolve-ChatqTarget 'Codex gitignore thread'
 Check 'codex thread name resolves' ($r.Row.Provider -eq 'codex' -and $r.Row.Id -eq $cxId) "$($r.Row.Provider) $($r.Row.Id)"
+
+# Codex sibling repos: sibA\app and sibB\app share a leaf name, and only the
+# rollout's whole cwd tells them apart. The rollouts sit outside the
+# sandbox's codex home, so no other section's index sees them. A's cwd is
+# written with a lower-case drive, the way the VS Code extension writes it.
+$sibA = Join-Path $work 'sibA\app'
+$sibB = Join-Path $work 'sibB\app'
+$sibDir = Join-Path $sb 'codex-siblings'
+$null = New-Item -ItemType Directory -Path $sibDir -Force
+$sibRec = @{}
+foreach ($s in @(@{ K = 'A'; Cwd = ($sibA.Substring(0, 1).ToLowerInvariant() + $sibA.Substring(1)); Id = '01900000-0000-7000-8000-0000000000c1' },
+        @{ K = 'B'; Cwd = $sibB; Id = '01900000-0000-7000-8000-0000000000c2' })) {
+    $f = Join-Path $sibDir "rollout-2026-10-01T10-00-00-$($s.Id).jsonl"
+    $lines = @(
+        ([ordered]@{ timestamp = $now.ToString('o'); type = 'session_meta'; payload = [ordered]@{ session_id = $s.Id; id = $s.Id; cwd = $s.Cwd; originator = 'codex_vscode' } } | ConvertTo-Json -Compress -Depth 6)
+        ([ordered]@{ timestamp = $now.ToString('o'); type = 'response_item'; payload = [ordered]@{ type = 'message'; role = 'user'; content = @([ordered]@{ type = 'input_text'; text = "sibling $($s.K)" }) } } | ConvertTo-Json -Compress -Depth 6)
+    )
+    [System.IO.File]::WriteAllText($f, ($lines -join "`n") + "`n", $utf8)
+    $sibRec[$s.K] = & $script:ChatProviders['codex'].Describe (Get-Item -LiteralPath $f)
+}
+Check 'a Codex row keeps the whole cwd, and the leaf as its group' ($sibRec.B.Cwd -eq $sibB -and $sibRec.B.Group -eq 'app' -and $sibRec.A.Group -eq 'app') "$($sibRec.B.Cwd) / $($sibRec.B.Group)"
+$rowA = [pscustomobject]@{ Provider = 'codex'; Group = $sibRec.A.Group; Cwd = $sibRec.A.Cwd }
+$rowB = [pscustomobject]@{ Provider = 'codex'; Group = $sibRec.B.Group; Cwd = $sibRec.B.Cwd }
+$scA = Get-ChatProjectScope $sibA
+Check 'standing in sibA\app: its own Codex chat is in scope' (Test-ChatInProject $rowA $scA)
+Check 'standing in sibA\app: sibB\app''s Codex chat is not' (-not (Test-ChatInProject $rowB $scA))
+Check 'the same folder written another way still matches' ((Test-ChatInProject $rowA (Get-ChatProjectScope (($sibA.ToUpperInvariant() -replace '\\', '/') + '/'))) -and (Test-ChatInProject $rowB (Get-ChatProjectScope $sibB)))
+# in a share, $PWD.Path carries the provider: the folder is the one under it
+$rowUnc = [pscustomobject]@{ Provider = 'codex'; Group = 'app'; Cwd = '\\host\share\app' }
+$scUnc = Get-ChatProjectScope 'Microsoft.PowerShell.Core\FileSystem::\\host\share\app'
+Check 'standing in a share: a Codex chat of that share''s folder is in scope' ((Test-ChatInProject $rowUnc $scUnc) -and -not (Test-ChatInProject $rowA $scUnc)) "$($scUnc.Folder)"
+$sel = @(Select-ChatInProject @($rowA, $rowB) -Cwd $sibB)
+Check 'Select-ChatInProject keeps only the sibling stood in' ($sel.Count -eq 1 -and $sel[0].Cwd -eq $sibB) "$($sel.Count)"
+# a row indexed before the index kept the cwd has only the leaf: it falls
+# back to it, so both siblings still see it, as before
+$rowOld = [pscustomobject]@{ Provider = 'codex'; Group = 'app' }
+Check 'an old Codex row with no Cwd falls back to the leaf' ((Test-ChatInProject $rowOld $scA) -and (Test-ChatInProject $rowOld (Get-ChatProjectScope $sibB)))
+# an old row of a repo named codex has the group a rollout with no cwd gets:
+# only NoCwd, which the read that found none sets, keeps a row as it is
+Check 'an old Codex row is read again once - a repo named codex too; one read with no cwd, or a Claude row, is kept' (
+    -not (Test-ChatIndexRowCurrent $rowOld) -and
+    -not (Test-ChatIndexRowCurrent ([pscustomobject]@{ Provider = 'codex'; Group = 'app'; Cwd = '' })) -and
+    -not (Test-ChatIndexRowCurrent ([pscustomobject]@{ Provider = 'codex'; Group = 'codex'; Cwd = $null })) -and
+    -not (Test-ChatIndexRowCurrent ([pscustomobject]@{ Provider = 'codex'; Group = 'codex'; Cwd = ''; NoCwd = $false })) -and
+    (Test-ChatIndexRowCurrent $rowA) -and
+    (Test-ChatIndexRowCurrent ([pscustomobject]@{ Provider = 'codex'; Group = 'codex'; Cwd = ''; NoCwd = $true })) -and
+    (Test-ChatIndexRowCurrent ([pscustomobject]@{ Provider = 'claude'; Group = 'D--x' })))
+# an index CSV an older build wrote has no Cwd column: it still reads, under
+# StrictMode, with Cwd $null
+$oldCsv = Join-Path $sibDir 'old-index.csv'
+[System.IO.File]::WriteAllText($oldCsv, ("`"Provider`",`"Path`",`"Size`",`"Mtime`",`"Id`",`"Title`",`"Titled`",`"Group`",`"Hidden`",`"When`",`"First`",`"Last`"`n" +
+        "`"codex`",`"X:\r.jsonl`",`"1`",`"1`",`"old-id`",`"old`",`"first message`",`"app`",`"False`",`"$($now.ToString('o'))`",`"a`",`"b`"`n"), $utf8)
+$oldRows = @(& { Set-StrictMode -Version Latest; & $script:ChatIndexRead $oldCsv $script:ChatIndexSep })
+Check 'an index with no Cwd column reads, with Cwd empty and NoCwd false' ($oldRows.Count -eq 1 -and $null -eq $oldRows[0].Cwd -and $oldRows[0].NoCwd -eq $false -and $oldRows[0].Group -eq 'app') "$($oldRows.Count)"
+# and through the real index: a sync keeps the cwd, and a row blanked to look
+# old is read again by the next sync even though its rollout did not move
+$null = Sync-ChatIndex -Provider codex
+$ixCx = @(Get-ChatIndex | Where-Object { $_.Id -eq $cxId })
+Check 'the index keeps a Codex chat''s whole folder' ($ixCx.Count -eq 1 -and $ixCx[0].Cwd -eq $projA) "$(@($ixCx | ForEach-Object { $_.Cwd }) -join ', ')"
+Save-ChatIndex @(Get-ChatIndex | ForEach-Object {
+        if ($_.Provider -ne 'codex') { return $_ }
+        $c = $_.PSObject.Copy(); $c.Cwd = $null; $c
+    })
+$ixBlank = @(Get-ChatIndex | Where-Object { $_.Id -eq $cxId })
+$null = Sync-ChatIndex -Provider codex
+$ixCx = @(Get-ChatIndex | Where-Object { $_.Id -eq $cxId })
+Check 'an old Codex row gets its folder on the next sync' ($ixBlank.Count -eq 1 -and -not $ixBlank[0].Cwd -and $ixCx.Count -eq 1 -and $ixCx[0].Cwd -eq $projA) "$(@($ixCx | ForEach-Object { $_.Cwd }) -join ', ')"

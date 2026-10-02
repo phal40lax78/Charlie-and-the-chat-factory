@@ -1,0 +1,2 @@
+{"method":"account/updated","params":{"authMode":"chatgpt","planType":"free"}}
+{"id":1,"method":"item/commandExecution/requestApproval","params":{"threadId":"01900000-0000-7000-8000-000000000001","turnId":"t1","itemId":"i1","command":"echo never"}}

@@ -5,13 +5,19 @@
 
 function Get-ChatProjectScope {
     # What "this project" means to each tool. Claude names its project folder
-    # after the whole path with every non-alphanumeric turned into a dash;
-    # Copilot and Codex only ever record the leaf folder name.
+    # after the whole path with every non-alphanumeric turned into a dash.
+    # Codex records the whole folder too, as each rollout's cwd, and the index
+    # keeps it as the row's Cwd. Copilot reaches the index as its workspace
+    # folder's leaf name only, as does a Codex row indexed before Cwd was kept.
     param([string]$Path = $PWD.Path)
     $full = $Path.TrimEnd('\', '/')
     [pscustomobject]@{
-        Slug = Get-ChatSlug $full
-        Leaf = Split-Path $full -Leaf
+        Slug   = Get-ChatSlug $full
+        Leaf   = Split-Path $full -Leaf
+        # from $Path, not $full: D: alone is the drive's current folder. In a
+        # share $PWD.Path is 'Microsoft.PowerShell.Core\FileSystem::\\host\x',
+        # which GetFullPath refuses - and a rollout's cwd is \\host\x
+        Folder = Get-ChatqFolderKey ($Path -replace '^[^:]+::', '')
     }
 }
 
@@ -19,9 +25,13 @@ function Test-ChatInProject {
     # Exact, never a prefix. Sibling repos nest - the slug for D:\src\app is a
     # prefix of the one for D:\src\app-Mobile - so -like or StartsWith
     # would quietly drag the neighbour in, which is the bug this exists to fix.
+    # The leaf is the loosest test - D:\a\app and D:\b\app share it - so a
+    # Codex row is held to its whole folder whenever the index has it.
     param($Row, $Scope)
     if (-not $Row.Group) { return $false }
     if ($Row.Provider -eq 'claude') { return $Row.Group -eq $Scope.Slug }
+    $cwd = Get-ChatField $Row 'Cwd'
+    if ($Row.Provider -eq 'codex' -and $cwd) { return (Get-ChatqFolderKey $cwd) -eq $Scope.Folder }
     return $Row.Group -eq $Scope.Leaf
 }
 
@@ -494,9 +504,135 @@ function Save-ChatArchive {
     return $true
 }
 
+# a turn whose rollout has not been written for this long is taken for one
+# whose codex was killed part way, never for one still going: else a crash
+# would keep its thread out of the archive for good
+$script:ChatCodexTurnStaleHours = 12
+
+function Get-ChatCodexBusy {
+    <#
+    Whether a Codex rollout is at work, read from the file alone: $null when
+    not, else @{ Why; At }.
+      writing  a record was written in the last -Seconds (Test-ChatWrittenSince:
+               the records' own timestamps, so a file only touched is not)
+      turn     the last task_started in the tail has no task_complete or
+               turn_aborted after it - a turn waiting on an approval, or
+               inside a long command, writes nothing for minutes - and a
+               codex still holds the rollout open to write. At is when it
+               started
+    No signal says a thread is merely open in the panel - thread/loaded/list
+    is per app-server process and reads notLoaded from outside - so an open,
+    idle thread is not busy here. An open turn in a rollout not written for
+    ChatCodexTurnStaleHours is a dead one, held open or not: the panel holds
+    a thread it has loaded, its turn alive or not. Only the last -Size bytes
+    are read: a start further back than that is missed, and the written check
+    is what is left. The event lines are picked by their unescaped
+    "type":"..." first, so a mention inside a message's text never counts.
+    #>
+    param([string]$Path, [datetime]$Now = (Get-Date), [int]$Seconds = $script:ChatIdleSeconds, [int]$Size = 1048576)
+    $wrote = try { (Get-Item -LiteralPath $Path -EA Stop).LastWriteTime } catch { return $null }
+    if (Test-ChatWrittenSince $Path $wrote $Now.AddSeconds(-$Seconds)) {
+        return [pscustomobject]@{ Why = 'writing'; At = (Get-ChatLastWritten $Path $wrote) }
+    }
+    if ($wrote -lt $Now.AddHours(-$script:ChatCodexTurnStaleHours)) { return $null }
+    $text = $null
+    $split = $false
+    try {
+        $fs = Open-ChatRead $Path
+        try {
+            $n = [int][Math]::Min([int64]$Size, $fs.Length)
+            $split = $fs.Length -gt $n
+            $buf = [byte[]]::new($n)
+            $null = $fs.Seek(-$n, [System.IO.SeekOrigin]::End)
+            $got = 0
+            while ($got -lt $n) { $r = $fs.Read($buf, $got, $n - $got); if ($r -le 0) { break }; $got += $r }
+            $text = [System.Text.Encoding]::UTF8.GetString($buf, 0, $got)
+        }
+        finally { $fs.Dispose() }
+    }
+    catch { return $null }
+    $lines = @($text -split "`r?`n")
+    # a tail that starts part way through a line: that piece is no record
+    if ($split -and $lines.Count) { $lines = @($lines | Select-Object -Skip 1) }
+    # Codex runs one turn at a time in a thread, so only the last start can
+    # be open: a start ends whatever was open before it - a turn killed part
+    # way writes no end of its own, and held a later, finished turn busy -
+    # and any end, whichever turn it names, closes it.
+    $open = $false
+    $at = $null
+    foreach ($l in $lines) {
+        if ($l -notmatch '"type"\s*:\s*"(task_started|task_complete|turn_aborted)"') { continue }
+        $o = try { $l.TrimStart([char]0xFEFF) | ConvertFrom-Json } catch { $null }
+        if (-not $o -or [string](Get-ChatField $o 'type') -ne 'event_msg') { continue }
+        $kind = [string](Get-ChatField (Get-ChatField $o 'payload') 'type')
+        if ($kind -eq 'task_started') { $open = $true; $at = ConvertTo-ChatqDate (Get-ChatField $o 'timestamp') }
+        elseif ($kind -in 'task_complete', 'turn_aborted') { $open = $false }
+    }
+    if (-not $open) { return $null }
+    # A killed codex - a job stopped with taskkill, a window reloaded mid-turn
+    # - writes no end either. Codex holds a rollout open to write for as long
+    # as its process lives (Open-ChatRead), so a rollout that opens with no
+    # writer allowed has none left, and its turn is dead. Windows only: on
+    # macOS and Linux the share mode binds nothing outside .NET, and every
+    # open would get through.
+    if ($script:ChatqIsWindows) {
+        $held = $true
+        try { ([System.IO.FileStream]::new($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)).Dispose(); $held = $false } catch {}
+        if (-not $held) { return $null }
+    }
+    return [pscustomobject]@{ Why = 'turn'; At = $at }
+}
+
+function Get-ChatCodexHomeOf {
+    # The Codex home a rollout lives under - the folder that holds its
+    # sessions/ or archived_sessions/ - or $null for a path under neither.
+    # Pure: the path is read, not the disk.
+    param([string]$Path)
+    if (-not $Path) { return $null }
+    $d = Split-Path $Path -Parent
+    while ($d) {
+        $leaf = Split-Path $d -Leaf
+        if ($leaf -in 'sessions', 'archived_sessions') {
+            $up = Split-Path $d -Parent
+            if ($up) { return $up }
+            return $null
+        }
+        $next = Split-Path $d -Parent
+        if ($next -eq $d) { break }
+        $d = $next
+    }
+    return $null
+}
+
 function Save-ChatCodexArchive {
-    param($Hit)
+    <#
+    codex archive, for one thread. -CodexHome is the home codex archive is
+    told to look in; left out, the one the rollout itself is under
+    (Get-ChatCodexHomeOf). Not $env:CODEX_HOME: a shell's variable, set or
+    changed since chatq loaded, can name another account's home, and there
+    codex answers "no session found" for a thread chatq listed from this
+    one. The manifest keeps the home, so chatrestore asks the same one.
+    #>
+    param($Hit, [string]$CodexHome)
     $title = $Hit.Record.Title
+    if (-not $CodexHome) { $CodexHome = Get-ChatCodexHomeOf $Hit.File.FullName }
+    if (-not $CodexHome) { $CodexHome = $script:ChatCodexHome }
+    # A thread mid-turn goes on being written by its codex: archived now, the
+    # rest of the turn would land in a rollout Codex has moved, or bring it
+    # back. Claude's branch asks the live registry; Codex keeps none another
+    # process can read, so the rollout is what says (Get-ChatCodexBusy).
+    $busy = Get-ChatCodexBusy $Hit.File.FullName
+    if ($busy) {
+        $at = if ($busy.At) { " ($($busy.At.ToString('HH:mm')))" } else { '' }
+        Write-Host "  KEPT     $title" -ForegroundColor Yellow
+        if ($busy.Why -eq 'writing') {
+            Write-Host "           Codex is writing to it$at - archive it once the turn ends" -ForegroundColor DarkGray
+        }
+        else {
+            Write-Host "           a Codex turn started in it$at has not ended - wait for it, or stop it in the panel, then archive" -ForegroundColor DarkGray
+        }
+        return $false
+    }
     $exe = Find-ChatqExe codex
     if (-not $exe) {
         Write-Host "  KEPT     $title" -ForegroundColor Yellow
@@ -504,7 +640,7 @@ function Save-ChatCodexArchive {
         return $false
     }
     # stdin empty and closed: a CLI that waits on it would hang here
-    $p = Invoke-ChatqProcess -Exe $exe -ArgList @('archive', $Hit.Record.Id) -StdIn '' -TimeoutSec 60 -SetEnv @{ CODEX_HOME = $env:CODEX_HOME }
+    $p = Invoke-ChatqProcess -Exe $exe -ArgList @('archive', $Hit.Record.Id) -StdIn '' -TimeoutSec 60 -SetEnv @{ CODEX_HOME = $CodexHome }
     if ($p.ExitCode -ne 0 -or $p.Stopped) {
         $err = ("$($p.StdErr)" -replace '\s+', ' ').Trim()
         if ($err.Length -gt 160) { $err = $err.Substring($err.Length - 160) }
@@ -515,7 +651,7 @@ function Save-ChatCodexArchive {
     # Codex has no command that lists what it archived, so this is the record
     # chatrestore lists it from
     Save-ChatqJson (Join-Path (Join-Path (Join-Path $script:ChatArchiveDir 'codex') $Hit.Record.Id) 'manifest.json') ([ordered]@{
-            v = 1; provider = 'codex'; id = $Hit.Record.Id; title = $title; group = $Hit.Record.Group
+            v = 1; provider = 'codex'; id = $Hit.Record.Id; title = $title; group = $Hit.Record.Group; home = $CodexHome
             archivedAt = (Get-Date).ToUniversalTime().ToString('o'); items = @([ordered]@{ from = $Hit.File.FullName })
         })
     Remove-ChatIndexRow $Hit.File.FullName
@@ -538,7 +674,11 @@ function Remove-ChatTombstone {
 
 function Get-ChatArchive {
     # What chatrestore can bring back: every chat chatrm archived, plus any
-    # thread under Codex's own archived_sessions folder, if it keeps one there.
+    # thread under -CodexHome's archived_sessions folder, if it keeps one
+    # there. A Codex row carries the home it is to be unarchived in: its
+    # manifest's, else -CodexHome - an archive from before the manifest
+    # kept one was made in the home chatq ran on, which is this default.
+    param([string]$CodexHome = $script:ChatCodexHome)
     $rows = [System.Collections.Generic.List[object]]::new()
     $seen = @{}
     if (Test-Path -LiteralPath $script:ChatArchiveDir) {
@@ -546,32 +686,38 @@ function Get-ChatArchive {
             $m = Read-ChatqJson $f.FullName
             if (-not $m -or -not $m.id) { continue }
             $seen[[string]$m.id] = $true
+            $mh = [string](Get-ChatField $m 'home')
             $rows.Add([pscustomobject]@{
                     Provider = $m.provider; Id = [string]$m.id; Title = [string]$m.title; Group = $m.group
                     When = ConvertTo-ChatqDate $m.archivedAt; Dir = $f.DirectoryName; Manifest = $m
+                    CodexHome = $(if ($m.provider -ne 'codex') { $null } elseif ($mh) { $mh } else { $CodexHome })
                 })
         }
     }
-    $cx = Join-Path $script:ChatCodexHome 'archived_sessions'
+    $cx = Join-Path $CodexHome 'archived_sessions'
     if (Test-Path -LiteralPath $cx) {
         $names = Get-CodexThreadNames
         foreach ($f in @(Get-ChildItem -LiteralPath $cx -Filter 'rollout-*.jsonl' -File -Recurse -EA SilentlyContinue)) {
             $id = if ($f.BaseName -match '([0-9a-fA-F-]{36})$') { $Matches[1] } else { continue }
             if ($seen[$id]) { continue }
             $t = if ($names[$id]) { $names[$id] } else { $id }
-            $rows.Add([pscustomobject]@{ Provider = 'codex'; Id = $id; Title = $t; Group = $null; When = $f.LastWriteTime; Dir = $null; Manifest = $null })
+            $rows.Add([pscustomobject]@{ Provider = 'codex'; Id = $id; Title = $t; Group = $null; When = $f.LastWriteTime; Dir = $null; Manifest = $null; CodexHome = $CodexHome })
         }
     }
     return @($rows | Sort-Object When -Descending)
 }
 
 function Restore-ChatArchive {
-    # $true when the chat is back where it was
-    param($Row)
+    # $true when the chat is back where it was. A Codex thread is unarchived
+    # in -CodexHome, else the home its row carries (Get-ChatArchive), else
+    # the one chatq runs on - never whatever $env:CODEX_HOME says by now.
+    param($Row, [string]$CodexHome)
     if ($Row.Provider -eq 'codex') {
+        if (-not $CodexHome) { $CodexHome = [string](Get-ChatField $Row 'CodexHome') }
+        if (-not $CodexHome) { $CodexHome = $script:ChatCodexHome }
         $exe = Find-ChatqExe codex
         if (-not $exe) { Write-Host '  no codex CLI found - codex unarchive is the only way back' -ForegroundColor Yellow; return $false }
-        $p = Invoke-ChatqProcess -Exe $exe -ArgList @('unarchive', $Row.Id) -StdIn '' -TimeoutSec 60 -SetEnv @{ CODEX_HOME = $env:CODEX_HOME }
+        $p = Invoke-ChatqProcess -Exe $exe -ArgList @('unarchive', $Row.Id) -StdIn '' -TimeoutSec 60 -SetEnv @{ CODEX_HOME = $CodexHome }
         if ($p.ExitCode -ne 0 -or $p.Stopped) {
             Write-Host "  codex unarchive failed: $(("$($p.StdErr)" -replace '\s+', ' ').Trim())" -ForegroundColor Yellow
             return $false
@@ -2398,6 +2544,8 @@ function chatrm {
     Move the chat out of the way instead of deleting it; chatrestore brings it
     back. A Claude chat and its leftovers go to data/archive/, a Codex thread
     through codex archive. Copilot chats have an archive of their own in VS Code.
+    A chat at work is kept: a Claude chat open in a window, a Codex thread
+    written in the last minute or with a turn that has not ended.
     .EXAMPLE
     chatrm 44e899d3
     .EXAMPLE

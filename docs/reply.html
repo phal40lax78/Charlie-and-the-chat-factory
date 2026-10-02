@@ -1465,13 +1465,19 @@ var ChatqBoard = (function () {
     }
     // The mode chip: the PC gives the phone's cap, and a mode above it is
     // brought down to it. A chat whose own mode the PC read (known) - the
-    // list's, and the board's open chats - says it, once capped
-    function modeText(b, isNew, row) {
+    // list's, and the board's open chats - says it, once capped. A queue
+    // row whose chat the board has no row of (job: chatOfJob found none) -
+    // a Codex chat's always - says what the job itself runs in, its m:
+    // for Codex its sandbox, not a permission mode. The PC brings it down
+    // to the cap as the view's Retry would (mc), so the chip never names
+    // one the phone's own action will not run
+    function modeText(b, isNew, row, job) {
         if (isNew) {
             var m = (b && b.newMode) || 'default';
             return m === 'default' ? 'default - anything that would ask is denied' : m;
         }
         if (row && row.known && row.m) return row.m + (row.mc ? ' (phone\'s limit)' : '');
+        if (!row && job && job.m) return job.m + (job.mc ? ' (phone\'s limit)' : '');
         // keep: no cap - the chat's own mode, as at the PC. Every PC sends its
         // cap; none (a body built without one) is keep, as the PC reads it
         var cap = (b && b.cap) || 'keep';
@@ -2733,7 +2739,7 @@ var ChatqBoard = (function () {
             if (B.whereText(row.where)) meta.push(B.whereText(row.where));
         }
         $('cMeta').textContent = meta.join(' \u00b7 ');
-        $('cMode').textContent = B.modeText(b, false, chat);
+        $('cMode').textContent = B.modeText(b, false, chat, type === 'queue' ? row : null);
         $('cState').textContent = B.stateLine(type, row);
         if (type === 'open' && row.prompt) { $('cPrompt').textContent = row.prompt; $('cPrompt').hidden = false; }
         // the question it waits on, every option with its description

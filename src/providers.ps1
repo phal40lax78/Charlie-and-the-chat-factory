@@ -300,8 +300,11 @@ $script:ChatProviders = [ordered]@{
             if (-not $p) { return $null }
             # rollout-<iso>-<uuid>.jsonl - the id is everything after the timestamp
             $id = if ($File.BaseName -match '([0-9a-fA-F-]{36})$') { $Matches[1] } else { $File.BaseName }
+            # the whole folder goes on the row, not only its leaf: two sibling
+            # repos named alike (D:\a\app, D:\b\app) are told apart by it
             $cwd = Get-ChatJsonString $p.Head 'cwd'
-            $group = if ($cwd) { Split-Path ($cwd -replace '\\\\', '\') -Leaf } else { 'codex' }
+            if ($cwd) { $cwd = Convert-ChatJsonEscaped $cwd }
+            $group = if ($cwd) { Split-Path $cwd -Leaf } else { 'codex' }
             $named = (Get-CodexThreadNames)[$id]
             $title = if ($named) { $named } else { @($p.First)[0] }
             [pscustomobject]@{
@@ -309,6 +312,7 @@ $script:ChatProviders = [ordered]@{
                 Title       = Format-ChatTitle $title
                 TitleSource = if ($named) { 'thread name' } else { 'first message' }
                 Group       = $group
+                Cwd         = $cwd
                 Hidden      = $false
                 When        = Get-ChatTimestampFromText $p $File
                 First       = $p.First
@@ -391,16 +395,27 @@ function chatproviders {
     <#
     .SYNOPSIS
     Show which chat tools were found on this machine, and where they store chats.
+    .DESCRIPTION
+    For Claude Code and Codex, also the CLI chatq runs their queued prompts
+    with: its path, version, and where it was found - on PATH, the VS Code
+    extension's copy, or CHATQ_CLAUDE / CHATQ_CODEX. Warning says when the one
+    on PATH is older than the extension's, which chatq would then not use.
     #>
     Set-StrictMode -Off
     $script:ChatProviders.GetEnumerator() | ForEach-Object {
         $files = @(& $_.Value.Discover)
+        # Copilot has no CLI chatq can resume a chat with
+        $cli = if ($_.Key -in 'claude', 'codex') { Get-ChatqCliReport $_.Key } else { $null }
         [pscustomobject]@{
-            Provider = $_.Key
-            Present  = Test-Path -LiteralPath $_.Value.Root
-            Chats    = $files.Count
-            MB       = [math]::Round((($files | Measure-Object Length -Sum).Sum) / 1MB, 1)
-            Root     = $_.Value.Root
+            Provider   = $_.Key
+            Present    = Test-Path -LiteralPath $_.Value.Root
+            Chats      = $files.Count
+            MB         = [math]::Round((($files | Measure-Object Length -Sum).Sum) / 1MB, 1)
+            Root       = $_.Value.Root
+            Cli        = $cli.Path
+            CliVersion = $cli.Version
+            CliFrom    = $cli.Where
+            Warning    = $cli.Warn
         }
     }
 }

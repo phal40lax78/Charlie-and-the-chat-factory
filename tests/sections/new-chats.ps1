@@ -127,7 +127,7 @@ $raBack = Set-ChatqJobRunAs $cn 'model' ''
 $cnNow = Find-ChatqJob $cn.id -Exact
 $cxJob = [pscustomobject]@{ seq = 99; state = 'queued'; provider = 'codex'; title = 'x' }
 $doneJob = [pscustomobject]@{ seq = 98; state = 'done'; provider = 'claude'; title = 'x' }
-Check 'a waiting Claude job''s mode and model change and are kept; a Codex job, one already sent and a model with a space are refused' (
+Check 'a waiting Claude job''s mode and model change and are kept; a Claude mode for a Codex job, one already sent and a model with a space are refused' (
     $raNo -like "*a model's name holds no space*" -and -not $raMode -and -not $raBack -and $cnNow.mode -eq 'acceptEdits' -and -not $cnNow.runModel -and
     (Set-ChatqJobRunAs $cxJob 'mode' 'plan') -like '*Codex*' -and (Set-ChatqJobRunAs $doneJob 'mode' 'plan') -like '#98 is done*') "$raNo / $raMode / $($cnNow.mode) $($cnNow.runModel)"
 foreach ($x in $cnJobs) { $null = Remove-ChatqJob $x 'test' }
@@ -216,6 +216,8 @@ try {
     $crSawBefore = $script:CrSaw.Count
     $crOwnModel = [pscustomobject]@{ id = 'cr-own'; seq = 0; provider = 'claude'; kind = 'prompt'; sessionId = $idCard; cwd = $sb; home = $claudeHome; title = 'x'; model = 'claude "old"' }
     $crP3 = try { $null = Invoke-ChatqProbe 'claude' $crOwnModel; 'no throw' } catch { $_.Exception.Message }
+    $crCxOwn = [pscustomobject]@{ id = 'cr-codex-own'; seq = 0; provider = 'codex'; kind = 'prompt'; sessionId = 'cr-thread'; cwd = $sb; home = $codexHome; title = 'x'; model = 'gpt "old"'; runModel = $null }
+    $crP4 = try { $null = Invoke-ChatqProbe 'codex' $crCxOwn; 'no throw' } catch { $_.Exception.Message }
     $crW = New-ChatqWatchState
     $crLane = Get-ChatqLane $crJ
     $crOk = Confirm-ChatqAllowed $crW (Find-ChatqJob $crJ.id -Exact)
@@ -228,7 +230,8 @@ Check 'a run whose -Model cmd.exe cannot carry fails with that said, no process 
     $crSawBefore -eq 0) "$($crR1.reason) | $crOwnLeft $crPermitWas | $($crR2.kind) | $($crR3.reason) | $($script:CrSaw -join ' // ')"
 Check 'the probe says Refused for such a -Model, starting nothing; a chat''s own model it cannot carry is asked without' (
     $crP1.Refused -and -not $crP1.Allowed -and $crP1.Error -like '*cannot be handed a quote*' -and $crP2.Refused -and $crP2.Error -like '*cannot be handed a quote*' -and
-    $crP3 -eq 'cr: a process started' -and $script:CrSaw.Count -eq 1 -and $script:CrSaw[0] -notlike '*--model*') "$($crP1.Error) | $($crP2.Error) | $crP3 | $($script:CrSaw -join ' // ')"
+    $crP3 -eq 'cr: a process started' -and $script:CrSaw.Count -eq 2 -and $script:CrSaw[0] -notlike '*--model*' -and
+    $crP4 -eq 'cr: a process started' -and $script:CrSaw[1] -notlike '* -m *' -and $script:CrSaw[1] -like '*model_reasoning_effort=low*') "$($crP1.Error) | $($crP2.Error) | $crP3 | $crP4 | $($script:CrSaw -join ' // ')"
 Check 'the watcher fails that job with the reason and leaves its lane open - not blocked, no probe miss counted' (
     -not $crOk -and $crNow.state -eq 'failed' -and $crNow.result.reason -like '*cannot be handed a quote*' -and -not $crW.blocked[$crLane] -and
     -not [int]$crW.probeFails[$crLane]) "$($crNow.state) $($crNow.result.reason) | $($crW.blocked[$crLane] | ConvertTo-Json -Compress)"

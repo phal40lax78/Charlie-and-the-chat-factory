@@ -33,6 +33,13 @@
 #                  ends the run at the first call, as S35 saw claude do.
 #   FAKE_PERMIT_SELF  the model calls mcp__chatqpermit__decide itself: a
 #                  call with no tool_use line of its own before it
+#   FAKE_VERSION   the line --version prints, in place of Claude Code's
+#                  2.1.278: 'codex-cli 0.150.0' for a codex of that version
+#   FAKE_APPSERVER  with `app-server` in argv: a fixture folder to answer
+#                  codex app-server's requests from, by method - the
+#                  app-server branch below says how, and how FAKE_SLEEP,
+#                  FAKE_VERSION, FAKE_RECORD and FAKE_APPSERVER_NOMETHOD
+#                  work there
 # Output goes out as raw UTF-8 bytes: Write-Output would encode it in the
 # console code page, which is exactly the bug class these tests exist for.
 
@@ -43,11 +50,98 @@ $ErrorActionPreference = 'Stop'
 $argv = @([regex]::Matches([string]$env:FAKE_ARGV, '"((?:\\"|[^"])*)"|(\S+)') | ForEach-Object {
         if ($_.Groups[1].Success) { $_.Groups[1].Value.Replace('\"', '"') } else { $_.Groups[2].Value }
     })
+$utf8 = New-Object System.Text.UTF8Encoding $false
+
+if ($argv -contains 'app-server') {
+    # codex app-server over stdio, before anything reads stdin to its end: a
+    # line in, a line out, until stdin closes - then exit 0, as 0.159.2 does
+    # (TESTING.md, S-A4). Each request is answered from FAKE_APPSERVER, a
+    # folder of <method with / as _>.json files, each the reply less its id:
+    # {"result": ...} or {"error": {...}}. A <method>.before.jsonl beside it
+    # goes out first, line by line - notifications, or a request of the
+    # server's own. initialize has a reply of its own when there is no
+    # initialize.json; initialized, a notification, gets none.
+    #   FAKE_APPSERVER_NOMETHOD  methods (comma-separated) answered as
+    #                  0.159.2 answers one it does not know - for an older codex
+    #   FAKE_SLEEP     seconds to hang before answering anything but initialize;
+    #                  stdin ending meanwhile drops it unanswered
+    #   FAKE_VERSION   the version initialize's userAgent carries
+    #   FAKE_RECORD    appserver.jsonl: every line received; pid.txt, argv.txt
+    #                  and env.txt (CODEX_HOME and the API keys) as for a run
+    $dir = $env:FAKE_APPSERVER
+    $ver = if ("$env:FAKE_VERSION" -match '(\d+\.\d+\.\d+)') { $Matches[1] } else { '0.159.2' }
+    $nomethod = @("$env:FAKE_APPSERVER_NOMETHOD" -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    if ($env:FAKE_RECORD) {
+        New-Item -ItemType Directory -Path $env:FAKE_RECORD -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $env:FAKE_RECORD 'pid.txt'), "$PID", $utf8)
+        [IO.File]::WriteAllText((Join-Path $env:FAKE_RECORD 'argv.txt'), ($argv -join "`n"), $utf8)
+        [IO.File]::WriteAllText((Join-Path $env:FAKE_RECORD 'env.txt'), ((@('CODEX_HOME', 'OPENAI_API_KEY', 'CODEX_API_KEY') | ForEach-Object { "$_=$([Environment]::GetEnvironmentVariable($_))" }) -join "`n"), $utf8)
+        [IO.File]::WriteAllText((Join-Path $env:FAKE_RECORD 'appserver.jsonl'), '', $utf8)
+    }
+    $out = [Console]::OpenStandardOutput()
+    $say = { param($s) $b = $utf8.GetBytes($s.TrimEnd("`r", "`n") + "`n"); $out.Write($b, 0, $b.Length); $out.Flush() }
+    $reader = New-Object System.IO.StreamReader([Console]::OpenStandardInput(), $utf8)
+    # stdin is read beside the work, as the real server reads it: the moment
+    # it ends, the fake exits 0 - a request still waiting, or one held by
+    # FAKE_SLEEP, is never answered. A client that closed stdin before every
+    # reply was in gets 'exited', as against 0.159.2; read a line at a time
+    # and answered in full first, every buffered request would be answered.
+    $queue = New-Object System.Collections.Generic.Queue[string]
+    $task = $reader.ReadLineAsync()
+    $take = {
+        # what stdin has said since, dot-sourced so $task moves on; exits at its end
+        while ($task.IsCompleted) {
+            if ($task.IsFaulted -or $task.IsCanceled -or $null -eq $task.Result) { exit 0 }
+            $queue.Enqueue($task.Result)
+            $task = $reader.ReadLineAsync()
+        }
+    }
+    while ($true) {
+        . $take
+        if (-not $queue.Count) { [void]$task.Wait(100); continue }
+        $line = $queue.Dequeue()
+        if (-not $line.Trim()) { continue }
+        if ($env:FAKE_RECORD) { [IO.File]::AppendAllText((Join-Path $env:FAKE_RECORD 'appserver.jsonl'), $line + "`n", $utf8) }
+        $m = try { $line | ConvertFrom-Json } catch { $null }
+        # a notification (no id) or the client's answer to a request of the
+        # fake's own (no method) is recorded, and wants no reply
+        if (-not $m -or -not $m.PSObject.Properties['id'] -or -not $m.PSObject.Properties['method']) { continue }
+        $method = [string]$m.method
+        $idJson = ConvertTo-Json $m.id -Compress
+        $file = if ($dir) { Join-Path $dir (($method -replace '/', '_') + '.json') } else { $null }
+        if ($dir) {
+            $pre = Join-Path $dir (($method -replace '/', '_') + '.before.jsonl')
+            if (Test-Path -LiteralPath $pre) { foreach ($l in [IO.File]::ReadAllLines($pre, $utf8)) { if ($l.Trim()) { & $say $l } } }
+        }
+        if ($method -ne 'initialize' -and $env:FAKE_SLEEP) {
+            # stdin still read meanwhile: its end drops this request unanswered
+            $until = (Get-Date).AddSeconds([int]$env:FAKE_SLEEP)
+            while ((Get-Date) -lt $until) { . $take; Start-Sleep -Milliseconds 50 }
+        }
+        if ($method -in $nomethod) {
+            & $say ('{"error":{"code":-32600,"message":"Invalid request: unknown variant `' + $method + '`, expected one of `initialize`"},"id":' + $idJson + '}')
+        }
+        elseif ($file -and (Test-Path -LiteralPath $file)) {
+            # the fixture's own text, the id put in front, as codex writes it
+            $body = [IO.File]::ReadAllText($file, $utf8).Trim()
+            & $say ('{"id":' + $idJson + ',' + $body.Substring(1).TrimStart())
+        }
+        elseif ($method -eq 'initialize') {
+            $ch = ConvertTo-Json ([string]$env:CODEX_HOME) -Compress
+            & $say ('{"id":' + $idJson + ',"result":{"userAgent":"chatq/' + $ver + ' (fake)","codexHome":' + $ch + ',"platformFamily":"windows","platformOs":"windows"}}')
+            & $say '{"method":"remoteControl/status/changed","params":{"status":"disabled","serverName":"fake","installationId":"00000000-0000-4000-8000-000000000000","environmentId":null}}'
+        }
+        else {
+            & $say ('{"error":{"code":-32603,"message":"fake app-server: no fixture for ' + $method + '"},"id":' + $idJson + '}')
+        }
+    }
+    exit 0
+}
+
 $in = [Console]::OpenStandardInput()
 $ms = New-Object System.IO.MemoryStream
 $in.CopyTo($ms)
 $bytes = $ms.ToArray()
-$utf8 = New-Object System.Text.UTF8Encoding $false
 $prompt = $utf8.GetString($bytes)
 
 if ($argv.Count -and $argv[0] -in 'archive', 'unarchive') {
@@ -103,8 +197,10 @@ if ($env:FAKE_RECORD) {
 }
 
 if ($argv -contains '--version') {
+    # FAKE_VERSION stands in for another CLI's line - codex's 'codex-cli 0.159.2'
     $o = [Console]::OpenStandardOutput()
-    $b = $utf8.GetBytes("2.1.278 (Claude Code)`n")
+    $said = if ($env:FAKE_VERSION) { $env:FAKE_VERSION } else { '2.1.278 (Claude Code)' }
+    $b = $utf8.GetBytes("$said`n")
     $o.Write($b, 0, $b.Length); $o.Flush()
     exit 0
 }

@@ -142,10 +142,7 @@ function chatinstall {
         }
     }
 
-    # the queue half needs a CLI to resume chats with; finding and deleting do not
-    if (-not (Find-ChatqExe claude) -and -not (Find-ChatqExe codex)) {
-        Write-Host '    no claude or codex CLI found - chatq needs one, or CHATQ_CLAUDE / CHATQ_CODEX' -ForegroundColor Yellow
-    }
+    Write-ChatCliReport
     if (-not $NoRestart) { Restart-ChatBackground }
 
     # The extension defaults to ~/Tools/Charlie-and-the-chat-factory. Anywhere else
@@ -168,6 +165,25 @@ function chatinstall {
         Set-Content -LiteralPath $script:ChatVersionPath -Value $script:ChatVersion -Encoding UTF8
     }
     catch {}
+}
+
+function Write-ChatCliReport {
+    # chatinstall's lines for the CLIs chatq runs: each one found, its version
+    # and where it came from - PATH, the VS Code extension's copy, or an
+    # override - since which of two codex installs runs the jobs is otherwise
+    # invisible. A PATH one older than the extension's gets a warning
+    # (Get-ChatqCliReport). The queue half needs a CLI to resume chats with;
+    # finding and deleting do not, so none at all is a warning, not a stop.
+    $found = @(foreach ($p in 'claude', 'codex') { Get-ChatqCliReport $p }) | Where-Object { $_.Path }
+    if (-not $found) {
+        Write-Host '    no claude or codex CLI found - chatq needs one, or CHATQ_CLAUDE / CHATQ_CODEX' -ForegroundColor Yellow
+        return
+    }
+    foreach ($r in $found) {
+        Write-Host "    $($r.Say)" -ForegroundColor DarkGray
+        Write-Host "      $($r.Path)" -ForegroundColor DarkGray
+        if ($r.Warn) { Write-Host "    $($r.Warn)" -ForegroundColor Yellow }
+    }
 }
 
 function Restart-ChatBackground {

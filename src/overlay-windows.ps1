@@ -596,7 +596,7 @@ function New-ChatOverlayControls {
     $grip.add_LostMouseCapture({ param($s, $e) Stop-ChatOverlayGripDrag $s })
     $foldB = New-ChatOverlayIcon $(if ($H.Collapsed) { 'Expand' } else { 'Collapse to one line' }) $fold -Stroke
     $foldB.add_MouseLeftButtonUp({ param($s, $e) $e.Handled = $true; Invoke-ChatOverlayVerb $(if ($script:ChatOverlayHost.Collapsed) { 'expand' } else { 'collapse' }) })
-    $againB = New-ChatOverlayIcon 'Ask Claude for usage now - Codex''s moves only when Codex runs' $again -Stroke
+    $againB = New-ChatOverlayIcon 'Ask Claude, Codex and Copilot for usage now' $again -Stroke
     $againB.add_MouseLeftButtonUp({ param($s, $e) $e.Handled = $true; Invoke-ChatOverlayRefresh })
     # turns while an ask is out (Update-ChatOverlaySpin), about the arc's centre
     $againB.Child.RenderTransform = [System.Windows.Media.RotateTransform]::new(0, 5.2, 5.3)
@@ -1468,10 +1468,13 @@ function Update-ChatOverlaySpin {
     # on, long enough for a click to look like it did nothing.
     param($H)
     $ready = { param($f) $f -and ($f.Done -or ($f.Task -and $f.Task.IsCompleted) -or ($f.Proc -and $f.Proc.HasExited)) }
-    if (((& $ready $H.Ctx.Fetch) -or (& $ready $H.Ctx.CopilotFetch)) -and -not $H.Dragging) {
+    # Codex's: a line from codex app-server is in, or the server is gone -
+    # a pass takes in what is there (Complete-ChatqCodexUsageFetch)
+    $cxReady = { param($f) $f -and ($f.Done -or ($f.Rpc -and ($f.Rpc.Done -or ($f.Rpc.St.Task -and $f.Rpc.St.Task.IsCompleted) -or ($f.Rpc.Proc -and $f.Rpc.Proc.HasExited)))) }
+    if (((& $ready $H.Ctx.Fetch) -or (& $ready $H.Ctx.CopilotFetch) -or (& $cxReady $H.Ctx.CodexFetch)) -and -not $H.Dragging) {
         Update-ChatOverlayView $H (Invoke-ChatOverlayCycle $H.Ctx -Peek)
     }
-    $out = [bool]($H.Ctx.Fetch -or $H.Ctx.CopilotFetch)
+    $out = [bool]($H.Ctx.Fetch -or $H.Ctx.CopilotFetch -or $H.Ctx.CodexFetch)
     if (-not $H.Spin -or $out -eq $H.Spinning) { return }
     $H.Spinning = $out
     $prop = [System.Windows.Media.RotateTransform]::AngleProperty

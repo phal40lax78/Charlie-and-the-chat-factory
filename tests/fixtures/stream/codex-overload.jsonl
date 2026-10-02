@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"{{SESSION}}"}
+{"type":"turn.started"}
+{"type":"error","message":"Reconnecting... 1/5"}
+{"type":"turn.failed","error":{"message":"We’re currently experiencing high demand, which may cause temporary errors."}}

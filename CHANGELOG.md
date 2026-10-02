@@ -1,5 +1,144 @@
 # Changelog
 
+## 0.10.4 — Codex catches up: its own sandbox, live usage, and overloads that wait
+
+- **Codex usage, asked live - and a Codex limit check that spends no
+  turn while the account is still limited.** The overlay's Codex line was
+  only as new as Codex's last turn: days old, on an account used now and
+  then. It now asks `codex app-server` (`account/rateLimits/read`, which
+  starts no model turn and spends nothing) every 5 minutes while Codex
+  works, every 15 while it is idle, once a window resets, and on refresh.
+  The line ends in when it asked, not `last run`, and the snapshot
+  carries the plan; a free plan's one window is 30 days and reads
+  `month`. The rollout figure stays the
+  fallback, and the newer of the two wins. With no `codex`, no Codex home
+  or a codex older than 0.159.0, the overlay waits half an hour quietly;
+  other failures back off 2 to 30 minutes and are logged. `chatoverlay
+  -CodexUsage off` turns it off, an ask already out included. `chatqlist`,
+  the phone and the alerts use that figure where it is newer, and only
+  when it was asked under their own Codex home: the overlay keeps the
+  `CODEX_HOME` of the shell that started it. A codex updated in place is
+  seen without a restart. Before a Codex job runs, the limit
+  check now asks the account first. When a window is still full, or the
+  server says a limit is reached, the lane waits without a turn spent,
+  and the watcher's log says so. Anything less clear still asks the
+  cheap turn: only a turn finds an overload, a refused login, or one
+  model's own limit.
+- **Codex usage, archive and restore stay on one Codex home.** `chatrm
+  -Archive` and `chatrestore` told `codex archive` / `unarchive` to look
+  in whatever `$env:CODEX_HOME` said at that moment, while the thread
+  itself was listed from the home chatq loaded with; set to another
+  account's home since, codex answered "no session found" and the thread
+  stayed put. Now archive goes to the home the rollout is under, the
+  archive's manifest keeps it, and restore goes back there. `chatqlist`'s
+  Codex usage and the overlay's read the home chatq lists Codex chats
+  from as well, not the variable as it reads now.
+- **A Codex app-server client, for what is to come.** chatq can now start
+  `codex app-server` on a given Codex home, ask it a few things, and end
+  it - always, a timeout or an error included. Live Codex usage and the
+  limit check use it (above); the cut-off scan and the thread list will
+  be built on it. Found on the way, on codex-cli 0.159.2: the server exits as
+  soon as its input ends and drops any reply still being worked out, so
+  chatq keeps its input open until every reply is in; and started on a
+  Codex home that is not there, it makes one, so chatq never hands it one.
+- **`chatrm -Archive` keeps a Codex thread that is at work.** A Claude
+  chat open in a window was already kept; a Codex thread was handed to
+  `codex archive` mid-turn, and the rest of the turn wrote into a rollout
+  Codex had moved. Now one whose rollout got a record in the last minute
+  is kept ("Codex is writing to it"), and so is one whose last
+  `task_started` has no `task_complete` or `turn_aborted` yet - a turn
+  waiting on an approval writes nothing. A killed codex - a job stopped,
+  a window reloaded mid-turn - writes no end, so its turn does not keep
+  the thread: on Windows a rollout no codex holds open to write has no
+  turn going, a later turn ends it, and a rollout not written for 12 hours
+  has none anywhere.
+- **Codex chats are scoped by their whole folder.** A title matched Codex
+  chats of the folder you stand in by its leaf name only, so in `D:\b\app`
+  a Codex chat of `D:\a\app` counted as this project's - `chatq` could
+  pick the sibling's chat with no "not in this project" word, and
+  `chatfind` and `chatrm` listed it as this project's. The index now keeps each Codex chat's whole `cwd`, and the match
+  is on that, however the folder is written. A row from an older index is
+  read again once, by the next search, to get it; until then it goes by
+  the leaf as before. "not in this project:" names a Codex chat's folder.
+- **A Codex job saved with sandbox `managed` runs.** Newer Codex threads
+  keep their sandbox as a permission profile, `managed`, and a job that
+  read that word passed it on as `-c sandbox_mode=managed` - which codex
+  refuses as its config loads ("unknown variant `managed`"), so the job
+  failed before a turn. A sandbox word codex does not take now runs as
+  `workspace-write`; `chatq` says so as it queues, and `jobs.log` as it
+  runs. The app-server's camelCase words (`readOnly`, `dangerFullAccess`)
+  are read as the kebab ones.
+- **`-Sandbox` picks a Codex chat's sandbox for one job.** `chatq <codex
+  chat> -Sandbox read-only` (or `workspace-write`, `danger-full-access`)
+  runs that job in it; `chatqrun <n> -Sandbox` requeues one in it. `-Mode`
+  on a Codex chat used to print "(given)" and then be ignored: it is
+  refused now, and `-Sandbox` on a Claude chat too. A sandbox wider than
+  the chat's sticks - the run records it, so later jobs for that chat take
+  it as the chat's own - and `chatq` warns. The console has a Sandbox row
+  of chips for a Codex chat, under the prompt box and in a waiting job's
+  details, in place of the faint "runs in the sandbox it last used" line.
+- **The phone's cap goes by the sandbox a Codex job runs in.** A retry, or
+  a reply's prompt, of a Codex job given `danger-full-access` itself is
+  capped at `workspace-write` as the job's own pick; the chat's sandbox is
+  left as it read. The board's queue rows carry what each job runs in, so
+  the chat view of a Codex job - which the board has no chat row for -
+  says its sandbox, not `at most acceptEdits`.
+- **A Codex chat's effort beside its model.** `chatq` shows the model and
+  effort the chat last ran at - `gpt-5.6-terra at effort medium (as the
+  chat last ran)` - and so do the console's running line and the job's
+  history. Shown only: whether `codex exec resume` keeps that effort is
+  not known yet, and nothing sends it.
+- **The Codex limit check is a cheap turn on the chat's model.** Before a
+  Codex job runs, chatq asks codex a throwaway `ok` to see whether the
+  limit is over. It named no model unless `-Model` gave one, and no
+  effort, so codex took both from `config.toml` - an `xhigh` turn on
+  whatever model is set there, not the chat's, each time a lane was
+  checked. It now names the chat's own model (or the `-Model`) and runs at
+  `model_reasoning_effort=low`. A chat model the account has since lost is
+  asked again without one, as Claude's check already did.
+- **A Codex overload waits instead of failing the job.** A Codex turn that
+  failed on a server error ("exceeded retry limit, last status: 503",
+  "unexpected status 502"), "high demand", a model "at capacity" or "Flex
+  capacity unavailable" failed the job, where Claude's 529 puts it back in
+  the queue. It now goes back too, and its lane waits as Claude's does -
+  but with no status page to read, it is simply tried again after 1, 2,
+  5, 10, then every 15 minutes; before, a Codex outage would only have
+  been looked at every 15. Only what the turn failed with counts: codex's
+  stderr carries log noise of its own - a models refresh that timed out,
+  an MCP probe's "unexpected status: 500" - that must not turn another
+  failure into a retry. A 400, a context window that ran out, a refused
+  login and the usage limit are read as before. The alert, the 6 h
+  reminder, the job's history, `chatq`, the console's preview and the
+  "sends" column say "when Codex is back", never Claude or
+  status.claude.com. The wording comes from the codex-cli 0.159.2 binary,
+  not from an overload seen in a run; one worded otherwise still fails.
+- **One reading of Codex's usage, wherever it is shown.** The overlay's
+  Codex row, the `chatqlist` and phone usage line, and the limit check
+  each read the `rate_limits` snapshot from Codex's rollouts with a copy
+  of their own, and the copies disagreed: when the newest snapshot had no
+  window in it, the overlay went on to an older one while the other two
+  stopped there - one showed a figure the others did not. The overlay,
+  `chatqlist` and the phone now all show the newest snapshot that has a
+  window, with its age. The limit check still stops at a newer one with no
+  window - a turn under another login or plan logs one so - and blocks
+  nothing on it: a full window from before is no longer the account's
+  word, and waiting it out held the lane with no check to clear it. Each
+  copy matched only compact JSON (`"rate_limits":{`), so a rollout written with spaces would
+  have shown no Codex usage at all; spacing no longer matters. And a
+  half-written last line - a rollout read while Codex writes it - now falls
+  back to the snapshot above it in the same rollout, not to an older one.
+- **Which `codex` runs the jobs, and how old it is.** chatq takes `codex`
+  (and `claude`) from PATH before the copy the VS Code extension keeps
+  current, so a `codex` installed by npm once and left there ran every
+  job, however far behind it fell - and nothing said so. `chatinstall`
+  now lists each CLI it found with its version, its path, and whether it
+  came off PATH, is the extension's copy or was named by `CHATQ_CODEX` /
+  `CHATQ_CLAUDE`; `chatproviders` has the same as `Cli`, `CliVersion`
+  and `CliFrom`. When the one on PATH is older than the extension's, both
+  warn. A `CHATQ_*` override is never second-guessed, and neither is
+  Claude Code's own install, whose folder its installer puts on PATH:
+  taken off PATH it would still be the one picked.
+
 ## 0.10.3 — A reload asked for on the overlay, continues first, and phone replies in the chat's own mode
 
 - **The phone at the PC too: `phoneWhilePresent`.** Phone alerts waited

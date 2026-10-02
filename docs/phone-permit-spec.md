@@ -36,9 +36,12 @@ stays an alias).
   topic every 30 s (`Invoke-ChatqReplyPoll -TimeoutSec 5 -MinSeconds 30
   -MaxMessages 2 -Quick`). While Claude waits on a permission its stdout is
   silent, so `$onTick` comes round every 5 s.
-- **Codex.** `codex exec` runs with approval policy `never`: a call that
-  would need approval is refused and the model gets the error back. There is
-  no way to ask mid-run. Codex is out of scope (section 11).
+- **Codex.** chatq runs `codex exec`, whose approval policy is `never`: a
+  call that would need approval is refused and the model gets the error
+  back, so a Codex job never asks mid-run. That is how chatq runs it, not a
+  wall: codex-cli 0.159.2 has a `PermissionRequest` hook event and, in its
+  app server, approval requests of its own. Codex is left out of this spec
+  until a spike picks a way in (section 11).
 
 ## 1. The contract we build on (Claude Code docs, read 2026-09-26)
 
@@ -631,7 +634,29 @@ new page's `permit` sent to an old watcher is logged `unknown act`.
 - **Chats run straight in VS Code or a terminal.** They would need a
   `PermissionRequest` hook in the user's `~/.claude/settings.json`, which
   chatq has never written. That stays in FUTURE_WORK.
-- **Codex.** `codex exec` refuses by policy `never` and cannot ask mid-run.
+- **Codex: deferred until a spike, not out of scope by design.** As chatq
+  runs it today, `codex exec` refuses by policy `never` and never asks
+  mid-run. Two ways in exist in codex-cli 0.159.2, neither tried, since
+  each needs a model turn:
+  - **A hook under `exec`.** A run given `-c approval_policy=on-request`
+    and a run-scoped `PermissionRequest` hook, built like
+    [Start-ChatqAskHook](src/ask.ps1): the hook checks the phone's sealed
+    answer itself, so no new trust is needed in `data/`.
+  - **The app server's own requests.** On a runner that drives turns
+    through `codex app-server` rather than `codex exec`:
+    `item/commandExecution/requestApproval` and
+    `item/fileChange/requestApproval` arrive on the stdout the watcher
+    already reads and are answered on its stdin, `accept` or `decline`
+    only, after the phone's MAC is checked. A permissions request and a
+    `grantRoot` are declined unasked, as "always allow" is (section 1).
+
+  The spike: does the hook fire under `exec`, and does its allow hold
+  without a hook-trust bypass? If yes, the hook; if no, the app server,
+  once that runner exists. Either way this spec gains a Codex section
+  first, [Test-ChatqPermitReady](src/permit.ps1) lets Codex through except
+  under `danger-full-access`, and a Codex ask left unanswered makes the job
+  `needs-input`. FUTURE_WORK.md "Approve permission prompts: what 0.9.0
+  left out" carries it.
 - **Answering at the PC** (console, overlay, toast buttons). It would need a
   PC-side allow the bridge can trust - for example a per-run secret held by
   the watcher and handed to the bridge outside `data/` - which is its own

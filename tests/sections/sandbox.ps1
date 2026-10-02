@@ -23,7 +23,7 @@ $env:CHATQ_WATCHER = '1'      # no auto-start from the load below
 # gh's login is this machine's, whatever the sandbox: no run - child
 # processes included - ever reaches it
 $env:CHATQ_GH = Join-Path $here 'no-such-gh.exe'
-foreach ($n in 'FAKE_RECORD', 'FAKE_SCENARIO', 'FAKE_LAND', 'FAKE_STDERR', 'FAKE_SLEEP', 'FAKE_AGENTS', 'FAKE_AGENTS_SEEN', 'CHATQ_CODE') { Remove-Item "env:$n" -EA SilentlyContinue }
+foreach ($n in 'FAKE_RECORD', 'FAKE_SCENARIO', 'FAKE_LAND', 'FAKE_STDERR', 'FAKE_SLEEP', 'FAKE_AGENTS', 'FAKE_AGENTS_SEEN', 'FAKE_VERSION', 'FAKE_APPSERVER', 'FAKE_APPSERVER_NOMETHOD', 'CHATQ_CODE') { Remove-Item "env:$n" -EA SilentlyContinue }
 
 function Get-Slug([string]$Path) { $Path.TrimEnd('\', '/') -replace '[^A-Za-z0-9]', '-' }
 
@@ -255,6 +255,11 @@ $script:ChatCodeProfilesSeam = { @() }
 $script:ChatShowSpawnSeam = { param($c) $null }
 # nor which window is in front: none, so a chat that finishes is marked unread
 $script:ChatForegroundSeam = { 0 }
+# nor does any overlay pass start codex app-server for Codex's usage
+# (Start-ChatqCodexUsageFetch): CHATQ_CODEX is the fake, and a pass would
+# leave one behind per collector. Answered as a codex that is not there -
+# quiet, the rollout's figure kept; 'codex usage live' sets its own.
+$script:ChatOverlayCodexUsageSeam = { param($h) @{ Ok = $false; Why = 'no app-server in the tests'; Quiet = $true } }
 # and no run waits out a window showing its chat: tests run one job after
 # another into the same chat. 'show fresh' checks the wait itself.
 $script:ChatShowHoldSeconds = 0

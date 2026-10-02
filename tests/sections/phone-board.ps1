@@ -338,6 +338,22 @@ $pbE = @($pbB.queue | ForEach-Object { "$($_.n)=$($_.e)" }) -join ','
 $pbWant = "41=waits for you to leave its tab,42=waits for a background command (since $(Format-ChatOverlayWhen $pbNow.AddMinutes(-8) $pbNow)),43=14:20"
 Check 'board: a job the watcher holds back says why, as the panel does - its tab, or a background command since when; others their ETA; where run passed on' (
     $pbE -eq $pbWant -and @($pbB.open).Count -eq 1 -and $pbB.open[0].where -eq 'run' -and @($pbB.open[0].jobs).Count -eq 3 -and $pbB.open[0].jobs[0].e -eq 'waits for you to leave its tab') "$pbE / $($pbB.open[0].where)"
+# each queue row says what its job runs in (m), for a chat view the board
+# has no row of its chat for: a Codex job its sandbox - its own pick, else
+# its chat's made a word codex takes - a Claude one its mode
+$pbCx = { param($id, $seq, $mode, $sb) [pscustomobject]@{ id = $id; seq = $seq; state = 'queued'; kind = 'prompt'; provider = 'codex'; title = "codex $seq"; cwd = $bdProj; sessionId = '01900000-0000-7000-8000-0000000000ff'; mode = $mode; sandbox = $sb } }
+$pbM = (ConvertTo-ChatqPhoneBoard -Snap $pbSnap -Jobs @((& $pbCx 'pc1' 51 'read-only' 'danger-full-access'), (& $pbCx 'pc2' 52 $null 'managed'), (& $pbJob 'pb4' 53 $null)) -Now $pbNow).Body
+$pbMs = @($pbM.queue | ForEach-Object { "$($_.n)=$($_.m)" }) -join ','
+Check 'board queue rows carry m: a Codex job''s own sandbox, else its chat''s as a word codex takes; a Claude job''s mode' ($pbMs -eq '51=read-only,52=workspace-write,53=default') $pbMs
+# under a cap, m is what a Retry from the phone would run in - brought down
+# as Invoke-ChatqJobAct brings it, mc when it was - never a sandbox or mode
+# the phone's own action will not use
+$pbBy = & $pbJob 'pb5' 55 $null
+$pbBy | Add-Member -NotePropertyName mode -NotePropertyValue 'bypassPermissions'
+$pbMc = (ConvertTo-ChatqPhoneBoard -Snap $pbSnap -Jobs @((& $pbCx 'pc3' 54 'danger-full-access' 'workspace-write'), $pbBy, (& $pbCx 'pc4' 56 'read-only' 'danger-full-access')) -Now $pbNow -Cap 'acceptEdits').Body
+$pbMcs = @($pbMc.queue | ForEach-Object { "$($_.n)=$($_.m)/$($_.mc)" }) -join ','
+Check 'board queue rows under a cap: a Codex job above it says workspace-write, a Claude one the cap, each marked as the phone''s limit; one within it as it is' (
+    $pbMcs -eq '54=workspace-write/True,55=acceptEdits/True,56=read-only/False') $pbMcs
 
 # asked again within 10 s: the same board, not built again
 $bdBuildFn = ${function:Get-ChatqPhoneBoard}

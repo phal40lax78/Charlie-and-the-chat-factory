@@ -416,18 +416,34 @@ Set-ChatqProp $jc2 'sandbox' 'danger-full-access'
 Save-ChatqJob $jc2
 $txt = & $phSay 'phretrycodex' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $ac -Act retry)
 $jc3 = Find-ChatqJob $jc.id
-Check 'retry of a Codex job with full access requeues it in workspace-write' ($jc3.state -eq 'queued' -and $jc3.sandbox -eq 'workspace-write' -and
-    $txt -like "#$($jc.seq) queued again (*) - runs in workspace-write, the phone's limit") $txt
+# capped as the job's own pick (mode); the chat's sandbox stays as it read
+# on the job, and the answer says the run leaves the chat in the cap
+Check 'retry of a Codex job with full access requeues it in workspace-write, and says the chat keeps it' ($jc3.state -eq 'queued' -and $jc3.mode -eq 'workspace-write' -and
+    $jc3.sandbox -eq 'danger-full-access' -and $txt -like "#$($jc.seq) queued again (*) - runs in workspace-write, the phone's limit - and the chat keeps it for later jobs") "$($jc3.mode) $($jc3.sandbox) / $txt"
 # a prompt into a Codex chat that last ran with full access - from the push
-# about its requeue, the job as it is now
+# about its requeue, the job as it is now. Its own pick cleared first: the
+# cap's workspace-write above would go on as the old job's mode, and what is
+# checked is the cap on the chat's own.
 $ac = (& $phLastJoin).F['a']
+Set-ChatqProp $jc3 'mode' $null
+Save-ChatqJob $jc3
 $phInfoFn = ${function:Get-ChatqJobInfo}
 ${function:Get-ChatqJobInfo} = { param($Row) $i = & $phInfoFn $Row; if ($Row.Provider -eq 'codex') { $i.Sandbox = 'danger-full-access'; $i.Mode = 'danger-full-access' }; $i }
 try { $txt = & $phSay 'phcodexprompt' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $ac -Act prompt -Text 'codex from the phone') }
 finally { ${function:Get-ChatqJobInfo} = $phInfoFn }
 $ncx = @(Get-ChatqJobs | Where-Object { $_.rule -eq 'phone' -and $_.provider -eq 'codex' })[0]
-Check 'a prompt into a Codex chat with full access runs in workspace-write, the chat''s network kept' ($ncx -and $ncx.sandbox -eq 'workspace-write' -and $ncx.network -eq $true -and
-    $txt -like "*runs in workspace-write, the phone's limit") "$($ncx.sandbox) $($ncx.network) / $txt"
+Check 'a prompt into a Codex chat with full access runs in workspace-write as its own pick, the chat''s sandbox and network kept, and says the chat keeps it' ($ncx -and $ncx.mode -eq 'workspace-write' -and
+    $ncx.sandbox -eq 'danger-full-access' -and $ncx.network -eq $true -and $txt -like "*runs in workspace-write, the phone's limit - and the chat keeps it for later jobs*") "$($ncx.mode) $($ncx.sandbox) $($ncx.network) / $txt"
+# a job given full access itself (-Sandbox), in a workspace-write chat: the
+# cap goes by the sandbox it runs in - its pick, not the chat's
+$jcp = (New-ChatqJob -Row $cxRow -Prompt 'codex, full access' -Kind prompt -Mode 'danger-full-access').Job
+Complete-ChatqJob $jcp 'failed' ([pscustomobject]@{ kind = 'failed'; reason = 'broke' }) 'broke'
+$null = Send-ChatqAlert 'failed' 'x' 2 -Job $jcp
+$txt = & $phSay 'phretrycodexpick' (Protect-ChatqReplyMessage -Key $rc.Key -Aid (& $phLastJoin).F['a'] -Act retry)
+$jcp2 = Find-ChatqJob $jcp.id
+Check 'retry under the cap of a Codex job given danger-full-access requeues it with mode workspace-write; the chat''s own, so nothing sticks' ($jcp2.state -eq 'queued' -and $jcp2.mode -eq 'workspace-write' -and
+    $jcp2.sandbox -eq 'workspace-write' -and $txt -like "*runs in workspace-write, the phone's limit" -and $txt -notlike '*keeps it*') "$($jcp2.mode) $($jcp2.sandbox) / $txt"
+$null = Remove-ChatqJob $jcp2 'test'
 
 # --- the config dir, files, and the rest ------------------------------------------
 # the chat's config dir travels with it, the default one ($null) included -

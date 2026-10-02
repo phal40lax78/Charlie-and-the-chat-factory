@@ -243,7 +243,7 @@ FILES   everything in data/ beside this script, nothing anywhere else
 # handing back what you already had. extension/package.json carries the same
 # version: the extension installs this copy by it, and extension/build.js
 # refuses to pack the two apart.
-$script:ChatVersion = '0.10.3'
+$script:ChatVersion = '0.10.4'
 
 # The tool's folder and this file, read here once and never inside a function:
 # data/ sits in that folder, and the profile line, the watcher and the overlay
@@ -262,7 +262,7 @@ if (-not $PSScriptRoot) {
     Write-Host '  be loaded from its file:  . "C:\path\to\Charlie-and-the-chat-factory.ps1"' -ForegroundColor DarkGray
     return
 }
-$chatParts = 'core', 'icon', 'providers', 'chatrm', 'discoverability', 'queue', 'live-chats', 'alerts', 'phone', 'phone-extras', 'permit', 'ask', 'phone-down', 'phone-board', 'watcher', 'commands', 'phone-setup', 'overlay-data', 'overlay-windows', 'console', 'overlay-mac', 'overlay', 'auto-continue', 'host-work'
+$chatParts = 'core', 'icon', 'providers', 'chatrm', 'discoverability', 'queue', 'codex-appserver', 'live-chats', 'alerts', 'phone', 'phone-extras', 'permit', 'ask', 'phone-down', 'phone-board', 'watcher', 'commands', 'phone-setup', 'overlay-data', 'overlay-windows', 'console', 'overlay-mac', 'overlay', 'auto-continue', 'host-work'
 $chatMissing = @($chatParts | Where-Object { -not (Test-Path -LiteralPath (Join-Path (Join-Path $PSScriptRoot 'src') "$_.ps1")) })
 if ($chatMissing) {
     # before any part loads: half the commands would fail in ways that

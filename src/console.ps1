@@ -66,7 +66,8 @@ function Select-ChatConsoleChats {
 function Get-ChatConsoleSendPreview {
     <#
     What Send will do, said before it is pressed. -Target: @{ Kind = chat |
-    new; Live = busy | waiting | idle, or $null when no window has it }.
+    new; Live = busy | waiting | idle, or $null when no window has it;
+    Provider = claude | codex, claude when missing }.
     -Plan: ConvertFrom-ChatConsoleWhen's answer. -Block: its provider's
     limit, @{ Until; Type }. -Ahead: jobs queued in front of it. -Running:
     the number of the job running now, 0 for none - the watcher runs one at
@@ -78,6 +79,9 @@ function Get-ChatConsoleSendPreview {
     $inv = [System.Globalization.CultureInfo]::InvariantCulture
     $bits = @()
     if ($Plan.NotBefore) { $bits += "sends $(Format-ChatOverlayWhen ([datetime]$Plan.NotBefore) $Now) at the earliest" }
+    # a Codex outage waits on no status page, only on tries after 1, 2, 5,
+    # 10, then every 15 minutes (Test-ChatqOutageOver)
+    elseif ($Block -and $Block.Type -eq 'overloaded' -and [string](Get-ChatField $Target 'Provider') -eq 'codex') { $bits += 'Codex is overloaded - sends once a try gets through, after 1, 2, 5, 10, then every 15 min' }
     elseif ($Block -and $Block.Type -eq 'overloaded') { $bits += 'Claude is overloaded - sends once status.claude.com has it back' }
     # a refused login and a probe that failed hold the queue too, but no limit
     # is over at their time - the watcher only looks again then
@@ -348,7 +352,7 @@ function New-ChatConsole {
         # goes back to
         Win = $H.Win; Hwnd = $H.Hwnd; Root = $null; BackBtn = $null; MaxBtn = $null; Max = $false; Restore = $null
         State = (Read-ChatConsoleState); Sigs = @{}; Target = $null
-        Staged = [System.Collections.Generic.List[object]]::new(); When = 'next'; WhenValue = ''; Mode = ''; Model = ''
+        Staged = [System.Collections.Generic.List[object]]::new(); When = 'next'; WhenValue = ''; Mode = ''; Model = ''; Sandbox = ''
         Text = ''; NewCwd = ''; NewName = ''; Search = ''; Sel = $null; ShowLog = $false; Jobs = @(); JobsSig = $null
         Index = @(); IndexStamp = $null; IndexParsed = $false; IndexRead = $null; Sync = $null; SyncAt = [datetime]::MinValue; Info = @{}
         Request = $null; WatchSays = ''; TypedAt = $null; Skips = 0; Dirty = $null; Modal = $false; Confirm = @{}; Blocks = $null; BlocksAt = [datetime]::MinValue
@@ -747,7 +751,7 @@ function Save-ChatConsoleDraft {
             target = $(if ($t) { [pscustomobject]@{ Kind = $t.Kind; Id = $t.Id; Provider = $t.Provider; Title = $t.Title; Project = $t.Project; Cwd = $t.Cwd; Path = $t.Path } } else { $null })
             text = $(if ($C.Prompt) { $C.Prompt.Text } else { $C.Text })
             files = @($C.Staged | Where-Object { -not $_.Error -and -not $_.Task } | ForEach-Object { [pscustomobject]@{ Name = $_.Name; Path = $_.Path; Dir = $_.Dir; Size = $_.Size } })
-            when = $C.When; whenValue = $(if ($C.WhenBox) { $C.WhenBox.Text } else { $C.WhenValue }); mode = $C.Mode; model = $C.Model
+            when = $C.When; whenValue = $(if ($C.WhenBox) { $C.WhenBox.Text } else { $C.WhenValue }); mode = $C.Mode; model = $C.Model; sandbox = $C.Sandbox
             newCwd = $(if ($C.FolderBox) { $C.FolderBox.Text } else { $C.NewCwd }); newName = $(if ($C.NameBox) { $C.NameBox.Text } else { $C.NewName })
         }
         New-ChatqDir $script:ChatqData
@@ -778,6 +782,8 @@ function Restore-ChatConsoleDraft {
         $C.WhenValue = [string]$d.whenValue
         $C.Mode = [string]$d.mode
         $C.Model = [string]$d.model
+        # a draft from before the Sandbox chips has none
+        $C.Sandbox = [string](Get-ChatField $d 'sandbox')
         $C.NewCwd = [string]$d.newCwd
         $C.NewName = [string]$d.newName
     }
@@ -1245,11 +1251,27 @@ function Update-ChatConsoleOptions {
         } -Tips $whenTips) $wb
     $isNew = $C.Target -and $C.Target.Kind -eq 'new'
     if ($C.Target -and $C.Target.Provider -eq 'codex') {
-        # Codex runs in the sandbox it last used, on its own model: Claude's
-        # modes and models are not offered, and are never sent with it
-        $cx = New-ChatOverlayText 'a Codex chat runs in the sandbox and on the model it last used' 'faint' 11 -Trim
-        $cx.Margin = [System.Windows.Thickness]::new(52, 2, 0, 0)
-        [void]$C.Opts.Children.Add($cx)
+        # A Codex chat's mode is its sandbox: the three words codex takes, or
+        # the one it last ran in. Claude's modes and models are not offered,
+        # and are never sent with it; it runs on its own model.
+        & $row 'Sandbox' (New-ChatConsoleChips (@('') + $script:ChatqCodexSandboxes) @('as it ran', 'read-only', 'workspace-write', 'full access') $C.Sandbox {
+                param($s, $e) $H = $script:ChatOverlayHost; $H.Con.Sandbox = [string]$s.Tag; $H.Con.Dirty = Get-Date; Update-ChatConsoleOptions $H
+            } -Tips @('The sandbox the chat last ran in', 'It can read, not edit', 'It edits in its folder', 'No sandbox at all')) $null
+        $own = [string]$C.Target.Mode
+        $hint = switch ($(if ($C.Sandbox) { $C.Sandbox } else { $own })) {
+            'read-only' { 'read-only can read, not edit' }
+            'danger-full-access' { 'full access runs everything with no sandbox, and nobody is there to stop it' }
+            default { $null }
+        }
+        # a pick other than the chat's own stays with it after the run; a
+        # chat whose own is not known yet (its row did not load) says nothing
+        if (Get-ChatqCodexStickSay $own $C.Sandbox) { $hint = if ($hint) { "$hint - and it sticks: later jobs run in it too" } else { "it sticks: later jobs for this chat run in $($C.Sandbox) too, not $own" } }
+        foreach ($x in @($hint, 'it runs on the model it last used')) {
+            if (-not $x) { continue }
+            $cx = New-ChatOverlayText $x 'faint' 11 -Trim
+            $cx.Margin = [System.Windows.Thickness]::new(52, 1, 0, 0)
+            [void]$C.Opts.Children.Add($cx)
+        }
         Update-ChatConsolePreview $H
         return
     }
@@ -1535,11 +1557,11 @@ function Invoke-ChatConsoleSend {
     $src = @{ Files = @($C.Staged | ForEach-Object { $_.Path }) }
     # the job list read afresh for its number: a shell may have queued one
     # since the last pass
-    # Claude's modes and models mean nothing to Codex, which runs in the
-    # sandbox it last used: -m opus would fail the run
+    # Claude's modes and models mean nothing to Codex: -m opus would fail
+    # the run. Its mode is the sandbox picked, '' for the one it last used.
     $codex = $t.Provider -eq 'codex'
     $how = @{
-        Prompt = $text; Mode = $(if ($codex) { '' } else { $C.Mode }); Model = $(if ($codex) { '' } else { $C.Model })
+        Prompt = $text; Mode = $(if ($codex) { $C.Sandbox } else { $C.Mode }); Model = $(if ($codex) { '' } else { $C.Model })
         NotBefore = $plan.NotBefore; First = $plan.First; SendNow = $plan.SendNow; Sources = $src; MoveSources = $true
     }
     if ($t.Kind -eq 'new') {
@@ -1802,18 +1824,24 @@ function Show-ChatConsoleDetails {
     if ($j.sessionId) { & $act 'Write to this chat' 'write' 'Pick this chat to write to' }
     if (Test-Path -LiteralPath (Join-Path $script:ChatqLogDir "$($j.id).jsonl")) { & $act $(if ($C.ShowLog) { 'Reply' } else { 'Log' }) 'log' 'What the run did' }
     & $add $acts
-    # A waiting Claude job's mode and model, as the chips under the prompt
-    # box set them for a new one (Set-ChatqJobRunAs). One set by chatq that
-    # the chips do not list is shown as a chip of its own, so the one in
-    # force is always filled.
-    if ($j.state -eq 'queued' -and $j.provider -eq 'claude') {
+    # A waiting job's mode and model, as the chips under the prompt box set
+    # them for a new one (Set-ChatqJobRunAs). One set by chatq that the
+    # chips do not list is shown as a chip of its own, so the one in force
+    # is always filled. A Codex job's mode is its sandbox, its row Sandbox;
+    # its model is not offered, as under the prompt box.
+    if ($j.state -eq 'queued' -and $j.provider -in 'claude', 'codex') {
         $isNew = $j.kind -eq 'new'
-        foreach ($o in @(
-                @{ Label = 'Mode'; What = 'mode'; Now = [string]$j.mode; Values = $script:ChatConsoleModes; Own = $(if ($isNew) { 'default' } else { 'as it ran' }) },
-                @{ Label = 'Model'; What = 'model'; Now = [string]$j.runModel; Values = $script:ChatConsoleModels; Own = $(if ($isNew) { 'default' } else { 'its own' }) })) {
+        $opts = if ($j.provider -eq 'codex') {
+            @(@{ Label = 'Sandbox'; What = 'mode'; Now = [string]$j.mode; Values = $script:ChatqCodexSandboxes; Own = 'as it ran'; Words = @{ 'danger-full-access' = 'full access' } })
+        }
+        else {
+            @(@{ Label = 'Mode'; What = 'mode'; Now = [string]$j.mode; Values = $script:ChatConsoleModes; Own = $(if ($isNew) { 'default' } else { 'as it ran' }) },
+                @{ Label = 'Model'; What = 'model'; Now = [string]$j.runModel; Values = $script:ChatConsoleModels; Own = $(if ($isNew) { 'default' } else { 'its own' }) })
+        }
+        foreach ($o in $opts) {
             $vals = @('') + @($o.Values)
             if ($o.Now -and $o.Now -notin $vals) { $vals += $o.Now }
-            $labels = @($o.Own) + @($vals | Select-Object -Skip 1)
+            $labels = @($o.Own) + @($vals | Select-Object -Skip 1 | ForEach-Object { if ($o.Words -and $o.Words[$_]) { $o.Words[$_] } else { $_ } })
             # which of the two a chip is: its row's Tag, as the click has no
             # closure; what went wrong is said, as the buttons' is
             $on = {
@@ -1826,7 +1854,8 @@ function Show-ChatConsoleDetails {
             }
             $d = [System.Windows.Controls.DockPanel]::new()
             $l = New-ChatOverlayText $o.Label 'dim' 11.5
-            $l.Width = 44
+            # Sandbox is a wider word than Mode and Model
+            $l.Width = if ($o.Label.Length -gt 5) { 52 } else { 44 }
             $l.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
             [System.Windows.Controls.DockPanel]::SetDock($l, [System.Windows.Controls.Dock]::Left)
             [void]$d.Children.Add($l)
@@ -1982,7 +2011,10 @@ function Invoke-ChatConsoleJobAction {
         { $_ -in 'mode', 'model' } {
             $no = Set-ChatqJobRunAs $j $Act $Value
             if ($no) { $say = $no; $tone = 'warn'; break }
-            $say = "#$($j.seq) runs $(if ($Value) { "$(if ($Act -eq 'mode') { 'in' } else { 'on' }) $Value" } else { "$(if ($Act -eq 'mode') { 'in the mode' } else { 'on the model' }) its chat has" })"
+            $kindOf = if ($Act -eq 'model') { 'model' } elseif ($j.provider -eq 'codex') { 'sandbox' } else { 'mode' }
+            $say = "#$($j.seq) runs $(if ($Value) { "$(if ($Act -eq 'mode') { 'in' } else { 'on' }) $Value" } else { "$(if ($Act -eq 'mode') { 'in the' } else { 'on the' }) $kindOf its chat has" })"
+            # a sandbox other than the chat's stays with it after the run
+            if ($j.provider -eq 'codex' -and $Act -eq 'mode' -and (Get-ChatqCodexStickSay (ConvertTo-ChatqCodexSandbox ([string]$j.sandbox)).Sandbox $Value)) { $say += ' - and the chat keeps it for later jobs' }
         }
         'cancel' {
             $say = switch (Stop-ChatqJobRun $j) {
