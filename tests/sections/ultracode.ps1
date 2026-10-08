@@ -58,12 +58,11 @@ $ucInv = [System.Globalization.CultureInfo]::InvariantCulture
 $script:UcClock = [DateTimeOffset]::UtcNow.AddHours(-3)
 $ucAt = { param([int]$Ms = 1000) $script:UcClock = $script:UcClock.AddMilliseconds($Ms); $script:UcClock.ToString($ucFmt, $ucInv) }
 $ucId = { [guid]::NewGuid().ToString() }
-# the tail every record ends on; and < > & ' as they are, where 5.1's
-# ConvertTo-Json would write them as \u escapes Claude Code never does
+# the tail every record ends on, and the line as Claude Code writes it
 $ucLine = {
     param($R, [string]$Ep = 'claude-vscode', [string]$V = '2.1.284')
     $R.userType = 'external'; $R.entrypoint = $Ep; $R.cwd = 'C:\work'; $R.sessionId = 'uc'; $R.version = $V; $R.gitBranch = 'main'
-    (($R | ConvertTo-Json -Compress -Depth 12) -replace '\\u003c', '<' -replace '\\u003e', '>' -replace '\\u0026', '&' -replace '\\u0027', "'") + "`n"
+    (ConvertTo-NodeJson $R 12) + "`n"
 }
 # a prompt the user typed
 $ucHuman = {

@@ -139,7 +139,7 @@ permit section takes the bridge's pwsh leg from a `pwsh` on the PATH alone.
   4 points of that machine's 31.6 GB at its peak, about 1.3 GB: start one
   under 90%.
 
-What it covers (at 0.10.5, 1658 checks in `run-tests.ps1` under 5.1 and
+What it covers (at 0.10.5 and 0.10.6, 1658 checks in `run-tests.ps1` under 5.1 and
 1659 under pwsh 7, 458 in `extension-check.js`, 258 in
 `reply-page-check.js`, 138 in `board-page-check.js` and 36 in
 `overlay-mac-check.js`; at 0.10.4 it was 1581 under 5.1 - under pwsh 7 in

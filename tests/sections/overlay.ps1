@@ -523,6 +523,16 @@ Check 'open tabs: no folder at all - nothing, and no error' (@(Read-ChatOpenTabs
 # text changed, and its window looked for once in 10 s - so a window that
 # died is gone 10 s on at most. A hidden ping stands in for the window.
 $otPing = { Start-Process (Join-Path $env:SystemRoot 'System32\PING.EXE') -ArgumentList '-n', '60', '127.0.0.1' -WindowStyle Hidden -PassThru }
+# a ping killed, then waited for until Get-Process no longer finds it - 5 s
+# at most. On a busy runner Get-Process still found one right after
+# WaitForExit, so Read-ChatHostFiles, which asks it, kept its tab.
+$otKill = {
+    param($P)
+    Stop-Process -Id $P.Id -Force
+    $P.WaitForExit()
+    $until = (Get-Date).AddSeconds(5)
+    while ((Get-Process -Id $P.Id -EA SilentlyContinue) -and (Get-Date) -lt $until) { Start-Sleep -Milliseconds 50 }
+}
 $otChild = & $otPing
 $otBack = & $otPing
 try {
@@ -535,16 +545,14 @@ try {
     # the same text: what was parsed, not a parse of its own
     $otD1 = @(Read-ChatHostFiles $otDir $otT0.AddSeconds(2))[0].Data
     $otD2 = @(Read-ChatHostFiles $otDir $otT0.AddSeconds(3))[0].Data
-    Stop-Process -Id $otChild.Id -Force
-    $otChild.WaitForExit()
+    & $otKill $otChild
     $otK9 = @(Read-ChatOpenTabs -Dir $otDir -Now $otT0.AddSeconds(9))
     $otK11 = @(Read-ChatOpenTabs -Dir $otDir -Now $otT0.AddSeconds(11))
     # the clock set back: a look taken "later" than now counts for nothing,
     # so a window gone since is let go at once, not an hour on
     Write-OtFile $otBack.Id ([DateTimeOffset]::new($otBack.StartTime).ToUnixTimeMilliseconds()) @([ordered]@{ sessionId = $otB; cwd = 'C:\p\tabbed'; label = 'back' })
     $otB1 = @(Read-ChatOpenTabs -Dir $otDir -Now $otT0.AddHours(1))
-    Stop-Process -Id $otBack.Id -Force
-    $otBack.WaitForExit()
+    & $otKill $otBack
     $otB2 = @(Read-ChatOpenTabs -Dir $otDir -Now $otT0)
 }
 finally { Stop-Process -Id $otChild.Id, $otBack.Id -Force -EA SilentlyContinue }

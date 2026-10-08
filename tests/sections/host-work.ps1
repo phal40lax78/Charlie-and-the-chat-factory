@@ -69,9 +69,8 @@ Check 'the other window: only its own busy chat' ((Get-HwWhy $hwB) -eq '5d=turn'
 
 # the workflow reports back: idle
 $hwDone = [ordered]@{ type = 'user'; timestamp = (Get-Date).AddMinutes(-4).ToUniversalTime().ToString('o'); sessionId = $idH4
-    message = [ordered]@{ role = 'user'; content = "<task-notification>`n<task-id>whw0001</task-id>`n<status>completed</status>`n</task-notification>" } } | ConvertTo-Json -Compress -Depth 6
-$u = [string][char]92 + 'u00'
-[System.IO.File]::AppendAllText($hwFile[$idH4], $hwDone.Replace("${u}3c", '<').Replace("${u}3e", '>') + "`n", $utf8)
+    message = [ordered]@{ role = 'user'; content = "<task-notification>`n<task-id>whw0001</task-id>`n<status>completed</status>`n</task-notification>" } }
+[System.IO.File]::AppendAllText($hwFile[$idH4], (ConvertTo-NodeJson $hwDone) + "`n", $utf8)
 (Get-Item -LiteralPath $hwFile[$idH4]).LastWriteTime = (Get-Date).AddMinutes(-4)
 $hw2 = Get-ChatHostWork -HostPid 200 -ConfigDir $hwHome
 Check 'its task-notification ends the workflow: idle again' ((@($hw2.Chats | Where-Object SessionId -eq $idH4))[0].Why -eq '') (Get-HwWhy $hw2)

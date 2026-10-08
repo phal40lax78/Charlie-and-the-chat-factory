@@ -12,13 +12,10 @@ $pW1 = New-FakeChat $projW $idW1 'Workflow host chat' 2 @('run the review workfl
 $null = New-FakeChat $projW $idW2 'Quiet neighbour chat' 3 @('nothing much')
 $null = @(Sync-ChatIndex)
 function Add-ChatRecord([string]$Path, $Record, [double]$MinutesAgo) {
-    # one transcript record as Claude Code writes it: Node's JSON.stringify
-    # leaves < > & ' alone, where 5.1's ConvertTo-Json escapes them
+    # one transcript record as Claude Code writes it
     $Record['timestamp'] = (Get-Date).ToUniversalTime().AddMinutes(-$MinutesAgo).ToString('o')
     $Record['sessionId'] = $idW1
-    $u = [string][char]92 + 'u00'
-    $j = ($Record | ConvertTo-Json -Compress -Depth 8).Replace("${u}3c", '<').Replace("${u}3e", '>').Replace("${u}26", '&').Replace("${u}27", "'")
-    [System.IO.File]::AppendAllText($Path, $j + "`n", $utf8)
+    [System.IO.File]::AppendAllText($Path, (ConvertTo-NodeJson $Record) + "`n", $utf8)
 }
 function Add-ChatLaunch([string]$Tool, $Result, [double]$MinutesAgo) {
     # the call, its result, and the turn ending straight after - the shape of

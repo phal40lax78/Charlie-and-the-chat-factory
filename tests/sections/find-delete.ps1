@@ -231,8 +231,9 @@ Check 'a shell''s load: the panel''s, the console''s and the Mac''s parts left o
 # window, with CHATQ_OVERLAY alone and calls them by name: each is started
 # again the way this copy starts it, its launch's CHATQ_ALLPARTS and all.
 # Why the overlay's could not start is thrown, for the old launch's catch to
-# log. The phone setup's waits for the window it started to hold the lock - a
-# second here, not 6 - and no longer once it does.
+# log. The phone setup's waits for the window it started to hold the lock:
+# its whole wait when none does - a second here, not 6 - and, given 10 s, back
+# in under 5 once one does, a slow runner's stall and all.
 $gtOld = Invoke-Sta 'gate-old' @"
 Remove-Item env:CHATQ_OVERLAY, env:CHATQ_ALLPARTS -EA SilentlyContinue
 `$env:CHATQ_OVERLAY = '1'
@@ -250,9 +251,10 @@ try { Start-ChatOverlayHost; `$global:GtOld += 'no throw' } catch { `$global:GtO
 Show-ChatqPhoneSetup
 `$global:GtOld += "waited:`$(`$sw.ElapsedMilliseconds -ge 900)"
 `$global:GtTake = `$true
+`$ChatqPhoneSetupWaitSec = 10
 `$sw.Restart()
 Show-ChatqPhoneSetup
-`$global:GtOld += "held:`$(`$sw.ElapsedMilliseconds -lt 500)"
+`$global:GtOld += "held:`$(`$sw.ElapsedMilliseconds -lt 5000)"
 `$global:GtLock.Dispose()
 `$global:GtOld -join ','
 "@

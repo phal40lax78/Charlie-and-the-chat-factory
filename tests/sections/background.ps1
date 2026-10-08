@@ -10,12 +10,11 @@ $idBg = 'bebebebe-bebe-4ebe-8ebe-bebebebebebe'
 $pBg = New-FakeChat $projBg $idBg 'Background host chat' 1 @('send it off')
 $dirBg = Get-ChatSessionDir $pBg
 function ConvertTo-BgLine($Record, [double]$MinutesAgo, [string]$Entrypoint = 'claude-vscode') {
-    # one record as Claude Code writes it (Node leaves < > & ' alone)
+    # one record as Claude Code writes it
     $Record['timestamp'] = (Get-Date).ToUniversalTime().AddMinutes(-$MinutesAgo).ToString('o')
     $Record['sessionId'] = $idBg
     $Record['entrypoint'] = $Entrypoint
-    $u = [string][char]92 + 'u00'
-    return ($Record | ConvertTo-Json -Compress -Depth 8).Replace("${u}3c", '<').Replace("${u}3e", '>').Replace("${u}26", '&').Replace("${u}27", "'")
+    return (ConvertTo-NodeJson $Record)
 }
 function New-BgResult($Result, [double]$MinutesAgo, [string]$Entrypoint = 'claude-vscode') {
     ConvertTo-BgLine ([ordered]@{ type = 'user'; message = [ordered]@{ role = 'user'

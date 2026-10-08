@@ -51,10 +51,8 @@ function Add-SfLaunch([string]$Path, [string]$TaskId, [datetime]$At, [string]$En
 }
 function Add-SfDone([string]$Path, [string]$TaskId) {
     $r = [ordered]@{ type = 'user'; timestamp = (Get-Date).ToUniversalTime().ToString('o'); sessionId = $idS
-        message = [ordered]@{ role = 'user'; content = "<task-notification>`n<task-id>$TaskId</task-id>`n<status>completed</status>`n</task-notification>" } } | ConvertTo-Json -Compress -Depth 6
-    # as Claude Code writes it: 5.1's ConvertTo-Json escapes < and >, Node's does not
-    $u = [string][char]92 + 'u00'
-    [System.IO.File]::AppendAllText($Path, $r.Replace("${u}3c", '<').Replace("${u}3e", '>') + "`n", $utf8)
+        message = [ordered]@{ role = 'user'; content = "<task-notification>`n<task-id>$TaskId</task-id>`n<status>completed</status>`n</task-notification>" } }
+    [System.IO.File]::AppendAllText($Path, (ConvertTo-NodeJson $r) + "`n", $utf8)
 }
 
 # the registry: which program a process is, read; its secret never

@@ -34,6 +34,13 @@ foreach ($n in 'FAKE_RECORD', 'FAKE_SCENARIO', 'FAKE_LAND', 'FAKE_STDERR', 'FAKE
 
 function Get-Slug([string]$Path) { $Path.TrimEnd('\', '/') -replace '[^A-Za-z0-9]', '-' }
 
+function ConvertTo-NodeJson($Record, [int]$Depth = 8) {
+    # a record as Claude Code writes it: Node's JSON.stringify leaves < > & '
+    # alone, where 5.1's ConvertTo-Json writes them as \u escapes
+    $u = [string][char]92 + 'u00'
+    ($Record | ConvertTo-Json -Compress -Depth $Depth).Replace("${u}3c", '<').Replace("${u}3e", '>').Replace("${u}26", '&').Replace("${u}27", "'")
+}
+
 function New-FakeChat {
     # one Claude transcript: a prompt and a reply per entry in $Prompts, the
     # title record, and optionally the synthetic limit record at the end -

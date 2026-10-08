@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.10.6 — Two self-test checks that wait out a slow machine
+
+- **Two checks in the self-test no longer fail on a slow machine.**
+  Publishing 0.10.5 failed at first: on a slow CI runner, one check
+  failed in the 5.1 self-test and another in pwsh 7's, on code that had
+  passed three other times. The open-tabs check ends a process standing
+  in for a VS Code window and waits for it, yet under 5.1 `Get-Process`
+  still found it for a moment, so its tab stayed listed; the check now
+  waits until `Get-Process` no longer finds it, 5 s at most. An older
+  copy's launch of the phone setup waits for its window to hold a lock,
+  and that check wanted the wait over within 500 ms of the lock being
+  taken. It now allows 5 s of a 10 s wait: about 60 ms is what it takes,
+  and the whole 10 s what a broken wait would. Each check still fails
+  with the code it guards broken (TESTING.md, Slow machines).
+- **One helper writes a check's Claude Code record.** Five sections each
+  had a copy: `ConvertTo-Json`, then 5.1's `\u` escapes of `< > & '`
+  undone. `ConvertTo-NodeJson`, in the sandbox section, now does it for
+  all five, and the records come out as before. Nothing you see or set
+  changes in this release.
+
 ## 0.10.5 — A window's buttons on the overlay's bar, idle tabs shown, and an overlay that keeps going
 
 - **The watcher and the overlay no longer hold the folder they were
