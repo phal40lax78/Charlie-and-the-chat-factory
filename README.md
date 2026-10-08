@@ -68,7 +68,27 @@ chatinstall
 
 The leading dot matters: `. file.ps1` loads the commands into this shell, while
 `& file.ps1` runs them into a scope that is thrown away. The script notices and
-prints the line you meant.
+prints the line you meant - though a double-clicked window closes too fast to
+read it.
+
+- **No typing the path:** type a dot and a space, then drag the `.ps1` out of
+  Explorer onto the window - or shift+right-click it, **Copy as path**, and
+  paste. Quotes matter only once the path has a space, and Copy as path adds
+  them.
+- **The `.ps1`, never its folder.** A folder gives `The term '...' is not
+  recognized`: a folder is not a command.
+- **That first line will not run?** The execution policy is Restricted. Run
+  `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once (Windows only).
+- **A folder of its own.** Not `.claude`, `.codex` or `.vscode`: those tools
+  rewrite them on update and clear them on reinstall, index and all. Not a
+  folder shared with other scripts, where a second `data/` lands on this one.
+- **Moving it** is fine: move `src/` and `data/` with it and re-run
+  `chatinstall`, which repoints the profile line instead of leaving a dead one.
+- **`$PROFILE` is per host:** `Documents\WindowsPowerShell` for 5.1,
+  `Documents\PowerShell` for pwsh, and a redirected Documents moves both. Install
+  once in each shell you use.
+- **Another machine:** do not copy `data/chat-index.csv`. It holds absolute
+  paths from the old one, and rebuilds itself on the first search.
 
 **Coming from chatrm or chatq?** `chatinstall` replaces their profile lines with
 this one — both define the same commands. The commands keep their names.
@@ -203,6 +223,10 @@ on its own:
 - **An id** deletes. An id is exact.
 - **`-Force`** skips all of the above.
 
+Esc backs out. Two chats sharing a title and an age are the one case where the
+line adds the project and size, since nothing else tells them apart. With no VT
+it falls back to a numbered list and a typed y/N.
+
 There is no recycle bin. `chatrm` removes the transcript and everything it
 leaves behind — for Claude the sidecar folder (subagents, tool results),
 `file-history`, `session-env`, `tasks`, `debug`, the security, telemetry and todo
@@ -210,7 +234,9 @@ files, a background job's folder, and its plan file when no other chat in the
 project shares it; for Copilot `chatEditingSessions`. The inventory follows
 [claude-chats-delete](https://github.com/ataleckij/claude-chats-delete)'s. The
 leftovers go only once the transcript is really gone: on Windows a chat a live
-window still holds open fails as `LOCKED`, and keeps all of it.
+window still holds open fails as `LOCKED`, and keeps all of it. Only Windows
+holds a file against deletion: elsewhere the delete succeeds, and that window
+goes on writing to a file no longer on disk.
 
 A chat with a prompt queued for it by `chatq` is kept, and the job named;
 `-DropJobs` drops the jobs first.
@@ -229,7 +255,11 @@ until the next search reads it again, which it does once.
 A chat still listed in the panel is one the window is tracking, and the window
 writes it back as an empty stub when it reloads. A `FileSystemWatcher` takes that
 stub back the moment it lands, and `data/rewritten.txt` remembers the delete for
-shells that were not open at the time. `chatclean` sweeps whatever slips past.
+shells that were not open at the time, for 7 days. Either only removes a file
+still a stub, so resuming that chat for real keeps it. Archived chats are
+filtered out of that list and never tracked, so they stay deleted first time.
+`chatclean` sweeps whatever slips past, in a checkbox list (space toggles, `a`
+selects all) so the ghosts go in one pass.
 
 ### Reloading safely
 
@@ -298,7 +328,8 @@ chatrestore 'Old experiment'         # back where it was
   ends it, and anywhere a rollout untouched for 12 hours has none. `codex archive` runs on the
   Codex home the thread's rollout is under, and the archive keeps that home
   for `chatrestore` - not whatever `CODEX_HOME` says by then.
-- **Copilot:** VS Code archives those itself, from its chat list.
+- **Copilot:** VS Code archives those itself, from its chat list. chatq never
+  touches that list (`hiddenSessionIds`).
 
 `chatuninstall -All` refuses while the archive holds anything — it is the only
 copy — unless `-Force`.
@@ -1574,7 +1605,15 @@ A small panel in the top-right corner that stays above other windows:
 - **Every open Claude chat:** project, title and newest prompt, with a dot for
   what it is doing. Amber is waiting on you (a permission prompt, say) and goes
   to the top; green is working; grey is idle. A chat open in two windows is one
-  row.
+  row. A VS Code Claude tab with no process behind it - one a window's
+  reload brought back, say - is an idle row too, not a Recent line. A tab
+  carries no session id, so
+  [the extension](#chats-open-in-vs-code-and-the-extension) matches it
+  to its chat by its label, the title's first 24 characters, among each
+  workspace folder's 200 newest chats: an untitled tab (`Claude Code`), a
+  label two tabs of the window share and one two chats would give are
+  left out, and so is a chat in another `CLAUDE_CONFIG_DIR` than the
+  window's.
 - **Work a chat sent to the background counts as working.** The turn that
   starts a workflow, a background agent or a background command ends at
   once, and Claude calls the chat idle while the work goes on. Its row stays
@@ -1641,7 +1680,8 @@ A small panel in the top-right corner that stays above other windows:
   turns its row amber - until you go on in that chat yourself, which answers
   it ([Needs input](#when-it-sends)).
 - **Recent,** under all of those, faint: the newest Claude chats not open,
-  one line each - project, title, how long ago - five by default. Each
+  one line each - project, title, how long ago - five by default, and
+  more as [the panel is stretched](#the-overlay) past its open chats. Each
   opens as a tab from its chip, as an open row does. A side transcript, an
   empty one, and a chat whose folder is gone are never listed - a folder
   is looked for again every 3 minutes, and one on a network share or a
@@ -1697,31 +1737,44 @@ Nothing is saved, and the tray's **Show**, the hotkey or `chatoverlay`
 bring it back during it, until the next one.
 
 **It stays out of the way.** As a panel it never takes focus, and clicks go
-through it; only while it is the console (below) does it take the keyboard.
-Rest the pointer on it - or just outside its edge - for a moment and a row
-of buttons appears on its top edge, outside the panel, flush with its
-top-right corner - or under the panel when it sits too near the top of the
-screen for them. They keep that
-side only while they are up, so a panel dragged down from the top has them
-on its top edge again the next time they come. Resting on that
-spot itself does it too, so you can point straight at the buttons. A pointer
-just passing over on its way to the window underneath brings up nothing.
+through it - all but its top strip; only while it is the console (below)
+does it take the keyboard. Along that top strip runs a bar, always there
+while the panel is, with the buttons at its right end. The bar takes the
+mouse even while the panel is locked: hold it anywhere off its buttons
+and drag to move the panel - the pointer shows the four-way arrow there,
+and the plain one over a button, and a press on a button never drags. The
+bar is drawn all but clear, so nothing hides the rows' look, and the
+panel's opacity fades its buttons with the panel. The rows below it let
+clicks through as before.
 
-**Resize it by its edges**, as any window, while the buttons are up: a side
-for the width, the top or bottom for the rows - a row more for each row's
-height of travel outward, one fewer back - or a corner for both. The pointer
-turns to that edge's arrows, and a blue line marks the side it sizes. The
-side across from the one you drag stays where it is: the top edge grows the
-panel upward over its bottom, and by the screen's foot brings back the rows
-the foot had cut. Dragged outward, it never ends with fewer rows than were
-set, even with fewer chats open. Collapsed, the sides and corners size the
-width alone. The size is kept in `config.json` as you let go, and the
-panel's place in `overlay-state.json`. The edges reach 4 units out from the
-panel and 3 in; while they are up, a click there lands on them, not on the
-window underneath.
+**Resize it by its edges**, as any window: rest the pointer on the panel -
+or on the bar, or just outside its edge - for a moment and the edges come;
+a pointer just passing over on its way to the window underneath brings up
+none. Then a side for the width, the top or bottom for the height, or a
+corner for both. The pointer turns to that edge's arrows, and a blue line
+marks the side it sizes. Outward, the top or bottom first brings in the
+open chats not drawn yet - past the row count, or cut by the screen's
+foot - a row for each row's height of travel; once every open chat shows,
+it adds Recent chats, newest first, a line for each line's height, up to
+20, whatever Recent was set to, Off included. Past what there is, the
+panel grows no further: it is never taller than what it has to show. Back
+in takes Recent lines off first, then rows, down to one row; Recent can
+go to none. The side across from the one you drag stays where it is: the
+top edge grows the panel upward over its bottom, and by the screen's foot
+brings back the rows, then the Recent lines, the foot had cut. Dragged
+outward, it never ends with fewer rows, or Recent lines, than were set,
+even with fewer chats open; with no chat open, dragging in takes Recent
+lines away and leaves the row count as it was. Collapsed, the sides and
+corners size the width alone. As you let go, the width, the row count
+(`maxRows`) and the Recent count (`recent`) are kept in `config.json`,
+each only if it changed, and the panel's place in `overlay-state.json`.
+`recent` is one setting: the console's Recent list, `chatoverlay -Print`
+and the phone board show that many too. The edges reach 4 units out from
+the panel and 3 in; while they are up, a click there lands on them, not on
+the window underneath.
 
-The buttons, left to right, with × at the corner as on any window:
-- **the grip** (six dots): hold it and drag to move the panel;
+The buttons, left to right, ending in minimize, maximize and × as on any
+window's caption:
 - **collapse** (a chevron): folds the panel to one line - how many chats wait,
   work or sit idle, and Claude's usage - and back;
 - **refresh** (a circular arrow): asks Claude, Codex and Copilot for usage
@@ -1730,27 +1783,36 @@ The buttons, left to right, with × at the corner as on any window:
   asked through `codex app-server`, a wait after a failure lifted; with
   `-CodexUsage off`, or no answer yet, its figure is what Codex wrote on
   its last run (`last run Mar 13`), and moves only when Codex runs;
-- **console** (a speech bubble): turns the panel into
-  [the console](#the-console), in its place; Esc brings the panel back;
 - **settings** (two sliders): a box of seven rows - opacity on a slider;
   **Width** (260-800) and **Rows** (1-30) side by side on sliders; the
   theme as Dark, Light or System (System follows Windows' own light or dark
   mode); usage as Lines or Bars; **Style**, full or compact rows;
-  **Recent**, off, 5 or 10; and **Cut off**, Continue, Ask or Leave -
+  **Recent**, off, 5 or 10 - a count a stretch set to anything else
+  lights none of them; and **Cut off**, Continue, Ask or Leave -
   whether the chats the limit cut off are [continued by
   themselves](#auto-continue), [asked about](#when-the-limit-is-over) once
   it is over, or only marked (`autoContinue`). A slider applies as it moves - the width with
   the right edge held, and the panel kept on its screen, growing to the
   right by the screen's left edge - and `config.json` gets it a moment
   after it rests. Opened, the sliders show the size the panel has now,
-  whatever changed it;
-- **hide to tray** (an arrow onto a line): click the tray icon to show it again;
+  whatever changed it. The box opens above the panel, its right end at
+  the bar's, where the screen has room for it there, else under the bar,
+  over the rows; it keeps that side while it is open, and shuts once the
+  pointer has been off both the panel and the box for 0.7 s. On a screen
+  too short for it either way, it goes to the side with more room and the
+  rest runs off the screen;
+- **minimize** (a short line): hides the panel to the tray, and says once,
+  in a balloon, how to bring it back - click the tray icon, or the hotkey;
+- **maximize** (a square): turns the panel into [the console](#the-console),
+  in its place; Esc brings the panel back;
 - **×**: closes the overlay until you next sign in. `chatoverlay` starts
   it again sooner (see [a close by hand](#the-overlay) above).
 
-The panel itself never takes a click - until it turns into the console; the
-buttons, and the edges, are small windows of their own, and they go when the
-pointer leaves.
+The rest of the panel never takes a click - until it turns into the
+console. The bar, and the edges, are small windows of their own: the bar
+shows and hides with the panel - to the tray and back, out of a full
+screen's way and back, gone while the panel is the console - and the edges
+go when the pointer leaves.
 
 **Open a chat from its row.** Move onto a Claude row, or a Recent line, and
 rest the pointer there for a moment - 400 ms, or what
@@ -1850,9 +1912,9 @@ if that window was not brought forward either - other folders open, no
 What you pick in the settings box is kept in `config.json`, like a setting made with
 `chatoverlay`; a collapsed panel stays collapsed across restarts.
 
-**Ctrl+Alt+Shift+O** or the tray icon's menu unlocks the whole panel to drag:
-it gets a blue edge, and it locks itself again two minutes after the pointer
-leaves. The tray icon is Charlie, with a dot at her bottom right in the
+**Ctrl+Alt+Shift+O** or the tray icon's menu unlocks the whole panel to drag,
+not just its bar: it gets a blue edge, and it locks itself again two
+minutes after the pointer leaves. The tray icon is Charlie, with a dot at her bottom right in the
 colour of the most urgent chat; its tooltip, starting `Charlie:`, counts
 the chats - those the overlay asks about as `2 can
 continue`, apart from the rest `cut off` - and gives Claude's 5 h
@@ -1921,7 +1983,8 @@ sees a token. With no `gh`, or one not logged in (`gh auth login`), there is
 simply no Copilot line; `chatoverlay -CopilotUsage off` stops asking. That
 endpoint is GitHub's own, not a documented one, so it may change under it.
 
-**What it costs.** One hidden `powershell.exe`, about 160 MB and under 0.1% CPU.
+**What it costs.** One hidden `powershell.exe`: 250 to 290 MB of memory and
+some 5% of one processor core, as measured on the machine it was written on.
 It reads a file again only once that file has changed, and a transcript only from
 where it last stopped. The first look at a 20 MB chat reads the last 256 KB.
 
@@ -1954,12 +2017,12 @@ chatoverlay -Recent 10            # ten chats not open under the rest; 0 for non
 | key | default | |
 |---|---|---|
 | `width` | 380 | pixels at 100% scaling, 260–800; the panel's sides, the settings box, or `chatoverlay -Width 460`. The side not dragged stays put - the right edge, for the box and the command |
-| `maxRows` | 8 | 1–30; the rest become `+3 more · 2 idle`, and so do the rows that would run past the screen's bottom from wherever the panel sits. The panel's top or bottom edge, the settings box, or `chatoverlay -Rows 12` |
+| `maxRows` | 8 | 1–30; the rest become `+3 more · 2 idle`, and so do the rows that would run past the screen's bottom from wherever the panel sits. The panel's top or bottom edge (kept as you let go), the settings box, or `chatoverlay -Rows 12` |
 | `opacity` | 0.94 | 0.3–1; the settings box's slider, or `chatoverlay -Opacity 85` |
 | `theme` | `dark` | `light`, or `system` to follow the OS; `chatoverlay -Theme system` |
 | `prompts` | `true` | `false` hides the prompt lines - compact rows, one line a chat, and good for screen sharing; the settings box's Style, or `chatoverlay -Compact on` |
 | `chipDelayMs` | 400 | 100–3000; how long the pointer rests on a row before its open chip comes; `chatoverlay -ChipDelay 250` |
-| `recent` | 5 | 0–20; how many chats not open the Recent list shows, 0 for none; the settings box (off, 5, 10), or `chatoverlay -Recent 10` |
+| `recent` | 5 | 0–20; how many chats not open the Recent list shows, 0 for none - in the panel, the console, `-Print` and the phone board alike; the panel's top or bottom edge stretched past the open chats (kept as you let go), the settings box (off, 5, 10), or `chatoverlay -Recent 10` |
 | `hotkey` | `Ctrl+Alt+Shift+O` | `chatoverlay -Hotkey Ctrl+Win+F9`; `none` for no key |
 | `consoleHotkey` | `Ctrl+Alt+Shift+Q` | opens the console, or brings it forward when another window covers it; again while it is in front, the panel; `chatoverlay -ConsoleHotkey none` for no key |
 | `cutOff` | `true` | `false`: no cut-off rows; the scan for them still runs while `autoContinue` asks, or auto-continue is on for anything, and stops with all off |
@@ -1976,7 +2039,8 @@ chatoverlay -Recent 10            # ten chats not open under the rest; 0 for non
   ends ([it steps aside](#the-overlay)); a game Windows does not report as
   full screen draws over it, as it does over anything.
 - **macOS** (untested): a floating panel and a `CQ` menu bar item, with no
-  hotkey, no buttons beside the panel and no collapsed view; the menu has
+  hotkey, no bar of buttons, no stretching into Recent and no collapsed
+  view; the menu has
   Unlock, Hide, Move, **Auto-continue cut-off chats** and Quit - and, at
   its top while the overlay asks
   about the chats the limit cut off, **Continue N cut-off chats** and
@@ -1993,7 +2057,7 @@ chatoverlay -Recent 10            # ten chats not open under the rest; 0 for non
 
 ## The console
 
-`chatconsole` - or the speech bubble on the overlay's buttons, **Open console**
+`chatconsole` - or the maximize button on the overlay's bar, **Open console**
 in the tray menu, or **Ctrl+Alt+Shift+Q** - turns the overlay's panel into
 chatq's console, in the panel's own place: it grows from the panel's top-right
 corner, its right edge and top where the panel's were, to the size it was last
@@ -2009,8 +2073,8 @@ clear; **Restore**, or another double-click, gives back the size it had. A
 console left maximized opens maximized. The header has the panel's
 **Opacity** and **Theme** too: they are the same settings as the panel's box,
 so the console opens at the panel's opacity and look, and a change made in
-either is the other's. The overlay's buttons and the open chip stay away
-meanwhile.
+either is the other's. The overlay's bar of buttons and the open chip stay
+away meanwhile, and the bar is back with the panel.
 
 **Back to the panel:** **Esc**, **← Panel** at the header's right, the console
 hotkey again while the console is in front, or Alt+F4. The panel comes back
@@ -2440,7 +2504,30 @@ asked`), and so does the tray's tooltip; `chatoverlay -Print` and the
 macOS panel show it as a line, with no chip. The window lists its
 questions in `data/reload-pending/<its extension host's pid>.json` and
 reads the answer from `data/reload-answer/`; a file a crashed window
-left is dropped once its process is gone.
+left is dropped some 10 s after its process goes.
+
+**Tabs with no process show on the overlay too.** A Claude tab a reload
+brought back can have no `claude` process behind it, so the Claude
+registry the overlay reads does not list it, and its chat sat in Recent
+as if closed. So each window lists its Claude tabs in
+`data/open-tabs/<its extension host's pid>.json` - `{v:1, pid, started,
+window, tabs:[{sessionId, cwd, label}]}` - and the overlay, reading it
+every 2 s, gives each tab whose chat no process holds an idle row of its
+own, on the phone board too. A tab carries no session id, only its
+label, so a tab is listed only when no other Claude tab of the window
+has its label and exactly one chat among each workspace folder's 200
+newest gives it: an untitled `Claude Code` tab, two of one label, and a
+label two chats would give are left out. The window looks 2 s after
+activation and after the tabs change, and every 30 s besides, since a
+chat's title can come after its tab's label; it writes only when the
+list changed, and removes the file when no tab is listed and as the
+window closes. A look that cannot read the chats within 1.5 s leaves the
+file as it was and looks again 2 s on, with what it read kept; late
+again, it waits for the 30 s look. Activation also clears the files of
+windows that are gone, as the overlay does, some 10 s on, for any whose
+process is gone or was started again since. These rows act on nothing a process
+would: auto-continue, the unread dot and the background count never
+look at them.
 
 **When chatq itself updates.** A new version of the extension runs in a
 window only after that window reloads - and a reload ends every `claude`
@@ -2672,8 +2759,11 @@ chat a run has gone into.
 `<Code user>` is `%APPDATA%/Code/User` on Windows, `~/Library/Application
 Support/Code/User` on macOS, `~/.config/Code/User` on Linux.
 
-Everything it writes is in `data/` beside the script — the index, tombstones,
-the archive, the queue and its logs, the board, `config.json`,
+Everything it writes is in `data/` beside the script — the index
+(`chat-index.csv`: about 30 seconds to build, 1.5 after, a file re-read only
+when its size or date changes; `chatindex -Force` rebuilds), tombstones,
+the archive, the queue (each job a `queue/<id>.json` and its prompt as
+`queue/#<n> <title>.md`) and its logs, the board, `config.json`,
 auto-continue's `auto-continue.json` and the markers in `auto/` that it
 and the reset ask share, the
 overlay's `overlay.json` and `overlay-state.json`, and the console's
@@ -2682,9 +2772,11 @@ the extension's `reload-request` and `open-request` (and `signal.lock`,
 held while either is written), the running job's
 `run-state` and the windows' answers to it in `run-ack/`, the reloads a
 window asks about in `reload-pending/` and the overlay's answers in
-`reload-answer/`, the chats a window's idle process was ended for in
-`idle-ended.json`, and the installer's
-`download/` while it unpacks. No
+`reload-answer/`, the Claude tabs each window has open in `open-tabs/`,
+the chats a window's idle process was ended for in
+`idle-ended.json`, the C# compiler's files in `tmp/` while it builds the
+Windows calls chatq makes, and the installer's `download/` while it
+unpacks. No
 registry keys,
 no AppData, no scheduled task; the one line in `$PROFILE` is the only thing
 outside the folder.

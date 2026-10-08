@@ -11,8 +11,8 @@
 # default, the reset ask, is tests/sections/reset-ask.ps1's.
 
 Section 'auto-continue'
-$acCfgWas = if (Test-Path -LiteralPath $script:ChatqConfigPath) { [System.IO.File]::ReadAllText($script:ChatqConfigPath, $utf8) } else { $null }
-$acStateWas = if (Test-Path -LiteralPath $script:ChatqAutoPath) { [System.IO.File]::ReadAllText($script:ChatqAutoPath, $utf8) } else { $null }
+$acCfgWas = Read-TestFile $script:ChatqConfigPath
+$acStateWas = Read-TestFile $script:ChatqAutoPath
 $acJobsBefore = @(Get-ChatqJobs | ForEach-Object { [string]$_.id })
 $acWas = @{ Spawn = $script:ChatqSpawn; Join = $script:ChatqJoinSeam; Idle = $script:ChatqIdleSeam; Send = $script:ChatqLiveSendSeam; Hold = $script:ChatShowHoldSeconds }
 $script:ChatqSpawn = { $true }
@@ -50,14 +50,14 @@ function New-AcChat {
 function Get-AcCut([string]$Id) { @(Get-ChatqCutOffChats @() -Hours 48 | Where-Object { $_.Id -eq $Id })[0] }
 function Get-AcJobs([string]$Id) { @(Get-ChatqJobs | Where-Object { $_.sessionId -eq $Id -and $_.state -in 'queued', 'running' }) }
 function Invoke-AcScan([object[]]$Cut, [object[]]$Live = @()) { Invoke-ChatqAutoContinueScan -CutOff @($Cut) -Jobs @(Get-ChatqJobs) -Live $Live -Source watcher }
+function Get-AcState($Cut) { Get-ChatqAutoState $Cut @(Get-ChatqJobs) @() (Get-ChatqAutoConfig) (Get-ChatqAutoMarkers) (Get-Date) }
 $acPanel = { param($id) [pscustomobject]@{ SessionId = $id; Pid = 4343; Status = 'idle'; Kind = 'interactive'; Entrypoint = 'claude-vscode' } }
 $acTerm = { param($id) [pscustomobject]@{ SessionId = $id; Pid = 4344; Status = 'idle'; Kind = 'interactive'; Entrypoint = 'cli' } }
 $acPrint = { param($id) [pscustomobject]@{ SessionId = $id; Pid = 4345; Status = 'idle'; Kind = 'print'; Entrypoint = 'claude-vscode' } }
 
 # --- the setting: three values now ------------------------------------------------------
-$acOn = { param($v) Get-ChatqAutoContinue ([pscustomobject]@{ autoContinue = $v }) }
 Check 'autoContinue: "on" is the automatic mode; true still reads as ask - nothing written before turns it on; off and false are off' (
-    (& $acOn 'on') -eq 'on' -and (& $acOn ' ON ') -eq 'on' -and (& $acOn $true) -eq 'ask' -and (& $acOn 'ask') -eq 'ask' -and (& $acOn $false) -eq 'off' -and (& $acOn 'off') -eq 'off') "$(& $acOn 'on') $(& $acOn $true)"
+    (& $acOf 'on') -eq 'on' -and (& $acOf ' ON ') -eq 'on' -and (& $acOf $true) -eq 'ask' -and (& $acOf 'ask') -eq 'ask' -and (& $acOf $false) -eq 'off' -and (& $acOf 'off') -eq 'off') "$(& $acOf 'on') $(& $acOf $true)"
 $null = Set-ChatqAutoContinue -Value on
 $ac0 = Get-ChatqAutoConfig -Fresh
 $sinceWas = $ac0.Since
@@ -258,7 +258,7 @@ $r1b = Invoke-AcScan @($c1)
 Check 'scanned again: nothing more - its continue is queued' (@($r1b.Queued).Count -eq 0 -and @(Get-AcJobs $idA1).Count -eq 1)
 $null = Remove-ChatqJob $j1 'chip'
 $r1c = Invoke-AcScan @($c1)
-$st1 = Get-ChatqAutoState $c1 @(Get-ChatqJobs) @() (Get-ChatqAutoConfig) (Get-ChatqAutoMarkers) (Get-Date)
+$st1 = Get-AcState $c1
 Check 'a continue removed never comes back for the same cut-off: its marker stays, and the chat is declined' (@($r1c.Queued).Count -eq 0 -and -not @(Get-AcJobs $idA1).Count -and
     $st1.State -eq 'declined') $st1.State
 $u1b = Add-AcLimit $a1.Path $idA1 0.5 60
@@ -268,7 +268,7 @@ $j1b = @(Get-AcJobs $idA1)[0]
 Check 'a new cut-off of the same chat - a new uuid - is queued again' (@($r1d.Queued).Count -eq 1 -and $j1b.cutUuid -eq $u1b -and $c1b.LimitUuid -eq $u1b) "$($j1b.cutUuid) $u1b"
 # one the reset ask left, before the switch went on: never queued here
 $idAk = 'ac00000a-0000-4000-8000-00000000000a'
-$aK = New-AcChat $idAk 'Auto asked chat' 2 45
+$null = New-AcChat $idAk 'Auto asked chat' 2 45
 $cK = Get-AcCut $idAk
 $null = Save-ChatqAskAnswer -Keys @(Get-ChatqCutKey $cK) -Answer leave -Source overlay
 $rK = Invoke-AcScan @($cK)
@@ -276,9 +276,9 @@ Check 'a cut-off the reset ask answered leave is not queued - the same marker' (
     @($rK.Skipped | Where-Object { $_.State -eq 'declined' }).Count -eq 1) "$(@($rK.Skipped | ForEach-Object State) -join ',')"
 
 $idA2 = 'ac000002-0000-4000-8000-000000000002'
-$a2 = New-AcChat $idA2 'Auto panel chat' 2 30
+$null = New-AcChat $idA2 'Auto panel chat' 2 30
 $c2 = Get-AcCut $idA2
-$r2 = Invoke-AcScan @($c2) @(& $acPanel $idA2)
+$null = Invoke-AcScan @($c2) @(& $acPanel $idA2)
 $j2 = @(Get-AcJobs $idA2)[0]
 $du2 = ConvertTo-ChatqDate $j2.deferUntil
 $eta2 = (Get-ChatqEta @($j2) @{})[$j2.id]
@@ -286,7 +286,7 @@ Check 'a chat open in a VS Code panel: queued, held till 5 minutes past the rese
     [Math]::Abs(($du2 - $c2.ResetsAt.AddMinutes(5)).TotalSeconds) -lt 2 -and $eta2 -eq "$(Format-ChatqAutoTime $du2) (open in VS Code)") "$($j2.deferUntil) $eta2"
 
 $idA3 = 'ac000003-0000-4000-8000-000000000003'
-$a3 = New-AcChat $idA3 'Auto terminal chat' 2 30
+$null = New-AcChat $idA3 'Auto terminal chat' 2 30
 $c3 = Get-AcCut $idA3
 $r3 = Invoke-AcScan @($c3) @(& $acTerm $idA3)
 $r3p = Invoke-AcScan @($c3) @(& $acPrint $idA3)
@@ -311,7 +311,7 @@ Check 'a 529 is auto-continued too: one continue, its marker why overloaded with
     $c4.Why -eq 'overloaded' -and @($r4.Queued).Count -eq 1 -and $j4 -and $j4.auto -eq $true -and $j4.kind -eq 'continue' -and -not $j4.deferUntil -and
     $mk4.why -eq 'overloaded' -and $null -eq $mk4.resetsAt -and $mk4.cutAt -and $mk4.jobId -eq $j4.id -and
     $jl4 -like "*#$($j4.seq) queued (continue, auto - 529 $(Format-ChatqAutoTime $c4.At)) $d Auto overloaded chat*" -and -not $other.Count) "$($c4.Why) $(@($r4.Queued).Count) $($mk4 | ConvertTo-Json -Compress) $($other.Count)"
-$st4 = Get-ChatqAutoState $c4 @(Get-ChatqJobs) @() (Get-ChatqAutoConfig) (Get-ChatqAutoMarkers) (Get-Date)
+$st4 = Get-AcState $c4
 Check 'its words: due, "#n auto - 529", when Claude is back; the console''s note, the skip and the chip say 529, not a reset' (
     $st4.State -eq 'due' -and $st4.Words -eq "#$($j4.seq) auto $d 529" -and $st4.At -eq 'when Claude is back' -and (Get-ChatqAutoWhen $j4) -eq 'for this 529' -and
     (Get-ChatqAutoJobNote $j4) -like 'queued by auto-continue: a 529 cut this chat off at *, and it goes when Claude is back' -and
@@ -406,7 +406,7 @@ Check 'a 529 chat open in a panel: held till 5 minutes past the 529; one 36 minu
 # don't continue: removed, its marker kept - declined for this 529
 $null = Remove-ChatqJob (Find-ChatqJob $j4.id -Exact) 'chip'
 if ($j4p) { $null = Remove-ChatqJob (Find-ChatqJob $j4p.id -Exact) 'chip' }
-$st4d = Get-ChatqAutoState $c4 @(Get-ChatqJobs) @() (Get-ChatqAutoConfig) (Get-ChatqAutoMarkers) (Get-Date)
+$st4d = Get-AcState $c4
 $r4d = Invoke-AcScan @($c4)
 Check 'a 529''s continue removed: declined, not sent for this 529, never queued again for it' (
     $st4d.State -eq 'declined' -and $st4d.Why -like '*not sent for this 529*' -and @($r4d.Queued).Count -eq 0) "$($st4d.State) $($st4d.Why)"
@@ -436,7 +436,7 @@ $sinceOn = (Get-ChatqAutoConfig -Fresh).Since
 $null = Update-ChatqAutoState { param($v) $v.Since = (Get-Date).AddHours(-3) }
 $null = Set-ChatqAutoChat -Id $idA5 -Title 'Auto switched chat' -Value never
 $never5 = -not @(Get-AcJobs $idA5).Count
-$u5 = Add-AcLimit $a5.Path $idA5 0.5 60
+$null = Add-AcLimit $a5.Path $idA5 0.5 60
 $r5c = Invoke-AcScan @(Get-AcCut $idA5)
 Check 'the switch off or ask: not queued; always with it off: queued; on again writes since anew; never: its continue removed, and a new cut-off not queued' (
     $off5 -and $ask5 -and $always5 -and $sinceOn -and ((Get-Date) - $sinceOn).TotalMinutes -lt 1 -and $never5 -and
@@ -446,7 +446,7 @@ $null = Set-ChatqAutoChat -Id $idA5 -Title 'Auto switched chat' -Value default
 $idA6 = 'ac000006-0000-4000-8000-000000000006'
 $a6 = New-AcChat $idA6 'Auto already queued chat' 2 30
 $c6 = Get-AcCut $idA6
-$mine6 = New-ChatqJob -Row (Get-ChatqRowById $idA6 'claude' $a6.Path) -Kind continue -Rule continue
+$null = New-ChatqJob -Row (Get-ChatqRowById $idA6 'claude' $a6.Path) -Kind continue -Rule continue
 $r6 = Invoke-AcScan @($c6)
 Check 'a job already queued for it - one you queued: nothing more, and no marker made' (@($r6.Queued).Count -eq 0 -and @(Get-AcJobs $idA6).Count -eq 1 -and
     -not (Test-Path -LiteralPath (Join-Path $script:ChatqAutoDir "$($idA6)_$($a6.Uuid).json")))
@@ -469,7 +469,7 @@ $first9 = New-ChatqAutoMarker $k9 @{ at = 'x' }
 $second9 = New-ChatqAutoMarker $k9 @{ at = 'y' }
 Set-ChatqAutoMarker $k9 ([ordered]@{ at = 'x'; error = 'the chat could not be read' })
 $r9 = Invoke-AcScan @(Get-AcCut $idA9)
-$st9 = Get-ChatqAutoState (Get-AcCut $idA9) @(Get-ChatqJobs) @() (Get-ChatqAutoConfig) (Get-ChatqAutoMarkers) (Get-Date)
+$st9 = Get-AcState (Get-AcCut $idA9)
 Check 'a marker is made once - the second exclusive create is refused, as is a name no key has - and one holding an error is never tried again' ($first9 -and -not $second9 -and
     -not (New-ChatqAutoMarker '..\x_y' @{ at = 'z' }) -and @($r9.Queued).Count -eq 0 -and -not @(Get-AcJobs $idA9).Count -and $st9.State -eq 'failed') "$first9 $second9 $($st9.State)"
 $oldM = Join-Path $script:ChatqAutoDir 'deadbeef-0000-4000-8000-000000000000_old.json'
@@ -487,7 +487,7 @@ Check 'a cut-off''s id past its chat: its record''s uuid, or its time where it h
 
 # two scans at once, as the overlay and the watcher may: one job
 $idAR = 'ac0000aa-0000-4000-8000-0000000000aa'
-$aR = New-AcChat $idAR 'Auto race chat' 2 30
+$null = New-AcChat $idAR 'Auto race chat' 2 30
 $go = Join-Path $sb 'ac-race-go'
 Remove-Item -LiteralPath $go -Force -EA SilentlyContinue
 $raceCode = {
@@ -519,8 +519,8 @@ $W = New-ChatqWatchState
 $env:FAKE_RECORD = $rec
 # the hold: a panel holds the chat, and the reset plus 5 minutes is ahead
 $idW1 = 'ac0000b1-0000-4000-8000-0000000000b1'
-$w1 = New-AcChat $idW1 'Auto hold chat' 2 -1
-$rw1 = Invoke-AcScan @(Get-AcCut $idW1)
+$null = New-AcChat $idW1 'Auto hold chat' 2 -1
+$null = Invoke-AcScan @(Get-AcCut $idW1)
 $jw1 = @(Get-AcJobs $idW1)[0]
 $env:FAKE_AGENTS = '[{"pid":1,"sessionId":"' + $idW1 + '","kind":"interactive","status":"idle","entrypoint":"claude-vscode"}]'
 Invoke-ChatqJob $W (Find-ChatqJob $jw1.id)
@@ -573,7 +573,7 @@ $sk1 = (Get-ChatqAutoConfig -Fresh).Streak[$idW3]
 $c3b = Get-AcCut $idW3
 $null = Invoke-AcScan @($c3b)
 $jw3b = @(Get-AcJobs $idW3)[0]
-$x3 = Add-AcLimit $w3.Path $idW3 0.1 -1
+$null = Add-AcLimit $w3.Path $idW3 0.1 -1
 $sa0 = Get-AlertCount '*auto-continue stopped: 2 tries in a row got no reply - continue it yourself*'
 $W = New-ChatqWatchState
 Invoke-ChatqJob $W (Find-ChatqJob $jw3b.id)
@@ -581,7 +581,7 @@ $jw3b = Find-ChatqJob $jw3b.id
 $sk2 = (Get-ChatqAutoConfig -Fresh).Streak[$idW3]
 $sa1 = Get-AlertCount '*auto-continue stopped: 2 tries in a row got no reply - continue it yourself*'
 $c3c = Get-AcCut $idW3
-$st3c = Get-ChatqAutoState $c3c @(Get-ChatqJobs) @() (Get-ChatqAutoConfig) (Get-ChatqAutoMarkers) (Get-Date)
+$st3c = Get-AcState $c3c
 $r3c = Invoke-AcScan @($c3c)
 $wl = [System.IO.File]::ReadAllText((Join-Path $script:ChatqLogDir 'watcher.log'), $utf8)
 Check 'the first auto continue that gives up: failed, a streak of 1 on the cut-off it left - and the next cut-off is queued' ($jw3.state -eq 'failed' -and
@@ -593,7 +593,7 @@ $cfgR.PSObject.Properties.Remove('maxRetries')
 Save-ChatqJson $script:ChatqConfigPath $cfgR
 # a turn ended without the limit - a new cut-off after it - or always again: the streak starts over
 $x4 = Add-AcLimit $w3.Path $idW3 0.05 30
-$st3d = Get-ChatqAutoState (Get-AcCut $idW3) @(Get-ChatqJobs) @() (Get-ChatqAutoConfig) (Get-ChatqAutoMarkers) (Get-Date)
+$st3d = Get-AcState (Get-AcCut $idW3)
 $null = Set-ChatqAutoChat -Id $idW3 -Title 'Auto streak chat' -Value always
 $sk3 = (Get-ChatqAutoConfig -Fresh).Streak[$idW3]
 $null = Set-ChatqAutoChat -Id $idW3 -Title 'Auto streak chat' -Value default
@@ -606,7 +606,7 @@ Check 'a streak holds only for the cut-off it left: a later one is ready; always
     -not $sk3 -and -not $sk4) "$($st3d.State) $($sk3 | ConvertTo-Json -Compress) $($sk4 | ConvertTo-Json -Compress)"
 # the started alert names it
 $idW5 = 'ac0000b5-0000-4000-8000-0000000000b5'
-$w5 = New-AcChat $idW5 'Auto started chat' 2 -1
+$null = New-AcChat $idW5 'Auto started chat' 2 -1
 $null = Invoke-AcScan @(Get-AcCut $idW5)
 $jw5 = @(Get-AcJobs $idW5)[0]
 $W = New-ChatqWatchState
@@ -616,7 +616,7 @@ Check 'the run goes, and its started alert says auto-continue, not continue' ($j
 Remove-Item env:FAKE_RECORD
 # the watcher's own scan, for when no overlay runs, and it is in the loop every 5 minutes
 $idW6 = 'ac0000b6-0000-4000-8000-0000000000b6'
-$w6 = New-AcChat $idW6 'Auto watcher scan chat' 1 30
+$null = New-AcChat $idW6 'Auto watcher scan chat' 1 30
 $Ws = New-ChatqWatchState
 $nW = Invoke-ChatqWatchAutoScan $Ws
 $loopDef = (Get-Command Invoke-ChatqWatchLoop).Definition
@@ -682,7 +682,7 @@ $l1 = New-AcChat $idL1 'Autolist queued chat' 1 30
 $null = Invoke-AcScan @(Get-AcCut $idL1)
 $jl1 = @(Get-AcJobs $idL1)[0]
 $idL2 = 'ac0000d2-0000-4000-8000-0000000000d2'
-$l2 = New-AcChat $idL2 'Autolist never chat' 1 30
+$null = New-AcChat $idL2 'Autolist never chat' 1 30
 $null = Set-ChatqAutoChat -Id $idL2 -Title 'Autolist never chat' -Value never
 $lsNobody = & $say { Write-ChatqList }
 $lk = [System.IO.File]::Open($script:ChatqLockPath, 'OpenOrCreate', 'ReadWrite', 'None')
@@ -723,7 +723,7 @@ $null = Remove-ChatqJob (Find-ChatqJob $mineL.Job.id) 'test'
 $idO1 = 'ac0000e1-0000-4000-8000-0000000000e1'
 $o1 = New-AcChat $idO1 'Autorow closed chat' 1 30
 $idO2 = 'ac0000e2-0000-4000-8000-0000000000e2'
-$o2 = New-AcChat $idO2 'Autorow open chat' 1 30
+$null = New-AcChat $idO2 'Autorow open chat' 1 30
 $ctxA = New-ChatOverlayContext
 $ctxA.WantAuto = $true
 $ctxA.WantAsk = $true
@@ -734,7 +734,7 @@ $reg = Join-Path $sessDir '4747.json'
 $aliveWas = $script:ChatqAliveSeam
 $script:ChatqAliveSeam = { param($e) $e.Pid -eq 4747 }
 try {
-    $peekSnap = Invoke-ChatOverlayCycle $ctxA -Peek
+    $null = Invoke-ChatOverlayCycle $ctxA -Peek
     $peekJobs = @(Get-AcJobs $idO1).Count + @(Get-AcJobs $idO2).Count
     $printCtx = New-ChatOverlayContext
     $null = Invoke-ChatOverlayCycle $printCtx
@@ -780,13 +780,12 @@ $ctxA.CutAt = [datetime]::MinValue
 $snapKept = Invoke-ChatOverlayCycle $ctxA -Peek
 $null = Set-ChatqAutoContinue -Value on
 $null = Update-ChatqAutoState { param($v) $v.Since = (Get-Date).AddHours(-3) }
-$ctxA.CutAt = [datetime]::MinValue
 $keptRows = @($snapKept.rows | Where-Object { $_.sessionId -eq $idO1 })
 Check 'switched to ask with an auto continue kept: the job has a row of its own, not a plain cut-off row that hides it' ((Find-ChatqJob $jo1.id -Exact) -and
     @($keptRows | Where-Object { $_.kind -eq 'job' -and $_.job.seq -eq $jo1.seq }).Count -eq 1 -and -not @($keptRows | Where-Object { $_.kind -eq 'cutoff' }).Count) ($keptRows | ConvertTo-Json -Compress -Depth 4)
 # overlay.cutOff false: no rows, and the scan still runs while auto-continue is on
 $idO3 = 'ac0000e3-0000-4000-8000-0000000000e3'
-$o3 = New-AcChat $idO3 'Autorow hidden chat' 1 30
+$null = New-AcChat $idO3 'Autorow hidden chat' 1 30
 Set-ChatOverlayConfig @{ cutOff = $false }
 $ctxB = New-ChatOverlayContext
 $ctxB.WantAuto = $true
@@ -900,7 +899,7 @@ Check 'the outbox keeps the job and sends the alert about it: its number in the 
 $payload = [pscustomobject]@{ act = 'skip'; text = '' }
 $fbk = Invoke-ChatqReply $payload @{ jobId = $jo2.id; seq = $jo2.seq; sessionId = $idO2; event = 'limited' } 'aidac'
 $mkKept = Test-Path -LiteralPath (Get-ChatqAutoMarkerPath $jo2)
-$st2 = Get-ChatqAutoState (Get-AcCut $idO2) @(Get-ChatqJobs) @() (Get-ChatqAutoConfig) (Get-ChatqAutoMarkers) (Get-Date)
+$st2 = Get-AcState (Get-AcCut $idO2)
 Check 'skip from the phone on an auto continue: its own answer, the marker kept - declined, not queued again' ($fbk.Feedback -eq "#$($jo2.seq) skipped - Autorow open chat will not be continued after this reset" -and
     $mkKept -and $st2.State -eq 'declined') "$($fbk.Feedback) $mkKept $($st2.State)"
 $nobody = Invoke-ChatqReply ([pscustomobject]@{ act = 'auto'; text = 'on' }) @{ sessionId = $idO2; event = 'limited' } 'aidac2'
@@ -909,9 +908,7 @@ Check 'no act turns auto-continue on or off from the phone' ($null -eq $nobody -
 # --- the overlay's window, in the STA process WPF needs (Windows) ---------------------------------
 if ($script:ChatqIsWindows) {
     $acWpf = @"
-`$env:CHATQ_OVERLAY = '1'
-. '$(Join-Path $sb 'tool\Charlie-and-the-chat-factory.ps1')'
-Set-StrictMode -Off
+$staLoad
 `$script:ChatqSpawn = { `$true }
 `$cfgWas = [IO.File]::ReadAllText(`$script:ChatqConfigPath)
 `$stateWas = if (Test-Path -LiteralPath `$script:ChatqAutoPath) { [IO.File]::ReadAllText(`$script:ChatqAutoPath) } else { `$null }
@@ -920,11 +917,7 @@ Set-ChatOverlayConfig @{ width = 380; maxRows = 8; hotkey = 'none'; consoleHotke
 `$script:AcBalloons = [System.Collections.Generic.List[object]]::new()
 `$script:ChatOverlayBalloonSeam = { param(`$b) `$script:AcBalloons.Add([pscustomobject]`$b) }
 Initialize-ChatOverlayNative
-`$H = New-ChatOverlayHostState
-`$script:ChatOverlayHost = `$H
-`$H.Ctx = New-ChatOverlayContext
-`$H.State = [pscustomobject]@{ x = `$null; y = `$null; locked = `$true; hidden = `$false }
-New-ChatOverlayWindow `$H
+$staPanel
 # the settings box's seventh row: Cut off, Continue, Ask and Leave, tooltips on all
 Set-ChatOverlaySettingsOpen `$H `$true
 `$g = `$H.Settings.Child
@@ -966,7 +959,7 @@ Update-ChatOverlayMenu `$H
 Invoke-ChatOverlayVerb 'auto-off'
 `$heldOk = (@(`$H.Held) -join ',') -eq 'auto-off' -and (Get-ChatqConfig).autoContinue -eq 'on'
 `$H.Mode = 'panel'; `$H.Con = `$null; `$H.Held = @()
-# the box with the panel at the screen's top: the buttons and box go below it, all on the screen
+# the box with the panel at the screen's top: under the bar, over the rows, all on the screen
 `$script:ChatOverlayWorkAreaSeam = { param(`$r) [pscustomobject]@{ X = -4000; Y = 0; Width = 1920; Height = 1020 } }
 `$H.Placed = `$true
 `$rows = @(1..8 | ForEach-Object { [pscustomobject]@{ key = "s:`$_"; kind = 'session'; status = 'idle'; rank = 3; project = 'p'; title = "chat `$_"; prompt = 'x'; stateText = 'idle 1m'; job = `$null } })
@@ -983,7 +976,7 @@ Set-ChatOverlayControlsPlacement `$H
 `$p = [ChatOverlayNative]::GetRect(`$H.Hwnd)
 `$H.Settings.Measure([System.Windows.Size]::new([double]::PositiveInfinity, [double]::PositiveInfinity))
 `$boxH = `$H.Settings.DesiredSize.Height
-`$top = `$t.Side -eq 'below' -and `$t.Y -ge (`$p[1] + `$p[3]) -and (`$t.Y + `$t.Height) -le 1020 -and `$boxH -gt 0 -and `$boxH -le 28 * 7
+`$top = `$t.Side -eq 'below' -and `$t.Y -gt `$p[1] -and `$t.Y -lt (`$p[1] + `$p[3]) -and (`$t.Y + `$t.Height) -le 1020 -and `$boxH -gt 0 -and `$boxH -le 28 * 7
 Show-ChatOverlayControls `$H `$false
 # the chip window over an auto row: don't continue and open, left of the state
 `$sid = '11111111-1111-4111-8111-111111111111'
@@ -1054,7 +1047,7 @@ if (`$null -ne `$stateWas) { [IO.File]::WriteAllText(`$script:ChatqAutoPath, `$s
     Check 'a click on Leave keeps auto-continue off in config.json, and the box shows it' ($aw[1] -eq 'True') "$acOut"
     Check 'the tray''s item is checked as config.json has it, and toggles on and ask through Invoke-ChatOverlayVerb' ($aw[2] -eq 'True') "$acOut"
     Check 'the tray''s toggle is held while the console runs a loop of its own' ($aw[3] -eq 'True') "$acOut"
-    Check 'seven rows fit: with the panel at the screen''s top, the buttons and box go below it, on the screen' ($aw[4] -eq 'True') "$acOut"
+    Check 'seven rows fit: with the panel at the screen''s top, the settings box goes under the bar, over the rows, on the screen' ($aw[4] -eq 'True') "$acOut"
     Check 'the chip window over an auto row: don''t continue and open, left of the row''s state, the state in the tooltip' ($aw[5] -eq 'True') "$acOut"
     Check 'a press on one chip released on the other does nothing; on the same chip it acts; an unarmed chip takes no click' ($aw[6] -eq 'True' -and $aw[7] -eq 'True' -and $aw[8] -eq 'True') "$acOut"
     Check 'a plain row gets open and delete, flush with its right end' ($aw[9] -eq 'True') "$acOut"
@@ -1068,8 +1061,8 @@ foreach ($j in @(Get-ChatqJobs | Where-Object { [string]$_.id -notin $acJobsBefo
 Remove-Item -LiteralPath $projAC -Recurse -Force -EA SilentlyContinue
 Remove-Item -LiteralPath (Join-Path (Join-Path $claudeHome 'projects') (Get-Slug $projAC)) -Recurse -Force -EA SilentlyContinue
 Remove-Item -LiteralPath $script:ChatqAutoDir -Recurse -Force -EA SilentlyContinue
-if ($null -ne $acStateWas) { [System.IO.File]::WriteAllText($script:ChatqAutoPath, $acStateWas, $utf8) } else { Remove-Item -LiteralPath $script:ChatqAutoPath -Force -EA SilentlyContinue }
-if ($null -ne $acCfgWas) { [System.IO.File]::WriteAllText($script:ChatqConfigPath, $acCfgWas, $utf8) } else { Remove-Item -LiteralPath $script:ChatqConfigPath -Force -EA SilentlyContinue }
+Restore-TestFile $script:ChatqAutoPath $acStateWas
+Restore-TestFile $script:ChatqConfigPath $acCfgWas
 Remove-Item -Path (Join-Path $script:ChatqOutboxDir '*') -Force -EA SilentlyContinue
 foreach ($p in $script:ChatOverlayCmdPath, $script:ChatOverlayPath) { Remove-Item -LiteralPath $p -Force -EA SilentlyContinue }
 $script:ChatqAutoCache = $null

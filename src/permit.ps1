@@ -199,10 +199,7 @@ function Write-ChatqPermitLog {
     # data/logs/permit.log, rolled at 1 MB: the bridge's side of every request
     param([string]$Text)
     try {
-        New-ChatqDir $script:ChatqLogDir
-        $p = Join-Path $script:ChatqLogDir 'permit.log'
-        if ((Test-Path -LiteralPath $p) -and (Get-Item -LiteralPath $p).Length -gt 1MB) { Move-Item -LiteralPath $p -Destination "$p.1" -Force }
-        [System.IO.File]::AppendAllText($p, "$((Get-Date).ToString('o'))  [$PID] $($Text -replace '[\r\n]+', ' ')`n", (New-Object System.Text.UTF8Encoding $false))
+        Add-ChatqLogLine 'permit.log' "[$PID] $($Text -replace '[\r\n]+', ' ')"
     }
     catch {}
 }
@@ -679,11 +676,7 @@ function Test-ChatqPermitAnswer {
     $State.Aids[$v.Aid] = $true
     if ($act -eq 'permit') { $r.Verdict = 'allow'; return $r }
     $note = (([string]$pl.text) -replace '[\p{Cc}\p{Cf}]', ' ').Trim()
-    if ($note.Length -gt 500) {
-        $n = 500
-        if ([char]::IsHighSurrogate($note[$n - 1])) { $n-- }
-        $note = $note.Substring(0, $n)
-    }
+    $note = Limit-ChatqText $note 500
     $r.Verdict = 'refuse'
     $r.Note = $(if ($note) { $note } else { $null })
     return $r
@@ -836,21 +829,18 @@ function Hide-ChatqSecrets {
             if ($v -eq '***' -or $v -match $code) { return $m.Value }
             return $m.Groups['k'].Value + '***'
         })
-    $t = [regex]::Replace($t, '(?i)(--?(?:password|passwd|token|secret|api-?key)(?:=|\s+))(\S+)', {
-            param($m)
-            if ($m.Groups[2].Value -match $code) { return $m.Value }
-            return $m.Groups[1].Value + '***'
-        })
+    $mask = {
+        param($m)
+        if ($m.Groups[2].Value -match $code) { return $m.Value }
+        return $m.Groups[1].Value + '***'
+    }
+    $t = [regex]::Replace($t, '(?i)(--?(?:password|passwd|token|secret|api-?key)(?:=|\s+))(\S+)', $mask)
     $t = [regex]::Replace($t, '(?i)([a-z][a-z0-9+.-]*://)([^/\s:@]+:[^/\s@]+)@', {
             param($m)
             if ($m.Groups[2].Value -match $code) { return $m.Value }
             return $m.Groups[1].Value + '***@'
         })
-    $t = [regex]::Replace($t, '(?<![A-Za-z0-9_])(sk-|ghp_|gho_|github_pat_|xoxb-|xoxp-|AKIA|AIza|glpat-)(\S+)', {
-            param($m)
-            if ($m.Groups[2].Value -match $code) { return $m.Value }
-            return $m.Groups[1].Value + '***'
-        })
+    $t = [regex]::Replace($t, '(?<![A-Za-z0-9_])(sk-|ghp_|gho_|github_pat_|xoxb-|xoxp-|AKIA|AIza|glpat-)(\S+)', $mask)
     $t = [regex]::Replace($t, '[A-Za-z0-9_-]{32,}', {
             param($m)
             $s = $m.Value
@@ -865,9 +855,7 @@ function Get-ChatqPermitCut {
     # at most $Max characters, never through the middle of a surrogate pair
     param([string]$Text, [int]$Max)
     if (-not $Text -or $Text.Length -le $Max) { return $Text }
-    $n = $Max
-    if ($n -gt 0 -and [char]::IsHighSurrogate($Text[$n - 1])) { $n-- }
-    return $Text.Substring(0, $n) + $script:ChatqEllipsis
+    return (Limit-ChatqText $Text $Max) + $script:ChatqEllipsis
 }
 
 function Get-ChatqPermitExcerpt {
@@ -962,8 +950,7 @@ function Get-ChatqPermitCardKeys {
     # reply's are, but under "chatq-card:" - the direction PC to phone gets
     # keys of its own
     param([byte[]]$Master, [string]$Aid)
-    $k = Get-ChatqHmac $Master ((New-Object System.Text.UTF8Encoding $false).GetBytes("chatq-card:$Aid"))
-    return (Get-ChatqReplyKeys -K $k)
+    return (Get-ChatqLabelKeys $Master 'chatq-card:' $Aid)
 }
 
 function Protect-ChatqPermitCard {
@@ -977,10 +964,7 @@ function Protect-ChatqPermitCard {
     param([byte[]]$Master, [string]$Aid, [string]$Card, [byte[]]$Iv)
     $u = New-Object System.Text.UTF8Encoding $false
     $ks = Get-ChatqPermitCardKeys $Master $Aid
-    if (-not $Iv) { $Iv = New-ChatqRandomBytes 16 }
-    $ct = Invoke-ChatqAes $ks.Enc $Iv ($u.GetBytes($Card)) -Encrypt
-    $head = 'chatq1c.' + $Aid + '.' + (ConvertTo-ChatqB64Url $Iv) + '.' + (ConvertTo-ChatqB64Url $ct)
-    return $head + '.' + (ConvertTo-ChatqB64Url (Get-ChatqHmac $ks.Mac ($u.GetBytes($head))))
+    return (Protect-ChatqSealed $ks 'chatq1c' $Aid ($u.GetBytes($Card)) $Iv)
 }
 
 function Unprotect-ChatqPermitCard {
@@ -1442,7 +1426,7 @@ function Read-ChatqPermitChanges {
     $given = { param($n) $Changes.ContainsKey($n) -and $null -ne $Changes[$n] -and '' -ne $Changes[$n] }
     if (& $given 'Permit') {
         $v = $Changes['Permit']
-        $r.On = if ($v -is [bool]) { $v } else { switch (([string]$v).Trim().ToLower()) { 'on' { $true } 'off' { $false } default { $null } } }
+        $r.On = ConvertFrom-ChatqOnOff $v
         if ($null -eq $r.On) { $r.Error = "-Permit takes on or off, not '$v'"; return $r }
         $r.Any = $true
     }

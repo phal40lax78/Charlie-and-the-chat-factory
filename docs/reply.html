@@ -534,24 +534,29 @@ var ChatqCrypto = (function () {
         }
     }
     // encrypt-then-MAC: the watcher checks the MAC over everything before
-    // it decrypts a byte
-    async function sealPayload(k, aid, payload, iv) {
+    // it decrypts a byte. prefix: a reply's chatq1 unless given (the
+    // board's compose, chatq3c)
+    async function sealPayload(k, aid, payload, iv, prefix) {
         var keys = await deriveKeys(k);
         var ek = await crypto.subtle.importKey('raw', keys.enc, { name: 'AES-CBC' }, false, ['encrypt']);
         var ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-CBC', iv: iv }, ek, utf8(payload)));
-        var head = 'chatq1.' + aid + '.' + b64url(iv) + '.' + b64url(ct);
+        var head = (prefix || 'chatq1') + '.' + aid + '.' + b64url(iv) + '.' + b64url(ct);
         return head + '.' + b64url(await hmac(keys.mac, utf8(head)));
     }
     // fixed: { iv, nonce, ts } for the test vector; a real send leaves it out
     // and gets a fresh iv and nonce each time, which is what the watcher's
-    // replay guard counts on. h: the request a permit answers
-    async function seal(k, aid, act, text, fixed, h) {
+    // replay guard counts on. build(nonce, ts): the payload
+    async function sealWith(k, aid, fixed, build) {
         fixed = fixed || {};
         var nonce = fixed.nonce !== undefined ? fixed.nonce : b64url(randomBytes(16));
         var ts = fixed.ts !== undefined ? fixed.ts : Date.now();
         var iv = fixed.iv !== undefined ? fixed.iv : randomBytes(16);
-        var payload = buildPayload(act, text, nonce, ts, h);
+        var payload = build(nonce, ts);
         return { message: await sealPayload(k, aid, payload, iv), payload: payload, nonce: nonce, ts: ts };
+    }
+    // h: the request a permit answers
+    async function seal(k, aid, act, text, fixed, h) {
+        return sealWith(k, aid, fixed, function (nonce, ts) { return buildPayload(act, text, nonce, ts, h); });
     }
     // An answer to a question the chat waits on (docs/phone-ask-spec.md):
     // buildPayload's layout, act answer and text empty, then rid, qh, a and o
@@ -562,12 +567,7 @@ var ChatqCrypto = (function () {
     }
     // seal()'s way, for an answer; fixed as seal() takes it
     async function sealAnswer(k, aid, x, fixed) {
-        fixed = fixed || {};
-        var nonce = fixed.nonce !== undefined ? fixed.nonce : b64url(randomBytes(16));
-        var ts = fixed.ts !== undefined ? fixed.ts : Date.now();
-        var iv = fixed.iv !== undefined ? fixed.iv : randomBytes(16);
-        var payload = buildAnswerPayload(nonce, ts, x);
-        return { message: await sealPayload(k, aid, payload, iv), payload: payload, nonce: nonce, ts: ts };
+        return sealWith(k, aid, fixed, function (nonce, ts) { return buildAnswerPayload(nonce, ts, x); });
     }
     function buildPairPayload(d, label, ts) {
         return JSON.stringify({ v: 2, d: d, label: label, ts: ts });
@@ -1119,11 +1119,7 @@ var ChatqBoard = (function () {
         return JSON.stringify(o);
     }
     async function sealCompose(key, cid, payload, iv) {
-        var keys = await C.deriveKeys(await subKey(key, 'chatq-phone:', cid));
-        var ek = await crypto.subtle.importKey('raw', keys.enc, { name: 'AES-CBC' }, false, ['encrypt']);
-        var ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-CBC', iv: iv }, ek, C.utf8(payload)));
-        var head = 'chatq3c.' + cid + '.' + C.b64url(iv) + '.' + C.b64url(ct);
-        return head + '.' + C.b64url(await C.hmac(keys.mac, C.utf8(head)));
+        return C.sealPayload(await subKey(key, 'chatq-phone:', cid), cid, payload, iv, 'chatq3c');
     }
     // fixed: { cid, iv, nonce, ts } for the vector; a real one is new each time
     async function compose(key, act, x, fixed) {
@@ -1139,13 +1135,9 @@ var ChatqBoard = (function () {
     function composeBytes(act, x) {
         return C.utf8(buildComposePayload(act, fieldsFor(act, x), 'AAAAAAAAAAAAAAAAAAAAAA', 1790000000000)).length;
     }
-    // every byte looked at, wherever the first difference is
-    function sameBytes(a, b) {
-        if (!a || !b || a.length !== b.length) return false;
-        var d = 0;
-        for (var i = 0; i < a.length; i++) d |= a[i] ^ b[i];
-        return d === 0;
-    }
+    // every byte looked at, wherever the first difference is: the crypto
+    // block's own
+    var sameBytes = C.sameBytes;
     // Raw deflate opened by the browser itself, the output counted as it
     // comes: null for what is not raw deflate or would pass max
     async function inflateRaw(bytes, max) {
@@ -1348,10 +1340,12 @@ var ChatqBoard = (function () {
         if (/^waits /.test(e || '')) return e;
         return (k === 'continue' ? 'continues ' : 'sends ') + (e || 'next');
     }
+    // a job's state as its tag's tone
+    function toneOf(s) { return s === 'needs-input' ? 'waiting' : s === 'running' ? 'working' : s === 'failed' ? 'bad' : 'queue'; }
     function jobChip(j) {
         var what = j.s === 'queued' ? sendsText(j.k, j.e) :
             j.s === 'needs-input' ? 'needs you' : j.s === 'running' ? 'running' : j.s;
-        return { text: '#' + j.n + ' ' + what, tone: j.s === 'needs-input' ? 'waiting' : j.s === 'running' ? 'working' : j.s === 'failed' ? 'bad' : 'queue' };
+        return { text: '#' + j.n + ' ' + what, tone: toneOf(j.s) };
     }
     // one row, as words: { title, sub, prompt, age, chips, dot }
     function rowView(type, r, nowMs) {
@@ -1360,8 +1354,7 @@ var ChatqBoard = (function () {
             if (r.f) sub.push(r.f);
             if (r.p) sub.push(r.p);
             if (r.k === 'continue') sub.push('continue');
-            var tone = r.s === 'needs-input' ? 'waiting' : r.s === 'running' ? 'working' : r.s === 'failed' ? 'bad' : 'queue';
-            return { title: '#' + r.n + ' ' + (r.t || ''), sub: sub.join(DOT), prompt: '', age: '', chips: [{ text: r.e || r.s, tone: tone }], dot: '' };
+            return { title: '#' + r.n + ' ' + (r.t || ''), sub: sub.join(DOT), prompt: '', age: '', chips: [{ text: r.e || r.s, tone: toneOf(r.s) }], dot: '' };
         }
         if (type === 'older') {
             if (r.f) sub.push(r.f);
@@ -1917,12 +1910,14 @@ var ChatqBoard = (function () {
 
     // --- the cards ------------------------------------------------------------
 
+    // text into an element, shown only when there is some
+    function put(id, text) { $(id).textContent = text || ''; $(id).hidden = !text; }
+
     function card(kind, ctx) {
         var t = P.cardText(kind, ctx);
         views('card');
         $('card').setAttribute('data-kind', kind);
         $('mark').setAttribute('data-mark', t.mark || 'bad');
-        var put = function (id, text) { $(id).textContent = text || ''; $(id).hidden = !text; };
         put('kicker', t.kicker);
         $('cardHead').textContent = t.head;
         put('cardBig', t.big);
@@ -1942,11 +1937,15 @@ var ChatqBoard = (function () {
         document.title = t.head + ' - chatq';
     }
 
-    function cardStatus(kind, text) {
-        $('cardStatus').setAttribute('data-kind', kind);
-        $('cardStatusText').textContent = text;
-        $('cardStatus').hidden = false;
+    // a status line: its kind and its words, and its Try again (againId,
+    // where it has one) shown or not
+    function showStatus(boxId, textId, againId, kind, text, again) {
+        $(boxId).setAttribute('data-kind', kind);
+        $(textId).textContent = text;
+        if (againId) $(againId).hidden = !again;
+        $(boxId).hidden = false;
     }
+    function cardStatus(kind, text) { showStatus('cardStatus', 'cardStatusText', '', kind, text); }
 
     // somewhere to keep the key: IndexedDB, else localStorage
     async function canKeep() {
@@ -2072,8 +2071,7 @@ var ChatqBoard = (function () {
         if (f.job === 'live') meta.push('a chat you run');
         else if (f.job && P.normEvent(f.job) !== f.event) meta.push('job ' + f.job);
         $('meta').textContent = meta.join(' \u00b7 ');
-        $('usage').textContent = f.status || '';
-        $('usage').hidden = !f.status;
+        put('usage', f.status);
         // a permission request shows the call itself, from its card
         var pv = f.event === 'permission' ? P.permitView(f.permit, f, Date.now()) : null;
         $('permit').hidden = !pv;
@@ -2082,19 +2080,17 @@ var ChatqBoard = (function () {
             $('title').textContent = pv.head;
             document.title = pv.head + ' - chatq';
             $('meta').textContent = pv.kicker;
-            var show1 = function (id, text) { $(id).textContent = text || ''; $(id).hidden = !text; };
-            show1('permitWhat', pv.what);
-            show1('permitWhere', pv.where);
-            show1('permitDetail', pv.detail);
-            show1('permitLeft', pv.left);
-            show1('permitBody', pv.body);
-            show1('permitFine', pv.fine);
+            put('permitWhat', pv.what);
+            put('permitWhere', pv.where);
+            put('permitDetail', pv.detail);
+            put('permitLeft', pv.left);
+            put('permitBody', pv.body);
+            put('permitFine', pv.fine);
             if (pv.state === 'open') permitTimer = setTimeout(permitTick, 60000);
         }
         $('compose').hidden = !spec.text;
         $('hint').textContent = spec.hint;
-        $('about').textContent = spec.about;
-        $('about').hidden = !spec.about;
+        put('about', spec.about);
         $('fine').textContent = 'To ' + (phone.host ? 'chatq on ' + phone.host : 'your PC') + '. Encrypted on this phone; ' + P.hostOf(phone.server) + ' only passes it on.';
         $('status').hidden = true;
         $('again').hidden = true;
@@ -2124,8 +2120,7 @@ var ChatqBoard = (function () {
             }
             f.text = '';
         }
-        $('prefill').textContent = pre.note;
-        $('prefill').hidden = !pre.note;
+        put('prefill', pre.note);
         var more = $('more');
         more.textContent = '';
         spec.more.forEach(function (b) {
@@ -2216,13 +2211,7 @@ var ChatqBoard = (function () {
         return false;
     }
 
-    function show(kind, text, canRetry) {
-        var s = $('status');
-        s.setAttribute('data-kind', kind);
-        $('statusText').textContent = text;
-        $('again').hidden = !canRetry;
-        s.hidden = false;
-    }
+    function show(kind, text, canRetry) { showStatus('status', 'statusText', 'again', kind, text, canRetry); }
 
     async function press(b, btn) {
         if (busy || mode !== 'alert') return;
@@ -2315,8 +2304,7 @@ var ChatqBoard = (function () {
     }
 
     function log(p) {
-        var now = new Date();
-        var hhmm = ('0' + now.getHours()).slice(-2) + ':' + ('0' + now.getMinutes()).slice(-2);
+        var hhmm = B.hhmm(Date.now());
         var what = p.b.act === 'prompt' ? '"' + (p.text.length > 60 ? p.text.slice(0, 60) + '\u2026' : p.text) + '"' : p.b.label;
         var li = document.createElement('li');
         li.textContent = hhmm + '  sent ' + what;
@@ -2506,12 +2494,7 @@ var ChatqBoard = (function () {
         if (bd.stale || Date.now() - bd.at > REFRESH_MS) { bd.stale = false; askBoard(); }
         else scheduleRefresh();
     }
-    function bShow(kind, text, again) {
-        $('bStatus').setAttribute('data-kind', kind);
-        $('bStatusText').textContent = text;
-        $('bAgain').hidden = !again;
-        $('bStatus').hidden = false;
-    }
+    function bShow(kind, text, again) { showStatus('bStatus', 'bStatusText', 'bAgain', kind, text, again); }
     async function askBoard() {
         if (bd.asking || !phone) return;
         var my = bd.gen;
@@ -2687,12 +2670,7 @@ var ChatqBoard = (function () {
 
     // --- one chat, a new chat, the folders ---------------------------------------
 
-    function cShow(kind, text, again) {
-        $('cStatus').setAttribute('data-kind', kind);
-        $('cStatusText').textContent = text;
-        $('cAgain').hidden = !again;
-        $('cStatus').hidden = false;
-    }
+    function cShow(kind, text, again) { showStatus('cStatus', 'cStatusText', 'cAgain', kind, text, again); }
     function chatView(o) {
         if (cv) cv.gen++;
         stopPanel('cAnswer');

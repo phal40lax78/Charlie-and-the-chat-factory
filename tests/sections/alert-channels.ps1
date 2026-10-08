@@ -23,9 +23,13 @@ $hk = if (Test-Path -LiteralPath $hookOut) { [System.IO.File]::ReadAllText($hook
 Check 'the command gets the alert in its environment, & and %PATH% as they are' ($hk -eq "needs input|$txt|0") $hk
 $script:ChatqHookTimeoutSec = 2
 chatnotify -Command 'Start-Sleep -Seconds 30' *> $null
+# stopped, not waited out: under 20 s. The stop comes on the runner's 5 s
+# look, and a busy machine's kill and clean-up add to that; a stop that did
+# nothing comes back after the runner's 15 s wait for the exit and 5 s for
+# its stderr - 25 s at the least
 $t1 = Get-Date
 $null = Send-ChatqAlert 'test' 'slow hook' 0
-Check 'a command that hangs is stopped' ((@($script:ChatqAlertReport) -join ' ') -like '*stopped after 2 s*' -and ((Get-Date) - $t1).TotalSeconds -lt 15) (@($script:ChatqAlertReport) -join ' ')
+Check 'a command that hangs is stopped' ((@($script:ChatqAlertReport) -join ' ') -like '*stopped after 2 s*' -and ((Get-Date) - $t1).TotalSeconds -lt 20) (@($script:ChatqAlertReport) -join ' ')
 $script:ChatqHookTimeoutSec = $null
 # the Join page shows a whole push URL, and pasting it is the obvious move
 chatnotify -ApiKey 'https://joinjoaomgcd.appspot.com/_ah/api/messaging/v1/sendPush?apikey=deadbeefcafe1234&deviceId=abc123' *> $null

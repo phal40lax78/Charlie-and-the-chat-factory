@@ -11,7 +11,7 @@
 # down traffic leaves. Everything changed is put back at the end.
 
 Section 'phone board'
-$bdCfgWas = if (Test-Path -LiteralPath $script:ChatqConfigPath) { [System.IO.File]::ReadAllText($script:ChatqConfigPath, $utf8) } else { $null }
+$bdCfgWas = Read-TestFile $script:ChatqConfigPath
 $bdWas = @{ Join = $script:ChatqJoinSeam; Poll = $script:ChatqReplyPollSeam; Down = $script:ChatqDownSeam; Spawn = $script:ChatqSpawn; Alive = $script:ChatqAliveSeam }
 $bdJobsBefore = @(Get-ChatqJobs | ForEach-Object { [string]$_.id })
 $script:BdOrder = [System.Collections.Generic.List[string]]::new()
@@ -185,14 +185,7 @@ $env:CHATQ_WATCHER = '1'
 $rowA = Get-ChatqRowById -Id $idBa -Provider claude
 $jobA = (New-ChatqJob -Row $rowA -Prompt 'do it' -Kind prompt).Job
 Complete-ChatqJob $jobA 'done' ([pscustomobject]@{ kind = 'done'; reason = 'finished' }) 'finished'
-$bdLastJoin = {
-    $u = $script:BdJoins[$script:BdJoins.Count - 1]
-    $q = @{}
-    foreach ($p in ($u.Substring($u.IndexOf('?') + 1) -split '&')) { $k, $v = $p -split '=', 2; $q[$k] = [uri]::UnescapeDataString($v) }
-    $f = @{}
-    if ($q['url']) { foreach ($p in ($q['url'].Substring($q['url'].IndexOf('#') + 1) -split '&')) { $k, $v = $p -split '=', 2; $f[$k] = [uri]::UnescapeDataString($v) } }
-    [pscustomobject]@{ Q = $q; F = $f }
-}
+$bdLastJoin = { Get-JoinPush $script:BdJoins[$script:BdJoins.Count - 1] }
 $script:BdOrder.Clear(); $script:BdDown.Clear()
 $t0 = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 $sentA = Send-ChatqAlert 'done' 'finished' 1 -Job $jobA
@@ -666,8 +659,8 @@ Remove-Item -LiteralPath $pBm -Force -EA SilentlyContinue
 # (Update-ChatOverlayText): the newest a typed prompt names, kept while the
 # transcript grows by records that name none; on its overlay row as mode
 $idBo = '7a7a7a7a-7a7a-47a7-87a7-7a7a7a7a7a7a'
-# a tool result after the prompt longer than the 64 KB a grown transcript is
-# read again with: the part read next names no mode
+# a long tool result after the prompt, and a grown transcript read on from
+# where the last read ended: the part read next names no mode
 $pBo = New-FakeChat $bdProj $idBo 'Mode chat' 0.1 @('begin') -Mode 'acceptEdits' -PadBytes 70000
 $boCtx = New-ChatOverlayContext
 $boSess = [pscustomobject]@{ SessionId = $idBo; Cwd = $bdProj; Status = 'idle'; Pid = 4848 }
@@ -783,12 +776,28 @@ Check 'a board from a scan: sent again within 10 s; 25 s on built again from the
 $null = Remove-ChatqJob (Find-ChatqJob $jK.id -Exact) 'test'
 $script:ChatqBoardCache = $null
 Remove-Item -LiteralPath $script:ChatOverlayPath -Force -EA SilentlyContinue
+# a tab a VS Code window's reload brought back, no process behind it
+# (extension.js writeTabs): a row of the scan as of the overlay's pass, out
+# of its Recent
+$bdTabsFile = Join-Path $script:ChatOverlayOpenTabsDir "$PID.json"
+$null = New-Item -ItemType Directory -Path $script:ChatOverlayOpenTabsDir -Force
+$bdTabStart = [DateTimeOffset]::new((Get-Process -Id $PID).StartTime).ToUnixTimeMilliseconds()
+[System.IO.File]::WriteAllText($bdTabsFile, ([ordered]@{ v = 1; pid = $PID; started = $bdTabStart; window = 'projBoard'
+            tabs = @([ordered]@{ sessionId = $idBa; cwd = $bdProj; label = 'tab label only' }) } | ConvertTo-Json -Compress -Depth 5), $utf8)
+$script:ChatqAliveSeam = { param($e) $false }
+try { $bsT = Get-ChatqBoardScan }
+finally { $script:ChatqAliveSeam = $bdWas.Alive; Remove-Item -LiteralPath $bdTabsFile -Force -EA SilentlyContinue }
+$bsRow = @($bsT.rows | Where-Object { $_.key -eq "s:$idBa" })[0]
+Check 'the board''s scan: a VS Code tab with no process an idle open row, titled from its transcript, with no pids - not in Recent' (
+    $bsRow -and $bsRow.tab -and $bsRow.status -eq 'idle' -and $bsRow.where -eq 'vscode' -and @($bsRow.pids).Count -eq 0 -and $bsRow.title -like 'Parser*' -and
+    $bsRow.project -eq 'projBoard' -and -not @($bsT.recent | Where-Object { $_.sessionId -eq $idBa }).Count) (
+    "$($bsRow | ConvertTo-Json -Compress -Depth 4) / $(@($bsT.rows | ForEach-Object { $_.key }) -join ',')")
 # the list's folders: one on another machine is offered, never looked at -
 # a share asleep would hold the watcher's tick
-$csWas = if (Test-Path -LiteralPath $script:ChatConsoleStatePath) { [System.IO.File]::ReadAllText($script:ChatConsoleStatePath, $utf8) } else { $null }
+$csWas = Read-TestFile $script:ChatConsoleStatePath
 Save-ChatqJson $script:ChatConsoleStatePath ([pscustomobject]@{ folders = @('\\nohost.invalid\share\farproj', $bdProj) })
 try { $lsNet = Get-ChatqPhoneList $bdRc -Quick }
-finally { if ($null -ne $csWas) { [System.IO.File]::WriteAllText($script:ChatConsoleStatePath, $csWas, $utf8) } else { Remove-Item -LiteralPath $script:ChatConsoleStatePath -Force -EA SilentlyContinue } }
+finally { Restore-TestFile $script:ChatConsoleStatePath $csWas }
 Check 'the list: a folder on another machine is offered without a look at it (Test-ChatOverlayFolder)' (@($lsNet.Body.folders | Where-Object { $_.n -eq 'farproj' }).Count -eq 1) "$(@($lsNet.Body.folders | ForEach-Object { $_.n }) -join ',')"
 
 # --- listening all the time, the poll's pace, the state's pruning --------------------------
@@ -886,9 +895,7 @@ $script:ChatqBoardCache = $null
 # --- the setup window's three boxes, drawn off-screen ----------------------------------------
 if ($script:ChatqIsWindows) {
     $wpfBoard = @"
-`$env:CHATQ_OVERLAY = '1'
-. '$(Join-Path $sb 'tool\Charlie-and-the-chat-factory.ps1')'
-Set-StrictMode -Off
+$staLoad
 `$null = Set-ChatqNotifyConfig @{ FullText = 'off'; Listen = 'alerts' }
 `$w = New-ChatqPhoneSetupWindow -Theme dark
 `$U = `$w.Tag
@@ -914,7 +921,7 @@ Remove-Item -LiteralPath $pBa, $pBb, $pBc, $pBd -Force -EA SilentlyContinue
 Remove-Item -LiteralPath $bdProj, $bdGone -Recurse -Force -EA SilentlyContinue
 Remove-Item -LiteralPath $script:ChatqWakePath -Force -EA SilentlyContinue
 if ($keyC) { Remove-Item -LiteralPath (Join-Path $script:ChatqAutoDir "$keyC.json") -Force -EA SilentlyContinue }
-if ($null -ne $bdCfgWas) { [System.IO.File]::WriteAllText($script:ChatqConfigPath, $bdCfgWas, $utf8) } else { Remove-Item -LiteralPath $script:ChatqConfigPath -Force -EA SilentlyContinue }
+Restore-TestFile $script:ChatqConfigPath $bdCfgWas
 Remove-Item -LiteralPath $script:ChatqReplyPath -Force -EA SilentlyContinue
 $script:ChatqJoinSeam = $bdWas.Join
 $script:ChatqReplyPollSeam = $bdWas.Poll

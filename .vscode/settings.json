@@ -1,8 +1,4 @@
 {
-    // Path to dotnet.exe used by .vscode/tasks.json (invoke_dotnet.ps1).
-    // Resolved via ${config:asRadarViewer.dotnetPath}.
-    "asRadarViewer.dotnetPath": "C:\\Program Files\\dotnet\\dotnet.exe",
-
     "files.associations": {
         "tuple": "cpp",
         "array": "cpp",
@@ -253,88 +249,5 @@
     "workbench.cloudChanges.continueOn": "off",
     
     // 30. 추가 임베디드 개발 보안 (registerUseNaturalFormat 추가)
-    "cortex-debug.registerUseNaturalFormat": false,
-    
-    // ============================================================================
-    // IAR + JLINK 빌드 및 디버깅 상태바 버튼 설정
-    // ============================================================================
-    "actionButtons": {
-        "defaultColor": "#ffffff",
-        "loadNpmCommands": false,
-        "reloadButton": null,
-        "commands": [
-            {
-                "cwd": "${workspaceFolder}",
-                "name": "$🧹 Clean",
-                "color": "#ff6347",
-                "singleInstance": true,
-                "command": "workbench.action.tasks.runTask",
-                "args": ["Clean"],
-                "tooltip": "IAR 프로젝트 클린"
-            },
-            {
-                "cwd": "${workspaceFolder}",
-                "name": "$🔨 Build",
-                "color": "#32cd32",
-                "singleInstance": true,
-                "command": "workbench.action.tasks.runTask",
-                "args": ["Build"],
-                "tooltip": "IAR 프로젝트 빌드"
-            },
-            {
-                "cwd": "${workspaceFolder}",
-                "name": "$(cloud-download) Program",
-                "color": "#00bfff",
-                "singleInstance": true,
-                "command": "workbench.action.tasks.runTask",
-                "args": ["Program"],
-                "tooltip": "펌웨어 다운로드"
-            },
-            {
-                "cwd": "${workspaceFolder}",
-                "name": "$(rocket) Program+Run",
-                "color": "#1e90ff",
-                "singleInstance": true,
-                "command": "workbench.action.tasks.runTask",
-                "args": ["Program+Run"],
-                "tooltip": "빌드 → 다운로드 → 리셋"
-            },
-            {
-                "cwd": "${workspaceFolder}",
-                "name": "$🗑️ Erase",
-                "color": "#ff8c00",
-                "singleInstance": true,
-                "command": "workbench.action.tasks.runTask",
-                "args": ["Erase"],
-                "tooltip": "플래시 메모리 삭제"
-            },
-            {
-                "cwd": "${workspaceFolder}",
-                "name": "$(debug-alt) Erase+Program",
-                "color": "#9370db",
-                "singleInstance": true,
-                "command": "workbench.action.tasks.runTask",
-                "args": ["Erase+Program"],
-                "tooltip": "플래시 삭제 → 다운로드 (리셋 없음)"
-            },
-            {
-                "cwd": "${workspaceFolder}",
-                "name": "$(zap) Erase+Program+Run",
-                "color": "#ff1493",
-                "singleInstance": true,
-                "command": "workbench.action.tasks.runTask",
-                "args": ["Erase+Program+Run"],
-                "tooltip": "플래시 삭제 → 다운로드 → 리셋"
-            },
-            {
-                "cwd": "${workspaceFolder}",
-                "name": "$(debug-restart) Reset",
-                "color": "#ffd700",
-                "singleInstance": true,
-                "command": "workbench.action.tasks.runTask",
-                "args": ["Reset"],
-                "tooltip": "MCU 리셋"
-            }
-        ]
-    }
+    "cortex-debug.registerUseNaturalFormat": false
 }

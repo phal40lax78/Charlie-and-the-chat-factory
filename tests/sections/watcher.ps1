@@ -2,16 +2,20 @@
 # never on its own - it uses what the runner and the sections before it set.
 
 Section 'jobs and the watcher'
-function New-TestJob([string]$Target, [string]$PromptText, [switch]$Continue) {
-    # the real chatq command, with the watcher kept from starting: holding the
-    # lock is exactly what a running watcher looks like
+function Lock-Queue([scriptblock]$Do) {
+    # a held lock is what a running watcher looks like: chatq queues, starts none
     New-ChatqDir $script:ChatqData
     $lk = [System.IO.File]::Open($script:ChatqLockPath, 'OpenOrCreate', 'ReadWrite', 'None')
-    try {
-        if ($Continue) { chatq $Target -Continue *> $null } else { chatq $Target -Prompt $PromptText *> $null }
-    }
-    finally { $lk.Dispose() }
-    return @(Get-ChatqJobs | Sort-Object { [int]$_.seq })[-1]
+    try { & $Do } finally { $lk.Dispose() }
+}
+function New-TestJob([string]$Target, [string]$PromptText, [switch]$Continue, [string]$Cwd) {
+    # the real chatq command, with the watcher kept from starting. -Cwd runs it
+    # from that folder, as typing chatq there does
+    if ($Cwd) { Push-Location -LiteralPath $Cwd }
+    Lock-Queue { if ($Continue) { chatq $Target -Continue *> $null } else { chatq $Target -Prompt $PromptText *> $null } }
+    $made = @(Get-ChatqJobs | Sort-Object { [int]$_.seq })[-1]
+    if ($Cwd) { Pop-Location }
+    return $made
 }
 $j = New-TestJob 'card redesign' (U 'level the heights \uC120\uD0DD')
 Check 'chatq queues with the chat''s cwd and mode' ($j.sessionId -eq $idCard -and $j.cwd -eq $projA -and $j.modeAtQueue -eq 'acceptEdits') "$($j.sessionId) $($j.cwd) $($j.modeAtQueue)"
@@ -209,3 +213,31 @@ $wlRun = Invoke-ChatqProcess -Exe $wlL.Exe -ArgList $wlL.Args -StdIn '' -Timeout
 $wlLog = @([IO.File]::ReadAllLines((Join-Path $script:ChatqLogDir 'watcher.log'), $utf8))[-1]
 Check 'a watcher that cannot load says so in watcher.log, and exits 1' ($wlRun.ExitCode -eq 1 -and $wlLog -like '*  the watcher did not load: the stub will not load') "exit $($wlRun.ExitCode): $wlLog"
 Remove-Item -LiteralPath $wlStub, $wlBad -Force -EA SilentlyContinue
+
+# and where it starts: your home folder, never the folder of the shell that
+# started it, which it would hold for as long as it runs. Started for real,
+# from a folder whose [1] Windows PowerShell 5.1 reads as a wildcard, with a
+# stand-in script that writes down the folder it finds itself in.
+$wlCwdStub = Join-Path $sb 'watcher-stub-cwd.ps1'
+[IO.File]::WriteAllText($wlCwdStub, @'
+$global:WlCwdFile = Join-Path $PSScriptRoot 'watcher-cwd.txt'
+function Invoke-ChatqWatchLoop { [IO.File]::WriteAllText($global:WlCwdFile, [Environment]::CurrentDirectory) }
+'@, $utf8)
+$wlCwdOut = Join-Path $sb 'watcher-cwd.txt'
+$wlFrom = Join-Path $sb 'wd[1]'
+[void][IO.Directory]::CreateDirectory($wlFrom)
+$wlWas = @{ Spawn = $script:ChatqSpawn; Path = $script:ChatqScriptPath }
+$script:ChatqSpawn = $null
+$script:ChatqScriptPath = $wlCwdStub
+Push-Location -LiteralPath $wlFrom
+try { $wlOk = Start-ChatqWatcherProcess }
+finally { Pop-Location; $script:ChatqSpawn = $wlWas.Spawn; $script:ChatqScriptPath = $wlWas.Path }
+$wlCwd = ''
+$wlUntil = (Get-Date).AddSeconds(60)
+while ($wlOk -and -not $wlCwd -and (Get-Date) -lt $wlUntil) {
+    Start-Sleep -Milliseconds 200
+    $wlCwd = try { [IO.File]::ReadAllText($wlCwdOut) } catch { '' }
+}
+Check 'the watcher starts in your home folder, not the folder of the shell that started it, even one with [1] in its name' ($wlOk -and
+    $wlCwd.TrimEnd('\', '/') -eq $HOME.TrimEnd('\', '/')) "started $wlOk, in '$wlCwd'"
+Remove-Item -LiteralPath $wlCwdStub, $wlCwdOut, $wlFrom -Force -EA SilentlyContinue

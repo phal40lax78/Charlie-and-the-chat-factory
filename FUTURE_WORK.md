@@ -759,6 +759,33 @@ process can still own the tab of that label - one a Claude Code crash left
 dead, one restored by a reload and not yet revived, or one whose process
 `"liveIdle": "stop"` ended before a run.
 
+## Tabs with no process: the ones a label cannot name
+
+A Claude tab no process holds - one a reload brought back - is an
+overlay row only when the window's `data/open-tabs/` file lists it, and
+[openTabChats](extension/extension.js) lists a tab only when its label
+names one chat for sure. Three kinds stay in Recent as if closed:
+
+- **An untitled tab, and two tabs of one label.** **Why deferred:** a
+  webview tab carries no session id, only its label; `Claude Code` is
+  every new chat's, and two tabs of one label cannot be told apart. A
+  label two chats would give - their titles share the first 24
+  characters - is left out the same way, as in the entry above.
+  **To close:** what closes the entries above - a session id on the tab,
+  from the Claude extension.
+- **A chat older than its folder's newest 200.** The label is matched
+  among each workspace folder's `PICK_CAP` newest transcripts, read
+  `PICK_READS` at a time within `timing.labelBudget`. **Why deferred:**
+  the bound keeps a look cheap enough to run every 30 s and on each tab
+  change. **To close:** a larger cap for the open tabs alone, read once
+  and kept in `titleCache`, if old chats left open turn out to be common.
+- **A chat in another Claude home.** The extension reads only its own
+  `claudeHome()`, so a tab whose chat a `CLAUDE_CONFIG_DIR` elsewhere
+  wrote is never found. **Why deferred:** the window does not know which
+  home a restored tab's chat came from. **To close:** with a session id
+  on the tab, the registry entry or a scan of the homes the overlay
+  reads would say.
+
 ## Ultracode and a session-only effort on a tab chatq opens again
 
 **Closed, in a local window:** Claude Code (2.1.284) keeps Ultracode, and
@@ -921,14 +948,6 @@ Code's log beside this extension's own (`context.logUri`'s parent) for a
 lost tab still waiting would key the hold to it. Failing that, a longer
 hold costs only a process left running beside a new tab.
 
-## The handover: small costs left
-
-**Why deferred:** **PowerShell 7** has not run the handover's sections
-(tests/sections/handover.ps1 and the checks beside it): `pwsh` is not
-installed on the machine they were written on. CI runs both.
-
-**To close:** a run of tests/run-tests.ps1 under `pwsh`.
-
 ## The unread dot lives in the overlay's memory
 
 **Why deferred:** [Update-ChatOverlayUnread](src/overlay-data.ps1) marks a
@@ -955,17 +974,16 @@ dot and reads no window in front to spare a chat one.
   before. So is one whose console Windows handed off to Windows Terminal
   (its default-terminal setting): the shell's parent is Explorer, or what
   started it, never the `WindowsTerminal.exe` that draws it, so its chain
-  never meets the window in front. The parents come from one
-  `Win32_Process` snapshot a pass
+  never meets the window in front. The parents come from one snapshot of
+  Windows' own process list a pass
   ([Get-ChatProcessTable](src/overlay-data.ps1)), taken only when a chat
   has just finished and its chain is not known yet, on the panel's
-  thread; a snapshot over 250 ms is logged. Chains are kept for as long
-  as the process lives. **To close:** the tab, not the program - only the
-  extension knows which Claude tab is in front, as the bullet below needs
-  anyway; for a handed-off console, the Windows Terminal that holds it,
-  found some other way than the parents; and the snapshot taken off the
-  panel's thread, as the console reads the chat index in a runspace of
-  its own.
+  thread: some 15 ms, where the `Win32_Process` query it stands in for
+  froze the panel 0.2 to 0.5 s; one over 250 ms is still logged. Chains
+  are kept for as long as the process lives. **To close:** the tab, not
+  the program - only the extension knows which Claude tab is in front, as
+  the bullet below needs anyway; and for a handed-off console, the
+  Windows Terminal that holds it, found some other way than the parents.
 - **The chip clears on its child's word.** The dot goes when the chip's
   child exits 0, 25, 40 or 41: the open request was written for the
   window, whether or not `code` then brought it forward. Not on 10, a chat
@@ -1193,16 +1211,21 @@ says it went, and offer it again on the new alert's page.
   `RegisterEventHotKey` or an accessibility permission, neither reachable
   cleanly from JXA. **To close:** only if the menu bar item turns out not to
   be enough.
-- **The panel's buttons on macOS.** Windows has a row of buttons on the
-  panel's top edge when the pointer is near it - grip, collapse, refresh,
-  console, settings, hide, close - and edges to size it by. The Mac panel
-  has only its menu
+- **The panel's buttons on macOS.** Windows has a bar along the panel's
+  top strip, always shown with it and taking the mouse there while the rest
+  lets clicks through - collapse, refresh, settings, then minimize (to the
+  tray), maximize (the console) and close, its empty part dragging the
+  panel - and edges to size it by, which stretch it past the open chats
+  into Recent. The Mac panel has only its menu
   bar item, and `-Theme`, `-Opacity`, `-Width`, `-Rows` and `-Refresh` from
   a shell; it has no collapsed view. **Why deferred:** the
   Mac panel has never run, and more untested Cocoa would not help that.
-  **To close:** after S24, a second small `NSPanel` beside the first, the
-  way Windows uses a second window, shown from a tracking area on the panel;
-  the settings and collapse as menu items, which JXA can already make.
+  **To close:** after S24, a second small `NSPanel` over the first's top
+  strip, the way Windows lays its bar's window over the panel
+  ([New-ChatOverlayControlsWindow](src/overlay-windows.ps1)), shown and
+  hidden with the panel and taking the mouse while the panel ignores it;
+  the settings and collapse as menu items, which JXA can already make. The
+  stretch into Recent waits on Recent there (below).
 - **Recent on macOS.** The Mac panel has no Recent list, since it has no
   open chip to open one with, and its collector
   ([Start-ChatOverlayMacHost](src/overlay-mac.ps1)) sets `WantRecent` off,
@@ -1210,15 +1233,37 @@ says it went, and offer it again on the new alert's page.
   Recent. **Why deferred:** as the buttons above. **To close:** after S24,
   draw it under the rows as Windows does, and turn `WantRecent` back on.
 - **The edges come only after a rest.** A window's edges show their arrows
-  the moment the pointer reaches them; the panel's come with the buttons,
-  350 ms after the pointer rests on the panel or just outside it
+  the moment the pointer reaches them; the panel's come 350 ms after the
+  pointer rests on the panel, its bar of buttons or just outside it
   ([Update-ChatOverlayHover](src/overlay-windows.ps1)). **Why deferred:**
   the panel lets clicks through, so its edges are a window of their own
   ([New-ChatOverlayEdgesWindow](src/overlay-windows.ps1)), and shown all
   the time they would take the clicks and drags meant for the window
-  under the panel's rim - the reason the buttons wait too. **To close:**
-  only if the wait shows in use: a shorter rest for the band just outside
-  the panel than for the panel itself.
+  under the panel's rim. The bar is shown all the time, and costs the
+  window underneath the clicks on the panel's top strip; the edges' band
+  runs round every side and would cost far more. **To close:** only if the
+  wait shows in use: a shorter rest for the band just outside the panel
+  than for the panel itself, or the top edge's strip shown with the bar.
+- **The settings box on a screen too short for it.** The box opens above
+  the panel where it fits, else under the bar over the rows
+  ([Get-ChatOverlayControlsPlacement](src/overlay-windows.ps1)); where it
+  fits neither, it goes to the side with more room and the rest runs off
+  the screen. **Why deferred:** the box shares its window with the bar,
+  which must stay in the panel's top strip, so that window can no longer
+  be pushed onto the screen as it was; only a short screen with a tall
+  panel runs into it. **To close:** a `MaxHeight` and a
+  `ScrollViewer` round the box's grid
+  ([New-ChatOverlaySettings](src/overlay-windows.ps1)), sized to the room
+  the placement finds; or the box in a window of its own.
+- **The top edge's cap a little generous on the last hidden row.** As the
+  top edge is dragged, the panel's height cap is the cap at the start plus
+  what the travel adds ([Get-ChatOverlayResize](src/overlay-windows.ps1)'s
+  Grow). It does not take off the `+N more` line that goes as the last
+  hidden row comes in, so the cap is a few units more than the content.
+  **Why deferred:** nothing shows it: the panel is sized to its content
+  and the cap is still bounded by the room on the screen. **To close:**
+  have [Start-ChatOverlaySizeDrag](src/overlay-windows.ps1) measure that
+  line, and Grow subtract it when the hidden rows reach none.
 - **Copilot usage without the GitHub CLI.** Copilot's line needs `gh`,
   logged in. **Why deferred:** VS Code writes only the plan to disk
   (`chat.setupContext` in `globalStorage/state.vscdb`, e.g.
@@ -1258,6 +1303,23 @@ says it went, and offer it again on the new alert's page.
   40-60 ms and the usage request never blocks, so the panel has not stuttered.
   **To close:** only if `data/logs/overlay.log` or use shows it does: a
   background runspace for the collector, handing snapshots to the UI thread.
+- **A pass allocates some 20 MB a second, nearly all of it PowerShell's
+  own.** The CLR's allocation events on the live overlay, three minutes
+  each side of the change that reads a grown transcript on from its last
+  whole line (2026-10-07): 1.2 to 1.3 GB a minute on the small object
+  heap - strings and char arrays two thirds of it, most of the rest
+  PowerShell's command lookup and parameter binding (alias tables,
+  parameter sets, variable scopes, pipes) - and some 120 gen 0
+  collections a minute. Each is short and keeps nothing: the heap does
+  not grow by it, and the process averaged about 1.4% of one core over
+  six hours. **Why deferred:** it is what running the passes as script
+  costs, spread thin: an [Update-ChatOverlayText](src/overlay-data.ps1)
+  call on a transcript 2 KB longer allocates some 900 KB, its read's own
+  buffers a few KB of that, and no one call stands out to cut. **To
+  close:** only if the processor time comes to matter - find the hottest
+  calls (allocation stacks in PerfView, or a pass timed per function) and
+  move their loops into C# compiled once, as chatq already does for its
+  Windows calls.
 
 ## Copilot Chat
 
@@ -1298,6 +1360,37 @@ PowerShell 7. The Unix branches - `nohup`, `caffeinate`, `systemd-inhibit`,
 **To close:** add `ubuntu-latest` and `macos-latest` to the matrix. The tests
 need a `fake-claude` shell wrapper next to the `.cmd` one, and the few
 Windows-only checks (DPAPI, the echo exe) a skip on Unix.
+
+## The self-test on a slow machine: what is left
+
+[TESTING.md](TESTING.md)'s *Slow machines* has how the checks were made to
+hold, and what proved it.
+
+- **A loaded PowerShell run with memory to spare.** The one pinned 5.1 run
+  ran short of commit, and its two failures were that; PowerShell 7 has
+  had no loaded run. **Why deferred:** a loaded run takes over an hour,
+  and the machine the fixes were made on sat at 94-99% of commit through
+  them. **To close:** both, pinned to two cores beside two busy loops,
+  with commit well under its limit; a failure then is a timing flake, to
+  fix as the others were.
+- **Two carry arms with a second to spare.** In `extension-check.js` a
+  missed carry's arm waits 1 s, and a revealed tab's 1.5 s
+  ([armCarry](extension/extension.js)'s `wait`); each check reads that
+  nothing was said yet after the open returns, so a stall longer than the
+  arm between the two fails it. **Why deferred:** the arm's own timer is
+  what the check watches go, and every run waits it out; 1 s is the cap
+  `within` gives every other timed check in the file, and both passed
+  with the event loop held up to 100 ms in every 10. **To close:** a timer
+  the check fires itself - `armCarry` taking its `setTimeout` from
+  `_timing` - so the "nothing yet" is read before the arm can go.
+- **The Toolhelp32 check goes by the clock.** `background.ps1` tells
+  [Get-ChatShellChildCount](src/overlay-data.ps1)'s native list from a
+  WMI query by time alone: the best of five looks under 150 ms. The best
+  of five rides out a busy machine's stall, but a fast, idle PC's WMI
+  query could pass it too. **Why deferred:** there is no WMI path left in
+  the code to fall back to, so only a rewrite could bring one back.
+  **To close:** a seam that counts the WMI calls, or `ChatProcSnap`'s, in
+  place of the clock.
 
 ## Codex threads archived from Codex's own panel
 
@@ -2038,3 +2131,81 @@ queue's status-bar item ([updateQueueItem](extension/extension.js)); fork a chat
 send one prompt to several; rename, pin and tag; a first-run walkthrough;
 Cursor, Windsurf and Open VSX; subagents under their chat; Codex cloud
 tasks; export a chat to Markdown.
+
+## The simplification review: what it left out
+
+The review behind "Less code, the same behaviour" (CHANGELOG, 0.10.5)
+changed no behaviour, so the faults it came across were left for fixes of
+their own. Each was read against the code by two more reviewers; none has
+been run.
+
+- **A chat open in a bare root stops the overlay.**
+  [Get-ChatOverlayRows](src/overlay-data.ps1) names a row's project with
+  `Split-Path $cwd.TrimEnd('\', '/') -Leaf`. A cwd of `/` - a `claude`
+  started there on macOS or Linux - or `\` trims to an empty string, which
+  `Split-Path` refuses, so every pass fails before the snapshot is written:
+  a running panel stops on its last pass, logging `tick: ...`
+  ([Invoke-ChatOverlayTick](src/overlay-windows.ps1)), and one starting
+  gives up at its first, logging `overlay failed: ...`
+  ([Start-ChatOverlayHost](src/overlay-windows.ps1)), for as long as that
+  chat is open. `C:\` trims to `C:`, which passes. **Why deferred:** a fix
+  decides what such a row shows. **To close:** show `/` when the trimmed
+  path is empty, in one helper for the session, tab, cut-off and job rows
+  and [Update-ChatOverlayRecent](src/overlay-data.ps1), and a check with a
+  live session whose cwd is `/`.
+- **A held alert whose time does not read stops the quiet-hours summary.**
+  [Get-ChatqHeldItems](src/phone-extras.ps1) skips a line that is not JSON,
+  but sorts the rest by `(ConvertTo-ChatqDate $o.at).ToUniversalTime()`,
+  which throws on an `at` that does not read.
+  [Send-ChatqHeldSummary](src/phone-extras.ps1) catches that and leaves
+  its claim; ten minutes on, the next summary takes the claim back
+  ([Get-ChatqStaleSending](src/phone-extras.ps1)) and fails the same way,
+  so nothing held goes out until the line is mended by hand.
+  [Add-ChatqHeldAlert](src/phone-extras.ps1) always writes a good `at`:
+  only a hand-edited or damaged `held.jsonl` does this. **To close:** skip
+  such a line as one that is not JSON is skipped, with a check that holds
+  one.
+- **The alert page's usage line takes the board's grid.** `docs/reply.html`
+  gives the board's usage table a bare `.usage { display: grid; ... }`,
+  and the alert page's usage line is `<p id="usage" class="meta usage">`.
+  The alert's footer (`s=`, up to 200 characters) then sits in one
+  `max-content` column that cannot wrap, and a long one runs past the
+  right edge of a phone's screen. Read from the CSS, not seen on a phone.
+  **To close:** scope the grid to `#bUsage`, and a page-check line that no
+  bare `.usage` rule makes a grid.
+- **The overlay's cached usage reads the wrong `.claude.json` when
+  `CLAUDE_CONFIG_DIR` is `~/.claude`.** Claude Code keeps `.claude.json`
+  inside `CLAUDE_CONFIG_DIR` whenever that is set, even to `~/.claude`,
+  and in the home folder only when it is not;
+  [Get-ChatqUsage](src/alerts.ps1) and
+  [Read-ChatqUsageCache](src/queue.ps1) go by that.
+  [Get-ChatqClaudeJsonPath](src/overlay-data.ps1) is handed the config
+  folder, which is `~/.claude` set or not, and reads `~/.claude.json` for
+  it. Only the overlay's cached figure - shown when its live fetch has
+  nothing newer - is off. **To close:** have it look at
+  `$env:CLAUDE_CONFIG_DIR` itself, as Get-ChatqUsage does.
+- **A start time `Test-ChatIdle` cannot read.**
+  [Test-ChatIdle](src/chatrm.ps1) turns a live session's `StartedAt` into
+  a time with no try, so a value that is not epoch milliseconds writes an
+  error and counts every background start in the transcript, not only
+  those since the session began.
+  [Get-ChatqEntryStart](src/live-chats.ps1) answers the same question and
+  falls back to the process's start time. The wrong answer is "not idle",
+  the safe one, and Claude Code writes a good value. **To close:** have
+  Test-ChatIdle call Get-ChatqEntryStart.
+- **The Windows PowerShell path, built in eight places.**
+  [Get-ChatqAskHookCommand](src/ask.ps1),
+  [Start-ChatConsoleIndexSync](src/console.ps1),
+  [Start-ChatShowFreshProcess](src/overlay-windows.ps1),
+  [Get-ChatOverlayLaunch](src/overlay.ps1),
+  [Get-ChatqPermitLaunch](src/permit.ps1),
+  [Get-ChatqPhoneSetupLaunch](src/phone-setup.ps1),
+  [Get-ChatqOutboxLaunch](src/phone.ps1) and
+  [Get-ChatqClipboard](src/queue.ps1) each join
+  `System32\WindowsPowerShell\v1.0\powershell.exe` onto
+  `$env:SystemRoot`, all but the last with `C:\Windows` when that is
+  unset. The extension's two copies are one now, in
+  [windowsPowerShell](extension/setup.js). **Why deferred:** a helper saves
+  a line or two in each, and Get-ChatqPermitLaunch keeps its root for the
+  module paths anyway. **To close:** one function in src/core.ps1, which
+  every part loads first; Get-ChatqClipboard gains the fallback with it.

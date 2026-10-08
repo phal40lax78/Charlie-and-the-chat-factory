@@ -124,17 +124,24 @@ function takeLock(file, now, staleMs) {
 
 function releaseLock(file) { try { fs.unlinkSync(file); } catch (e) { } }
 
+// A JSON file, or null where it cannot be read or does not parse.
+// PowerShell's Set-Content -Encoding UTF8 emits a BOM on Windows PowerShell
+// and JSON.parse rejects it outright. The script writes without one, but a
+// file edited by hand may well have it.
+function readJson(file) {
+    let raw;
+    try { raw = fs.readFileSync(file, 'utf8'); } catch (e) { return null; }
+    if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
+    try { return JSON.parse(raw); } catch (e) { return null; }
+}
+
 // data/extension.json: what the owner answered and what was said, kept
 // beside the rest of the tool's data rather than in VS Code's own storage
 function statePath(folder) { return path.join(folder, 'data', 'extension.json'); }
 
 function readState(folder) {
-    try {
-        let raw = fs.readFileSync(statePath(folder), 'utf8');
-        if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
-        const o = JSON.parse(raw);
-        return o && typeof o === 'object' && !Array.isArray(o) ? o : {};
-    } catch (e) { return {}; }
+    const o = readJson(statePath(folder));
+    return o && typeof o === 'object' && !Array.isArray(o) ? o : {};
 }
 
 // A temp name of this window's own: two windows writing at once must not
@@ -206,10 +213,16 @@ function which(name) {
     } catch (e) { return null; }
 }
 
+// Windows PowerShell, where Windows keeps it - what hosts() puts first,
+// without its look on PATH for pwsh
+function windowsPowerShell() {
+    return path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+}
+
 function hosts() {
     const out = [];
     if (process.platform === 'win32') {
-        const ps = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+        const ps = windowsPowerShell();
         if (fs.existsSync(ps)) out.push(ps);
     }
     const pwsh = which('pwsh');
@@ -246,10 +259,16 @@ function runPs(exe, loader, command, timeoutMs, log) {
     return run(exe, psArgs(loader, command), '(loads ' + loader + ') ' + command, timeoutMs, log);
 }
 
+// The last word of an answer's lines that matches, else ''. Pure.
+function lastSaid(stdout, re) {
+    const hit = String(stdout || '').split(/\r?\n/).map(s => s.trim()).filter(s => re.test(s));
+    return hit.length ? hit[hit.length - 1] : '';
+}
+
 // the last line that is True or False, else null: no answer at all
 function lastBool(stdout) {
-    const l = String(stdout || '').split(/\r?\n/).map(s => s.trim()).filter(s => s === 'True' || s === 'False');
-    return l.length ? l[l.length - 1] === 'True' : null;
+    const l = lastSaid(stdout, /^(True|False)$/);
+    return l ? l === 'True' : null;
 }
 
 // Get-ExecutionPolicy as a user's own shell sees it: a plain -Command, which
@@ -257,8 +276,7 @@ function lastBool(stdout) {
 async function policyOf(exe, log) {
     const r = await run(exe, ['-NoProfile', '-NonInteractive', '-Command', '(Get-ExecutionPolicy).ToString()'],
         '-Command (Get-ExecutionPolicy).ToString()', 30000, log);
-    const l = r.stdout.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-    return l.length ? l[l.length - 1] : null;
+    return lastSaid(r.stdout, /\S/) || null;
 }
 
 // a policy under which the profile line cannot run. Pure.
@@ -454,7 +472,7 @@ async function setUp(o) {
 }
 
 module.exports = {
-    setUp, OLD_ID, LOADER, texts,
+    setUp, OLD_ID, LOADER, texts, psQuote, windowsPowerShell, lastSaid, readJson,
     _readVersion: readVersion, _compareVersions: compareVersions, _decide: decide, _needsProbe: needsProbe,
     _shouldAsk: shouldAsk, _takeLock: takeLock, _releaseLock: releaseLock, _readState: readState, _writeState: writeState,
     _copyPayload: copyPayload, _psArgs: psArgs, _lastBool: lastBool, _blocksProfile: blocksProfile,

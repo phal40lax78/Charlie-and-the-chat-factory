@@ -183,11 +183,7 @@ function Protect-ChatqReplyMessage {
         if (-not $Ts) { $Ts = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() }
         $Payload = [ordered]@{ v = 1; act = $Act; text = $Text; nonce = $Nonce; ts = $Ts } | ConvertTo-Json -Compress
     }
-    if (-not $Iv) { $Iv = New-ChatqRandomBytes 16 }
-    $ct = Invoke-ChatqAes $ks.Enc $Iv ($u.GetBytes($Payload)) -Encrypt
-    $head = 'chatq1.' + $Aid + '.' + (ConvertTo-ChatqB64Url $Iv) + '.' + (ConvertTo-ChatqB64Url $ct)
-    $mac = Get-ChatqHmac $ks.Mac ($u.GetBytes($head))
-    return $head + '.' + (ConvertTo-ChatqB64Url $mac)
+    return (Protect-ChatqSealed $ks 'chatq1' $Aid ($u.GetBytes($Payload)) $Iv)
 }
 
 function Unprotect-ChatqReplyMessage {
@@ -200,25 +196,11 @@ function Unprotect-ChatqReplyMessage {
     #>
     param([string]$Message, [byte[]]$Master)
     $r = [pscustomobject]@{ Ok = $false; Stage = 'format'; Error = $null; Aid = $null; Payload = $null }
-    $p = @(([string]$Message).Trim() -split '\.')
-    if ($p.Count -ne 5 -or $p[0] -cne 'chatq1' -or $p[1] -cnotmatch '^[a-z2-7]{10}$') { $r.Error = 'not a chatq reply'; return $r }
-    $iv = ConvertFrom-ChatqB64Url $p[2]
-    $ct = ConvertFrom-ChatqB64Url $p[3]
-    $mac = ConvertFrom-ChatqB64Url $p[4]
-    if ($null -eq $iv -or $iv.Length -ne 16 -or $null -eq $ct -or $ct.Length -eq 0 -or ($ct.Length % 16) -or $null -eq $mac -or $mac.Length -ne 32) {
-        $r.Error = 'bad encoding'
-        return $r
-    }
-    if ($null -eq $Master -or $Master.Length -ne 32) { $r.Error = 'no phone paired'; return $r }
-    $r.Aid = $p[1]
-    $r.Stage = 'mac'
-    $u = New-Object System.Text.UTF8Encoding $false
-    $ks = Get-ChatqReplyKeys $Master $p[1]
-    $want = Get-ChatqHmac $ks.Mac ($u.GetBytes(($p[0..3] -join '.')))
-    if (-not (Test-ChatqSameBytes $want $mac)) { $r.Error = 'the MAC does not match'; return $r }
+    $s = Open-ChatqSealed $r $Message $Master 'chatq1' 'not a chatq reply' 'chatq-alert:' 'Aid'
+    if (-not $s) { return $r }
     $r.Stage = 'decrypt'
     try {
-        $pt = Invoke-ChatqAes $ks.Enc $iv $ct
+        $pt = Invoke-ChatqAes $s.Keys.Enc $s.Iv $s.Ct
         # strict: bytes that are not UTF-8 throw rather than turn into ?
         $json = (New-Object System.Text.UTF8Encoding $false, $true).GetString($pt)
         $o = $json | ConvertFrom-Json
@@ -355,8 +337,7 @@ function Get-ChatqReplyConfig {
     $master = if ($key) { ConvertFrom-ChatqB64Url $key } else { $null }
     $server = if ((& $has 'server') -and $rp.server) { ([string]$rp.server).TrimEnd('/') } else { $script:ChatqReplyServer }
     $page = if ((& $has 'page') -and $rp.page) { [string]$rp.page } else { $script:ChatqReplyPage }
-    $hours = 12
-    if ((& $has 'hours') -and ($rp.hours -as [double]) -gt 0) { $hours = [double]$rp.hours }
+    $hours = Get-ChatqReplyHours $Cfg
     $wanted = (& $has 'on') -and $rp.on -eq $true
     $paired = [bool]($null -ne $master -and $master.Length -eq 32)
     $pairId = $null
@@ -409,6 +390,14 @@ function ConvertFrom-ChatqJoinPaste {
         return [pscustomobject]@{ Key = $key; Device = $dev; FromUrl = $true }
     }
     return [pscustomobject]@{ Key = $t; Device = $null; FromUrl = $false }
+}
+
+function ConvertFrom-ChatqOnOff {
+    # a switch's value as Set-ChatqNotifyConfig takes it: a bool as it is,
+    # on or off in any case or spacing, else $null
+    param($Value)
+    if ($Value -is [bool]) { return $Value }
+    switch (([string]$Value).Trim().ToLower()) { 'on' { $true } 'off' { $false } default { $null } }
 }
 
 function Set-ChatqNotifyConfig {
@@ -538,13 +527,13 @@ function Set-ChatqNotifyConfig {
         $liveOn = $null
         if ($ch.ContainsKey('LiveAlerts') -and $null -ne $ch['LiveAlerts'] -and '' -ne $ch['LiveAlerts']) {
             $v = $ch['LiveAlerts']
-            $liveOn = if ($v -is [bool]) { $v } else { switch (([string]$v).Trim().ToLower()) { 'on' { $true } 'off' { $false } default { $null } } }
+            $liveOn = ConvertFrom-ChatqOnOff $v
             if ($null -eq $liveOn) { & $say "-LiveAlerts takes on or off, not '$v'" 'Yellow'; return (& $out 'bad live alerts value') }
         }
         $linksOn = $null
         if ($ch.ContainsKey('CommandLinks') -and $null -ne $ch['CommandLinks'] -and '' -ne $ch['CommandLinks']) {
             $v = $ch['CommandLinks']
-            $linksOn = if ($v -is [bool]) { $v } else { switch (([string]$v).Trim().ToLower()) { 'on' { $true } 'off' { $false } default { $null } } }
+            $linksOn = ConvertFrom-ChatqOnOff $v
             if ($null -eq $linksOn) { & $say "-CommandLinks takes on or off, not '$v'" 'Yellow'; return (& $out 'bad command links value') }
         }
         # usage heads-ups, quiet hours and voice: checked here with the rest
@@ -939,7 +928,7 @@ function Receive-ChatqPairing {
     'unsaved' when replies.json could not be written (the message is left
     to come back on the next poll), or @{ Act = 'pair'; Code; Label }.
     #>
-    param($Rc, [string]$Id, [string]$Message, [switch]$Quick, $Opened)
+    param($Rc, [string]$Id, [string]$Message, $Opened)
     $tag = "$($Rc.Topic)|$Id"
     $mark = {
         try { $null = Use-ChatqReplyState { param($st) $st.lastId = $Id; $st.lastPolledAt = Get-ChatqStamp } $Rc.Hours; $script:ChatqReplyHandled[$tag] = $true }
@@ -965,11 +954,7 @@ function Receive-ChatqPairing {
     # override would make a stranger's label read as yours), 40 at most
     $label = ([string]$pl.label) -replace '[\p{Cc}\p{Cf}]', ''
     $label = $label.Trim()
-    if ($label.Length -gt 40) {
-        $n = 40
-        if ([char]::IsHighSurrogate($label[$n - 1])) { $n-- }
-        $label = $label.Substring(0, $n)
-    }
+    $label = Limit-ChatqText $label 40
     if (-not $label) { $label = 'a phone' }
     $code = Get-ChatqPairCode $d -Spaced
     $dText = ConvertTo-ChatqB64Url $d
@@ -1278,18 +1263,7 @@ function Use-ChatqReplyState {
     # reply.hours as configured when the caller does not say: pruning with
     # any other number drops nonces the timestamp check would still let by
     if ($ReplyStateHours -le 0) { $ReplyStateHours = Get-ChatqReplyHours }
-    New-ChatqDir $script:ChatqData
-    $replyStateLock = $null
-    $replyStateUntil = (Get-Date).AddSeconds(3)
-    while (-not $replyStateLock) {
-        try { $replyStateLock = [System.IO.File]::Open($script:ChatqReplyLockPath, 'OpenOrCreate', 'ReadWrite', 'None') }
-        catch {
-            if ((Get-Date) -gt $replyStateUntil) { break }
-            # a wait of its own length each time: two writers retrying in
-            # step would otherwise let one of them take it every time
-            Start-Sleep -Milliseconds (Get-Random -Minimum 15 -Maximum 60)
-        }
-    }
+    $replyStateLock = Open-ChatqLock $script:ChatqReplyLockPath
     if (-not $replyStateLock) { throw 'data/replies.lock is held by another process' }
     try {
         $replyStateNow = Get-ChatqReplyState
@@ -1361,11 +1335,7 @@ function Get-ChatqReplyLink {
     param($Rc, [string]$Aid, [string]$Event, $Job, [int]$TitleChars = 20,
         [string]$UsageKind, [string]$Card, [switch]$Full, [int64]$At = 0, [string]$Status)
     $t = if ($Job -and $Job.title) { [string]$Job.title } else { '' }
-    if ($t.Length -gt $TitleChars) {
-        $n = [Math]::Max(0, $TitleChars)
-        if ($n -gt 0 -and [char]::IsHighSurrogate($t[$n - 1])) { $n-- }
-        $t = $t.Substring(0, $n)
-    }
+    $t = Limit-ChatqText $t $TitleChars
     $q = [ordered]@{
         v = '2'; a = $Aid; e = $Event
         n = $(if ($Job -and $Job.seq) { [string]$Job.seq } else { '' }); c = $t
@@ -1522,10 +1492,7 @@ function Write-ChatqReplyLog {
     $Text = $Text -replace '[\r\n]+', ' '
     Write-ChatqWatchLog "phone: $Text"
     try {
-        New-ChatqDir $script:ChatqLogDir
-        $p = Join-Path $script:ChatqLogDir 'replies.log'
-        if ((Test-Path -LiteralPath $p) -and (Get-Item -LiteralPath $p).Length -gt 1MB) { Move-Item -LiteralPath $p -Destination "$p.1" -Force }
-        [System.IO.File]::AppendAllText($p, "$((Get-Date).ToString('o'))  $Text`n", (New-Object System.Text.UTF8Encoding $false))
+        Add-ChatqLogLine 'replies.log' $Text
     }
     catch {}
 }
@@ -1717,7 +1684,7 @@ function Receive-ChatqReply {
     $tag = "$($Rc.Topic)|$Id"
     if ($script:ChatqReplyHandled.ContainsKey($tag)) { return $null }
     $c = if ($Checked) { $Checked } else { Test-ChatqReplyMessage $Rc $Message (Get-ChatqPairKey $Rc) }
-    if ($c.Pair -or ($c.Junk -and $c.Stage -eq 'pairing')) { return (Receive-ChatqPairing $Rc $Id $Message -Quick:$Quick -Opened $(if ($c.Pair) { $c.Pair } else { [pscustomobject]@{ Ok = $false; Error = $c.Error } })) }
+    if ($c.Pair -or ($c.Junk -and $c.Stage -eq 'pairing')) { return (Receive-ChatqPairing $Rc $Id $Message -Opened $(if ($c.Pair) { $c.Pair } else { [pscustomobject]@{ Ok = $false; Error = $c.Error } })) }
     if (-not $c.Junk -and $c.PSObject.Properties['Compose'] -and $c.Compose) { return (Receive-ChatqCompose $Rc $Id $Message -Checked $c -Quick:$Quick) }
     if ($c.Junk) {
         # junk, or forged: nobody is answered, and polling moves past it
@@ -2112,6 +2079,46 @@ function Test-ChatqPhoneSandbox {
     return (-not $Sandbox -or -not $Cap -or $Cap -ceq $script:ChatqKeepMode -or $Sandbox -in $script:ChatqSafeSandboxes)
 }
 
+function Reset-ChatqPhoneJob {
+    <#
+    retry or allow from the phone, on a job the caller found in a state the
+    act takes - an alert's reply (Invoke-ChatqReply) and the board's
+    (Invoke-ChatqJobAct) alike: queued again, never above -Cap. Returns
+    @{ Error; Say }.
+    #>
+    param([string]$Act, $Job, [string]$Cap)
+    if ($Act -eq 'allow') {
+        $eff = if ($Job.mode) { [string]$Job.mode } else { [string]$Job.modeAtQueue }
+        # up to acceptEdits when below it - default, plan, manual, none -
+        # and whatever it was, never above the cap
+        $want = if ((Get-ChatqModeRank $eff) -lt (Get-ChatqModeRank 'acceptEdits')) { 'acceptEdits' } else { $eff }
+        $lim = Limit-ChatqPhoneMode $want $Cap
+        $r = if ($lim.Mode -ceq $eff) { Reset-ChatqJob $Job } else { Reset-ChatqJob $Job $lim.Mode }
+        if ($r.Error) { return [pscustomobject]@{ Error = $r.Error; Say = $null } }
+        return [pscustomobject]@{ Error = $null; Say = "#$($Job.seq) queued again in $($lim.Mode) ($(if ($r.Landed) { 'continue' } else { 'full prompt' }))$(if ($lim.Capped) { " - the phone's limit" })" }
+    }
+    $note = ''
+    $m = ''
+    if ($Job.provider -eq 'codex') {
+        # the sandbox it runs in - its own pick, else its chat's - and
+        # the cap set as its pick, its chat's left as it is on the job;
+        # the run then leaves the chat in workspace-write (spike S11),
+        # so the answer says so when that is not the chat's own
+        if (-not (Test-ChatqPhoneSandbox (Get-ChatqCodexRunSandbox $Job).Sandbox $Cap)) {
+            $m = 'workspace-write'
+            $note = " - runs in workspace-write, the phone's limit"
+            if (Get-ChatqCodexStickSay (ConvertTo-ChatqCodexSandbox ([string]$Job.sandbox)).Sandbox $m) { $note += ' - and the chat keeps it for later jobs' }
+        }
+    }
+    else {
+        $lim = Limit-ChatqPhoneMode $(if ($Job.mode) { [string]$Job.mode } else { [string]$Job.modeAtQueue }) $Cap
+        if ($lim.Capped) { $m = $lim.Mode; $note = " - runs in $($lim.Mode), the phone's limit" }
+    }
+    $r = Reset-ChatqJob $Job $m
+    if ($r.Error) { return [pscustomobject]@{ Error = $r.Error; Say = $null } }
+    return [pscustomobject]@{ Error = $null; Say = "#$($Job.seq) queued again ($(if ($r.Landed) { 'continue' } else { 'full prompt' }))$note" }
+}
+
 function Invoke-ChatqReply {
     <#
     One verified reply, done: what the phone asked for, then a push saying
@@ -2146,7 +2153,6 @@ function Invoke-ChatqReply {
     $job = if ($Entry.jobId) { Find-ChatqJob ([string]$Entry.jobId) -Exact } else { $null }
     $about = $job
     $n = if ($job) { "#$($job.seq)" } elseif ($Entry.seq) { "#$($Entry.seq)" } else { 'that job' }
-    $limitNote = { param($m) " - runs in $m, the phone's limit" }
     $say = $null
     $live = [bool](Get-ChatField $Entry 'live')
     # A prompt lets its job run on (-Loose); skip and stop send nothing into
@@ -2227,39 +2233,17 @@ function Invoke-ChatqReply {
         'retry' {
             if (-not $job) { $say = "$n is gone - nothing to retry"; break }
             if ($job.state -notin 'failed', 'needs-input') { $say = "#$($job.seq) is $($job.state) - nothing to retry"; break }
-            $note = ''
-            $m = ''
-            if ($job.provider -eq 'codex') {
-                # the sandbox it runs in - its own pick, else its chat's - and
-                # the cap set as its pick, its chat's left as it is on the job;
-                # the run then leaves the chat in workspace-write (spike S11),
-                # so the answer says so when that is not the chat's own
-                if (-not (Test-ChatqPhoneSandbox (Get-ChatqCodexRunSandbox $job).Sandbox $cap)) {
-                    $m = 'workspace-write'
-                    $note = & $limitNote 'workspace-write'
-                    if (Get-ChatqCodexStickSay (ConvertTo-ChatqCodexSandbox ([string]$job.sandbox)).Sandbox $m) { $note += ' - and the chat keeps it for later jobs' }
-                }
-            }
-            else {
-                $lim = Limit-ChatqPhoneMode $(if ($job.mode) { [string]$job.mode } else { [string]$job.modeAtQueue }) $cap
-                if ($lim.Capped) { $m = $lim.Mode; $note = & $limitNote $lim.Mode }
-            }
-            $r = Reset-ChatqJob $job $m
+            $r = Reset-ChatqPhoneJob 'retry' $job $cap
             if ($r.Error) { $say = $r.Error; break }
-            $say = "#$($job.seq) queued again ($(if ($r.Landed) { 'continue' } else { 'full prompt' }))$note"
+            $say = $r.Say
         }
         'allow' {
             if (-not $job) { $say = "$n is gone - nothing to allow"; break }
             if ($job.provider -ne 'claude') { $say = 'allow is Claude only - use retry'; break }
             if ($job.state -ne 'needs-input') { $say = "#$($job.seq) is $($job.state) - allow is for a job that needs input"; break }
-            $eff = if ($job.mode) { [string]$job.mode } else { [string]$job.modeAtQueue }
-            # up to acceptEdits when below it - default, plan, manual, none -
-            # and whatever it was, never above the cap
-            $want = if ((Get-ChatqModeRank $eff) -lt (Get-ChatqModeRank 'acceptEdits')) { 'acceptEdits' } else { $eff }
-            $lim = Limit-ChatqPhoneMode $want $cap
-            $r = if ($lim.Mode -ceq $eff) { Reset-ChatqJob $job } else { Reset-ChatqJob $job $lim.Mode }
+            $r = Reset-ChatqPhoneJob 'allow' $job $cap
             if ($r.Error) { $say = $r.Error; break }
-            $say = "#$($job.seq) queued again in $($lim.Mode) ($(if ($r.Landed) { 'continue' } else { 'full prompt' }))$(if ($lim.Capped) { " - the phone's limit" })"
+            $say = $r.Say
         }
         'skip' {
             if (-not $job) { $say = "$n is gone - nothing to skip"; break }
@@ -2294,7 +2278,7 @@ function Invoke-ChatqReply {
         }
         # the whole answer again, on the down topic - no push: the page is
         # open and waiting for it (src/phone-board.ps1)
-        'read' { return (Invoke-ChatqReadAct $Entry $Aid -Rc $Rc -Quick:$Quick) }
+        'read' { return (Invoke-ChatqReadAct $Entry $Aid -Rc $Rc) }
         'ping' {
             $ts = $Payload.ts -as [double]
             $secs = if ($null -ne $ts) { [int][Math]::Round(([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - $ts) / 1000) } else { '?' }
@@ -2327,11 +2311,7 @@ function Get-ChatqPhoneStatusReport {
     $lines = @(Get-ChatqStatusLine $jobs $blocks)
     foreach ($j in @($jobs | Where-Object { $_.state -in 'queued', 'running', 'needs-input', 'failed' })) {
         $t = [string]$j.title
-        if ($t.Length -gt 30) {
-            $n = 29
-            if ([char]::IsHighSurrogate($t[$n - 1])) { $n-- }
-            $t = $t.Substring(0, $n) + $script:ChatqEllipsis
-        }
+        $t = Format-ChatqAutoTitle $t 30
         $s = switch ($j.state) { 'queued' { $eta[$j.id] } 'needs-input' { 'needs you' } default { $j.state } }
         if ($j.state -eq 'running') { $s += Get-ChatqPermitWaitText $j }
         $lines += "#$($j.seq) $t $d $s"
@@ -2766,10 +2746,7 @@ function Write-ChatqOutboxLog {
     # data/logs/outbox.log, rolled at 1 MB: what the sender did with each alert
     param([string]$Text)
     try {
-        New-ChatqDir $script:ChatqLogDir
-        $p = Join-Path $script:ChatqLogDir 'outbox.log'
-        if ((Test-Path -LiteralPath $p) -and (Get-Item -LiteralPath $p).Length -gt 1MB) { Move-Item -LiteralPath $p -Destination "$p.1" -Force }
-        [System.IO.File]::AppendAllText($p, "$((Get-Date).ToString('o'))  $($Text -replace '[\r\n]+', ' ')`n", (New-Object System.Text.UTF8Encoding $false))
+        Add-ChatqLogLine 'outbox.log' ($Text -replace '[\r\n]+', ' ')
     }
     catch {}
 }

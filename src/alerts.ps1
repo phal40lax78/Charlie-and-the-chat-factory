@@ -29,16 +29,7 @@ $script:ChatqConfigLockHandle = $null
 
 function Lock-ChatqConfig {
     if ($script:ChatqConfigLockDepth -gt 0 -and $script:ChatqConfigLockHandle) { $script:ChatqConfigLockDepth++; return }
-    New-ChatqDir $script:ChatqData
-    $h = $null
-    $until = (Get-Date).AddSeconds(3)
-    while (-not $h) {
-        try { $h = [System.IO.File]::Open($script:ChatqConfigLockPath, 'OpenOrCreate', 'ReadWrite', 'None') }
-        catch {
-            if ((Get-Date) -gt $until) { break }
-            Start-Sleep -Milliseconds (Get-Random -Minimum 15 -Maximum 60)
-        }
-    }
+    $h = Open-ChatqLock $script:ChatqConfigLockPath
     if (-not $h) { throw 'data/config.lock is held by another process' }
     $script:ChatqConfigLockHandle = $h
     $script:ChatqConfigLockDepth = 1
@@ -251,7 +242,7 @@ function Send-ChatqAlert {
             if ($rc.Links) { $reply = New-ChatqReplyAlert -Event $Event -Job $Job -Rc $rc -UsageKind $UsageKind -Permit $Permit -Card $Card -SeenAt $SeenAt -Status $foot }
             # the whole answer to the down topic ahead of the push, and the
             # link made again to say so (src/phone-down.ps1)
-            if ($reply) { Update-ChatqReplyFull $rc $reply $Event $Job -Quick:$Quick }
+            if ($reply) { Update-ChatqReplyFull $rc $reply $Event $Job }
         }
         catch { $reply = $null }
     }
@@ -473,7 +464,7 @@ function Get-ChatqIdleSeconds {
             if (-not ('ChatqIdle' -as [type])) {
                 # the subtraction in C#, unsigned: 5.1's [Environment]::TickCount
                 # is a signed int that goes negative after 24.9 days of uptime
-                Add-Type -TypeDefinition @'
+                Invoke-ChatCompile { Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 public static class ChatqIdle {
@@ -487,6 +478,7 @@ public static class ChatqIdle {
     }
 }
 '@
+                }
             }
             $s = [ChatqIdle]::Seconds()
             if ($s -ge 0) { return $s }
@@ -675,8 +667,7 @@ function Get-ChatqEta {
         $eta[$j.id] = if ($why -eq 'overloaded') { "when $(Format-ChatqProvider $lane) is back" }
         elseif ($words -and $why -eq $words -and $at -eq $du) { $words }
         elseif ($at) {
-            $fmt = if ($at.Date -eq $now.Date) { 'HH:mm' } else { 'ddd HH:mm' }
-            $s = $at.ToString($fmt, [System.Globalization.CultureInfo]::InvariantCulture)
+            $s = Format-ChatqClockTime $at $now
             $before = $tied[$s]
             $tied[$s] = $j
             if ($before) { $s = "after #$($before.seq)" }
@@ -725,9 +716,7 @@ function Get-ChatqStatusLine {
             $parts += "$name $said - log in or check the subscription, chatq looks again every 15 min"
             continue
         }
-        $u = $b.Until
-        $fmt = if ($u.Date -eq (Get-Date).Date) { 'HH:mm' } else { 'ddd HH:mm' }
-        $parts += "$name limited until $($u.ToString($fmt, [System.Globalization.CultureInfo]::InvariantCulture)) ($($b.Type))"
+        $parts += "$name limited until $(Format-ChatqClockTime $b.Until) ($($b.Type))"
     }
     $parts += if (Test-ChatqWatcherAlive) { 'watcher running' } else { 'watcher stopped' }
     return 'chatq ' + $script:ChatqDot + ' ' + ($parts -join " $($script:ChatqDot) ")
@@ -748,37 +737,31 @@ function Get-ChatqUsage {
     $label = { param($d) if ($d.Date -eq (Get-Date).Date) { $d.ToString('HH:mm') } else { $d.ToString('ddd HH:mm', [System.Globalization.CultureInfo]::InvariantCulture) } }
     try {
         $path = if ($env:CLAUDE_CONFIG_DIR) { Join-Path $env:CLAUDE_CONFIG_DIR '.claude.json' } else { Join-Path $HOME '.claude.json' }
-        if (Test-Path -LiteralPath $path) {
-            $t = Read-ChatAllText $path
-            $i = $t.IndexOf('"cachedUsageUtilization"', [StringComparison]::Ordinal)
-            $j = if ($i -ge 0) { $t.IndexOf('{', $i) } else { -1 }
-            $obj = if ($j -ge 0) { Read-ChatqJsonObjectAt $t $j } else { $null }
-            $u = if ($obj) { try { $obj | ConvertFrom-Json } catch { $null } } else { $null }
-            if ($u -and $u.fetchedAtMs) {
-                $parts = @(foreach ($l in @($u.utilization.limits)) {
-                        if (-not $l) { continue }
-                        $p = [int][Math]::Round([double]$l.percent)
-                        # reset since the fetch: empty, as the overlay has it
-                        $rs = if ($l.resets_at) { ConvertTo-ChatqDate $l.resets_at } else { $null }
-                        if ($rs -and $rs -le (Get-Date)) { $p = 0 }
-                        $scoped = $l.PSObject.Properties['scope'] -and $l.scope
-                        switch ([string]$l.kind) {
-                            'session' { "5h $p%" }
-                            'five_hour' { "5h $p%" }
-                            { $_ -in 'weekly_all', 'seven_day', 'weekly' } { "week $p%" }
-                            default {
-                                # one model's weekly limit - worth a word only once used
-                                if ($scoped -and $p -gt 0) {
-                                    $name = if ($l.scope.model.display_name) { $l.scope.model.display_name } else { 'model' }
-                                    "$name week $p%"
-                                }
+        $u = Read-ChatqCachedUtilization $path
+        if ($u) {
+            $parts = @(foreach ($l in @($u.utilization.limits)) {
+                    if (-not $l) { continue }
+                    $p = [int][Math]::Round([double]$l.percent)
+                    # reset since the fetch: empty, as the overlay has it
+                    $rs = if ($l.resets_at) { ConvertTo-ChatqResetDate $l.resets_at } else { $null }
+                    if ($rs -and $rs -le (Get-Date)) { $p = 0 }
+                    $scoped = $l.PSObject.Properties['scope'] -and $l.scope
+                    switch ([string]$l.kind) {
+                        'session' { "5h $p%" }
+                        'five_hour' { "5h $p%" }
+                        { $_ -in 'weekly_all', 'seven_day', 'weekly' } { "week $p%" }
+                        default {
+                            # one model's weekly limit - worth a word only once used
+                            if ($scoped -and $p -gt 0) {
+                                $name = if ($l.scope.model.display_name) { $l.scope.model.display_name } else { 'model' }
+                                "$name week $p%"
                             }
                         }
-                    })
-                if ($parts) {
-                    $at = [System.DateTimeOffset]::FromUnixTimeMilliseconds([int64]$u.fetchedAtMs).LocalDateTime
-                    $out.Add([pscustomobject]@{ Provider = 'Claude'; Parts = $parts; AsOf = & $label $at; AsOfAt = $at })
-                }
+                    }
+                })
+            if ($parts) {
+                $at = [System.DateTimeOffset]::FromUnixTimeMilliseconds([int64]$u.fetchedAtMs).LocalDateTime
+                $out.Add([pscustomobject]@{ Provider = 'Claude'; Parts = $parts; AsOf = & $label $at; AsOfAt = $at })
             }
         }
     }

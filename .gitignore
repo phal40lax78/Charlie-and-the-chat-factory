@@ -13,3 +13,10 @@ extension/LICENSE
 *.vsix
 # personal Claude Code settings for this checkout (e.g. the auto-compact window)
 .claude/settings.local.json
+# secrets (API keys, tokens) - never to be published; a placeholder template stays
+.env
+.env.*
+!.env.example
+# local Python virtual environments - machine-specific and rebuildable
+.venv/
+venv/

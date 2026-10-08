@@ -5,6 +5,7 @@ const path = require('path');
 const os = require('os');
 const cp = require('child_process');
 const setup = require('./setup');
+const { psQuote, windowsPowerShell, lastSaid, readJson: readRequest } = setup;
 // a new version installed, and every reload chatq asks for, held to the
 // chats this window runs (safe-restart.js)
 const safe = require('./safe-restart');
@@ -28,7 +29,9 @@ const GUID = /^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$/;
 //   pickBudget     the picker's titles read before it lists the chats; the
 //                  rest are filled in as they come
 //   labelBudget    labelShared's read of the folders' chats, at most; one
-//                  not done by then answers shared. 0 is no limit
+//                  not done by then answers shared. 0 is no limit. The
+//                  open-tabs look's too (openTabChats): one not done by
+//                  then leaves the file as it was
 //   anywayFresh    a Reload anyway clicked within this of its warning reloads
 //                  at once; later, the window's chats are looked at again
 //   runPoll        data/run-state, and a watch panel's log and job file,
@@ -59,13 +62,17 @@ const GUID = /^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$/;
 //   procFresh      a registry entry's process start and parent, once read
 //                  (procFacts), kept this long
 //   procTimeout    that read, at most; one not done by then knows nothing
+//   tabsSettle     the open-tabs look (lookTabs) waits this long after
+//                  activation and after the tabs change, for them to settle
+//   tabsEvery      and looks this often besides: a chat's title can come
+//                  after its tab's label. 0 is never
 const timing = {
     retry: 2500, tabSettle: 400, tabRecount: 1500, startupOpen: 2000,
     openMaxAge: 120000, judgedMaxAge: 20000, verdictTimeout: 20000,
     commandTimeout: 15000, pickBudget: 250, labelBudget: 1500, anywayFresh: 60000,
     runPoll: 1000, runCheck: 5000, graceSeconds: 8, ackWindow: 2750, restoreHold: 4000,
     tabHold: 600000, carryWait: 60000, putBackWait: 30 * 60000, restartHold: 30000,
-    procFresh: 10000, procTimeout: 5000
+    procFresh: 10000, procTimeout: 5000, tabsSettle: 2000, tabsEvery: 30000
 };
 
 // chatManager.* first. For one release the old extension's chatManagerReload.*
@@ -134,16 +141,6 @@ function log(s) {
         if (!channel && vscode.window.createOutputChannel) channel = vscode.window.createOutputChannel('Charlie and the Chat Factory - Claude Code & Codex');
         if (channel) channel.appendLine(new Date().toISOString() + '  ' + s);
     } catch (e) { }
-}
-
-function readRequest(file) {
-    let raw;
-    try { raw = fs.readFileSync(file, 'utf8'); } catch (e) { return null; }
-    // PowerShell's Set-Content -Encoding UTF8 emits a BOM on Windows PowerShell
-    // and JSON.parse rejects it outright. The script writes without one, but a
-    // file edited by hand may well have it.
-    if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
-    try { return JSON.parse(raw); } catch (e) { return null; }
 }
 
 // A signal file's requests, oldest first. The file is one request, the
@@ -761,15 +758,8 @@ async function unlockClaudeGroup(title, before, how) {
 async function showTab(req) {
     // listed first, as any open is; one never listed is offered a terminal,
     // and one out of the list while it works is left for later
-    const listed = await ensureListed(req);
-    if (listed === 'unlistable') {
-        offerTerminal(req).catch(e => log('the terminal offer failed: ' + (e && e.message)));
-        return 'unlistable';
-    }
-    if (listed === 'held' || listed === 'unmended') {
-        vscode.window.showInformationMessage((listed === 'held' ? texts.hiddenBusy : texts.unmended)(req));
-        return listed;
-    }
+    const listed = await notListed(req);
+    if (listed) return listed;
     const before = allTabs().filter(isClaudeTab);
     const beforeActive = activeTab();
     const up = async (how) => { await unlockClaudeGroup(req.title, before, how); return how; };
@@ -1553,6 +1543,17 @@ async function offerTerminal(req) {
     return 'terminal';
 }
 
+// ensureListed before an open, and where the chat is not to be opened,
+// said: a terminal offered for one never listed, a word for one held or
+// unmended. That answer, else null: the open goes ahead.
+async function notListed(req) {
+    const listed = await ensureListed(req);
+    if (listed === 'unlistable') offerTerminal(req).catch(e => log('the terminal offer failed: ' + (e && e.message)));
+    else if (listed === 'held' || listed === 'unmended') vscode.window.showInformationMessage((listed === 'held' ? texts.hiddenBusy : texts.unmended)(req));
+    else return null;
+    return listed;
+}
+
 // The open itself, behind the open chip's guards and the picker's: the
 // chat listed where it can be, the open (openCall), a look for a new tab,
 // the group unlocked, and a line in the log ending in why. 'new',
@@ -1560,18 +1561,11 @@ async function offerTerminal(req) {
 // viewColumn, prompt: as openCall takes them - a prompt only from a caller
 // sure no panel of the chat is here.
 async function openCore(req, before, why, viewColumn, prompt) {
-    let how;
-    const listed = await ensureListed(req);
-    if (listed === 'unlistable') {
-        how = 'unlistable';
-        offerTerminal(req).catch(e => log('the terminal offer failed: ' + (e && e.message)));
-    } else if (listed === 'held' || listed === 'unmended') {
-        how = listed;
-        vscode.window.showInformationMessage((listed === 'held' ? texts.hiddenBusy : texts.unmended)(req));
-    } else if (!(await openWith(req.sessionId, viewColumn, prompt))) {
+    let how = await notListed(req);
+    if (!how && !(await openWith(req.sessionId, viewColumn, prompt))) {
         vscode.window.showInformationMessage(texts.notOpened(req));
         how = 'failed';
-    } else {
+    } else if (!how) {
         await sleep(timing.tabSettle);
         how = (await tabAppeared(before)) ? 'new' : 'revealed';
         await unlockClaudeGroup(req.title, before, how);
@@ -1675,6 +1669,14 @@ function windowName() {
 // once, as the module loads - process.uptime() stands still while the
 // machine sleeps, so worked out later it would drift by every sleep since.
 const hostStarted = Math.round(Date.now() - process.uptime() * 1000);
+// body written whole and moved into place, its folder made where missing,
+// so a reader never sees half of it. Throws what the write threw.
+function writeWhole(f, body) {
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    fs.writeFileSync(f + '.tmp', body);
+    fs.renameSync(f + '.tmp', f);
+}
+
 let pendingRetry = null;
 function writePending(tries = 0) {
     const f = pendingFile();
@@ -1684,10 +1686,8 @@ function writePending(tries = 0) {
             try { fs.unlinkSync(f); } catch (e) { if (e && e.code !== 'ENOENT') throw e; }
             return;
         }
-        fs.mkdirSync(path.dirname(f), { recursive: true });
         const asks = [...pendingAsks.values()].map(a => ({ id: a.id, state: a.state, say: a.say, text: a.text, at: a.at }));
-        fs.writeFileSync(f + '.tmp', JSON.stringify({ v: 1, pid: process.pid, started: hostStarted, window: windowName(), asks }));
-        fs.renameSync(f + '.tmp', f);
+        writeWhole(f, JSON.stringify({ v: 1, pid: process.pid, started: hostStarted, window: windowName(), asks }));
     } catch (e) {
         // held a moment - an antivirus scan, a reader that shares no
         // delete: tried again, or the overlay goes on showing an ask
@@ -1757,9 +1757,8 @@ function onReloadAnswer() {
     const a = readRequest(f);
     if (!a) return 'none';
     try { fs.unlinkSync(f); } catch (e) { }
-    const at = Date.parse(a.at || '');
     const ask = pendingAsks.get(String(a.id || ''));
-    if (!ask || !(Date.now() - at < 600000) || !['reload', 'later'].includes(a.answer)) {
+    if (!ask || !(ageOf(a) < 600000) || !['reload', 'later'].includes(a.answer)) {
         log('reload: an answer from the overlay to no open ask (' + String(a.id || '') + ' ' + String(a.answer || '') + ')');
         return 'stale';
     }
@@ -1768,9 +1767,10 @@ function onReloadAnswer() {
 }
 
 // At activation: the files of windows gone - their host's pid not alive -
-// taken away, so the overlay never shows one a crash left.
+// taken away, so the overlay never shows one a crash left. Their open tabs
+// (writeTabs) too.
 function sweepPending() {
-    for (const d of [pendingDir(), answerDir()]) {
+    for (const d of [pendingDir(), answerDir(), tabsDir()]) {
         let names;
         try { names = fs.readdirSync(d); } catch (e) { continue; }
         for (const n of names) {
@@ -1779,6 +1779,189 @@ function sweepPending() {
             try { fs.unlinkSync(path.join(d, n)); } catch (e) { }
         }
     }
+}
+
+// --- this window's Claude tabs, for the overlay ------------------------------
+// A reload brings a window's Claude tabs back with no process behind them:
+// none starts until something is sent in one. The overlay knew a chat open
+// only by its process, so those showed under Recent at best. So the tabs
+// here are listed in data/open-tabs/<this host's pid>.json, { v, pid,
+// started, window, tabs: [{ sessionId, cwd, label }] }, and the overlay
+// makes a row of each its registry does not have (Read-ChatOpenTabs,
+// src/overlay-data.ps1). A tab carries no session id, only its label, so
+// one is listed only when no other Claude tab here has its label and
+// exactly one chat among the workspace folders' newest PICK_CAP gives it
+// (claudeTabLabel): an untitled tab - "Claude Code" - or two of one label
+// can be no chat for sure, and are left out. Looked at timing.tabsSettle
+// after activation and after the tabs change, and every timing.tabsEvery,
+// since a title can come after its label; the file is written only when
+// what it says changed, moved into place as reload-pending is, and goes
+// when no tab is listed and with the window. sweepPending takes a gone
+// window's.
+const tabsIo = { last: null, timer: null, every: null, retry: null, busy: false, again: false, off: false, late: false };
+function tabsDir() { return path.join(reloadIo.dir || dataDir(), 'open-tabs'); }
+function tabsFile() { return path.join(tabsDir(), process.pid + '.json'); }
+
+// fn raced against a budget of ms (0: no limit): what it came to, else
+// 'late' - and over(), which fn is given, true from then on, for it to
+// stop at its next look
+async function inBudget(ms, fn) {
+    let over = false, timer = null;
+    if (!(ms > 0)) return fn(() => over);
+    const late = new Promise(r => { timer = setTimeout(() => { over = true; r('late'); }, ms); });
+    try { return await Promise.race([fn(() => over), late]); }
+    finally { clearTimeout(timer); }
+}
+
+// The folders' chats as the picker lists them: each folder's newest
+// PICK_CAP, one folder at a time - the cap is each folder's own - each
+// transcript once, newest first. null where over() said stop first. home:
+// the Claude home, else this window's.
+async function folderChats(home, dirs, over) {
+    const seen = new Set(), chats = [];
+    for (const d of dirs) {
+        if (over()) return null;
+        for (const c of await listChats(home || claudeHome(), [d], PICK_CAP)) {
+            const k = c.file.toLowerCase();
+            if (seen.has(k)) continue;
+            seen.add(k);
+            chats.push(c);
+        }
+    }
+    return chats.sort((a, b) => b.mtimeMs - a.mtimeMs);
+}
+
+// The tabs here that name one chat each, by session id: [{ sessionId, cwd,
+// label }], cwd the workspace folder the chat is of. The folders' chats are
+// read as labelShared reads them - PICK_READS at a time, newest first,
+// kept in titleCache - within timing.labelBudget: null when not all were
+// read by then. home: the Claude home, else this window's.
+async function openTabChats(home) {
+    const count = new Map();
+    for (const t of allTabs()) {
+        if (!isClaudeTab(t)) continue;
+        const l = String(t.label || '');
+        count.set(l, (count.get(l) || 0) + 1);
+    }
+    const want = [...count].filter(([l, n]) => n === 1 && l && l !== claudeTabLabel('')).map(([l]) => l);
+    if (!want.length) return [];
+    const r = await inBudget(timing.labelBudget, async (over) => {
+        const chats = await folderChats(home, vscode.workspace.workspaceFolders || [], over);
+        if (!chats) return null;
+        const hits = new Map(want.map(l => [l, new Map()]));
+        for (let i = 0; i < chats.length; i += PICK_READS) {
+            if (over()) return null;
+            const part = chats.slice(i, i + PICK_READS);
+            const ds = await Promise.all(part.map(describeChat));
+            ds.forEach((d, j) => {
+                if (!d || d.skip || !d.title) return;
+                for (const l of want) if (labelIsChat(d.title, l)) hits.get(l).set(part[j].sid.toLowerCase(), part[j]);
+            });
+        }
+        const out = [];
+        for (const l of want) {
+            const h = [...hits.get(l).values()];
+            if (h.length === 1) out.push({ sessionId: h[0].sid, cwd: h[0].cwd, label: l });
+        }
+        // by id: a tab moved is no change
+        return out.sort((a, b) => (a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0));
+    });
+    return r === 'late' ? null : r;
+}
+
+// The file, as tabs says: written whole and moved into place, gone for none
+// - only when that changed, or the file went. Retried as writePending is.
+// What it did: same, written, removed or failed.
+function writeTabs(tabs, tries = 0) {
+    const f = tabsFile();
+    if (tabsIo.retry) { clearTimeout(tabsIo.retry); tabsIo.retry = null; }
+    const body = tabs && tabs.length ? JSON.stringify({ v: 1, pid: process.pid, started: hostStarted, window: windowName(), tabs }) : '';
+    if (body === tabsIo.last && (!body || fs.existsSync(f))) return 'same';
+    try {
+        if (!body) {
+            try { fs.unlinkSync(f); } catch (e) { if (e && e.code !== 'ENOENT') throw e; }
+        } else {
+            writeWhole(f, body);
+        }
+        tabsIo.last = body;
+        return body ? 'written' : 'removed';
+    } catch (e) {
+        log('open-tabs: ' + f + ' could not be written: ' + (e && e.message) + (tries < 5 ? ' - trying again' : ''));
+        if (tries < 5) {
+            tabsIo.retry = setTimeout(() => { tabsIo.retry = null; writeTabs(tabs, tries + 1); }, 500);
+            if (tabsIo.retry.unref) tabsIo.retry.unref();
+        }
+        return 'failed';
+    }
+}
+
+// One look: the tabs read and the file written. A look asked for while one
+// runs is run once that one ends. What the last write did, late for a read
+// past its budget (the file left as it was, said once), or off.
+async function lookTabs() {
+    if (tabsIo.busy) { tabsIo.again = true; return 'busy'; }
+    tabsIo.busy = true;
+    let r = 'same';
+    try {
+        do {
+            tabsIo.again = false;
+            const tabs = await openTabChats();
+            if (tabsIo.off) return 'off';
+            if (!tabs) {
+                // The first late in a row looks again timing.tabsSettle on,
+                // the chats read so far in titleCache: else a tab closed
+                // just before stayed listed - an overlay row - until the
+                // next change or timing.tabsEvery. Late again, the slow
+                // timer's pace, so a folder too big to read in time is not
+                // read over and over.
+                if (!tabsIo.late) {
+                    log('open-tabs: the folders\' chats not all read in ' + timing.labelBudget + ' ms - the tabs looked at again later');
+                    settleTabs();
+                }
+                tabsIo.late = true;
+                r = 'late';
+                continue;
+            }
+            tabsIo.late = false;
+            r = writeTabs(tabs);
+        } while (tabsIo.again);
+    } catch (e) {
+        log('open-tabs: ' + ((e && e.stack) || e));
+        r = 'failed';
+    } finally { tabsIo.busy = false; }
+    return r;
+}
+
+// a look timing.tabsSettle from now, one in place of any asked for before
+function settleTabs() {
+    if (tabsIo.off) return;
+    if (tabsIo.timer) clearTimeout(tabsIo.timer);
+    tabsIo.timer = setTimeout(() => { tabsIo.timer = null; lookTabs(); }, timing.tabsSettle);
+    if (tabsIo.timer.unref) tabsIo.timer.unref();
+}
+
+function stopTabs() {
+    tabsIo.off = true;
+    if (tabsIo.timer) { clearTimeout(tabsIo.timer); tabsIo.timer = null; }
+    if (tabsIo.every) { clearInterval(tabsIo.every); tabsIo.every = null; }
+}
+
+// At activation: looked at soon, as the tabs change and on the slow timer,
+// until the window goes - its file with it. A second activation in one host
+// starts over.
+function watchTabs(context) {
+    stopTabs();
+    tabsIo.off = false;
+    settleTabs();
+    const g = vscode.window.tabGroups;
+    if (g && typeof g.onDidChangeTabs === 'function') {
+        try { context.subscriptions.push(g.onDidChangeTabs(() => settleTabs())); } catch (e) { log('open-tabs: the tab watch failed: ' + (e && e.message)); }
+    }
+    if (timing.tabsEvery > 0) {
+        tabsIo.every = setInterval(() => { lookTabs(); }, timing.tabsEvery);
+        if (tabsIo.every.unref) tabsIo.every.unref();
+    }
+    context.subscriptions.push({ dispose: () => { stopTabs(); writeTabs([]); } });
 }
 
 // A run's Show it this window offered and nobody took - Not now, or the
@@ -1844,17 +2027,6 @@ async function perform(how, req) {
     return how;
 }
 
-// Windows PowerShell, where Windows keeps it - the host setup's hosts() puts
-// first, without its look on PATH for pwsh
-function windowsPowerShell() {
-    return path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-}
-
-// ' and the curly quotes doubled: PowerShell reads all four as a quote
-function psQuote(s) {
-    return "'" + String(s).replace(/['\u2018-\u201B]/g, m => m + m) + "'";
-}
-
 // Show it's check: the script's Show-ChatFresh, which judges the chat and
 // the folder, printing one line of JSON. o, what it is asked:
 //   judgeOnly      judge, and end nothing (-JudgeOnly): the first check, made
@@ -1885,10 +2057,8 @@ function verdictCommand(script, req, o) {
 const OLD = ['none', 'ended', 'live', 'held', 'other', 'kept'];
 // the last line that is JSON, with every field the right type - else null
 function parseVerdict(stdout) {
-    const lines = String(stdout || '').split(/\r?\n/).map(s => s.trim()).filter(s => s.startsWith('{'));
-    if (!lines.length) return null;
     let o;
-    try { o = JSON.parse(lines[lines.length - 1]); } catch (e) { return null; }
+    try { o = JSON.parse(lastSaid(stdout, /^\{/)); } catch (e) { return null; }
     if (!o || typeof o !== 'object') return null;
     if (!(o.busy === null || typeof o.busy === 'boolean')) return null;
     if (!OLD.includes(o.oldProcess) || typeof o.outcome !== 'string') return null;
@@ -2031,15 +2201,8 @@ function workingNow(req) {
 async function showLive(req, file) {
     const sid = (req.sessionId || '').slice(0, 8);
     const step = (s) => log('Show it ' + sid + ': ' + s);
-    const listed = await ensureListed(req);
-    if (listed === 'unlistable') {
-        offerTerminal(req).catch(e => log('the terminal offer failed: ' + (e && e.message)));
-        return 'unlistable';
-    }
-    if (listed === 'held' || listed === 'unmended') {
-        vscode.window.showInformationMessage((listed === 'held' ? texts.hiddenBusy : texts.unmended)(req));
-        return listed;
-    }
+    const listed = await notListed(req);
+    if (listed) return listed;
     // a new tab from this open starts a new process beside the side bar's:
     // what the old one alone had is read, and armed to go into it, first
     const lostNew = await lostByReopen(req);
@@ -2235,8 +2398,7 @@ function checkOne(context, req, file, onlyRecent) {
     if (onlyRecent) {
         // at startup, ignore a request left over from days ago - the list it
         // was about was rebuilt from disk when this window opened
-        const at = Date.parse(req.at || '');
-        if (!at || Date.now() - at > 10 * 60 * 1000) return;
+        if (!(ageOf(req) <= 10 * 60 * 1000)) return;
         // a window just opened has read every chat from disk, the run
         // included, so it has nothing to reload for - and the new chat a
         // run started is one no reload lists; and a run's away verdict,
@@ -2399,11 +2561,8 @@ async function putHandovers(context, list) {
 // watcher never reads half of one.
 function writeAck(rs, answer) {
     const f = ackFile();
-    try {
-        fs.mkdirSync(path.dirname(f), { recursive: true });
-        fs.writeFileSync(f + '.tmp', JSON.stringify({ id: rs.handoverId || rs.id, answer, at: new Date().toISOString() }));
-        fs.renameSync(f + '.tmp', f);
-    } catch (e) { log('handover: ' + f + ' could not be written: ' + (e && e.message)); }
+    try { writeWhole(f, JSON.stringify({ id: rs.handoverId || rs.id, answer, at: new Date().toISOString() })); }
+    catch (e) { log('handover: ' + f + ' could not be written: ' + (e && e.message)); }
 }
 
 // a command of the scripts, run through the tool folder's loader as
@@ -2679,13 +2838,13 @@ function queueText(q, watcherUp, now) {
         return { text: '$(clock) chatq ' + n + dot + 'watcher stopped',
             tooltip: 'chatq has ' + n + ', and its watcher is not running: nothing sends until chatqrun - or a new terminal that loads chatq - starts it. Click for the queue.' };
     }
-    const seq = q.seq === undefined || q.seq === null ? '?' : q.seq;
+    const seq = seqOf(q);
     // a q from before who was carried is Claude's, as it always said
     const who = q.who || 'Claude';
     const back = 'when ' + who + (who.indexOf(' and ') >= 0 ? ' are back' : ' is back');
-    const when = q.next === 'now' ? 'next' : q.next === 'after' ? 'after #' + seq : q.next === 'back' ? back :
+    const when = q.next === 'now' ? 'next' : q.next === 'after' ? 'after ' + seq : q.next === 'back' ? back :
         q.next === 'waits' ? q.words : sendsAt(q.at, now);
-    const says = q.next === 'now' ? 'the next one sends now' : q.next === 'after' ? 'the next one sends after #' + seq + ', the run going now' :
+    const says = q.next === 'now' ? 'the next one sends now' : q.next === 'after' ? 'the next one sends after ' + seq + ', the run going now' :
         q.next === 'back' ? 'they send ' + back + ' from ' + (who.indexOf(' and ') >= 0 ? 'their overloads' : 'its overload') : q.next === 'waits' ? 'the next one ' + q.words + ', and has no time to send' :
         'the next one sends at ' + when;
     return { text: '$(clock) chatq ' + n + dot + when, tooltip: 'chatq has ' + n + ': ' + says + '. Click for the queue.' };
@@ -2897,11 +3056,13 @@ async function restoreHandover(r) {
     const req = { kind: 'ran', sessionId: r.sessionId, title: r.title, cwd: r.cwd, home: r.home || null, oldProcess: 'live', hostPids: [process.pid], busy: null };
     if (liveRunFor(r.sessionId)) { say('another run goes into it - left to that one'); return 'running'; }
     const view = watchViews.get(r.jobId);
-    if ((readRegistry(r.home || claudeHome(), Date.now()).get(r.sessionId) || []).length) {
+    const heldAgain = () => {
+        if (!(readRegistry(r.home || claudeHome(), Date.now()).get(r.sessionId) || []).length) return false;
         say('a process holds it again - Show it');
         showIt(req, signalFiles()[0]).catch(e => log('Show it failed: ' + ((e && e.stack) || e)));
-        return 'show it';
-    }
+        return true;
+    };
+    if (heldAgain()) return 'show it';
     const away = (lastRuns.get(r.jobId) || {}).away === true;
     // the tab the handover closed, opened again: a new process, so what the
     // old one alone had - Ultracode, a session-only level - is gone. Looked
@@ -2916,11 +3077,7 @@ async function restoreHandover(r) {
     // it waits for that launch without holding the chain
     const open = (col, why) => enqueue(async () => {
         if (liveRunFor(r.sessionId)) return 'running';
-        if ((readRegistry(r.home || claudeHome(), Date.now()).get(r.sessionId) || []).length) {
-            say('a process holds it again - Show it');
-            showIt(req, signalFiles()[0]).catch(e => log('Show it failed: ' + ((e && e.stack) || e)));
-            return 'show it';
-        }
+        if (heldAgain()) return 'show it';
         if (!hasClaude()) { vscode.window.showInformationMessage(texts.noClaude(req)); return 'no Claude'; }
         const lost = await lostByReopen(req, validStart(r.start));
         const before = allTabs().filter(isClaudeTab);
@@ -2968,7 +3125,7 @@ function watchTitle(job, title) {
     const j = job || {};
     const mark = !j.state || j.state === 'running' ? '\u25B6' : j.state === 'done' ? '\u2713' : '\u25A0';
     const t = j.title || title || '';
-    return mark + ' #' + (j.seq === undefined || j.seq === null ? '?' : j.seq) + (t ? ' ' + claudeTabLabel(t) : '');
+    return mark + ' ' + seqOf(j) + (t ? ' ' + claudeTabLabel(t) : '');
 }
 
 // Opens the job's live view, or brings forward the one open. o: viewColumn
@@ -3034,18 +3191,25 @@ function promptOf(job) {
     try {
         fd = fs.openSync(path.join(dataDir(), 'queue', f), 'r');
         const b = Buffer.alloc(promptIo.bytes);
-        let got = 0;
-        while (got < b.length) {
-            const n = fs.readSync(fd, b, got, b.length - got, got);
-            if (n <= 0) break;
-            got += n;
-        }
+        const got = readFully(fd, b, 0);
         // a character cut where the read stopped is left out
         t = b.toString('utf8', 0, got).replace(/\uFFFD+$/, '');
     } catch (e) { return ''; }
     finally { if (fd !== undefined) try { fs.closeSync(fd); } catch (e) { } }
     t = t.replace(/^\uFEFF/, '').replace(/^\s*<!--\s*chatq:[\s\S]*?-->/, '').trim();
     return t.split(/\r?\n/).slice(0, promptIo.lines).map(l => (l.length > promptIo.chars ? l.slice(0, promptIo.chars) + '...' : l)).join('\n');
+}
+
+// buf filled from pos in fd, as many reads as it takes, up to the file's
+// end: the bytes read
+function readFully(fd, buf, pos) {
+    let got = 0;
+    while (got < buf.length) {
+        const n = fs.readSync(fd, buf, got, buf.length - got, pos + got);
+        if (n <= 0) break;
+        got += n;
+    }
+    return got;
 }
 
 function readWatchJob(v) {
@@ -3080,12 +3244,7 @@ function readWatchLog(v, first) {
         const len = st.size - start;
         if (len <= 0) return false;
         const buf = Buffer.alloc(len);
-        let got = 0;
-        while (got < len) {
-            const n = fs.readSync(fd, buf, got, len - got, start + got);
-            if (n <= 0) break;
-            got += n;
-        }
+        const got = readFully(fd, buf, start);
         v.offset = start + got;
         v.lastAt = st.mtimeMs;
         let lines = watch.takeLines(v.tail, buf.subarray(0, got));
@@ -3435,35 +3594,20 @@ async function labelShared(title, cwd, sid, home) {
     const me = String(sid || '').toLowerCase();
     const dirs = (vscode.workspace.workspaceFolders || []).concat(cwd ? [{ uri: { fsPath: cwd } }] : []);
     const ms = timing.labelBudget;
-    let over = false, timer = null;
-    const scan = async () => {
-        const seen = new Set(), others = [];
-        // one folder at a time: the cap is each folder's own
-        for (const d of dirs) {
-            if (over) return false;
-            for (const c of await listChats(home || claudeHome(), [d], PICK_CAP)) {
-                const k = c.file.toLowerCase();
-                if (seen.has(k) || c.sid.toLowerCase() === me) continue;
-                seen.add(k);
-                others.push(c);
-            }
-        }
-        others.sort((a, b) => b.mtimeMs - a.mtimeMs);
+    const r = await inBudget(ms, async (over) => {
+        const all = await folderChats(home, dirs, over);
+        if (!all) return false;
+        const others = all.filter(c => c.sid.toLowerCase() !== me);
         for (let i = 0; i < others.length; i += PICK_READS) {
-            if (over) return false;
+            if (over()) return false;
             const ds = await Promise.all(others.slice(i, i + PICK_READS).map(describeChat));
             if (ds.some(d => d && !d.skip && d.title && claudeTabLabel(d.title) === want)) return true;
         }
         return false;
-    };
-    if (!(ms > 0)) return scan();
-    const late = new Promise(r => { timer = setTimeout(() => { over = true; r('late'); }, ms); });
-    try {
-        const r = await Promise.race([scan(), late]);
-        if (r !== 'late') return r;
-        log('label ' + me.slice(0, 8) + ': its folders\' chats not all read in ' + ms + ' ms - taken as shared');
-        return true;
-    } finally { clearTimeout(timer); }
+    });
+    if (r !== 'late') return r;
+    log('label ' + me.slice(0, 8) + ': its folders\' chats not all read in ' + ms + ' ms - taken as shared');
+    return true;
 }
 
 // Is a registry entry's process still that session? Its pid answers - a
@@ -3489,10 +3633,7 @@ function readRegistry(home, now) {
     try { names = fs.readdirSync(dir); } catch (e) { return by; }
     for (const n of names) {
         if (!/^\d+\.json$/.test(n)) continue;
-        let raw;
-        try { raw = fs.readFileSync(path.join(dir, n), 'utf8'); } catch (e) { continue; }
-        if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
-        const o = parseLine(raw);
+        const o = readRequest(path.join(dir, n));
         if (!o || !Number.isInteger(o.pid) || o.pid <= 0 || !isGuid(o.sessionId) || !entryLive(o, now)) continue;
         if (!by.has(o.sessionId)) by.set(o.sessionId, []);
         by.get(o.sessionId).push(o);
@@ -4044,20 +4185,13 @@ async function startOverlay(context) {
         // marked before the await: a second call while this one runs finds it
         overlayStarted.add(context);
         const r = await setup._runPs(exe, loader, 'Start-ChatOverlayAuto', 60000, log);
-        const words = String((r && r.stdout) || '').split(/\r?\n/).map(s => s.trim()).filter(s => /^(started|running|off|failed)$/.test(s));
-        const said = words.length ? words[words.length - 1] : 'failed';
+        const said = lastSaid(r && r.stdout, /^(started|running|off|failed)$/) || 'failed';
         log('overlay: ' + said);
         return said;
     } catch (e) {
         log('starting the overlay failed: ' + ((e && e.message) || e));
         return 'failed';
     }
-}
-
-// The last word of an answer's lines that matches, else ''. Pure.
-function lastSaid(stdout, re) {
-    const hit = String(stdout || '').split(/\r?\n/).map(s => s.trim()).filter(s => re.test(s));
-    return hit.length ? hit[hit.length - 1] : '';
 }
 
 // Chat Manager: Overlay: start by itself... - the one switch, set as
@@ -4285,6 +4419,8 @@ function activate(context) {
     const ansFile = answerFile();
     fs.watchFile(ansFile, { interval: 2000 }, () => { try { onReloadAnswer(); } catch (e) { log('reload-answer: ' + ((e && e.stack) || e)); } });
     context.subscriptions.push({ dispose: () => { fs.unwatchFile(ansFile); pendingAsks.clear(); writePending(); } });
+    // the Claude tabs here with no process, for the overlay's rows
+    watchTabs(context);
 }
 
 // child_process.spawn as it was, where chatq's hook is still in it
@@ -4356,3 +4492,6 @@ Object.assign(module.exports, { _log: log, _command: command, _reloadWindow: rel
 // a reload asked for, on the overlay too
 Object.assign(module.exports, { _askReload: askReload, _askSay: askSay, _onReloadAnswer: onReloadAnswer, _sweepPending: sweepPending,
     _pendingAsks: pendingAsks, _pendingFile: pendingFile, _answerFile: answerFile, _writePending: writePending, _reloadIo: reloadIo });
+// this window's Claude tabs, for the overlay
+Object.assign(module.exports, { _openTabChats: openTabChats, _writeTabs: writeTabs, _lookTabs: lookTabs, _watchTabs: watchTabs,
+    _tabsFile: tabsFile, _tabsIo: tabsIo });

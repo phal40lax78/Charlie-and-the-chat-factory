@@ -705,7 +705,7 @@ command.
    - Two calls pending, answered in reverse order: each answer goes to its
      own id. `notifications/cancelled` marks the request withdrawn.
      `ping` is answered while a call waits.
-   - stdin closed: exit 0 within 2 s.
+   - stdin closed: exit 0 within 4 s.
    - The same loop is run once more under pwsh 7 when present
      (`Start-ChatqPermitBridge` in a pwsh child), for off-Windows.
 3. **The rules** (`Get-ChatqPermitRule`), table-driven: AskUserQuestion,

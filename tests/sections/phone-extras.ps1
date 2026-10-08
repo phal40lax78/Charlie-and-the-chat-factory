@@ -10,7 +10,7 @@
 # watcher. Everything changed is put back at the end.
 
 Section 'phone extras'
-$xCfgWas = if (Test-Path -LiteralPath $script:ChatqConfigPath) { [System.IO.File]::ReadAllText($script:ChatqConfigPath, $utf8) } else { $null }
+$xCfgWas = Read-TestFile $script:ChatqConfigPath
 $xWas = @{ Join = $script:ChatqJoinSeam; Idle = $script:ChatqIdleSeam; Send = $script:ChatqLiveSendSeam; Spawn = $script:ChatqSpawn; Poll = $script:ChatqReplyPollSeam
     Jobs = ${function:Get-ChatqJobs}; Probe = ${function:Invoke-ChatqProbe}; Summary = ${function:Send-ChatqHeldSummary}; Fg = $script:ChatqForeground }
 $script:ChatqIdleSeam = 99999
@@ -21,16 +21,7 @@ $script:XJoinErr = $null
 $script:ChatqJoinSeam = { param($u) $script:XJoins.Add($u); $script:XJoinErr }
 $script:XSent = [System.Collections.Generic.List[object]]::new()
 $script:ChatqLiveSendSeam = { param($a) $script:XSent.Add($a) }
-$xQuery = {
-    # one Join push: its query, and its link's fragment, as hashtables
-    param([string]$u)
-    $q = @{}
-    foreach ($p in ($u.Substring($u.IndexOf('?') + 1) -split '&')) { $k, $v = $p -split '=', 2; $q[$k] = [uri]::UnescapeDataString($v) }
-    $f = @{}
-    if ($q['url']) { foreach ($p in ($q['url'].Substring($q['url'].IndexOf('#') + 1) -split '&')) { $k, $v = $p -split '=', 2; $f[$k] = [uri]::UnescapeDataString($v) } }
-    [pscustomobject]@{ Url = $u; Q = $q; F = $f }
-}
-$xLast = { if ($script:XJoins.Count) { & $xQuery $script:XJoins[$script:XJoins.Count - 1] } else { [pscustomobject]@{ Url = ''; Q = @{}; F = @{} } } }
+$xLast = { if ($script:XJoins.Count) { Get-JoinPush $script:XJoins[$script:XJoins.Count - 1] } else { [pscustomobject]@{ Url = ''; Q = @{}; F = @{} } } }
 $xClean = {
     foreach ($p in $script:ChatqUsageAlertPath, $script:ChatqHeldPath, $script:ChatqReplyPath, $script:ChatqWakePath) { Remove-Item -LiteralPath $p -Force -EA SilentlyContinue }
     Remove-Item -Path (Join-Path $script:ChatqData 'held-*.sending') -Force -EA SilentlyContinue
@@ -73,12 +64,11 @@ Check 'UsageAlerts and UsageReset: off and on again, each said' (@($xr2.Messages
 
 # --- usage heads-ups: the overlay's thresholds -----------------------------------
 $xNow = Get-Date
-$xMs = { param([datetime]$d) [DateTimeOffset]::new($d).ToUnixTimeMilliseconds() }
 $xReset1 = $xNow.AddHours(2)
 $xUse = {
     param([int]$P, [datetime]$Reset, [string]$Label = '5h', [string]$Prov = 'Claude', [double]$AgoMin = 1, [switch]$Stale, [switch]$Limited, [switch]$NoReset)
-    , @([pscustomobject]@{ provider = $Prov; source = 'live'; at = (& $xMs $xNow.AddMinutes(-$AgoMin)); stale = [bool]$Stale; status = $null
-            windows = @([pscustomobject]@{ label = $Label; percent = $P; resetsAt = $(if ($NoReset) { $null } else { & $xMs $Reset }); severity = 'normal'; limited = [bool]$Limited }) })
+    , @([pscustomobject]@{ provider = $Prov; source = 'live'; at = (& $raMs $xNow.AddMinutes(-$AgoMin)); stale = [bool]$Stale; status = $null
+            windows = @([pscustomobject]@{ label = $Label; percent = $P; resetsAt = $(if ($NoReset) { $null } else { & $raMs $Reset }); severity = 'normal'; limited = [bool]$Limited }) })
 }
 $xCtx = { @{ ClaudeHome = $claudeHome } }
 $xRun = {
@@ -168,7 +158,7 @@ $xSoon = {
     [pscustomobject]@{ Next = $next; Joins = @($script:XJoins | Select-Object -Skip $n0) }
 }
 $s1 = & $xSoon (& $xBlock 9 120) (& $xQ 2)
-$s1j = if ($s1.Joins.Count) { & $xQuery $s1.Joins[0] } else { $null }
+$s1j = if ($s1.Joins.Count) { Get-JoinPush $s1.Joins[0] } else { $null }
 $s1e = if ($s1j) { (Get-ChatqReplyState).alerts[$s1j.F['a']] } else { $null }
 Check 'soon: a lane blocked 2 h, the reset 9 min off, 2 queued - one usage alert, jobless with w=1, and the registry says soon' ($s1.Joins.Count -eq 1 -and
     $s1j.Q['title'] -eq "chatq $([char]0xB7) usage" -and $s1j.Q['text'] -eq "Claude resets $(Format-ChatqClockTime $xNow.AddMinutes(9) $xNow) $([char]0xB7) 2 queued $([char]0xB7) they go then, one at a time" -and
@@ -193,11 +183,11 @@ Check 'usage.reset off: no soon alert' ($s9.Joins.Count -eq 0)
 $Wh = New-ChatqWatchState
 $Wh.blocked['claude'] = & $xBlock 90 120
 $Wh.handoff = $true
-$xStateWas = if (Test-Path -LiteralPath $script:ChatqStatePath) { [System.IO.File]::ReadAllText($script:ChatqStatePath, $utf8) } else { $null }
+$xStateWas = Read-TestFile $script:ChatqStatePath
 Save-ChatqWatchState $Wh
 $Wr = New-ChatqWatchState
 $null = Restore-ChatqWatchState $Wr
-if ($null -ne $xStateWas) { [System.IO.File]::WriteAllText($script:ChatqStatePath, $xStateWas, $utf8) } else { Remove-Item -LiteralPath $script:ChatqStatePath -Force -EA SilentlyContinue }
+Restore-TestFile $script:ChatqStatePath $xStateWas
 Check 'when a lane was blocked is saved and restored with the block' ($Wr.blocked['claude'] -and $Wr.blocked['claude'].At -and
     [Math]::Abs(($Wr.blocked['claude'].At - $xNow.AddMinutes(-120)).TotalSeconds) -lt 2) "$($Wr.blocked['claude'] | ConvertTo-Json -Compress)"
 
@@ -348,7 +338,7 @@ $script:ChatqClockSeam = $xDay.AddHours(7).AddMinutes(1)
 $held0 = @(Get-ChatqHeldItems $script:ChatqHeldPath).Count
 $n0 = $script:XJoins.Count
 $sAfter = Send-ChatqAlert 'done' 'after the night' 1
-$sj = @($script:XJoins | Select-Object -Skip $n0 | ForEach-Object { & $xQuery $_ })
+$sj = @($script:XJoins | Select-Object -Skip $n0 | ForEach-Object { Get-JoinPush $_ })
 Check 'after quiet hours the next alert sends the summary first - held 00:00-07:00: 1 done, 1 waiting, one line each - then itself; the file is gone' ($held0 -eq 2 -and $sAfter -and
     $sj.Count -eq 2 -and $sj[0].Q['title'] -eq "chatq $([char]0xB7) summary" -and $sj[0].Q['text'] -like 'held 00:00-07:00: 1 done, 1 waiting*' -and
     $sj[0].Q['text'] -like "*03:00 done $([char]0xB7) #14 Parser rewrite*" -and $sj[0].Q['priority'] -eq '1' -and $sj[0].F['x'] -eq '1' -and
@@ -557,9 +547,7 @@ Check 'chatnotify: usage, quiet (now until 07:00, held) and voice lines, and usa
 if ($script:ChatqIsWindows) {
     $null = Set-ChatqNotifyConfig @{ QuietHours = 'off'; Say = @('needs input'); UsageAt = '90'; Events = 'all' }
     $xStaScript = @"
-`$env:CHATQ_OVERLAY = '1'
-. '$(Join-Path $sb 'tool\Charlie-and-the-chat-factory.ps1')'
-Set-StrictMode -Off
+$staLoad
 `$w = New-ChatqPhoneSetupWindow -Theme dark
 `$U = `$w.Tag
 `$has = [bool](`$U.SayPanel -and `$U.UrgentPanel -and `$U.UsageBox -and `$U.UsageAtBox -and `$U.ResetBox -and `$U.QuietHoursBox -and `$U.QuietFromBox -and `$U.QuietToBox)
@@ -620,7 +608,7 @@ Update-ChatqPhoneSetupExtrasEnabled `$U
 
 # --- put it all back -------------------------------------------------------------------------
 & $xClean
-if ($null -ne $xCfgWas) { [System.IO.File]::WriteAllText($script:ChatqConfigPath, $xCfgWas, $utf8) } else { Remove-Item -LiteralPath $script:ChatqConfigPath -Force -EA SilentlyContinue }
+Restore-TestFile $script:ChatqConfigPath $xCfgWas
 Remove-Item -LiteralPath $xHook -Force -EA SilentlyContinue
 Remove-Item -Path (Join-Path $script:ChatqOutboxDir '*') -Force -EA SilentlyContinue
 $script:ChatqJoinSeam = $xWas.Join

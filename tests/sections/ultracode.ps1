@@ -199,9 +199,7 @@ $ucQueue = {
     Push-Location -LiteralPath $projU
     try {
         if ($Model) {
-            New-ChatqDir $script:ChatqData
-            $lk = [System.IO.File]::Open($script:ChatqLockPath, 'OpenOrCreate', 'ReadWrite', 'None')
-            try { chatq 'Ultracode switch chat' -Prompt $Say -Model $Model *> $null } finally { $lk.Dispose() }
+            Lock-Queue { chatq 'Ultracode switch chat' -Prompt $Say -Model $Model *> $null }
             $j = @(Get-ChatqJobs | Sort-Object { [int]$_.seq })[-1]
         }
         else { $j = New-TestJob 'Ultracode switch chat' $Say }

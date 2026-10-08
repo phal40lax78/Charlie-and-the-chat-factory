@@ -25,6 +25,7 @@ function Test-ChatInProject {
     # Exact, never a prefix. Sibling repos nest - the slug for D:\src\app is a
     # prefix of the one for D:\src\app-Mobile - so -like or StartsWith
     # would quietly drag the neighbour in, which is the bug this exists to fix.
+    # -eq, not -ceq: the drive letter's case varies between tools.
     # The leaf is the loosest test - D:\a\app and D:\b\app share it - so a
     # Codex row is held to its whole folder whenever the index has it.
     param($Row, $Scope)
@@ -39,8 +40,8 @@ function Select-ChatInProject {
     # Narrow rows to the project being stood in. Returns them untouched when
     # this directory is not a project any tool knows - otherwise running from
     # anywhere else would match nothing at all.
-    # -Cwd for the background watcher, whose own folder is wherever the first
-    # chatq happened to be typed, not the job's
+    # -Cwd for the background watcher, whose own folder is your home folder,
+    # not the job's
     param([object[]]$Rows, [switch]$AllProjects, [string]$Cwd = $PWD.Path)
     if ($AllProjects -or -not $Rows) { return $Rows }
     $scope = Get-ChatProjectScope $Cwd
@@ -161,8 +162,7 @@ function Get-ChatProviderForPath {
 function Add-ChatTombstone {
     # Remember what was deleted, because the window will write some of it back
     param([string]$Path)
-    $dir = Split-Path $script:ChatTombPath -Parent
-    if (-not (Test-Path -LiteralPath $dir)) { [void](New-Item -ItemType Directory -Path $dir -Force) }
+    New-ChatqDir (Split-Path $script:ChatTombPath -Parent)
     Add-Content -LiteralPath $script:ChatTombPath -Value ("{0}`t{1}" -f (Get-Date).ToString('o'), $Path)
     Start-ChatGhostWatch
 }
@@ -394,15 +394,8 @@ function Remove-ChatSessionById {
         return (& $say $false "$t is open in a terminal - end it there first.")
     }
     # its folder's slug first, then any project: a chat moved with its folder
-    $projects = Join-Path $ConfigDir 'projects'
-    $file = $null
-    $dirs = @()
-    if ($Cwd) { $dirs += Join-Path $projects (Get-ChatSlug $Cwd) }
-    $dirs += @(Get-ChildItem -LiteralPath $projects -Directory -EA SilentlyContinue | ForEach-Object { $_.FullName })
-    foreach ($d in $dirs) {
-        $p = Join-Path $d "$SessionId.jsonl"
-        if (Test-Path -LiteralPath $p) { $file = Get-Item -LiteralPath $p -EA SilentlyContinue; if ($file) { break } }
-    }
+    $p = Find-ChatOverlayTranscript $ConfigDir $Cwd $SessionId
+    $file = if ($p) { Get-Item -LiteralPath $p -EA SilentlyContinue } else { $null }
     if (-not $file) { return (& $say $false "$t is not on disk any more.") }
     $rec = & $script:ChatProviders['claude'].Describe $file
     # a chat with no prompt in it yet has nothing to describe, and goes all the same
@@ -440,8 +433,7 @@ function Move-ChatItem {
     # Move-Item, else copy-then-delete: a folder cannot be moved across drives,
     # and nothing says data/ sits on the drive ~/.claude does
     param([string]$From, [string]$To)
-    $parent = Split-Path $To -Parent
-    if (-not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
+    New-ChatqDir (Split-Path $To -Parent)
     try { Move-Item -LiteralPath $From -Destination $To -Force -EA Stop; return $true } catch {}
     try {
         Copy-Item -LiteralPath $From -Destination $To -Recurse -Force -EA Stop
@@ -542,11 +534,7 @@ function Get-ChatCodexBusy {
         try {
             $n = [int][Math]::Min([int64]$Size, $fs.Length)
             $split = $fs.Length -gt $n
-            $buf = [byte[]]::new($n)
-            $null = $fs.Seek(-$n, [System.IO.SeekOrigin]::End)
-            $got = 0
-            while ($got -lt $n) { $r = $fs.Read($buf, $got, $n - $got); if ($r -le 0) { break }; $got += $r }
-            $text = [System.Text.Encoding]::UTF8.GetString($buf, 0, $got)
+            $text = Read-ChatTextAt $fs (-$n) $n End
         }
         finally { $fs.Dispose() }
     }
@@ -851,20 +839,8 @@ function Get-ChatLastWritten {
     #>
     param([string]$Path, $Wrote = $null, [int]$Size = 65536)
     if ($null -eq $Wrote) { try { $Wrote = (Get-Item -LiteralPath $Path -EA Stop).LastWriteTime } catch { return $null } }
-    $text = $null
-    try {
-        $fs = Open-ChatRead $Path
-        try {
-            $n = [int][Math]::Min([int64]$Size, $fs.Length)
-            $buf = [byte[]]::new($n)
-            $null = $fs.Seek(-$n, [System.IO.SeekOrigin]::End)
-            $got = 0
-            while ($got -lt $n) { $r = $fs.Read($buf, $got, $n - $got); if ($r -le 0) { break }; $got += $r }
-            $text = [System.Text.Encoding]::UTF8.GetString($buf, 0, $got)
-        }
-        finally { $fs.Dispose() }
-    }
-    catch { return $Wrote }
+    $text = try { Read-ChatqTail $Path $Size } catch { return $Wrote }
+    if ($null -eq $text) { return $Wrote }
     $m = [regex]::Matches($text, '"timestamp"\s*:\s*"([^"]+)"')
     if (-not $m.Count) { return $Wrote }
     $at = [DateTimeOffset]::MinValue
@@ -1626,15 +1602,7 @@ function Read-ChatLastWord {
         $len = $fs.Length
         foreach ($size in 64KB, 1MB, 16MB) {
             $take = [int][Math]::Min([int64]$size, $len)
-            $null = $fs.Seek($len - $take, [System.IO.SeekOrigin]::Begin)
-            $buf = [byte[]]::new($take)
-            $n = 0
-            while ($n -lt $take) {
-                $got = $fs.Read($buf, $n, $take - $n)
-                if ($got -le 0) { break }
-                $n += $got
-            }
-            $lines = [System.Text.Encoding]::UTF8.GetString($buf, 0, $n) -split "`n"
+            $lines = (Read-ChatTextAt $fs ($len - $take) $take) -split "`n"
             # the first line is a piece of one, unless this reached the start
             $low = if ($take -lt $len) { 1 } else { 0 }
             for ($i = $lines.Count - 1; $i -ge $low; $i--) {
@@ -1701,13 +1669,21 @@ function Update-ChatBackgroundScan {
     -State (a hashtable kept between calls) holds the transcript's path, how
     far it has been read - always to a line's end - and what is out so far
     (Open, as Step-ChatBackgroundLine keeps it). Each call reads on from
-    there, at most -MaxBytes, less the one line that runs past it, whole. A
-    line still being written, with no newline yet, waits for the next call.
+    there a piece at a time until it is -MaxBytes on - up to a piece more -
+    and a line longer than a piece on to its end. A line still being
+    written, with no newline yet, waits for the next call.
     A transcript that shrank, or another path, is read again from the start.
     Done says every whole line of it has been read. The overlay asks every 2 s, on
     the thread the Windows panel draws on, so only the lines that can start
     or end something are parsed at all: each piece is searched as one
     string, and a line is taken out only where a word it needs is in it.
+    A piece is 40 KB, or -MaxBytes if less, cut at a line's end, so its
+    string stays off the large object heap - 85,000 bytes, 42,500
+    characters - which only a full collection frees, and which is left in
+    holes rather than compacted: one 8 MB piece, the first look at a long
+    chat gone idle, left the overlay's 80 MB bigger through every
+    collection after. A line longer than a piece is searched a piece at a
+    time, and read whole only if a word is in it.
     #>
     param([hashtable]$State, [string]$Path, [int64]$MaxBytes = 8MB)
     if ($State.Path -ne $Path -or $null -eq $State.Open) {
@@ -1718,60 +1694,81 @@ function Update-ChatBackgroundScan {
     try {
         $len = $fs.Length
         if ($len -lt $State.Offset) { $State.Offset = [int64]0; $State.Open = [ordered]@{} }
-        $left = $len - $State.Offset
-        if ($left -le 0) { $State.Done = $true; return }
+        if ($len -le $State.Offset) { $State.Done = $true; return }
         $null = $fs.Seek($State.Offset, [System.IO.SeekOrigin]::Begin)
-        $want = [int][Math]::Min($left, $MaxBytes)
-        $buf = [byte[]]::new($want)
-        $n = 0
-        while ($n -lt $want) {
-            $got = $fs.Read($buf, $n, $want - $n)
-            if ($got -le 0) { break }
-            $n += $got
-        }
-        $cut = if ($n -gt 0) { [Array]::LastIndexOf($buf, [byte]10, $n - 1, $n) } else { -1 }
-        if ($cut -lt 0 -and $n -lt $left) {
-            # one line longer than a call reads: taken whole, once, rather
-            # than coming back to its start for ever
-            $ms = [System.IO.MemoryStream]::new()
-            $ms.Write($buf, 0, $n)
-            $more = [byte[]]::new(1MB)
-            while ($true) {
-                $got = $fs.Read($more, 0, $more.Length)
-                if ($got -le 0) { break }
-                $nl = [Array]::IndexOf($more, [byte]10, 0, $got)
-                if ($nl -ge 0) { $ms.Write($more, 0, $nl + 1); break }
-                $ms.Write($more, 0, $got)
+        $from = $State.Offset
+        $keep = 0   # a word cut in two by a piece's end is whole in the next
+        foreach ($w in $script:ChatBackgroundWords) { $keep = [Math]::Max($keep, $w.Length - 1) }
+        # never so small that what is kept for a cut word leaves no room to move on
+        $buf = [byte[]]::new([int][Math]::Max(4 * $keep, [Math]::Min(40KB, $MaxBytes)))
+        $starts = [System.Collections.Generic.SortedSet[int]]::new()
+        $at = $State.Offset   # where in the file $buf starts
+        $have = 0             # and how much of it is read
+        $long = [int64]-1     # where a line longer than a piece starts, while in one
+        $hit = $false         # and whether a word is in it so far
+        $eof = $false
+        while (-not $eof -and $State.Offset - $from -lt $MaxBytes) {
+            while ($have -lt $buf.Length) {
+                $got = $fs.Read($buf, $have, $buf.Length - $have)
+                if ($got -le 0) { $eof = $true; break }
+                $have += $got
             }
-            $buf = $ms.ToArray()
-            $n = $buf.Length
-            $cut = if ($n -gt 0 -and $buf[$n - 1] -eq 10) { $n - 1 } else { -1 }
+            $cut = if ($have) { [Array]::LastIndexOf($buf, [byte]10, $have - 1, $have) } else { -1 }
+            # nothing but a line still being written
+            if ($cut -lt 0 -and $eof) { break }
+            $first = 0
+            if ($cut -lt 0 -or $long -ge 0) {
+                # in a line longer than a piece
+                if ($long -lt 0) { $long = $at; $hit = $false }
+                $end = if ($cut -lt 0) { $have } else { [Array]::IndexOf($buf, [byte]10, 0, $have) }
+                if (-not $hit) {
+                    $piece = [System.Text.Encoding]::UTF8.GetString($buf, 0, $end)
+                    foreach ($w in $script:ChatBackgroundWords) { if ($piece.IndexOf($w, [StringComparison]::Ordinal) -ge 0) { $hit = $true } }
+                }
+                if ($cut -lt 0) {
+                    [Array]::Copy($buf, $have - $keep, $buf, 0, $keep)
+                    $at += $have - $keep
+                    $have = $keep
+                    continue
+                }
+                if ($hit) {
+                    # read again whole: the one string here that can be big
+                    $line = Read-ChatTextAt $fs $long ([int]($at + $end - $long))
+                    $null = $fs.Seek($at + $have, [System.IO.SeekOrigin]::Begin)
+                    Step-ChatBackgroundLine $State.Open ($line.TrimEnd([char]13))
+                }
+                $long = [int64]-1
+                $first = $end + 1
+            }
+            if ($cut -ge $first) {
+                # the lines that hold a start, or an end once anything is
+                # out, in the order they were written
+                $text = [System.Text.Encoding]::UTF8.GetString($buf, $first, $cut + 1 - $first)
+                $starts.Clear()
+                foreach ($w in $script:ChatBackgroundWords) {
+                    $i = 0
+                    while (($i = $text.IndexOf($w, $i, [StringComparison]::Ordinal)) -ge 0) {
+                        $null = $starts.Add($text.LastIndexOf([char]10, $i) + 1)
+                        $i += $w.Length
+                    }
+                }
+                foreach ($s in $starts) {
+                    $e = $text.IndexOf([char]10, $s)
+                    if ($e -lt 0) { $e = $text.Length }
+                    Step-ChatBackgroundLine $State.Open $text.Substring($s, $e - $s).TrimEnd([char]13)
+                }
+            }
+            $State.Offset = $at + $cut + 1
+            $have -= $cut + 1
+            [Array]::Copy($buf, $cut + 1, $buf, 0, $have)
+            $at = $State.Offset
         }
         # Done: read to the end of the file, but for a last line still being
         # written - which Claude Code leaves only for a moment, and which
         # would otherwise leave nearly every look at a live chat undone
-        $State.Done = ($State.Offset + $n -ge $len)
-        # nothing but a line still being written
-        if ($cut -lt 0) { return }
-        $text = [System.Text.Encoding]::UTF8.GetString($buf, 0, $cut + 1)
-        $State.Offset += $cut + 1
+        $State.Done = $fs.Position -ge $len
     }
     finally { $fs.Dispose() }
-    # the lines that hold a start, or an end once anything is out, in the
-    # order they were written
-    $starts = [System.Collections.Generic.SortedSet[int]]::new()
-    foreach ($w in $script:ChatBackgroundWords) {
-        $i = 0
-        while (($i = $text.IndexOf($w, $i, [StringComparison]::Ordinal)) -ge 0) {
-            $null = $starts.Add($text.LastIndexOf([char]10, $i) + 1)
-            $i += $w.Length
-        }
-    }
-    foreach ($s in $starts) {
-        $e = $text.IndexOf([char]10, $s)
-        if ($e -lt 0) { $e = $text.Length }
-        Step-ChatBackgroundLine $State.Open $text.Substring($s, $e - $s).TrimEnd([char]13)
-    }
 }
 
 function Test-ChatPrintLive {
@@ -2047,6 +2044,60 @@ function Read-ChatRunAck {
     try { return ([System.IO.File]::ReadAllText($f).TrimStart([char]0xFEFF) | ConvertFrom-Json) } catch { return $null }
 }
 
+# the files Read-ChatHostFiles last read, by folder and then by file
+$script:ChatHostFilesSeen = @{}
+
+function Read-ChatHostFiles {
+    <#
+    The files VS Code windows keep in -Dir, one a window, named by its
+    extension host's pid (reload-pending, open-tabs): @{ HostPid; File;
+    Data } a file, Data its JSON. A file whose host pid is gone, or alive
+    but started well apart from the file's started - a pid reused - is
+    removed; one caught mid-write is skipped, the next look has it; a BOM
+    is let past. Each is read every look, but parsed again only once its
+    text changed, and its host looked up once in 10 s: Get-Process -Id
+    lists every process on Windows PowerShell 5.1, 15 to 20 ms a file, and
+    the overlay reads these every 2 s on the thread its panel draws on. So
+    a window that died without taking its file away shows up to 10 s more.
+    #>
+    param([string]$Dir, [datetime]$Now = (Get-Date))
+    if (-not (Test-Path -LiteralPath $Dir)) { return @() }
+    $was = $script:ChatHostFilesSeen[$Dir]
+    $seen = @{}
+    $out = [System.Collections.Generic.List[object]]::new()
+    foreach ($f in @(Get-ChildItem -LiteralPath $Dir -Filter '*.json' -File -EA SilentlyContinue)) {
+        if ($f.Name -notmatch '^(\d+)\.json$') { continue }
+        $hostPid = [int]$Matches[1]
+        # read sharing delete: the extension renames over the file, or
+        # removes it, as a window's tabs change or a notice is answered -
+        # which a plain read would refuse on Windows, the file then left
+        # naming what is gone
+        $text = try { Read-ChatAllText $f.FullName } catch { $null }
+        $c = if ($was) { $was[$f.FullName] } else { $null }
+        $same = $c -and $null -ne $text -and $c.Text -ceq $text
+        $r = if ($same) { $c.Data } elseif ($null -ne $text) { try { $text.TrimStart([char]0xFEFF) | ConvertFrom-Json } catch { $null } } else { $null }
+        $at = if ($same) { $c.At } else { $null }
+        if (-not $at -or ($Now - $at).TotalSeconds -ge 10 -or $at -gt $Now) {
+            $p = Get-Process -Id $hostPid -EA SilentlyContinue
+            $reused = $false
+            if ($p -and $r -and (Get-ChatField $r 'started')) {
+                try {
+                    $began = [DateTimeOffset]::FromUnixTimeMilliseconds([int64](Get-ChatField $r 'started')).LocalDateTime
+                    $reused = [math]::Abs(($p.StartTime - $began).TotalSeconds) -gt 300
+                } catch {}
+            }
+            if (-not $p -or $reused) { Remove-Item -LiteralPath $f.FullName -Force -EA SilentlyContinue; continue }
+            $at = $Now
+        }
+        if (-not $r) { continue }   # mid-write: the next look has it
+        $seen[$f.FullName] = @{ Text = $text; Data = $r; At = $at }
+        $out.Add([pscustomobject]@{ HostPid = $hostPid; File = $f.FullName; Data = $r })
+    }
+    $script:ChatHostFilesSeen[$Dir] = $seen
+    # unrolled: callers take it as @(Read-ChatHostFiles)
+    return $out.ToArray()
+}
+
 function Read-ChatReloadPending {
     # The reloads VS Code windows are asking about, unanswered, one entry a
     # window: @{ pid; window; id; state; say; text; count } - id, state
@@ -2055,37 +2106,16 @@ function Read-ChatReloadPending {
     # (extension.js askReload) while a notice is up; one whose host pid is
     # gone - a crash, or a reload that never took its file - is removed,
     # and so is one whose pid is alive but was started well after the file
-    # says, a pid reused. A BOM is let past.
-    param([string]$Dir = $script:ChatReloadPendingDir)
-    if (-not (Test-Path -LiteralPath $Dir)) { return @() }
+    # says, a pid reused (Read-ChatHostFiles, which reads them).
+    param([string]$Dir = $script:ChatReloadPendingDir, [datetime]$Now = (Get-Date))
     $out = New-Object System.Collections.Generic.List[object]
-    foreach ($f in @(Get-ChildItem -LiteralPath $Dir -Filter '*.json' -File -EA SilentlyContinue)) {
-        if ($f.Name -notmatch '^(\d+)\.json$') { continue }
-        $hostPid = [int]$Matches[1]
-        $p = Get-Process -Id $hostPid -EA SilentlyContinue
-        # read sharing delete: the extension renames over the file, or
-        # removes it, as a notice is answered - which a plain read would
-        # refuse on Windows, the file then left naming an ask gone
-        $r = try {
-            $fs = [System.IO.FileStream]::new($f.FullName, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read,
-                ([System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete))
-            try { [System.IO.StreamReader]::new($fs, [System.Text.Encoding]::UTF8).ReadToEnd().TrimStart([char]0xFEFF) | ConvertFrom-Json } finally { $fs.Dispose() }
-        }
-        catch { $null }
-        $reused = $false
-        if ($p -and $r -and (Get-ChatField $r 'started')) {
-            try {
-                $began = [DateTimeOffset]::FromUnixTimeMilliseconds([int64](Get-ChatField $r 'started')).LocalDateTime
-                $reused = [math]::Abs(($p.StartTime - $began).TotalSeconds) -gt 300
-            } catch {}
-        }
-        if (-not $p -or $reused) { Remove-Item -LiteralPath $f.FullName -Force -EA SilentlyContinue; continue }
-        if (-not $r) { continue }   # mid-write: the next look has it
+    foreach ($h in @(Read-ChatHostFiles $Dir $Now)) {
+        $r = $h.Data
         $asks = @(Get-ChatField $r 'asks' | Where-Object { $_ -and (Get-ChatField $_ 'id') })
         if (-not $asks.Count) { continue }
         $last = $asks[-1]
         $out.Add([pscustomobject]@{
-                pid    = $hostPid
+                pid    = $h.HostPid
                 window = [string](Get-ChatField $r 'window')
                 id     = [string](Get-ChatField $last 'id')
                 state  = [string](Get-ChatField $last 'state')
@@ -2197,10 +2227,7 @@ function Save-ChatSignal {
     # One JSON object, replacing the file: the extension reads it whole.
     param([string]$Path, $Request)
     try {
-        $dir = Split-Path $Path -Parent
-        if (-not (Test-Path -LiteralPath $dir)) {
-            New-Item -ItemType Directory -Path $dir -Force | Out-Null
-        }
+        New-ChatqDir (Split-Path $Path -Parent)
         $json = $Request | ConvertTo-Json -Compress -Depth 6
         # NOT Set-Content -Encoding UTF8: that writes a BOM on 5.1 and
         # JSON.parse rejects a BOM outright, so the extension would see nothing

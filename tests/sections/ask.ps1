@@ -10,7 +10,7 @@
 # is put back at the end.
 
 Section 'questions on the phone'
-$akCfgWas = if (Test-Path -LiteralPath $script:ChatqConfigPath) { [System.IO.File]::ReadAllText($script:ChatqConfigPath, $utf8) } else { $null }
+$akCfgWas = Read-TestFile $script:ChatqConfigPath
 $akWas = @{ Join = $script:ChatqJoinSeam; Down = $script:ChatqDownSeam }
 $script:AkDown = [System.Collections.Generic.List[object]]::new()
 $script:ChatqDownSeam = { param($m, $u, $h, $b) $script:AkDown.Add([pscustomobject]@{ Method = $m; Url = $u; Headers = $h; Body = $b }); $null }
@@ -583,7 +583,7 @@ catch { "error|$($_.Exception.Message)" }
 # --- put it all back ------------------------------------------------------------------------
 Remove-Item -LiteralPath $akProj -Recurse -Force -EA SilentlyContinue
 Remove-Item -LiteralPath (Join-Path (Join-Path $claudeHome 'projects') (Get-Slug $akProj)) -Recurse -Force -EA SilentlyContinue
-if ($null -ne $akCfgWas) { [System.IO.File]::WriteAllText($script:ChatqConfigPath, $akCfgWas, $utf8) } else { Remove-Item -LiteralPath $script:ChatqConfigPath -Force -EA SilentlyContinue }
+Restore-TestFile $script:ChatqConfigPath $akCfgWas
 Remove-Item -LiteralPath $script:ChatqReplyPath -Force -EA SilentlyContinue
 $script:ChatqJoinSeam = $akWas.Join
 $script:ChatqDownSeam = $akWas.Down

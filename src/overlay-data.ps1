@@ -18,6 +18,9 @@ $script:ChatOverlayLockPath = Join-Path $script:ChatqData 'overlay.lock'
 $script:ChatOverlayPidPath = Join-Path $script:ChatqData 'overlay.pid'
 $script:ChatOverlayCmdPath = Join-Path $script:ChatqData 'overlay-cmd'
 $script:ChatOverlayMacJsPath = Join-Path $script:ChatqData 'overlay-mac.js'
+# VS Code windows' Claude tabs with no process, one file a window
+# (Read-ChatOpenTabs)
+$script:ChatOverlayOpenTabsDir = Join-Path $script:ChatqData 'open-tabs'
 # Claude's usage endpoint: what /usage and the panel's usage view ask
 $script:ChatOverlayUsageUrl = 'https://api.anthropic.com/api/oauth/usage'
 # how far back a first read of one transcript goes looking for its prompt
@@ -47,11 +50,16 @@ $script:ChatOverlaySystemDarkSeam = $null
 # tests: the screen under the panel, given its rect, so the buttons can be
 # placed on a screen that is not there
 $script:ChatOverlayWorkAreaSeam = $null
+# tests: whether a mouse button is held, for the pointer check
+# (Update-ChatOverlayHover), whatever the real mouse's
+$script:ChatOverlayMouseDownSeam = $null
+# tests: where the pointer is, for the same check, wherever the real one is
+$script:ChatOverlayPointerSeam = $null
 # tests: the pid whose window is in front (Get-ChatForegroundPid)
 $script:ChatForegroundSeam = $null
-# tests: the processes the unread rule walks chats' parents in, as the one
-# Win32_Process query hands them back (Get-ChatProcessTable); $null out of
-# it is a query that failed
+# tests: the processes the unread rule walks chats' parents in, shaped as
+# Windows' list hands them back (Get-ChatProcessTable); $null out of it is
+# a list that could not be had
 $script:ChatProcessTableSeam = $null
 # tests: whether a Recent chat's folder is there (Test-ChatOverlayFolder),
 # and whether a drive letter is a network drive
@@ -63,6 +71,13 @@ $script:ChatOverlayFolderTtlSeconds = 180
 # screen app or presentation holds the screen (Test-ChatOverlayFullScreen)
 $script:ChatqSignInSeam = $null
 $script:ChatOverlayFullScreenSeam = $null
+# tests: stand-ins for the calls that bring an open's VS Code window to the
+# front, given the call, the window and the other (Invoke-ChatOverlayFrontCall),
+# and for the leave given VS Code's processes at the click, given their pids
+# (Grant-ChatOverlayFront). With neither set, CHATQ_NOFRONT - which every
+# test run sets - refuses the real calls, and keeps their type uncompiled.
+$script:ChatOverlayRaiseSeam = $null
+$script:ChatOverlayGrantSeam = $null
 
 function Get-ChatOverlayConfig {
     # config.json -> overlay, with the defaults filled in and every number
@@ -266,18 +281,24 @@ function Write-ChatOverlayLog {
     # data/logs/overlay.log, rolled at 1 MB. The same line at most once in
     # 5 minutes: a pass runs every 2 s, and one lasting fault would otherwise
     # fill the file with itself. -Always skips that: what someone clicked is
-    # logged every time, or two opens of one chat would read as one.
+    # logged every time, or two opens of one chat would read as one. Past
+    # 500 lines held, the ones 5 minutes old go - they hold nothing back, and
+    # a line naming a chat or a time is new each time, so an overlay up for
+    # weeks kept them all. [datetime]::Now, not Get-Date: Get-Date's carries
+    # a note property, some 1 KB held a line where the plain one is 0.2.
     param([string]$Text, [switch]$Always)
     try {
         if (-not $Always) {
-            $last = $script:ChatOverlayLogSeen[$Text]
-            if ($last -and ((Get-Date) - $last).TotalMinutes -lt 5) { return }
-            $script:ChatOverlayLogSeen[$Text] = Get-Date
+            $now = [datetime]::Now
+            $seen = $script:ChatOverlayLogSeen
+            $last = $seen[$Text]
+            if ($last -and ($now - $last).TotalMinutes -lt 5) { return }
+            if ($seen.Count -ge 500) {
+                foreach ($k in @($seen.Keys)) { if (($now - $seen[$k]).TotalMinutes -ge 5) { $seen.Remove($k) } }
+            }
+            $seen[$Text] = $now
         }
-        New-ChatqDir $script:ChatqLogDir
-        $p = Join-Path $script:ChatqLogDir 'overlay.log'
-        if ((Test-Path -LiteralPath $p) -and (Get-Item -LiteralPath $p).Length -gt 1MB) { Move-Item -LiteralPath $p -Destination "$p.1" -Force }
-        [System.IO.File]::AppendAllText($p, "$((Get-Date).ToString('o'))  $Text`n", (New-Object System.Text.UTF8Encoding $false))
+        Add-ChatqLogLine 'overlay.log' $Text
     }
     catch {}
 }
@@ -329,14 +350,14 @@ function ConvertFrom-ChatqUtilization {
             }
             if (-not $label) { continue }
             $sev = if ($l.PSObject.Properties['severity']) { [string]$l.severity } else { '' }
-            $out.Add([pscustomobject]@{ Label = [string]$label; Percent = $p; ResetsAt = (ConvertTo-ChatqDate $l.resets_at); Severity = $sev })
+            $out.Add([pscustomobject]@{ Label = [string]$label; Percent = $p; ResetsAt = (ConvertTo-ChatqResetDate $l.resets_at); Severity = $sev })
         }
         return $out.ToArray()
     }
     foreach ($w in @(@{ Name = 'five_hour'; Label = '5h' }, @{ Name = 'seven_day'; Label = 'week' })) {
         $v = if ($U.PSObject.Properties[$w.Name]) { $U.($w.Name) } else { $null }
         if (-not $v -or $null -eq $v.utilization) { continue }
-        $out.Add([pscustomobject]@{ Label = $w.Label; Percent = [double]$v.utilization; ResetsAt = (ConvertTo-ChatqDate $v.resets_at); Severity = '' })
+        $out.Add([pscustomobject]@{ Label = $w.Label; Percent = [double]$v.utilization; ResetsAt = (ConvertTo-ChatqResetDate $v.resets_at); Severity = '' })
     }
     return $out.ToArray()
 }
@@ -590,17 +611,11 @@ function Complete-ChatqUsageFetch {
 }
 
 function Read-ChatqClaudeUsageCache {
-    # what Claude Code last cached of the usage endpoint's answer, and when.
-    # Only that block of .claude.json is lifted out and parsed - the rest holds
-    # the account and is none of this tool's business.
+    # what Claude Code last cached of the usage endpoint's answer, and when
+    # (Read-ChatqCachedUtilization: only that block of .claude.json is read)
     param([string]$Path)
-    if (-not (Test-Path -LiteralPath $Path)) { return $null }
-    $t = try { Read-ChatAllText $Path } catch { return $null }
-    $i = $t.IndexOf('"cachedUsageUtilization"', [StringComparison]::Ordinal)
-    $j = if ($i -ge 0) { $t.IndexOf('{', $i) } else { -1 }
-    $obj = if ($j -ge 0) { Read-ChatqJsonObjectAt $t $j } else { $null }
-    $u = if ($obj) { try { $obj | ConvertFrom-Json } catch { $null } } else { $null }
-    if (-not $u -or -not $u.fetchedAtMs) { return $null }
+    $u = Read-ChatqCachedUtilization $Path
+    if (-not $u) { return $null }
     $w = @(ConvertFrom-ChatqUtilization $u.utilization)
     if (-not $w) { return $null }
     return [pscustomobject]@{ Windows = $w; At = [System.DateTimeOffset]::FromUnixTimeMilliseconds([int64]$u.fetchedAtMs).LocalDateTime }
@@ -671,6 +686,12 @@ function Update-ChatOverlayUsage {
     param($Ctx, [bool]$Busy, [int]$WaitMs = 0, [hashtable]$Blocks, [bool]$CodexBusy)
     $now = Get-Date
     $cfg = $Ctx.Config
+    # a figure with a window whose reset passed since it came: asked again
+    $resetPassed = {
+        param($Fig)
+        foreach ($w in @($Fig.Windows)) { if ($w.ResetsAt -and $w.ResetsAt -gt $Fig.At -and $w.ResetsAt.AddSeconds(5) -le $now) { return $true } }
+        return $false
+    }
     if ($cfg.liveUsage) {
         if ($Ctx.AuthStamp -and (Get-ChatOverlayCredStamp $Ctx.ClaudeHome) -ne $Ctx.AuthStamp) {
             $Ctx.AuthStamp = $null
@@ -679,11 +700,7 @@ function Update-ChatOverlayUsage {
         if (-not $Ctx.Fetch -and $now -ge $Ctx.HoldUntil) {
             $every = if ($Busy) { $cfg.usageSeconds } else { 3 * $cfg.usageSeconds }
             $due = -not $Ctx.LiveTriedAt -or ($now - $Ctx.LiveTriedAt).TotalSeconds -ge $every
-            if (-not $due -and $Ctx.Live) {
-                foreach ($w in @($Ctx.Live.Windows)) {
-                    if ($w.ResetsAt -and $w.ResetsAt -gt $Ctx.Live.At -and $w.ResetsAt.AddSeconds(5) -le $now) { $due = $true }
-                }
-            }
+            if (-not $due -and $Ctx.Live) { $due = & $resetPassed $Ctx.Live }
             if ($due) {
                 $Ctx.LiveTriedAt = $now
                 $Ctx.Fetch = Start-ChatqUsageFetch $Ctx.ClaudeHome
@@ -727,13 +744,13 @@ function Update-ChatOverlayUsage {
         $stamp = try { if (Test-Path -LiteralPath $p) { $fi = [System.IO.FileInfo]::new($p); "$($fi.Length)|$($fi.LastWriteTimeUtc.Ticks)" } else { '' } } catch { '' }
         if ($stamp -ne $Ctx.CacheStamp) { $Ctx.CacheStamp = $stamp; $Ctx.Cache = Read-ChatqClaudeUsageCache $p }
     }
+    $cxAsk = [string](Get-ChatField $Ctx 'CodexHome')
+    $cxAsk = Get-ChatqHomeDir 'codex' $(if ($cxAsk) { $cxAsk } else { $script:ChatCodexHome })
     # Codex: the rollouts listed every 5 minutes, the newest re-read as it
     # grows - under the context's own home (New-ChatOverlayContext)
     if (($now - $Ctx.CodexListAt).TotalMinutes -ge 5) {
         $Ctx.CodexListAt = $now
-        $cxHome = [string](Get-ChatField $Ctx 'CodexHome')
-        if (-not $cxHome) { $cxHome = $script:ChatCodexHome }
-        $root = Join-Path $cxHome 'sessions'
+        $root = Join-Path $cxAsk 'sessions'
         # @() around the if, not inside it: an if whose branch yields an empty
         # array assigns $null, and then Codex-less machines fail right here
         $Ctx.CodexFiles = @(if (Test-Path -LiteralPath $root) {
@@ -758,8 +775,6 @@ function Update-ChatOverlayUsage {
     # The home goes with the figure into overlay.json: Get-ChatqUsage, in
     # another process that may have another CODEX_HOME, takes it only for
     # its own home.
-    $cxAsk = [string](Get-ChatField $Ctx 'CodexHome')
-    $cxAsk = Get-ChatqHomeDir 'codex' $(if ($cxAsk) { $cxAsk } else { $script:ChatCodexHome })
     if ($cfg.codexUsage) {
         $cxHold = if ($Ctx.CodexHoldUntil -is [datetime]) { $Ctx.CodexHoldUntil } else { [datetime]::MinValue }
         if (-not $Ctx.CodexFetch -and $now -ge $cxHold) {
@@ -767,11 +782,7 @@ function Update-ChatOverlayUsage {
             $cxBusy = $CodexBusy -or ($newest -and ($now - $newest.LastWriteTime).TotalSeconds -lt $cfg.usageSeconds)
             $every = if ($cxBusy) { $cfg.usageSeconds } else { 3 * $cfg.usageSeconds }
             $due = -not $Ctx.CodexTriedAt -or ($now - $Ctx.CodexTriedAt).TotalSeconds -ge $every
-            if (-not $due -and $Ctx.CodexLive) {
-                foreach ($w in @($Ctx.CodexLive.Windows)) {
-                    if ($w.ResetsAt -and $w.ResetsAt -gt $Ctx.CodexLive.At -and $w.ResetsAt.AddSeconds(5) -le $now) { $due = $true }
-                }
-            }
+            if (-not $due -and $Ctx.CodexLive) { $due = & $resetPassed $Ctx.CodexLive }
             if ($due) {
                 $Ctx.CodexTriedAt = $now
                 $Ctx.CodexFetch = Start-ChatqCodexUsageFetch $cxAsk
@@ -1041,9 +1052,14 @@ function Find-ChatTailRecords {
     slash command was found and a prompt came after it; UserAt and
     CommandAt, when the newest typed prompt and slash command found were
     sent; Pending, when something was taken off the chat's queue that has
-    left no record yet; Mode, the newest permissionMode in what was read -
-    the mode the chat runs in, which a typed prompt's record carries - or
-    $null when none was (the phone board's m, Get-ChatqPhoneChatMeta's read).
+    left no record yet, and Settled, that a user or assistant record came
+    after anything taken off it - a read finding neither says nothing
+    either way; Mode, the newest permissionMode in what was read - the mode
+    the chat runs in, which a typed prompt's record carries - or $null when
+    none was (the phone board's m, Get-ChatqPhoneChatMeta's read); LineEnd,
+    where the file's last whole line ends: a grown transcript is read on
+    from there (Update-ChatOverlayText), so a line still being written as
+    this read comes is read whole by the next.
     -Mode: go on reading back until a mode is found too, within -Budget. A
     turn's tool output can run past the first block after its prompt, and
     the last-prompt record near the end ends the read there without it;
@@ -1052,7 +1068,7 @@ function Find-ChatTailRecords {
     #>
     param([string]$Path, [int64]$From = 0, [int64]$Budget = $script:ChatOverlayScanBudget, [switch]$Mode)
     $out = [pscustomobject]@{ Prompt = $null; PromptKind = $null; Last = $null; After = $false; UserAt = $null; CommandAt = $null; Pending = $null
-        AiTitle = $null; CustomTitle = $null; Mode = $null; Length = 0; Scanned = 0 }
+        Settled = $false; AiTitle = $null; CustomTitle = $null; Mode = $null; Length = 0; LineEnd = 0; Scanned = 0 }
     try { $fs = Open-ChatRead $Path } catch { return $out }
     $lastPrompt = {
         param($l)
@@ -1090,6 +1106,12 @@ function Find-ChatTailRecords {
             while ($got -lt $n) { $r = $fs.Read($buf, $got, $n - $got); if ($r -le 0) { break }; $got += $r }
             $out.Scanned += $got
             $script:ChatOverlayBytesRead += $got
+            if ($pos + $n -eq $len) {
+                # a last line longer than the block is no record wanted, and
+                # the next read starts part way into it
+                $nl = [Array]::LastIndexOf($buf, [byte]10)
+                $out.LineEnd = if ($nl -ge 0) { $pos + $nl + 1 } else { $pos }
+            }
             $atStart = $pos -le $From
             $end = $n
             $tail = $carry
@@ -1127,13 +1149,9 @@ function Find-ChatTailRecords {
                 # a slash command like /compact writes nothing until it ends.
                 # A prompt's own record follows its dequeue within milliseconds.
                 $dq = $text.LastIndexOf('"operation":"dequeue"', [StringComparison]::Ordinal)
-                if ($dq -ge 0 -and $dq -gt $text.LastIndexOf('"type":"user"', [StringComparison]::Ordinal) -and
-                    $dq -gt $text.LastIndexOf('"type":"assistant"', [StringComparison]::Ordinal)) {
-                    $s = $text.LastIndexOf([char]10, $dq) + 1
-                    $e = $text.IndexOf([char]10, $dq)
-                    if ($e -lt 0) { $e = $text.Length }
-                    if ($text.Substring($s, $e - $s) -match '"timestamp":"([^"]+)"') { $out.Pending = ConvertTo-ChatOverlayMs (ConvertTo-ChatqDate $Matches[1]) }
-                }
+                $said = [Math]::Max($text.LastIndexOf('"type":"user"', [StringComparison]::Ordinal), $text.LastIndexOf('"type":"assistant"', [StringComparison]::Ordinal))
+                if ($dq -gt $said) { $out.Pending = Get-ChatLineStamp $text ($text.LastIndexOf([char]10, $dq) + 1) }
+                $out.Settled = $said -gt $dq
             }
             if (-not $out.Prompt) {
                 $lp = Find-ChatRecordBack $text '"type":"last-prompt"' $lastPrompt
@@ -1195,8 +1213,13 @@ function Update-ChatOverlayText {
     <#
     The title, newest prompt and mode of one open chat, kept in $Ctx.Text by
     session id. The transcript is read again only when it grew, and then only the new
-    part, with 64 KB of overlap for a line cut at the old end. One that shrank
-    was rewritten, and is read afresh. A chat with no transcript yet (opened,
+    part, from the end of the last whole line read (Find-ChatTailRecords'
+    LineEnd). It had 64 KB of overlap, which put a string of 130 KB on the
+    large object heap for each busy chat every pass; what only that part
+    could say is kept from the read before instead: a dequeue stays pending
+    until a user or assistant record comes after it, and a command is
+    matched against the newest last-prompt seen. One that shrank was
+    rewritten, and is read afresh. A chat with no transcript yet (opened,
     nothing sent) is looked for again every 30 s.
     #>
     param($Ctx, $Session)
@@ -1204,7 +1227,7 @@ function Update-ChatOverlayText {
     $st = $Ctx.Text[$sid]
     if (-not $st) {
         $st = @{ Path = $null; Len = -1; Prompt = $null; PromptKind = $null; Last = $null; CommandAt = $null; Pending = $null; AiTitle = $null; CustomTitle = $null; Sidecar = $null; First = $null; Mtime = $null
-            TypedAt = $null; Mode = $null }
+            TypedAt = $null; Mode = $null; LineEnd = 0 }
         $Ctx.Text[$sid] = $st
     }
     if (-not $st.Path -or -not (Test-Path -LiteralPath $st.Path)) {
@@ -1218,8 +1241,8 @@ function Update-ChatOverlayText {
     $fi = [System.IO.FileInfo]::new($st.Path)
     if (-not $fi.Exists -or $fi.Length -eq $st.Len) { return }
     $from = 0
-    if ($st.Len -gt 0 -and $fi.Length -gt $st.Len) { $from = [Math]::Max([Math]::Max(0, $st.Len - 65536), $fi.Length - 8MB) }
-    else { $st.Prompt = $null; $st.PromptKind = $null; $st.Last = $null; $st.CommandAt = $null; $st.AiTitle = $null; $st.CustomTitle = $null; $st.First = $null; $st.TypedAt = $null; $st.Mode = $null }
+    if ($st.Len -gt 0 -and $fi.Length -gt $st.Len) { $from = [Math]::Max($st.LineEnd, $fi.Length - 8MB) }
+    else { $st.Prompt = $null; $st.PromptKind = $null; $st.Last = $null; $st.CommandAt = $null; $st.Pending = $null; $st.AiTitle = $null; $st.CustomTitle = $null; $st.First = $null; $st.TypedAt = $null; $st.Mode = $null }
     # the mode it runs in: the newest the new part names, else the one before
     # (the phone board's chat view says it, ConvertTo-ChatqPhoneBoard) -
     # looked for past the prompt while none is known yet
@@ -1238,9 +1261,14 @@ function Update-ChatOverlayText {
     # since, even the same words again, is newer by its own timestamp.
     $typed = $r.UserAt -and $st.CommandAt -and [int64]$r.UserAt -gt [int64]$st.CommandAt
     $keep = $st.PromptKind -eq 'command' -and $r.PromptKind -eq 'last' -and -not $r.After -and $r.Last -eq $st.Last -and -not $typed
-    if ($r.Prompt -and -not $keep) { $st.Prompt = $r.Prompt; $st.PromptKind = $r.PromptKind; $st.Last = $r.Last; $st.CommandAt = $r.CommandAt }
-    $st.Pending = $r.Pending
+    if ($r.Prompt -and -not $keep) { $st.Prompt = $r.Prompt; $st.PromptKind = $r.PromptKind; $st.CommandAt = $r.CommandAt }
+    # the newest last-prompt seen, in a part read before too: a command
+    # read with none beside it is matched against the one before it
+    if ($r.Last) { $st.Last = $r.Last }
+    # taken off the queue in a part read before, with nothing since to end it
+    if ($r.Pending -or $r.Settled) { $st.Pending = $r.Pending }
     $st.Len = $r.Length
+    $st.LineEnd = $r.LineEnd
     $st.Mtime = $fi.LastWriteTime
     # a rename made in the panel sits beside the transcript
     $side = Join-Path (Join-Path $fi.DirectoryName $sid) 'custom-title.json'
@@ -1440,7 +1468,7 @@ function Get-ChatShellChildCount {
     if (-not $l -or $l.At -gt $Now -or ($Now - $l.At).TotalSeconds -ge $script:ChatShellChildTtlSeconds) {
         $rows = $null
         try {
-            if (-not ('ChatProcSnap' -as [type])) { Add-Type -TypeDefinition $script:ChatProcSnapCode }
+            if (-not ('ChatProcSnap' -as [type])) { Invoke-ChatCompile { Add-Type -TypeDefinition $script:ChatProcSnapCode } }
             $rows = [ChatProcSnap]::Children()
         }
         catch { $rows = $null }
@@ -1558,17 +1586,88 @@ function Get-ChatForegroundPid {
     try { return [int][ChatOverlayNative]::ForegroundPid() } catch { return 0 }
 }
 
+# Every process with its parent, file name and start, as ChatProcSnap's
+# Toolhelp32 list beside the start Windows keeps for each: some 15 ms for
+# 370 processes, where the Win32_Process query it stands in for took 0.2 to
+# 0.4 s on the thread the Windows panel draws on. A type of its own, not
+# more of ChatProcSnap: a process holding that one from an older copy of
+# the script would have no such call. The fields are named as
+# Win32_Process names them, so either is read the same way.
+$script:ChatProcTableCode = @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+
+public static class ChatProcTable {
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    struct Entry32 {
+        public uint dwSize; public uint cntUsage; public uint th32ProcessID; public IntPtr th32DefaultHeapID;
+        public uint th32ModuleID; public uint cntThreads; public uint th32ParentProcessID; public int pcPriClassBase;
+        public uint dwFlags; [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)] public string szExeFile;
+    }
+    public class Proc { public int ProcessId; public int ParentProcessId; public string Name; public DateTime? CreationDate; }
+    [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr CreateToolhelp32Snapshot(uint flags, uint pid);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern bool Process32FirstW(IntPtr h, ref Entry32 e);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern bool Process32NextW(IntPtr h, ref Entry32 e);
+    [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
+    [DllImport("kernel32.dll")] static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
+    [DllImport("kernel32.dll")] static extern bool GetProcessTimes(IntPtr h, out long created, out long exited, out long kernel, out long user);
+    // every process; null when Windows gives no list
+    public static Proc[] List() {
+        IntPtr h = CreateToolhelp32Snapshot(2, 0);
+        if (h == IntPtr.Zero || h == new IntPtr(-1)) { return null; }
+        List<Proc> found = new List<Proc>();
+        try {
+            Entry32 e = new Entry32();
+            e.dwSize = (uint)Marshal.SizeOf(typeof(Entry32));
+            if (Process32FirstW(h, ref e)) {
+                do {
+                    Proc p = new Proc();
+                    p.ProcessId = (int)e.th32ProcessID;
+                    p.ParentProcessId = (int)e.th32ParentProcessID;
+                    p.Name = e.szExeFile;
+                    p.CreationDate = Started(e.th32ProcessID);
+                    found.Add(p);
+                } while (Process32NextW(h, ref e));
+            }
+        }
+        finally { CloseHandle(h); }
+        return found.ToArray();
+    }
+    // when a process started, in local time; null where Windows will not
+    // say - System, a process this user may not look at
+    static DateTime? Started(uint pid) {
+        IntPtr p = OpenProcess(0x1000, false, pid);   // PROCESS_QUERY_LIMITED_INFORMATION
+        if (p == IntPtr.Zero) { return null; }
+        try {
+            long created, exited, kernel, user;
+            if (!GetProcessTimes(p, out created, out exited, out kernel, out user) || created <= 0) { return null; }
+            return DateTime.FromFileTime(created);
+        }
+        finally { CloseHandle(p); }
+    }
+}
+'@
+
 function Get-ChatProcessTable {
     <#
-    Every process's pid, parent, name and start, from one Win32_Process
-    query: a table by pid of @{ Pid; Parent; Name; Start }, the name without
-    its .exe, as Get-Process has it. $null when it cannot be told: off
-    Windows, or the query failed.
+    Every process's pid, parent, name and start: a table by pid of @{ Pid;
+    Parent; Name; Start }, the name without its .exe, as Get-Process has
+    it. From Windows' own list (ChatProcTable); from a Win32_Process query
+    only where that cannot be compiled. $null when it cannot be told: off
+    Windows, or neither answered.
     #>
     $list = $null
     if ($script:ChatProcessTableSeam) { $list = & $script:ChatProcessTableSeam }   # tests
     elseif ($script:ChatqIsWindows) {
-        try { $list = @(Get-CimInstance -ClassName Win32_Process -Property ProcessId, ParentProcessId, Name, CreationDate -EA Stop) } catch { $list = $null }
+        try {
+            if (-not ('ChatProcTable' -as [type])) { Invoke-ChatCompile { Add-Type -TypeDefinition $script:ChatProcTableCode } }
+            $list = [ChatProcTable]::List()
+        }
+        catch { $list = $null }
+        if ($null -eq $list) {
+            try { $list = @(Get-CimInstance -ClassName Win32_Process -Property ProcessId, ParentProcessId, Name, CreationDate -EA Stop) } catch { $list = $null }
+        }
     }
     if ($null -eq $list) { return $null }
     $t = @{}
@@ -1595,12 +1694,12 @@ function Get-ChatOverlayProcessChain {
     cannot be matched: the shell's parent is Explorer, or whatever started
     it, never the WindowsTerminal.exe that draws it - so that chat gets its
     dot even while its tab is in front.
-    The parents come from -Procs, a holder the pass hands in: one
-    Win32_Process snapshot a pass (Get-ChatProcessTable), taken only once a
-    chain is not known yet, and every chain of the pass walked in it - one
-    CIM query a hop was a query per hop per chat, on the thread the Windows
-    panel draws on. A chain is kept in $Ctx.Chains per process - by pid and
-    start, as the registry names it - for as long as that process runs
+    The parents come from -Procs, a holder the pass hands in: one process
+    list a pass (Get-ChatProcessTable), taken only once a chain is not known
+    yet, and every chain of the pass walked in it - one CIM query a hop was
+    a query per hop per chat, on the thread the Windows panel draws on. A
+    chain is kept in $Ctx.Chains per process - by pid and start, as the
+    registry names it - for as long as that process runs
     (Update-ChatOverlayUnread lets go of the rest); not one whose lookup
     failed - no snapshot, or the chat's own process not in it - which is
     asked again the next time it is wanted.
@@ -1787,6 +1886,15 @@ function Test-ChatOverlayFolder {
     return (Test-Path -LiteralPath $Path -PathType Container)
 }
 
+function Split-ChatOverlayRecent {
+    # Recent's items, newest first, into $Ctx.Recent - the first $Count -
+    # and $Ctx.RecentMore, the rest (Update-ChatOverlayRecent)
+    param($Ctx, [object[]]$Items, [int]$Count)
+    $all = @($Items | Where-Object { $_ })
+    $Ctx.Recent = @($all | Select-Object -First ([Math]::Max(0, $Count)))
+    $Ctx.RecentMore = @($all | Select-Object -Skip ([Math]::Max(0, $Count)))
+}
+
 function Update-ChatOverlayRecent {
     <#
     The Recent list in $Ctx.Recent: the newest Claude chats not open, for
@@ -1811,14 +1919,24 @@ function Update-ChatOverlayRecent {
     (Test-ChatOverlayFolder). $Ctx.RecentWhole lifts the slice: chatoverlay
     -Print's one pass lists the whole count. overlay.recent is how many; 0
     lists nothing.
+    $Ctx.RecentPool (the Windows panel's) builds the most overlay.recent
+    takes, 20, whatever it is set to, 0 too: the first overlay.recent are
+    $Ctx.Recent, the rest $Ctx.RecentMore, which the panel draws only when
+    stretched past its Recent lines (Get-ChatOverlayResize). Split again
+    every pass, so a count changed by a drag or the settings box shows
+    without a build. Without it RecentMore is empty.
     #>
     param($Ctx, [string[]]$Skip, [datetime]$Now = (Get-Date))
     $n = [int]$Ctx.Config.recent
-    if ($n -le 0) { $Ctx.Recent = @(); $Ctx.RecentCache = @{}; $Ctx.RecentSig = $null; $Ctx.RecentFiles = $null; $Ctx.Folders = @{}; return }
+    $want = if ($Ctx.RecentPool) { 20 } else { $n }
+    if ($want -le 0) { $Ctx.Recent = @(); $Ctx.RecentMore = @(); $Ctx.RecentCache = @{}; $Ctx.RecentSig = $null; $Ctx.RecentFiles = $null; $Ctx.Folders = @{}; return }
     $skipSet = @{}
     foreach ($s in @($Skip)) { if ($s) { $skipSet[[string]$s] = $true } }
-    $sig = "$n|" + (@($skipSet.Keys | Sort-Object) -join ',')
-    if ($sig -eq $Ctx.RecentSig -and ($Now - $Ctx.RecentAt).TotalSeconds -lt 60) { return }
+    $sig = "$want|" + (@($skipSet.Keys | Sort-Object) -join ',')
+    if ($sig -eq $Ctx.RecentSig -and ($Now - $Ctx.RecentAt).TotalSeconds -lt 60) {
+        if ($Ctx.RecentPool) { Split-ChatOverlayRecent $Ctx (@($Ctx.Recent) + @($Ctx.RecentMore)) $n }
+        return
+    }
     # a chat just closed: its transcript moved since the listing was taken
     $changed = $sig -ne $Ctx.RecentSig
     $Ctx.RecentSig = $sig
@@ -1857,7 +1975,7 @@ function Update-ChatOverlayRecent {
     if ($null -eq $Ctx.Folders) { $Ctx.Folders = @{} }
     $out = [System.Collections.Generic.List[object]]::new()
     foreach ($f in @($Ctx.RecentFiles)) {
-        if ($out.Count -ge $n) { break }
+        if ($out.Count -ge $want) { break }
         if ($skipSet[$f.BaseName]) { continue }
         $fsig = "$($f.Length)|$($f.LastWriteTimeUtc.Ticks)"
         $hit = $Ctx.RecentCache[$f.FullName]
@@ -1889,16 +2007,21 @@ function Update-ChatOverlayRecent {
         if ($known.There) { $out.Add($hit.Item) }
     }
     foreach ($k in @($Ctx.Folders.Keys)) { if (($Now - $Ctx.Folders[$k].At).TotalSeconds -ge 2 * $script:ChatOverlayFolderTtlSeconds) { $Ctx.Folders.Remove($k) } }
-    $Ctx.Recent = @(foreach ($i in $out) {
+    $built = @(foreach ($i in $out) {
             [pscustomobject]@{
                 key = "recent:$($i.Id)"; kind = 'recent'; provider = 'claude'; status = 'recent'
                 project = (Split-Path ([string]$i.Cwd).TrimEnd('\', '/') -Leaf); title = (Format-ChatTitle ([string]$i.Title) 80)
                 sessionId = [string]$i.Id; cwd = [string]$i.Cwd; since = (ConvertTo-ChatOverlayMs $i.Mtime); stateText = ''
             }
         })
-    # rounded as the listing's is; the folders asked are in it too
+    Split-ChatOverlayRecent $Ctx $built $n
+    # rounded as the listing's is; the folders asked are in it too. A build
+    # that spends its slice is past it by the time it stops - every start's
+    # was, and said so - so a line is for a read or a folder that held it a
+    # quarter second past the slice. A whole build keeps to none: 250 ms.
     $took = $sw.ElapsedMilliseconds
-    if ($took -gt 250) { Write-ChatOverlayLog "the recent list: reading the transcripts and asking after their folders took over $([int][Math]::Floor($took / 250) * 250) ms" }
+    $over = if ($Ctx.RecentWhole) { 250 } else { $slice + 250 }
+    if ($took -gt $over) { Write-ChatOverlayLog "the recent list: reading the transcripts and asking after their folders took over $([int][Math]::Floor($took / 250) * 250) ms" }
 }
 
 function Format-ChatOverlayCutOff {
@@ -1921,9 +2044,7 @@ function Format-ChatOverlayResetAt {
     if (-not $ResetsAtMs) { return '' }
     $at = try { [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$ResetsAtMs).LocalDateTime } catch { $null }
     if (-not $at -or $at -le $Now) { return '' }
-    $inv = [System.Globalization.CultureInfo]::InvariantCulture
-    if ($at.Date -eq $Now.Date) { return $at.ToString('HH:mm', $inv) }
-    return $at.ToString('ddd HH:mm', $inv)
+    return (Format-ChatqClockTime $at $Now)
 }
 
 function Format-ChatOverlayAskAt {
@@ -1935,9 +2056,7 @@ function Format-ChatOverlayAskAt {
     if ($When -is [datetime]) { $at = if ($When.Kind -eq [System.DateTimeKind]::Utc) { $When.ToLocalTime() } else { $When } }
     elseif ($When) { $at = try { [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$When).LocalDateTime } catch { $null } }
     if (-not $at) { return '' }
-    $inv = [System.Globalization.CultureInfo]::InvariantCulture
-    if ($at.Date -eq $Now.Date) { return $at.ToString('HH:mm', $inv) }
-    return $at.ToString('ddd HH:mm', $inv)
+    return (Format-ChatqClockTime $at $Now)
 }
 
 function Get-ChatOverlayResetWindow {
@@ -2034,6 +2153,37 @@ function Get-ChatOverlayStateText {
     return "$badge$what$age"
 }
 
+function Read-ChatOpenTabs {
+    <#
+    The Claude tabs VS Code windows hold with no process behind them, as
+    each window's extension writes them to open-tabs/<its ext host pid>.json
+    (extension.js writeTabs): @{ SessionId; Cwd; Label; Window; HostPid } a
+    tab, only those whose label names one chat in the window's folders.
+    Read as reload-pending's are (Read-ChatHostFiles): a file whose host
+    pid is gone, or alive but started well apart from the file's started (a
+    pid reused), is removed; one caught mid-write is skipped, the next look
+    has it. One tab a session id, the first file's: a chat in two windows
+    is one row.
+    #>
+    param([string]$Dir = $script:ChatOverlayOpenTabsDir, [datetime]$Now = (Get-Date))
+    $out = [System.Collections.Generic.List[object]]::new()
+    $seen = @{}
+    foreach ($h in @(Read-ChatHostFiles $Dir $Now)) {
+        $r = $h.Data
+        foreach ($t in @(Get-ChatField $r 'tabs')) {
+            $sid = [string](Get-ChatField $t 'sessionId')
+            if ($sid -notmatch '^[0-9a-fA-F-]{36}$' -or $seen[$sid]) { continue }
+            $seen[$sid] = $true
+            $out.Add([pscustomobject]@{
+                    SessionId = $sid; Cwd = [string](Get-ChatField $t 'cwd'); Label = [string](Get-ChatField $t 'label')
+                    Window = [string](Get-ChatField $r 'window'); HostPid = $h.HostPid
+                })
+        }
+    }
+    # unrolled: callers take it as @(Read-ChatOpenTabs)
+    return $out.ToArray()
+}
+
 function Get-ChatOverlayRows {
     <#
     One row per chat, most urgent first. A chat open in two windows is one
@@ -2069,9 +2219,14 @@ function Get-ChatOverlayRows {
     work reads as working - busy, with those words (workflow, 2 agents,
     shell) where working would be, its time the oldest one's, and
     background - count, workflows, agents, shells - on its row.
+    -Tabs: Read-ChatOpenTabs' answer, VS Code's Claude tabs with no process.
+    One whose chat has no row from -Sessions and whose transcript -Texts
+    found is a row as an idle session's is, with no pids, where vscode, its
+    time the transcript's, and tab: cut-offs, jobs and -Background take it
+    as they take that one, and Recent leaves it out by its row.
     #>
     param([object[]]$Sessions, [hashtable]$Texts, [object[]]$Jobs, [hashtable]$Eta, [datetime]$Now = (Get-Date), [object[]]$CutOff, [hashtable]$Unread,
-        [hashtable]$Auto, [hashtable]$Background)
+        [hashtable]$Auto, [hashtable]$Background, [object[]]$Tabs)
     $rankOf = @{ 'waiting' = 0; 'needs-input' = 0; 'cutoff' = 0.5; 'busy' = 1; 'running' = 2; 'idle' = 3; 'queued' = 4 }
     $ms = { param($v) ConvertTo-ChatOverlayMs $v }
     $nowMs = ConvertTo-ChatOverlayMs $Now
@@ -2117,6 +2272,30 @@ function Get-ChatOverlayRows {
             detail = $detail; since = $since; sessionId = $s.SessionId; pids = @($s.Pid); cwd = [string]$s.Cwd; job = $null; order = 0; stateText = ''
             where = $where; unread = [bool]($Unread -and $Unread[[string]$s.SessionId])
             mode = $(if ($t -and $t.Mode) { [string]$t.Mode } else { $null })
+        }
+    }
+    # A VS Code tab with no process behind it (Read-ChatOpenTabs): a
+    # window's reload brings its Claude tabs back, and none starts one until
+    # something is sent in it. Open all the same, so a row as an idle open
+    # chat's - no pids, its time the transcript's - once its transcript was
+    # found; a chat with a process keeps that one's row.
+    foreach ($tb in @($Tabs)) {
+        if (-not $tb -or -not $tb.SessionId -or $bySid[[string]$tb.SessionId]) { continue }
+        $sid = [string]$tb.SessionId
+        $t = if ($Texts) { $Texts[$sid] } else { $null }
+        if (-not $t -or -not $t.Path) { continue }
+        $title = $null
+        foreach ($c in @($t.CustomTitle, $t.Sidecar, $t.AiTitle, $t.First, $tb.Label)) { if ($c) { $title = $c; break } }
+        $prompt = if ($t.Prompt) { [string]$t.Prompt } else { $null }
+        if ($prompt -and $prompt.Length -gt 240) { $prompt = $prompt.Substring(0, 239) + $script:ChatqEllipsis }
+        $bySid[$sid] = [pscustomobject]@{
+            key = "s:$sid"; kind = 'session'; provider = 'claude'; status = 'idle'; chat = 'idle'; rank = $rankOf['idle']
+            project = $(if ($tb.Cwd) { Split-Path ([string]$tb.Cwd).TrimEnd('\', '/') -Leaf } else { '' })
+            title = (Format-ChatTitle ([string]$title) 80); prompt = $prompt; promptKind = $t.PromptKind
+            detail = $null; since = $(if ($t.Mtime) { & $ms $t.Mtime } else { $null }); sessionId = $sid; pids = @(); cwd = [string]$tb.Cwd; job = $null; order = 0; stateText = ''
+            where = 'vscode'; unread = $false
+            mode = $(if ($t.Mode) { [string]$t.Mode } else { $null })
+            tab = $true
         }
     }
     # Idle to Claude, but a workflow, a background agent or a background
@@ -2308,8 +2487,13 @@ function New-ChatOverlayContext {
         # Windows only (WantUnread): in memory alone. Folders: whether each
         # Recent chat's folder is there, and when that was asked.
         # RecentWhole: no slice on the Recent build - chatoverlay -Print's.
+        # RecentPool: build 20 whatever overlay.recent says, the rest past it
+        # in RecentMore - the Windows host's, which stretches into them.
         Recent = @(); RecentCache = @{}; RecentAt = $never; RecentSig = $null; RecentFiles = $null; RecentListAt = $never; WantRecent = $true
-        Folders = @{}; RecentWhole = $false
+        Folders = @{}; RecentWhole = $false; RecentMore = @(); RecentPool = $false
+        # VS Code's Claude tabs with no process (Read-ChatOpenTabs), read
+        # every 2 s
+        Tabs = @(); TabsAt = $never
         LastStatus = @{}; Unread = @{}; Chains = @{}; WantUnread = [bool]$script:ChatqIsWindows
         ViewSig = $null; SavedSig = $null; SavedAt = $never
         # auto-continue's automatic mode (src/auto-continue.ps1): WantAuto,
@@ -2399,11 +2583,13 @@ function Invoke-ChatOverlayCycle {
         $Ctx.PidSig = $pidSig
         $Ctx.AliveAt = $now
     }
+    # every live entry, print mode too; $live below is the interactive ones
+    $alive = @($entries | Where-Object { $_.SessionId -and $Ctx.Alive[(& $pk $_)] })
     # interactive only: a print-mode run of another kind is left out. One
     # Claude Code 2.1.283 registers as interactive, stamped sdk-*, is kept -
     # its row says run (Get-ChatOverlayWhere) - so a queued run may show
     # beside its job's row (FUTURE_WORK.md, A claude -p that is not chatq's)
-    $live = @($entries | Where-Object { $_.SessionId -and $Ctx.Alive[(& $pk $_)] -and (-not $_.Kind -or $_.Kind -eq 'interactive') })
+    $live = @($alive | Where-Object { -not $_.Kind -or $_.Kind -eq 'interactive' })
 
     # what each said last - the ones working first, then the newest
     $order = @($live | Sort-Object @{ Expression = { if ($_.Status -in 'waiting', 'busy') { 0 } else { 1 } } },
@@ -2416,13 +2602,28 @@ function Invoke-ChatOverlayCycle {
         if ($sw.ElapsedMilliseconds -gt $script:ChatOverlaySliceMs -and $Ctx.Text[$e.SessionId]) { continue }
         try { Update-ChatOverlayText $Ctx $e } catch { $err = "transcript: $($_.Exception.Message)" }
     }
+    # VS Code's Claude tabs with no process (Read-ChatOpenTabs), read every
+    # 2 s, and what each said as for a chat open: its chat is, so its text
+    # is not dropped as closed. Never joined to $live - auto-continue, the
+    # unread marks, the background look and all else keyed on a chat's
+    # process go on without them; they are rows alone (Get-ChatOverlayRows).
+    if ($Ctx.TabsAt -isnot [datetime] -or ($now - $Ctx.TabsAt).TotalSeconds -ge 2 -or $Ctx.TabsAt -gt $now) {
+        $Ctx.TabsAt = $now
+        try { $Ctx.Tabs = @(Read-ChatOpenTabs) } catch { $Ctx.Tabs = @(); $err = "open tabs: $($_.Exception.Message)" }
+    }
+    foreach ($tb in @($Ctx.Tabs)) {
+        if ($open[$tb.SessionId]) { continue }
+        $open[$tb.SessionId] = $true
+        if ($sw.ElapsedMilliseconds -gt $script:ChatOverlaySliceMs -and $Ctx.Text[$tb.SessionId]) { continue }
+        try { Update-ChatOverlayText $Ctx $tb } catch { $err = "transcript: $($_.Exception.Message)" }
+    }
     foreach ($k in @($Ctx.Text.Keys)) { if (-not $open[$k]) { $Ctx.Text.Remove($k) } }
 
     # the workflows, background agents and shells an idle chat still has at
     # work, read on from where the last pass stopped
     $bg = @{}
     try {
-        $bg = Update-ChatOverlayBackground $Ctx.Background $live @($entries | Where-Object { $_.SessionId -and $Ctx.Alive[(& $pk $_)] }) $Ctx.Text $sw `
+        $bg = Update-ChatOverlayBackground $Ctx.Background $live $alive $Ctx.Text $sw `
             -Whole:([bool]$Ctx.RecentWhole)
     }
     catch { $err = "background: $($_.Exception.Message)" }
@@ -2502,7 +2703,7 @@ function Invoke-ChatOverlayCycle {
         # Only a host's own pass keeps the notes in step (-Prune).
         if ($askAny -or $Ctx.Config.cutOff) {
             try {
-                $Ctx.RestartScan = @(Get-ChatRestartCutOffs -Live @($entries | Where-Object { $_.SessionId -and $Ctx.Alive[(& $pk $_)] }) -Asked $Ctx.AskState `
+                $Ctx.RestartScan = @(Get-ChatRestartCutOffs -Live $alive -Asked $Ctx.AskState `
                         -Jobs $jobs -Cache $Ctx.RestartCache -Prune:($Ctx.WantAsk -and -not $Peek) -Now $now)
             }
             catch { $err = "restart: $($_.Exception.Message)" }
@@ -2527,7 +2728,6 @@ function Invoke-ChatOverlayCycle {
     # then finds the chats it queued for taken, and before the live alerts,
     # so one about a chat the limit cut off finds its continue queued.
     try {
-        $alive = @($entries | Where-Object { $_.SessionId -and $Ctx.Alive[(& $pk $_)] })
         $scanRows = @($Ctx.CutScan | Where-Object { $_ -and $_.At -and $_.At -gt $now.AddHours(-13) })
         if (Update-ChatOverlayAuto $Ctx $alive $now $eta -Scan:($autoWant -and -not $Peek) -Rows $scanRows) {
             $jobs = @($Ctx.Jobs | ForEach-Object { $_.Job })
@@ -2609,16 +2809,16 @@ function Invoke-ChatOverlayCycle {
     # usage heads-ups from the figures above, and quiet hours' summary (src/phone-extras.ps1)
     if ($Ctx.WantPhone) { try { Update-ChatqPhoneExtras $Ctx $usage $jobs $now } catch { } }
     $rows = @(Get-ChatOverlayRows -Sessions $live -Texts $Ctx.Text -Jobs $Ctx.Jobs -Eta $eta -Now $now -CutOff $Ctx.CutOff -Unread $Ctx.Unread `
-            -Auto $Ctx.AutoStates -Background $bg)
+            -Auto $Ctx.AutoStates -Background $bg -Tabs @($Ctx.Tabs))
     # the newest chats not open, less any with a row of its own already -
     # not for the macOS panel, which draws none (Start-ChatOverlayMacHost);
     # chatoverlay -Print lists them there too, from a context of its own
-    if (-not $Ctx.WantRecent) { $Ctx.Recent = @() }
+    if (-not $Ctx.WantRecent) { $Ctx.Recent = @(); $Ctx.RecentMore = @() }
     else {
         try { Update-ChatOverlayRecent $Ctx (@($live | ForEach-Object { [string]$_.SessionId }) + @($rows | ForEach-Object { [string]$_.sessionId })) $now }
         catch { $err = "recent: $($_.Exception.Message)" }
     }
-    foreach ($i in @($Ctx.Recent)) { if ($i.since) { $i.stateText = Get-ChatAge ([DateTimeOffset]::FromUnixTimeMilliseconds([int64]$i.since).LocalDateTime) } }
+    foreach ($i in @($Ctx.Recent) + @($Ctx.RecentMore)) { if ($i -and $i.since) { $i.stateText = Get-ChatAge ([DateTimeOffset]::FromUnixTimeMilliseconds([int64]$i.since).LocalDateTime) } }
     $chats = @($rows | Where-Object { $_.kind -eq 'session' } | ForEach-Object { $_.chat })
     $counts = [pscustomobject]@{
         waiting = @($chats | Where-Object { $_ -eq 'waiting' }).Count; busy = @($chats | Where-Object { $_ -eq 'busy' }).Count
@@ -2682,11 +2882,12 @@ function Invoke-ChatOverlayCycle {
     }
     $header.notes = @(Get-ChatOverlayNotes $header)
     # recent beside rows, not in them: the macOS panel and any older reader
-    # draw rows alone, and pass it by
+    # draw rows alone, and pass it by. recentMore - the Windows panel's
+    # stretch past them (RecentPool) - only that panel draws.
     $snap = [pscustomobject]@{
         schema = 1; version = $script:ChatVersion; pid = $PID; at = 0
         header = $header; counts = $counts; config = $Ctx.Config; commands = @($Ctx.Commands); rows = @($rows)
-        recent = @($Ctx.Recent)
+        recent = @($Ctx.Recent); recentMore = @($Ctx.RecentMore)
     }
     $body = ConvertTo-Json $snap -Depth 6 -Compress
     $Ctx.ViewSig = $body

@@ -87,6 +87,19 @@ function Get-ChatqLabelKeys {
     return (Get-ChatqReplyKeys -K $k)
 }
 
+function Protect-ChatqSealed {
+    # The sealing every message shares, under one message's keys -Keys
+    # (Get-ChatqReplyKeys, Get-ChatqLabelKeys): head = -Prefix + "." + -Id +
+    # "." + b64url(iv) + "." + b64url(AES-CBC(enc, iv, -Data)), then "." +
+    # b64url(HMAC(mac, head)). -Iv fixes what is otherwise random.
+    param($Keys, [string]$Prefix, [string]$Id, [byte[]]$Data, [byte[]]$Iv)
+    $u = New-Object System.Text.UTF8Encoding $false
+    if (-not $Iv) { $Iv = New-ChatqRandomBytes 16 }
+    $ct = Invoke-ChatqAes $Keys.Enc $Iv $Data -Encrypt
+    $head = $Prefix + '.' + $Id + '.' + (ConvertTo-ChatqB64Url $Iv) + '.' + (ConvertTo-ChatqB64Url $ct)
+    return $head + '.' + (ConvertTo-ChatqB64Url (Get-ChatqHmac $Keys.Mac ($u.GetBytes($head))))
+}
+
 function Compress-ChatqBytes {
     # raw deflate, RFC 1951 with no header: what the page's
     # DecompressionStream('deflate-raw') reads
@@ -122,6 +135,31 @@ function Expand-ChatqBytes {
     catch { return $null }
 }
 
+function Open-ChatqSealed {
+    <#
+    The checks every sealed message from the phone or for it is opened with,
+    up to the MAC: the parts and -Prefix (else -NotText), the id -OnlyId
+    when given, the encoding, the phone's key, then the MAC in constant time
+    under -Label's keys for the id (Get-ChatqLabelKeys). Says how far it got
+    on $R - Stage, Error, and the id as $R.<-IdField> - and decrypts nothing.
+    @{ Iv; Ct; Keys } once the MAC checks out, else $null.
+    #>
+    param($R, [string]$Message, [byte[]]$Master, [string]$Prefix, [string]$NotText, [string]$Label, [string]$IdField, [string]$OnlyId)
+    $p = @(([string]$Message).Trim() -split '\.')
+    if ($p.Count -ne 5 -or $p[0] -cne $Prefix -or $p[1] -cnotmatch '^[a-z2-7]{10}$') { $R.Error = $NotText; return $null }
+    if ($OnlyId -and $p[1] -cne $OnlyId) { $R.Error = 'for another request'; return $null }
+    $iv = ConvertFrom-ChatqB64Url $p[2]
+    $ct = ConvertFrom-ChatqB64Url $p[3]
+    $mac = ConvertFrom-ChatqB64Url $p[4]
+    if ($null -eq $iv -or $iv.Length -ne 16 -or $null -eq $ct -or $ct.Length -eq 0 -or ($ct.Length % 16) -or $null -eq $mac -or $mac.Length -ne 32) { $R.Error = 'bad encoding'; return $null }
+    if ($null -eq $Master -or $Master.Length -ne 32) { $R.Error = 'no phone paired'; return $null }
+    $R.$IdField = $p[1]
+    $R.Stage = 'mac'
+    $ks = Get-ChatqLabelKeys $Master $Label $p[1]
+    if (-not (Test-ChatqSameBytes (Get-ChatqHmac $ks.Mac ((New-Object System.Text.UTF8Encoding $false).GetBytes(($p[0..3] -join '.')))) $mac)) { $R.Error = 'the MAC does not match'; return $null }
+    return [pscustomobject]@{ Iv = $iv; Ct = $ct; Keys = $ks }
+}
+
 function Protect-ChatqDownMessage {
     <#
     Seal a PC -> phone message: -Payload is the JSON, raw-deflated and then
@@ -136,10 +174,7 @@ function Protect-ChatqDownMessage {
     if ($Did -cnotmatch '^[a-z2-7]{10}$') { throw 'a message id is 10 of [a-z2-7]' }
     $ks = Get-ChatqLabelKeys $Master 'chatq-down:' $Did
     [byte[]]$z = if ($Deflated) { $Deflated } else { Compress-ChatqBytes ($u.GetBytes($Payload)) }
-    if (-not $Iv) { $Iv = New-ChatqRandomBytes 16 }
-    $ct = Invoke-ChatqAes $ks.Enc $Iv $z -Encrypt
-    $head = 'chatq3d.' + $Did + '.' + (ConvertTo-ChatqB64Url $Iv) + '.' + (ConvertTo-ChatqB64Url $ct)
-    return $head + '.' + (ConvertTo-ChatqB64Url (Get-ChatqHmac $ks.Mac ($u.GetBytes($head))))
+    return (Protect-ChatqSealed $ks 'chatq3d' $Did $z $Iv)
 }
 
 function Unprotect-ChatqDownMessage {
@@ -151,22 +186,11 @@ function Unprotect-ChatqDownMessage {
     #>
     param([string]$Message, [byte[]]$Master, [string]$Did, [int]$MaxBytes = 4MB)
     $r = [pscustomobject]@{ Ok = $false; Stage = 'format'; Error = $null; Did = $null; Payload = $null; Json = $null }
-    $p = @(([string]$Message).Trim() -split '\.')
-    if ($p.Count -ne 5 -or $p[0] -cne 'chatq3d' -or $p[1] -cnotmatch '^[a-z2-7]{10}$') { $r.Error = 'not a chatq down message'; return $r }
-    if ($Did -and $p[1] -cne $Did) { $r.Error = 'for another request'; return $r }
-    $iv = ConvertFrom-ChatqB64Url $p[2]
-    $ct = ConvertFrom-ChatqB64Url $p[3]
-    $mac = ConvertFrom-ChatqB64Url $p[4]
-    if ($null -eq $iv -or $iv.Length -ne 16 -or $null -eq $ct -or $ct.Length -eq 0 -or ($ct.Length % 16) -or $null -eq $mac -or $mac.Length -ne 32) { $r.Error = 'bad encoding'; return $r }
-    if ($null -eq $Master -or $Master.Length -ne 32) { $r.Error = 'no phone paired'; return $r }
-    $r.Did = $p[1]
-    $r.Stage = 'mac'
-    $u = New-Object System.Text.UTF8Encoding $false
-    $ks = Get-ChatqLabelKeys $Master 'chatq-down:' $p[1]
-    if (-not (Test-ChatqSameBytes (Get-ChatqHmac $ks.Mac ($u.GetBytes(($p[0..3] -join '.')))) $mac)) { $r.Error = 'the MAC does not match'; return $r }
+    $s = Open-ChatqSealed $r $Message $Master 'chatq3d' 'not a chatq down message' 'chatq-down:' 'Did' $Did
+    if (-not $s) { return $r }
     $r.Stage = 'decrypt'
     $z = $null
-    try { $z = Invoke-ChatqAes $ks.Enc $iv $ct } catch { $r.Error = "could not be decrypted: $($_.Exception.Message)"; return $r }
+    try { $z = Invoke-ChatqAes $s.Keys.Enc $s.Iv $s.Ct } catch { $r.Error = "could not be decrypted: $($_.Exception.Message)"; return $r }
     $r.Stage = 'inflate'
     $plain = Expand-ChatqBytes $z $MaxBytes
     if ($null -eq $plain) { $r.Error = 'not raw deflate, or over the size allowed'; return $r }
@@ -176,7 +200,7 @@ function Unprotect-ChatqDownMessage {
         $o = $r.Json | ConvertFrom-Json
     }
     catch { $r.Error = "could not be read: $($_.Exception.Message)"; return $r }
-    if (-not $o -or [string]$o.v -ne '3' -or [string]$o.ref -cne $p[1]) { $r.Error = 'not a version 3 message for this id'; return $r }
+    if (-not $o -or [string]$o.v -ne '3' -or [string]$o.ref -cne $r.Did) { $r.Error = 'not a version 3 message for this id'; return $r }
     $r.Payload = $o
     $r.Ok = $true
     $r.Stage = 'ok'
@@ -196,10 +220,7 @@ function Protect-ChatqComposeMessage {
     if ($null -eq $master -or $master.Length -ne 32) { throw 'the reply key must be 32 bytes, base64url' }
     if (-not $Cid) { $Cid = New-ChatqRandomName 10 }
     $ks = Get-ChatqLabelKeys $master 'chatq-phone:' $Cid
-    if (-not $Iv) { $Iv = New-ChatqRandomBytes 16 }
-    $ct = Invoke-ChatqAes $ks.Enc $Iv ($u.GetBytes($Payload)) -Encrypt
-    $head = 'chatq3c.' + $Cid + '.' + (ConvertTo-ChatqB64Url $Iv) + '.' + (ConvertTo-ChatqB64Url $ct)
-    return $head + '.' + (ConvertTo-ChatqB64Url (Get-ChatqHmac $ks.Mac ($u.GetBytes($head))))
+    return (Protect-ChatqSealed $ks 'chatq3c' $Cid ($u.GetBytes($Payload)) $Iv)
 }
 
 function Unprotect-ChatqComposeMessage {
@@ -211,21 +232,11 @@ function Unprotect-ChatqComposeMessage {
     #>
     param([string]$Message, [byte[]]$Master)
     $r = [pscustomobject]@{ Ok = $false; Stage = 'format'; Error = $null; Cid = $null; Payload = $null }
-    $p = @(([string]$Message).Trim() -split '\.')
-    if ($p.Count -ne 5 -or $p[0] -cne 'chatq3c' -or $p[1] -cnotmatch '^[a-z2-7]{10}$') { $r.Error = 'not a chatq message from the phone'; return $r }
-    $iv = ConvertFrom-ChatqB64Url $p[2]
-    $ct = ConvertFrom-ChatqB64Url $p[3]
-    $mac = ConvertFrom-ChatqB64Url $p[4]
-    if ($null -eq $iv -or $iv.Length -ne 16 -or $null -eq $ct -or $ct.Length -eq 0 -or ($ct.Length % 16) -or $null -eq $mac -or $mac.Length -ne 32) { $r.Error = 'bad encoding'; return $r }
-    if ($null -eq $Master -or $Master.Length -ne 32) { $r.Error = 'no phone paired'; return $r }
-    $r.Cid = $p[1]
-    $r.Stage = 'mac'
-    $u = New-Object System.Text.UTF8Encoding $false
-    $ks = Get-ChatqLabelKeys $Master 'chatq-phone:' $p[1]
-    if (-not (Test-ChatqSameBytes (Get-ChatqHmac $ks.Mac ($u.GetBytes(($p[0..3] -join '.')))) $mac)) { $r.Error = 'the MAC does not match'; return $r }
+    $s = Open-ChatqSealed $r $Message $Master 'chatq3c' 'not a chatq message from the phone' 'chatq-phone:' 'Cid'
+    if (-not $s) { return $r }
     $r.Stage = 'decrypt'
     try {
-        $pt = Invoke-ChatqAes $ks.Enc $iv $ct
+        $pt = Invoke-ChatqAes $s.Keys.Enc $s.Iv $s.Ct
         $o = (New-Object System.Text.UTF8Encoding $false, $true).GetString($pt) | ConvertFrom-Json
     }
     catch { $r.Error = "could not be read: $($_.Exception.Message)"; return $r }
@@ -302,7 +313,7 @@ function Send-ChatqDown {
     of the push, which must not wait on it. Returns @{ Ok; Error; Bytes;
     Attached; Cut }, never a throw; failures go to replies.log.
     #>
-    param($Rc, [string]$Did, $Body, [switch]$Quick)
+    param($Rc, [string]$Did, $Body)
     $out = [pscustomobject]@{ Ok = $false; Error = $null; Bytes = 0; Attached = $false; Cut = 0 }
     try {
         $topic = Get-ChatqDownTopic $Rc.Master
@@ -365,6 +376,27 @@ function Send-ChatqDown {
     }
 }
 
+function Add-ChatqDownSpent {
+    # One down message on the day's count in replies.json's state $St, inside
+    # a Use-ChatqReplyState block: a whole answer (-Kind full) while the day
+    # has fewer than -Cap, anything else while all of them come to fewer than
+    # -Cap + 50. The day is -Now's local date. $true when this one may go.
+    param($St, [string]$Kind, [int]$Cap, [datetime]$Now)
+    $day = $Now.ToString('yyyy-MM-dd', [System.Globalization.CultureInfo]::InvariantCulture)
+    if (-not $St.down -or [string]$St.down.day -ne $day) { $St.down = @{ day = $day; full = 0; other = 0 } }
+    $f = [int]$St.down.full
+    $o = [int]$St.down.other
+    if ($Kind -eq 'full') {
+        if ($f -ge $Cap) { return $false }
+        $St.down.full = $f + 1
+    }
+    else {
+        if ($f + $o -ge $Cap + 50) { return $false }
+        $St.down.other = $o + 1
+    }
+    return $true
+}
+
 function Add-ChatqDownCount {
     <#
     The day's down messages, counted before one is sent - in a lock block of
@@ -378,22 +410,7 @@ function Add-ChatqDownCount {
     $downCap = if ($Rc -and [int]$Rc.DownPerDay -gt 0) { [int]$Rc.DownPerDay } else { 150 }
     $downKind = $Kind
     try {
-        return [bool](Use-ChatqReplyState {
-                param($st)
-                $day = (Get-Date).ToString('yyyy-MM-dd', [System.Globalization.CultureInfo]::InvariantCulture)
-                if (-not $st.down -or [string]$st.down.day -ne $day) { $st.down = @{ day = $day; full = 0; other = 0 } }
-                $f = [int]$st.down.full
-                $o = [int]$st.down.other
-                if ($downKind -eq 'full') {
-                    if ($f -ge $downCap) { return $false }
-                    $st.down.full = $f + 1
-                }
-                else {
-                    if ($f + $o -ge $downCap + 50) { return $false }
-                    $st.down.other = $o + 1
-                }
-                return $true
-            } $Rc.Hours)
+        return [bool](Use-ChatqReplyState { param($st) Add-ChatqDownSpent $st $downKind $downCap (Get-Date) } $Rc.Hours)
     }
     catch { return $false }
 }
@@ -538,7 +555,7 @@ function Send-ChatqReplyText {
     too, alone then (parts empty, counted with the boards, not the whole
     answers). $true when the message went. Never throws.
     #>
-    param($Rc, [string]$Aid, [string]$Event, $Job, [switch]$Quick, [switch]$Again)
+    param($Rc, [string]$Aid, [string]$Event, $Job, [switch]$Again)
     $script:ChatqReplyTextWhy = $null
     try {
         if (-not ($Rc -and $Rc.Links)) { $script:ChatqReplyTextWhy = 'replies are off on the PC'; return $false }
@@ -568,7 +585,7 @@ function Send-ChatqReplyText {
             title = [string]$Job.title; at = $at; cut = $(if ($turn) { [int]$turn.Cut } else { 0 }); parts = @($parts)
         }
         if ($ask) { $body['ask'] = $ask }
-        $r = Send-ChatqDown $Rc $Aid $body -Quick:$Quick
+        $r = Send-ChatqDown $Rc $Aid $body
         if (-not $r.Ok) { $script:ChatqReplyTextWhy = 'ntfy.sh did not take it'; return $false }
         $attached = [bool]$r.Attached
         try { $null = Use-ChatqReplyState { param($st) $st.downSent[$Aid] = @{ at = (Get-ChatqStamp); attached = $attached } } $Rc.Hours } catch {}
@@ -590,10 +607,10 @@ function Update-ChatqReplyFull {
     r and w; the permission cards and the usage heads-ups of 0.9.0 took
     those letters for links of their own.) Never throws.
     #>
-    param($Rc, $Reply, [string]$Event, $Job, [switch]$Quick)
+    param($Rc, $Reply, [string]$Event, $Job)
     try {
         if (-not ($Rc -and $Reply -and $Reply.Aid)) { return }
-        $full = [bool](Send-ChatqReplyText $Rc $Reply.Aid $Event $Job -Quick:$Quick)
+        $full = [bool](Send-ChatqReplyText $Rc $Reply.Aid $Event $Job)
         # made with what the first link carried too: a soon usage alert's
         # w=1 and a permission request's sealed card (New-ChatqReplyAlert)
         $Reply.Link = Get-ChatqReplyLink $Rc $Reply.Aid $Event $Job -Full:$full -At ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()) `

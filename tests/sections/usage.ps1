@@ -12,6 +12,15 @@ $u = @(Get-ChatqUsage)
 $ucl = @($u | Where-Object { $_.Provider -eq 'Claude' })[0]
 $ucx = @($u | Where-Object { $_.Provider -eq 'Codex' })[0]
 Check 'Claude''s usage from its own cache, with how old it is' ($ucl -and ($ucl.Parts -join ',') -eq '5h 83%,week 41%' -and $ucl.AsOf) "$($ucl.Parts -join ',') $($ucl.AsOf)"
+# The endpoint's resets_at jitters around the reset: 12:59:59.855 read
+# 21:59 in Seoul on one fetch and 22:00 on the next
+$jit = @(ConvertFrom-ChatqUtilization ('{"limits":[{"kind":"session","percent":10,"resets_at":"2026-10-06T12:59:59.855638+00:00"},' +
+        '{"kind":"weekly_all","percent":5,"resets_at":"2026-10-11T17:00:00.462+00:00"}]}' | ConvertFrom-Json))
+$jitU = @($jit | ForEach-Object { $_.ResetsAt.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffffff') })
+$half = (ConvertTo-ChatqResetDate '2026-10-06T12:59:29.999+00:00').ToUniversalTime().ToString('HH:mm:ss.fff')
+Check 'Claude''s usage: a reset a moment either side of the minute is that minute, never the one before' (
+    ($jitU -join ',') -eq '2026-10-06T13:00:00.0000000,2026-10-11T17:00:00.0000000' -and $half -eq '12:59:00.000' -and
+    $jit[0].ResetsAt.Kind -eq [System.DateTimeKind]::Local -and $null -eq (ConvertTo-ChatqResetDate $null)) "$($jitU -join ',') / $half"
 Check 'Codex''s from the newest rollout that has any' ($ucx -and $ucx.Parts[0] -like '5h 100%, resets *' -and $ucx.Parts[1] -eq 'week 12%') "$($ucx.Parts -join ',')"
 # One reader for Codex's rate_limits (Read-ChatqCodexLimitSnapshot), where
 # three copies matched the compact '"rate_limits":{' alone: spaced JSON as
@@ -86,7 +95,7 @@ Check 'codex limits: a newer snapshot with no window lifts the block an older fu
     $null -eq $xSp -and $uSp -and $uSp.Parts[0] -like '5h 100%, resets *') "block: $($xSp | ConvertTo-Json -Compress) / usage: $($uSp.Parts -join ',')"
 # The overlay's own live figure, when newer than that cache: the phone's
 # status read the cache 35 minutes old while the overlay had 62%
-$ovWas = if (Test-Path -LiteralPath $script:ChatOverlayPath) { [System.IO.File]::ReadAllText($script:ChatOverlayPath) } else { $null }
+$ovWas = Read-TestFile $script:ChatOverlayPath
 $ovSnap = { param($minsAgo) '{"header":{"usage":[{"provider":"Claude","source":"live","at":' + [DateTimeOffset]::Now.AddMinutes(-$minsAgo).ToUnixTimeMilliseconds() +
     ',"windows":[{"label":"5h","percent":62},{"label":"week","percent":22}]},{"provider":"Copilot","source":"live","at":1,"windows":[]}]}}' }
 [System.IO.File]::WriteAllText($script:ChatOverlayPath, (& $ovSnap 2), $utf8)
@@ -95,7 +104,7 @@ $ulive = @(@(Get-ChatqUsage) | Where-Object { $_.Provider -eq 'Claude' })
 $uold = @(@(Get-ChatqUsage) | Where-Object { $_.Provider -eq 'Claude' })
 [System.IO.File]::WriteAllText($script:ChatOverlayPath, '{"header":{"usage":[]}}', $utf8)
 $unone = @(@(Get-ChatqUsage) | Where-Object { $_.Provider -eq 'Claude' })
-if ($null -ne $ovWas) { [System.IO.File]::WriteAllText($script:ChatOverlayPath, $ovWas, $utf8) } else { Remove-Item -LiteralPath $script:ChatOverlayPath -Force -EA SilentlyContinue }
+Restore-TestFile $script:ChatOverlayPath $ovWas
 Check 'Claude''s usage: the overlay''s live figure where it is newer than the cache, the cache where it is older or there is none - one Claude line either way' (
     $ulive.Count -eq 1 -and ($ulive[0].Parts -join ',') -eq '5h 62%,week 22%' -and ($ulive[0].AsOfAt -gt $ucl.AsOfAt) -and
     $uold.Count -eq 1 -and ($uold[0].Parts -join ',') -eq '5h 83%,week 41%' -and
@@ -127,7 +136,7 @@ try {
     $uxOld = @(@(Get-ChatqUsage) | Where-Object { $_.Provider -eq 'Codex' })
 }
 finally {
-    if ($null -ne $ovWas) { [System.IO.File]::WriteAllText($script:ChatOverlayPath, $ovWas, $utf8) } else { Remove-Item -LiteralPath $script:ChatOverlayPath -Force -EA SilentlyContinue }
+    Restore-TestFile $script:ChatOverlayPath $ovWas
     Remove-Item -LiteralPath $cxOther -Recurse -Force -EA SilentlyContinue
 }
 Check 'Codex''s usage: the overlay''s live answer where it is newer than the rollout - a full window with its reset, one reset since at 0% - never for another home' (

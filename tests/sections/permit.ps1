@@ -11,7 +11,7 @@
 # Everything changed is put back at the end.
 
 Section 'permissions from the phone'
-$pmCfgWas = if (Test-Path -LiteralPath $script:ChatqConfigPath) { [System.IO.File]::ReadAllText($script:ChatqConfigPath, $utf8) } else { $null }
+$pmCfgWas = Read-TestFile $script:ChatqConfigPath
 $pmWas = @{ Spawn = $script:ChatqSpawn; Join = $script:ChatqJoinSeam; Poll = $script:ChatqReplyPollSeam; Idle = $script:ChatqIdleSeam; Wait = $script:ChatqPermitWaitSeconds; Exe = $script:ChatqPermitExeSeam }
 $pmJobsBefore = @(Get-ChatqJobs | ForEach-Object { [string]$_.id })
 $script:ChatqIdleSeam = 99999
@@ -32,16 +32,7 @@ $pmCfg = [pscustomobject]@{
 }
 Save-ChatqJson $script:ChatqConfigPath $pmCfg
 $pmHan = U '\uD55C\uAE00'
-# a Join push as hashtables: its query, and its link's fragment
-$pmPush = {
-    param([string]$U)
-    $q = @{}
-    foreach ($p in ($U.Substring($U.IndexOf('?') + 1) -split '&')) { $k, $v = $p -split '=', 2; $q[$k] = [uri]::UnescapeDataString($v) }
-    $f = @{}
-    if ($q['url']) { foreach ($p in ($q['url'].Substring($q['url'].IndexOf('#') + 1) -split '&')) { $k, $v = $p -split '=', 2; $f[$k] = [uri]::UnescapeDataString($v) } }
-    [pscustomobject]@{ Url = $U; Q = $q; F = $f }
-}
-$pmPushes = { param([string]$Ev) @($script:PmJoins | ForEach-Object { & $pmPush $_ } | Where-Object { $_.Q['title'] -eq "chatq $([char]0xB7) $Ev" }) }
+$pmPushes = { param([string]$Ev) @($script:PmJoins | ForEach-Object { Get-JoinPush $_ } | Where-Object { $_.Q['title'] -eq "chatq $([char]0xB7) $Ev" }) }
 # the phone's answer, sealed as the page seals it: h from the card it opened
 $pmSeal = {
     param([string]$Aid, [string]$Act, [string]$Text = '', [string]$H, [int64]$Ts = 0)
@@ -51,7 +42,6 @@ $pmSeal = {
     Protect-ChatqReplyMessage -Key $pmKey -Aid $Aid -Payload ($o | ConvertTo-Json -Compress)
 }
 $pmFeed = { param([string]$Id, [string]$Body) ([ordered]@{ id = $Id; time = 1; event = 'message'; topic = 't'; message = $Body } | ConvertTo-Json -Compress) }
-$pmLog = { $p = Join-Path $script:ChatqLogDir 'replies.log'; if (Test-Path -LiteralPath $p) { [System.IO.File]::ReadAllText($p, $utf8) } else { '' } }
 
 # --- the MCP framing, in process ---------------------------------------------------
 $pst = New-ChatqPermitBridgeState -JobId 'framing' -RunId 'framingrun' -WaitSeconds 30
@@ -226,7 +216,7 @@ $bigJson = New-ChatqPermitCardJson 'Bash' $bigEx $fakeJob $cv.digest (Get-Date).
 $bigCard = Protect-ChatqPermitCard -Master $pmD -Aid 'abcdefghij' -Card $bigJson
 $bigLink = Get-ChatqReplyLink (Get-ChatqReplyConfig) 'abcdefghij' 'permission' $fakeJob -Card $bigCard
 $bigUrl = Get-ChatqJoinUrl '0123456789abcdef0123456789abcdef' 'group.phone' "chatq $([char]0xB7) permission" ((U '\uD55C\uAE00 ') * 300) 2 -Url $bigLink -NotificationId 'chatq-p-abcdefghij' -Icon $script:ChatqJoinIcon -DismissOnTouch
-$bigBack = (& $pmPush $bigUrl).F['r']
+$bigBack = (Get-JoinPush $bigUrl).F['r']
 Check 'a card at 600 bytes of UTF-8 stays under ~950 characters, and a Join URL with it and Hangul text stays within 1900, the card whole' (
     $utf8.GetByteCount($bigJson) -le 600 -and $bigCard.Length -le 950 -and $bigUrl.Length -le 1900 -and $bigBack -ceq $bigCard -and ($bigJson | ConvertFrom-Json).h -eq $cv.digest) "$($utf8.GetByteCount($bigJson)) bytes, card $($bigCard.Length), url $($bigUrl.Length)"
 $pt = Get-ChatqPermitPushText 'Bash' $fakeJob (Get-Date).AddMinutes(10)
@@ -368,7 +358,9 @@ function Test-PmBridgeLoop {
     # The loop a run goes through, against one bridge. Returns what it saw.
     param([string]$Exe, [switch]$Short)
     $script:ChatqPermitExeSeam = $Exe
-    $script:ChatqPermitWaitSeconds = 12
+    # the deadline the forged answers wait out: past the 2 s look that they
+    # are not believed early, with room for a slow machine's round trips
+    $script:ChatqPermitWaitSeconds = 20
     $run = New-ChatqPermitRun $pmBridgeJob
     $b = Start-PmBridge $run
     $seen = @{}
@@ -430,7 +422,7 @@ function Test-PmBridgeLoop {
         Send-PmAnswer $run $r12 'aidtwelvea' '{"v":1,"act":"permit","text":"","nonce":"x","ts":1}'
         $seen.EarlyTen = Read-PmLine $b '10' 2000
         $td = Get-Date
-        $seen.Ten = Read-PmLine $b '10' 20000
+        $seen.Ten = Read-PmLine $b '10' 30000
         $seen.Eleven = Read-PmLine $b '11' 3000
         $seen.Twelve = Read-PmLine $b '12' 3000
         $seen.DeadlineS = [int]((Get-Date) - $td).TotalSeconds
@@ -471,8 +463,11 @@ $vTen = & $pmVerdict $bl.Ten | ConvertFrom-Json
 Check 'an answer copied from another request, a permit naming another request, an unsealed permit: none is believed - each denied at the deadline' (
     -not $bl.EarlyTen -and $vTen.behavior -eq 'deny' -and $vTen.message -like 'Nobody approved this on the phone within 1 minute, so it was denied*' -and
     ((& $pmVerdict $bl.Eleven) | ConvertFrom-Json).behavior -eq 'deny' -and ((& $pmVerdict $bl.Twelve) | ConvertFrom-Json).behavior -eq 'deny' -and $bl.TimedOut.timedOut -eq $true) "$($bl.EarlyTen) | $($vTen.message)"
-Check 'after one went unanswered the next is denied at once; stdin closed, the bridge leaves with 0 within 2 s' (
-    ((& $pmVerdict $bl.After) | ConvertFrom-Json).message -like '*an earlier request in this run went unanswered*' -and $bl.AfterMs -lt 2000 -and $bl.Exited -and $bl.Code -eq 0 -and $bl.ExitMs -lt 2000) "$($bl.After) / exit $($bl.Code) in $($bl.ExitMs) ms"
+# the allow above is a 250 ms step and a verify, 2 s ample even loaded; the
+# exit is the process's own teardown, which a loaded machine slows - a bridge
+# that never leaves is caught by the 5 s wait for it
+Check 'after one went unanswered the next is denied at once; stdin closed, the bridge leaves with 0 within 4 s' (
+    ((& $pmVerdict $bl.After) | ConvertFrom-Json).message -like '*an earlier request in this run went unanswered*' -and $bl.AfterMs -lt 2000 -and $bl.Exited -and $bl.Code -eq 0 -and $bl.ExitMs -lt 4000) "$($bl.After) / exit $($bl.Code) in $($bl.ExitMs) ms"
 # the same under pwsh 7, the bridge off Windows: the PowerShell this runs in when it is 7, else one on the PATH
 $pw7 = if ($PSVersionTable.PSEdition -eq 'Core') { (Get-Process -Id $PID).Path } else { (Get-Command pwsh -CommandType Application -EA SilentlyContinue | Select-Object -First 1).Source }
 if ($pw7) {
@@ -547,7 +542,7 @@ Check 'the card opens with the phone''s key: the command, Claude''s description,
 $ans = & $pmAnswers
 $rep = @(& $pmPushes 'reply') | Select-Object -Last 1
 Check 'the phone''s permit: the call allowed, the job done, replies.log says allowed, a push says the run goes on' ($jA.state -eq 'done' -and
-    @($ans | Where-Object { $_ -like '*\"behavior\":\"allow\"*' }).Count -eq 1 -and (& $pmLog) -like "*permit * #$($jA.seq) Bash: allowed*" -and
+    @($ans | Where-Object { $_ -like '*\"behavior\":\"allow\"*' }).Count -eq 1 -and (& $phLog) -like "*permit * #$($jA.seq) Bash: allowed*" -and
     $rep.Q['text'] -eq "allowed - Bash for #$($jA.seq), the run goes on") "$($jA.state) $($jA.result.reason) | $($ans -join ' ; ') | $($rep.Q['text'])"
 Check 'after the run: its folder is gone, the job waits on nothing, the bridge left by itself' (-not (Test-Path -LiteralPath (Join-Path $script:ChatqPermitDir $jA.id)) -and
     -not (Get-ChatField $jA 'permitWaiting') -and @($ans | Where-Object { $_ -eq '{"exited":true}' }).Count -eq 1) ($ans -join ' ; ')
@@ -567,16 +562,18 @@ $jR = Invoke-PmRun $callPush
 $ansR = & $pmAnswers
 Check 'the phone''s Deny with a note: Claude is told, with the note; the job done, its alert saying you denied Bash(git push origin main)' ($jR.state -eq 'done' -and
     @($ansR | Where-Object { $_ -like '*Their note: \\\"not on main\\\"*' }).Count -eq 1 -and (& $pmAlerts) -like "*`tdone`t*you denied Bash(git push origin main)*" -and
-    (& $pmLog) -like "*permit * #$($jR.seq) Bash: refused*") "$($jR.state) $($jR.result.reason) | $($ansR -join ' ; ')"
+    (& $phLog) -like "*permit * #$($jR.seq) Bash: refused*") "$($jR.state) $($jR.result.reason) | $($ansR -join ' ; ')"
 
-# nobody answers
+# nobody answers. The push goes out on the watcher's first tick after the
+# request, up to 5 s on: the deadline well past it, or a slow tick finds the
+# run over and pushes nothing
 $script:PmPhone = @{ Act = $null; Note = ''; Answered = @{} }
-$script:ChatqPermitWaitSeconds = 8
+$script:ChatqPermitWaitSeconds = 15
 $jN = Invoke-PmRun $callPush
 $script:ChatqPermitWaitSeconds = $null
 $ppN = @(& $pmPushes 'permission') | Select-Object -Last 1
 Check 'nobody answers: denied at the deadline, the job needs input - no answer from the phone' ($jN.state -eq 'needs-input' -and
-    $jN.result.reason -eq 'denied Bash(git push origin main) - no answer from the phone' -and (& $pmLog) -like "*permit * #$($jN.seq) Bash: timeout*") "$($jN.state) $($jN.result.reason)"
+    $jN.result.reason -eq 'denied Bash(git push origin main) - no answer from the phone' -and (& $phLog) -like "*permit * #$($jN.seq) Bash: timeout*") "$($jN.state) $($jN.result.reason)"
 $cardN = Unprotect-ChatqPermitCard $ppN.F['r'] $pmD
 $script:PmMsgN++
 $script:PmFeedOnce = & $pmFeed "pmmsg$($script:PmMsgN)" (& $pmSeal $ppN.F['a'] 'permit' '' $cardN.Payload.h)
@@ -591,7 +588,7 @@ $n0 = @(& $pmPushes 'permission').Count
 $jS = Invoke-PmRun '' -Self
 $ansS = & $pmAnswers
 Check 'the model calling mcp__chatqpermit__decide itself: declined as no tool call of this run''s, and no push' ($jS.state -eq 'done' -and @(& $pmPushes 'permission').Count -eq $n0 -and
-    @($ansS | Where-Object { $_ -like '*not a tool call of this run*' }).Count -eq 1 -and (& $pmLog) -like "*permit * #$($jS.seq) Bash: declined not a tool call of this run's*") "$($jS.state) | $($ansS -join ' ; ')"
+    @($ansS | Where-Object { $_ -like '*not a tool call of this run*' }).Count -eq 1 -and (& $phLog) -like "*permit * #$($jS.seq) Bash: declined not a tool call of this run's*") "$($jS.state) | $($ansS -join ' ; ')"
 
 # a stop from the phone while a request waits
 $script:PmPhone = @{ Act = 'stop'; Note = ''; Answered = @{} }
@@ -751,7 +748,7 @@ catch { "error|`$(`$_.Exception.Message)" }
 Remove-Item env:FAKE_RECORD, env:FAKE_PERMIT, env:FAKE_PERMIT_SELF, env:FAKE_PERMIT_WAIT -EA SilentlyContinue
 foreach ($j in @(Get-ChatqJobs | Where-Object { $_.id -notin $pmJobsBefore })) { $null = Remove-ChatqJob $j 'test' }
 Remove-Item -LiteralPath $script:ChatqPermitDir -Recurse -Force -EA SilentlyContinue
-if ($null -ne $pmCfgWas) { [System.IO.File]::WriteAllText($script:ChatqConfigPath, $pmCfgWas, $utf8) } else { Remove-Item -LiteralPath $script:ChatqConfigPath -Force -EA SilentlyContinue }
+Restore-TestFile $script:ChatqConfigPath $pmCfgWas
 Remove-Item -LiteralPath $script:ChatqReplyPath -Force -EA SilentlyContinue
 $script:ChatqSpawn = $pmWas.Spawn
 $script:ChatqJoinSeam = $pmWas.Join

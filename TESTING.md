@@ -1,6 +1,24 @@
 # Testing Charlie-and-the-chat-factory
 
-## The self-test
+Every check here is in one of three tiers, by what it needs:
+
+- **[Tier 0](#tier-0-anywhere-any-time)** runs anywhere, any time: the
+  self-test under Windows PowerShell 5.1 and PowerShell 7, the node checks,
+  CI and the demo frames - made-up chats in a sandbox, fake CLIs, no network
+  and no model.
+- **[Tier 1](#tier-1-this-pc-for-real)** runs on this PC for real: real VS
+  Code windows, the live overlay, the real `claude` and `codex` spending real
+  turns. Ask first.
+- **[Tier 2](#tier-2-other-hardware)** needs other hardware: a real phone, a
+  Mac, Linux. Ask first.
+
+A by-hand item sits in the tier most of its steps need; a step that needs a
+phone or a Mac says so. [Review](#review), at the end, is the record of each
+review.
+
+## Tier 0: anywhere, any time
+
+### The self-test
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\run-tests.ps1   # Windows PowerShell 5.1
@@ -11,6 +29,19 @@ node tests/overlay-mac-check.js                                            # the
 
 The exit code is the number of failed checks, and `-Keep` leaves the sandbox
 behind for poking at. It uses no Pester, no network and no model.
+
+In VS Code the same runs are tasks in `.vscode/tasks.json`, each a status
+bar button through the actboy168.tasks extension: **Quick checks** (the
+ASCII rule and the four node checks), **Self-test** (5.1), **Package** (as
+CI packs it) and **CI**, the three in a row as `test.yml`'s Windows
+PowerShell leg runs them. **Self-test (7)** is its pwsh leg, which runs
+the self-test alone: under `data/pwsh/pwsh.exe`, where a portable
+PowerShell 7 is unpacked - the win-x64 zip of a PowerShell/PowerShell
+release on GitHub, its SHA256 checked against the release's
+`hashes.sha256` - else under `pwsh` from the PATH. Its first run here, on
+2026-10-07 under 7.6.6, passed all 1650 checks, the handover's sections
+among them, which only CI had run under 7 before. 5.1 runs one fewer: its
+permit section takes the bridge's pwsh leg from a `pwsh` on the PATH alone.
 
 - **Fake CLIs.** Every `claude`/`codex` call goes to `tests/fake-agent.ps1`
   through `tests/fake-claude.cmd`. `CHATQ_CLAUDE` and `CHATQ_CODEX` point there,
@@ -28,7 +59,9 @@ behind for poking at. It uses no Pester, no network and no model.
   stale. `CHAT_CODE_USER` points the Copilot provider there too — otherwise an
   index sync would read this machine's real Copilot chats.
 - **A private copy.** The script and its `src/` are dot-sourced from a copy
-  in the sandbox, so the run gets its own `data/`.
+  in the sandbox, so the run gets its own `data/`. `CHATQ_ALLPARTS`, set for
+  the run and every child it starts, loads all 25 parts - the overlay's
+  three among them, which a shell's load leaves out.
 - **Never in a git worktree of this repo.** VS Code's git extension opens
   every worktree of an open repository as one of its own
   (`git.detectWorktrees`, on by default), wherever it lies, and watches it.
@@ -43,7 +76,9 @@ behind for poking at. It uses no Pester, no network and no model.
   the summary; the sandbox and every section are files in `tests/sections/`,
   dot-sourced in the order its list gives, as the one file had them. A
   section uses what the sandbox and the sections before it set, so none
-  runs on its own. A new section goes in that list.
+  runs on its own. A new section goes in that list. Windows PowerShell 5.1
+  holds a scope to 4,096 variables, a number the suite passed on
+  2026-10-06; `run-tests.ps1` raises it to 32,768, the most 5.1 takes.
 - **Seams, so nothing real leaves the sandbox:** no desktop toast
   (`ChatqToastSeam`), no push service (`ChatqNtfySeam`), no idle clock
   (`ChatqIdleSeam`, as if nobody were at the PC), no alert footer read
@@ -55,7 +90,9 @@ behind for poking at. It uses no Pester, no network and no model.
   machine's and no sandbox reaches it; `ChatOverlayCopilotSeam` stands in for
   its answer - no real Windows light/dark setting
   (`ChatOverlaySystemDarkSeam`), a screen of the test's own off every real one
-  for the panel's buttons (`ChatOverlayWorkAreaSeam`), no real clipboard for
+  for the panel's buttons (`ChatOverlayWorkAreaSeam`), no mouse button held
+  and the pointer far off for the pointer check, whatever the real mouse's
+  (`ChatOverlayMouseDownSeam`, `ChatOverlayPointerSeam`), no real clipboard for
   the console's paste (`ChatConsoleClipboardSeam`), no index sync in a
   child process from it (`ChatConsoleNoSync`), nothing brought forward as
   the console opens (`ChatConsoleFrontSeam`, standing in for
@@ -78,12 +115,36 @@ behind for poking at. It uses no Pester, no network and no model.
   cut to a second each.
 - **Synthetic streams only** in `tests/fixtures/stream/`. The repo is public, so
   no real transcript goes in it.
+- **Slow machines.** A check waits on what it checks, under a cap a slow
+  machine only waits longer for, never a fixed time; timers that race get
+  room between them; a clock the code reads is held through a seam; and a
+  bound on how long something took sits between the right speed and the
+  wrong one, the slowest machine still on the right side. A node check's
+  slow machine is a preload, `node -r <file>`, whose 10 ms interval
+  busy-waits a random 0 to N ms, so the event loop runs late as a starved
+  CPU makes it. On 2026-10-07 at N = 30, 60 and 100, `extension-check.js`
+  and `board-page-check.js` as they stood failed at 60 and 100 - the carry
+  checks and the board's refresh - and after the fixes passed at all three.
+  A 5.1 run pinned to two cores beside two busy loops took 4036 s, against
+  about 963 s; its two failures came at 97-99% of commit, below.
+- **Short of memory, children fail - not flakes.** With commit (RAM plus
+  page file, Task Manager's *Committed*) near its limit, Windows refuses new
+  processes and threads: a child exits 0xC0000142, or 0x800705AF (the
+  paging file too small); a thread fails to start; an
+  `OutOfMemoryException`; a node `spawn` refused; or the run stops with no
+  summary. Look at commit before reading a FAIL as a timing flake. On
+  2026-10-07, at 97-99%, the pinned run's overlay close stalled 24 s, its
+  15 s guard timer as late, and a `claude agents` child came back with
+  nothing; another run died with no summary. A full 5.1 run takes some
+  4 points of that machine's 31.6 GB at its peak, about 1.3 GB: start one
+  under 90%.
 
-What it covers (at 0.10.4, 1581 checks in `run-tests.ps1` under 5.1 -
-under pwsh 7 in CI alone, since the machine it was written on has none -
-451 in `extension-check.js`, 258 in `reply-page-check.js`, 138 in
-`board-page-check.js` and 36 in `overlay-mac-check.js`; at 0.10.3 it was
-1329, 397, 258, 134 and 36; at 0.10.2,
+What it covers (at 0.10.5, 1658 checks in `run-tests.ps1` under 5.1 and
+1659 under pwsh 7, 458 in `extension-check.js`, 258 in
+`reply-page-check.js`, 138 in `board-page-check.js` and 36 in
+`overlay-mac-check.js`; at 0.10.4 it was 1581 under 5.1 - under pwsh 7 in
+CI alone, since the machine it was written on had none then - 451, 258,
+138 and 36; at 0.10.3, 1329, 397, 258, 134 and 36; at 0.10.2,
 1291, 387, 258, 133 and 36; at 0.10.1,
 1287, 371, 258, 133 and 36; at 0.10.0, 1279, 371, 258, 133 and 36; at 0.9.0, 1032 under 5.1 and 1033 under
 pwsh 7, 279, 250, 78 and 35):
@@ -92,27 +153,27 @@ pwsh 7, 279, 250, 78 and 35):
 |---|---|
 | relevance | bigram cosine: identical = 1, disjoint = 0, Hangul overlap > 0 |
 | resolver | exact, contains, every-word; Hangul exact and NFD-typed Hangul; the prompt breaking a tie between look-alike titles; no match stays in this project and never reaches the nested `…-Mobile` slug; a title only found in another project; hex id; a title past the 60-char clip; the 5 h edge at 4h59 (relevance) and 5h03 (newest); Codex thread names; a Copilot title named and refused, never guessed; a sentence typed where a title goes points at `-Prompt`, and a real title never does; two Codex rollouts in sibling folders that share a leaf name (`sibA\app`, `sibB\app`, one with a lower-case drive) - each in scope only from its own folder however the folder is written, and from a share whose path carries `Microsoft.PowerShell.Core\FileSystem::` ([Get-ChatProjectScope](src/chatrm.ps1)), a row with no `Cwd` falling back to the leaf, an old row of a repo named `codex` read again while only one marked `NoCwd` is kept, an index CSV with no `Cwd` column reading under StrictMode, and a real-index codex row blanked to look old getting its folder back on the next sync ([Test-ChatInProject](src/chatrm.ps1), [Test-ChatIndexRowCurrent](src/core.ps1)) |
-| metadata | cwd, last permission mode even 1.3 MB from the end, last real model, cut-off detection with its reset time, Codex cwd/sandbox; a Codex chat's effort from `turn_context.effort` and, failing that, its collaboration mode's `reasoning_effort` ([Get-ChatqCodexMeta](src/queue.ps1)); a `managed` and a camelCase `workspaceWrite` sandbox made words codex takes by [Get-ChatqJobInfo](src/commands.ps1), the unknown word kept to say; [ConvertTo-ChatqCodexSandbox](src/queue.ps1) over every shape and [Get-ChatqCodexRunSandbox](src/queue.ps1) taking the job's own pick before the chat's; [Format-ChatqRunCarry](src/queue.ps1) saying a Codex job's model and effort, and nothing under `-Model` |
+| metadata | cwd, last permission mode even 1.3 MB from the end, last real model, cut-off detection with its reset time, Codex cwd/sandbox; the last turn read back from the end, 64 KB where it is near and 256 KB where it is further back, a turn longer than the first read read whole, one naming no folder given the last record's that does from 150 KB back, and found with no newline after it, CRLFs, a half-written line after it or a BOM before it - the reads taken down as they go ([Get-ChatqLastTurn](src/queue.ps1)); a Codex chat's effort from `turn_context.effort` and, failing that, its collaboration mode's `reasoning_effort` ([Get-ChatqCodexMeta](src/queue.ps1)); a `managed` and a camelCase `workspaceWrite` sandbox made words codex takes by [Get-ChatqJobInfo](src/commands.ps1), the unknown word kept to say; [ConvertTo-ChatqCodexSandbox](src/queue.ps1) over every shape and [Get-ChatqCodexRunSandbox](src/queue.ps1) taking the job's own pick before the chat's; [Format-ChatqRunCarry](src/queue.ps1) saying a Codex job's model and effort, and nothing under `-Model` |
 | limits | future reset found, past one ignored; Codex full window; Codex "try again at …" prose; a cut-off chat the index has no row for yet is still listed by its title, not its uuid |
 | classifier | denied → needs-input; rejected event / legacy `…\|epoch` / weekly text → limited; 529 → overloaded; a connection error → network; an expired login (401) and a plan refused (403) → auth, each reason in the API's own message — read out of the error JSON, escapes and all, else the text on one line from the refusal on, cut at 160 characters, and never from the chat's own reply; a Codex refusal the same, its `unexpected status 401` code kept; Codex "stream disconnected" → network; chatq's own time limit never counts as network; a rejected event before a successful turn → done; plan and max-turns → needs-input; error and missing result → failed; a trailing question → done with `asks` |
 | overload | a 529-stopped chat recognised and listed; the status page read from a fake `status.json`; the backoff; page polled every minute; operational → probe at once; page silent 15 min → probe anyway; one alert; a reminder past 6 h; a Codex lane's outage: its first try a minute out, due once that passed, the next two minutes out, and the status page never read (a stubbed `Get-ChatqClaudeStatus` counts reads); its alert and 6 h reminder say Codex and never Claude or status.claude.com; `Get-ChatqEta` says "when Codex is back" and the console's preview names Codex's tries, Claude's still its page; a good Codex probe (`codex-done.jsonl`) ends the outage |
 | retries | a network drop requeued a minute out, its landed prompt as a continue that is always sent, gone after three retries; the no-reply cap counting only runs that got no reply, and starting over after one that did; a refused login holds the lane with one alert, which quotes the API, as do the watcher log (the error text whole, its type too, on a line of its own) and the status line — whether the probe met it or a run did; a block an older watcher saved, its source still `probe`, reads right; Codex overloads in codex-cli 0.159.2's words (`codex-overload.jsonl` "high demand", `codex-capacity.jsonl` "at capacity", `codex-5xx.jsonl` "last status: 503") → overloaded with the turn's own words, a 400 (`codex-badrequest.jsonl`) → failed, a context-window failure with an MCP probe's "unexpected status: 500" and `server_error` in stderr → failed, stderr alone with no `turn.failed` read, a refused login on stderr still auth over a 5xx, the usage limit still limited, chatq's own stop still failed; end to end, a Codex run through the fake on `codex-overload.jsonl` is queued again behind its lane's outage a minute out, no status page read, its history and alert saying "waiting for Codex to be back" / "resumes when Codex is back" and never Claude |
 | model and order | `-Model` kept apart from the chat's own model, used by the probe and the run (`--model`, and Codex's `-m` before the thread id); `-First` ahead of older jobs, in the list's "sends" too; `chatqrun <n> -First`; the jobs one reset frees go one at a time in "sends" - the first at its time, the rest, a Codex job at that minute too, each `after #n`, a wait's reason kept - and a free job never after a waiting one; Continue saying it queued them to go one at a time; a Codex job's sandbox: `chatq -Sandbox read-only` sends `sandbox_mode=read-only` and no network flag and the pick says `read-only (given)` and the model `as the chat last ran`, a chat saved as `managed` runs `workspace-write` with its network and a history line, `chatqrun -Sandbox danger-full-access` requeues with the wider-sandbox warning, and `-Mode` on a Codex chat, `-Sandbox` on a Claude one and [Reset-ChatqJob](src/commands.ps1) with a Claude mode for a Codex job are refused with nothing queued ([Get-ChatqModeRefusal](src/commands.ps1), `New-ChatqJob`'s code `mode`); [Set-ChatqJobRunAs](src/commands.ps1) on a Codex job takes a sandbox word and a model and refuses a Claude mode; the Codex probe ([Invoke-ChatqProbe](src/queue.ps1)) at `-c model_reasoning_effort=low`, with `-m` the job's `-Model`, kept when that probe fails, else the chat's own model, dropped when that one fails (`codex-done.jsonl` for the answer that passes; the fake's default, Claude-shaped, for the one that fails) |
 | which CLI | `tests/sections/model-order.ps1`, a sandbox PATH cut to Windows' own folders and an extension home of its own ([Find-ChatqBundledExe](src/queue.ps1) through `$script:ChatqExtHomeSeam`): a `codex.cmd` on PATH, the fake saying `codex-cli 0.150.0` through `FAKE_VERSION`, picked as `PATH` with that version read by [Get-ChatqCliVersion](src/queue.ps1), and warned about beside the extension's 0.159.2 (put in the version cache, the binary an empty file) - by [Get-ChatqCliReport](src/queue.ps1), `chatinstall`'s lines ([Write-ChatCliReport](src/discoverability.ps1)) and `chatproviders`; one as new or newer not warned about; none on PATH → the extension's copy, compared with nothing; `CHATQ_CODEX` said as the override, never compared however old; `$script:ChatqCodexAppServerMin` parses and orders 0.150.0 below and 0.159.2 above it; a `claude.exe` on PATH that is Claude Code's own install ([Get-ChatqExePick](src/queue.ps1)) said as that and never compared with a newer extension copy, since off PATH it would be picked all the same. The version cache is put back whole after, so no Claude run later meets a codex version cached for the same fake |
-| watcher | one full loop runs the queue and exits, sweeping `data/queue/` of a day-old file no prompt links to as it starts - once, said in `watcher.log`; a second watcher will not start; `-Now` reaches a running watcher; a restart request hands over — lock released, successor started last, state carried — and never in `-Foreground`; a cold start does not carry state; the launch line — no profile, `-ExecutionPolicy Bypass`, and a child handed a `Restricted` process policy loads the script and runs the loop with the policy gone and `CHATQ_WATCHER` set; a load that fails logged in `watcher.log`, exit 1; a Remove during the watcher's checks - fired inside its look at the live sessions - stays a removal for a busy chat (deferred), an idle one and one not open (about to run), and a continue sent now: nothing written back (it had come back queued, or failed, and a continue was sent after it was removed); `Save-ChatqJob -Existing` makes no file for a job removed, and leaves no `.json.tmp` |
+| watcher | one full loop runs the queue and exits, sweeping `data/queue/` of a day-old file no prompt links to as it starts - once, said in `watcher.log`; a second watcher will not start; `-Now` reaches a running watcher; a restart request hands over — lock released, successor started last, state carried — and never in `-Foreground`; a cold start does not carry state; the launch line — no profile, `-ExecutionPolicy Bypass`, and a child handed a `Restricted` process policy loads the script and runs the loop with the policy gone and `CHATQ_WATCHER` set; a load that fails logged in `watcher.log`, exit 1; started for real from a folder named `wd[1]`, it runs in your home folder, not that one ([Start-ChatqWatcherProcess](src/watcher.ps1)); a Remove during the watcher's checks - fired inside its look at the live sessions - stays a removal for a busy chat (deferred), an idle one and one not open (about to run), and a continue sent now: nothing written back (it had come back queued, or failed, and a continue was sent after it was removed); `Save-ChatqJob -Existing` makes no file for a job removed, and leaves no `.json.tmp` |
 | alerts | the toast at the PC and the phone quiet; `-Test` gets through anyway; ntfy's JSON with Hangul, the title's middle dot and priority 5; the ntfy topic never printed whole; the command hook's environment, `&` and `%PATH%` left as text; a hanging hook stopped; a pasted Join push URL gives up its key and device; `-Off`; the idle clock reads without an error; away only when known — not at the PC, not with `quietMinutes` 0, not on a clock that cannot be read |
-| usage | Claude's from its cache with its age, Codex's from the newest rollout that has any, and the `chatqlist` line; Codex's one snapshot reader ([Read-ChatqCodexLimitSnapshot](src/queue.ps1)) reads spaced JSON as it reads compact - window, plan and record time - and takes the newest snapshot with a window, past a half-written last line, a snapshot with no window and a mention quoted inside a reply; [Get-ChatqCodexBlock](src/queue.ps1), [Read-ChatqCodexUsage](src/overlay-data.ps1) and [Get-ChatqUsage](src/alerts.ps1) read the same spaced snapshot from an older rollout when the newest one has none; a newer rollout whose only snapshot has no window lifts that block while the usage readers still show the older figure; a five-hour limit reads `5h limited` rather than the percent cached before it, a weekly one leaves the 5 h figure alone, and a figure an hour old is marked `stale`; one Codex home - `Get-ChatqUsage -CodexHome` reads the home given, and with `CODEX_HOME` changed after load the default still reads the one chatq loaded with, as `New-ChatOverlayContext -CodexHome` reads its own; Codex's live answer from `overlay.json` over an older rollout - a full window with its reset, one reset since at 0% - only when the home it names is the reader's, however it is written: never for `-CodexHome` elsewhere, never one asked under another home and read by a caller that names none, nor one that names no home; and the rollout's over an older answer |
+| usage | Claude's from its cache with its age, and a reset a moment either side of the minute read as that minute - `12:59:59.855638` and `17:00:00.462` as 13:00 and 17:00, `12:59:29.999` as 12:59 ([ConvertTo-ChatqResetDate](src/queue.ps1)); Codex's from the newest rollout that has any, and the `chatqlist` line; Codex's one snapshot reader ([Read-ChatqCodexLimitSnapshot](src/queue.ps1)) reads spaced JSON as it reads compact - window, plan and record time - and takes the newest snapshot with a window, past a half-written last line, a snapshot with no window and a mention quoted inside a reply; [Get-ChatqCodexBlock](src/queue.ps1), [Read-ChatqCodexUsage](src/overlay-data.ps1) and [Get-ChatqUsage](src/alerts.ps1) read the same spaced snapshot from an older rollout when the newest one has none; a newer rollout whose only snapshot has no window lifts that block while the usage readers still show the older figure; a five-hour limit reads `5h limited` rather than the percent cached before it, a weekly one leaves the 5 h figure alone, and a figure an hour old is marked `stale`; one Codex home - `Get-ChatqUsage -CodexHome` reads the home given, and with `CODEX_HOME` changed after load the default still reads the one chatq loaded with, as `New-ChatOverlayContext -CodexHome` reads its own; Codex's live answer from `overlay.json` over an older rollout - a full window with its reset, one reset since at 0% - only when the home it names is the reader's, however it is written: never for `-CodexHome` elsewhere, never one asked under another home and read by a caller that names none, nor one that names no home; and the rollout's over an older answer |
 | attachments | a missing file queues nothing; `-Continue` with files refused; `-WhatIf` names them and copies none; copies in the order given, a space out of a name, the original changing later changes nothing; `chatqlist` counts them; Claude gets every path under the prompt and `--add-dir` for the job's folder; Codex gets `-i` per image and `--` before the thread id, the rest in the prompt and the image only said to be there; the same file twice goes once; a wildcard brings every match; a file locked after its check queues nothing and leaves no folder; `chatq <n> -Attach` adds to a queued job, not to one already sent, and `-Paste` of text there adds nothing; `-Paste` through a seam — a screenshot as `clip.png` without the caption that came with it, Explorer files but not folders, text as the prompt or under one, an empty clipboard refused; a pasted image beside the prompt moved in and its link rewritten; a file linked twice one copy, a look-alike name its own link; a link to a file elsewhere, `../` into chatq's data and a `\\share` all left as written and untaken; a name with parentheses and a folder named after the prompt taken, the emptied folder removed; `chatqrm` removes the job's folder; `chatq -New` - a named new chat's job in that folder with its file, mode, time and place, and the id to reach it by said; a folder relative to the shell's and the first line as its name; the editor through a stand-in, its first line naming the chat and its prompt file; `-Paste` text as its prompt; an ESC or BEL in the first line kept out of the name; `-WhatIf`, a missing folder, `-Continue`, Codex, an empty prompt and no folder each refused with why and nothing queued; once run, `chatq <its id's first 8>` picks the chat it made; Tab offers no chat's title as its name; the stray sweep (`Clear-ChatqStrayFiles`) - a file no prompt links to, a day old by the newer of its two times, at the root or in a folder VS Code made, removed, and that folder once empty if it was old before the sweep; a linked file, a young one, one only written long ago, a job's folder even with no `.json`, and the queue's own `.md`, `.cancel` and `.tmp` kept; a prompt held open by another program - nothing removed; a day on the young ones go, and a linked one once its prompt does |
 | jobs.log | a job's queueing and its removal by `chatqrm` both land in `data/logs/jobs.log`, which outlives the job file |
 | find and delete | the index holds all three providers; a Hangul Codex name read as UTF-8; an escaped Claude title unescaped; `chatfind` by title, by prompt, and `-Deep` for text past the previews; the index saved while a reader holds it for 150 ms, and a warning, not silence, when the hold outlasts the tries; `chatrm -Force` removes the transcript and every leftover (sidecars, file-history, session-env, tasks, debug, security, telemetry, todos, a job folder by the id inside it, plan files) and writes a tombstone; a plan another chat shares is kept; a locked transcript keeps its leftovers; a chat with a queued prompt is kept, and `-DropJobs` drops the job then deletes |
 | archive | Claude archive → tombstone and index row gone → restore over the window's stub, leftovers and all, tombstone cleared; never over a chat with messages; not while open in a window; Codex through `codex archive` / `unarchive`; a Codex thread at work is kept ([Get-ChatCodexBusy](src/chatrm.ps1)): a record written just now, or a last `task_started` with no `task_complete` / `turn_aborted` after it in a rollout held open to write (the test holds it as codex does), is busy - a file only touched, every turn ended, a start quoted in a reply's text, an open turn in a rollout no process holds (a killed codex), a turn left open and then a later one finished, an open turn in a rollout untouched past `ChatCodexTurnStaleHours`, and a start further back than the tail read are not; end to end, `chatrm -Archive` on the sandbox thread with either kind of work leaves it in `sessions/`, unarchived, and says why; `chatuninstall -All` refuses while the archive holds one; one Codex home - [Get-ChatCodexHomeOf](src/chatrm.ps1) finds a rollout's home above `sessions/` or `archived_sessions/`, and with `CODEX_HOME` pointed elsewhere an archive and its restore still go to the thread's own home, which the manifest and the row keep, never making the other; a second home's archive listed with `-CodexHome`, and not by default |
 | reload safety | in a project of its own: all finished → idle; `busy` or `waiting` from `claude agents` → active though the transcript reads finished; a workflow started and not reported → active, where the transcript alone reads finished; the chat's process gone, or the start older than the process → idle; its `<task-notification>` → idle; a background agent, reported, then woken by SendMessage → active again; a background shell → not counted; the reload request carries `busy` either way; a chat only touched this minute, by a `cost-state` record with no turn and no time in it as a reloading window writes → not active; a chat whose last turn was written this minute → active, unless it is the one a queued run just wrote (`-Except`) — but that chat busy in a window still counts; a neighbour written 3 minutes ago → active over `quietMinutes`, not over one minute; a folder whose only chat is the one the run wrote → idle, not unjudged; a queued run into that chat, open and idle, with nobody at the PC → a `ran` request with `away` true and `busy` false, the one the window may take by itself |
 | a reload on the overlay | `tests/sections/reload-ask.ps1`, with `data/reload-pending/` files as the extension writes them, a BOM included, for this test's own pid: one entry a window, its newest ask, how many it has open; a window gone - a pid no process has - its file removed, and one whose pid is alive but started three days after the file says removed as reused; no ask left, or no folder, nothing; `Write-ChatReloadAnswer` - no BOM, the ask's id, the answer and a UTC time `Date.parse` reads; two windows asking at once - this process and another whose start time can be read - an entry each, and the pass takes both; a pass puts it in `header.reload` and a `reload` note (`<window> needs a reload - <why>`), the tray tooltip counts it; answered here → left out, and shown again 30 s on if the window never took it; the chips - **reload**, **reload anyway** where the notice's is, and **later**, no open or delete - and the banner no row count takes for a row; a release on the chip pressed alone answering; the answer from the chip written, the banner gone in the redraw at once, the panel's line saying it |
-| background work | `tests/sections/background.ps1`, after reload safety, on a chat of its own: a workflow, an agent and a background shell each start something (`Step-ChatBackgroundLine`), and a shell counts only with `-Shells` - the reload checks leave it out; the ends - a `<task-notification>` and its `queued_command` copy, a `TaskStop` result (none for one that failed), a workflow's run record written since its start (one from before is the run a resumed run keeps the id of), an agent's own transcript ending its turn - never mid tool call, owed a result, mid-stream, refused (Claude Code tries a fallback model), out of tokens, or untouched since the start - its last word read whole past a 100 KB report or 90 KB of record after it, and past keys that differ only in case (Windows PowerShell's JSON refuses those; checked against all 2,626 agent transcripts on the dev machine, none read differently from the whole file); SendMessage waking a reported agent starts it again at the wake's time; `-SkipPrint` and `-Since`; `Get-ChatBackgroundTasks` held by neither a killed workflow nor a finished agent; `Update-ChatBackgroundScan` finding the same, a last line half written waiting with the rest counted read, then read from where it stopped, 300 bytes a call with longer lines taken whole, a shrunk file read afresh; the overlay - an idle chat with a workflow out a working row, `workflow 7m`, a busy one `working` as ever, a start older than the process none, a fresh cache the same answer; a shell `shell 4m` while `Get-ChatShellChildCount` finds a shell under the chat, none when it finds none, and the transcript's word where it cannot tell; two starts and one shell running - the newest, and its time; a print-mode run's shells counted; the count over all the chat's processes, unknown if any is; on Windows a count from Toolhelp32 in milliseconds; a chat the limit cut off reads cut off, not `shell`; past its slice one transcript a pass, all with `-Whole`; the words for one kind, several, and a mix |
+| background work | `tests/sections/background.ps1`, after reload safety, on a chat of its own: a workflow, an agent and a background shell each start something (`Step-ChatBackgroundLine`), and a shell counts only with `-Shells` - the reload checks leave it out; the ends - a `<task-notification>` and its `queued_command` copy, a `TaskStop` result (none for one that failed), a workflow's run record written since its start (one from before is the run a resumed run keeps the id of), an agent's own transcript ending its turn - never mid tool call, owed a result, mid-stream, refused (Claude Code tries a fallback model), out of tokens, or untouched since the start - its last word read whole past a 100 KB report or 90 KB of record after it, and past keys that differ only in case (Windows PowerShell's JSON refuses those; checked against all 2,626 agent transcripts on the dev machine, none read differently from the whole file); SendMessage waking a reported agent starts it again at the wake's time; `-SkipPrint` and `-Since`; `Get-ChatBackgroundTasks` held by neither a killed workflow nor a finished agent; `Update-ChatBackgroundScan` finding the same, a last line half written waiting with the rest counted read, then read from where it stopped, 300 bytes a call with longer lines taken whole, a shrunk file read afresh; lines longer than its 40 KB piece searched a piece at a time - a word the piece's end cuts in two, the line after one with no word, a word in a long line's first piece - the same in one call, 300 bytes a call, and 1 byte a call, where the piece is held to four times what is kept for a cut word; the overlay - an idle chat with a workflow out a working row, `workflow 7m`, a busy one `working` as ever, a start older than the process none, a fresh cache the same answer; a shell `shell 4m` while `Get-ChatShellChildCount` finds a shell under the chat, none when it finds none, and the transcript's word where it cannot tell; two starts and one shell running - the newest, and its time; a print-mode run's shells counted; the count over all the chat's processes, unknown if any is; on Windows a count from Toolhelp32 in milliseconds; a chat the limit cut off reads cut off, not `shell`; past its slice one transcript a pass, all with `-Whole`; the words for one kind, several, and a mix |
 | completion | one completer per command: `chatq 3` completes nothing, `chatq` never offers Copilot, subagent chats only with `-All`, hex completes an id, a hex-looking title still completes, a typographic apostrophe quoted; the cycler skips subagents and, for `chatq`, Copilot; a tail left mid-line comes off a `chatq` line |
-| install | one profile line replaces chatrm's and chatq's; uninstall leaves the rest of the profile; `chatinstall` moves a running watcher and overlay to the new copy, and `-NoRestart` leaves them; `Test-ChatProfileLine` counts only a line loading this copy, never an old tool's; the script copied without `src/` names the parts missing and defines no command |
+| install | one profile line replaces chatrm's and chatq's; uninstall leaves the rest of the profile; `chatinstall` moves a running watcher and overlay to the new copy, and `-NoRestart` leaves them; `Test-ChatProfileLine` counts only a line loading this copy, never an old tool's; the script copied without `src/` names the parts missing and defines no command; a shell's load leaves out the overlay's three parts - every call from the other 22 into them one already looked at, reached only from inside them or from the phone setup's window, never at a top level - and, loaded in a process of its own, has `chatoverlay`, `chatconsole` and the console's folders without them, the same under `CHATQ_OVERLAY` but for stand-ins of the overlay's two hosts, and all 25 under `CHATQ_ALLPARTS`; an older copy's launch - `CHATQ_OVERLAY` alone, the overlay's host or the phone setup's window called by name - started again through this copy's own, why the overlay's could not start thrown for the old launch to log, the phone setup's staying until the window it started holds the lock or a caller's wait is up; the phone setup's window, started for real, with every part and none of `CHATQ_OVERLAY`, `CHATQ_ALLPARTS` or Bypass once loaded; every C# compile in `src/` goes through [Invoke-ChatCompile](src/queue.ps1), its files in a folder of its own in `data/tmp`, gone after, and `TEMP` put back, a failed one's too; a day-old folder there - what a process killed mid-compile left - swept by the next compile, a young one kept; a `data/tmp` csc cannot work in - too long, or a character outside the PC's code page - left alone, and `TEMP` with it |
 | extension: the terminal half | `tests/extension-check.js`, `setup.js` and `build.js` with no PowerShell started: the loader's version read, an unreadable one (`0.8.0-rc1`) no version, and compared by number; the decision - nothing there → install, older → update, the same → nothing, newer → left, a loader of no readable version → left and said once, a folder holding other files → nothing written, not even `data/`, a git work tree at the folder or above it → never written, the difference said once per version pair, no payload → nothing; when the profile is looked at at all and when asked (never after Never, after Not now at the next version, always from the palette); the lock - taken, refused, taken over once stale, and a place that cannot be written thrown rather than read as another window; `setUp` in a sandbox folder: installed parts first with no `.new` left, the same again copies nothing, settled it starts no PowerShell, updated, a newer copy left, nothing copied while another window holds the lock, a copy that fails said once a version with no `.new` and no half install; the profile step with PowerShell stood in for: Add runs `chatinstall` where the line was missing and checks again, after an update also where it was, one restart; Add with the line still missing after it → no "Added", the answer not kept, and said; a policy that would stop the line → the question says so and scripts are allowed before the line is written; a policy that will not change → no line, and said; a PowerShell that gives no answer → neither asked about nor installed into; a line already there that never runs → the policy offered once a version; Never kept until the palette asks; setup runs one at a time, a palette run after a start's rather than dropped, and an `onReady` joining a run already going called once that run's loader is ready, or at once where it was; `onReady` called the moment the copy put the loader there, or at once where it was there already, before the profile step - which may never end - and never for a folder it did not install into; the build: the loader's own part list, every part present, the extension's version the script's, an SVG image caught and a link to one not, the listing README free of them; the old extension on the same file → none of it watched here and one window offers it away, another within 10 minutes not, on another file than `chatManager.folder`'s → this one handles its own; without it both files watched in the tool folder, and the overlay's answer to a reload; `chatManager.folder`, `~` in it, a relative one refused for the default, the old `signalFile` taken only as a `data/reload-request`, and `chatManagerReload.*` read where the new ones are unset |
-| StrictMode | dot-sourced and used from a `Set-StrictMode -Version Latest` shell — once as the tests run it, once as a real shell loads it (not the watcher, no queue yet, stop on the first error; `autoStart` off in its copy, or the shell-start path would put a real overlay on the screen) |
+| StrictMode | dot-sourced and used from a `Set-StrictMode -Version Latest` shell — once as the tests run it, once as a real shell loads it (not the watcher, without the overlay's parts, no queue yet, stop on the first error; `autoStart` off in its copy, or the shell-start path would put a real overlay on the screen) |
 | runner | stdin byte-exact on 5.1 (Hangul, quotes, `\`, `%`, newlines, no BOM); API key and `CLAUDECODE` kept out; 400 KB of stderr without deadlock; timeout kills the whole tree; argument quoting round-trips through a compiled echo exe, and through the same exe behind a `.cmd` with `& | < > ^ ( )` and a lone `%` in its arguments; for a `.cmd` or `.bat` only, a `"`, a `%name%` or a line break refused and named (`Get-ChatqCmdArgRefusal`), and only there are `& | < > ^ ( )` quoted |
 | codex app-server client | `tests/sections/codex-appserver.ps1`, [Invoke-ChatqCodexRpc](src/codex-appserver.ps1) against the fake's app-server mode (`FAKE_APPSERVER`), no real codex: a rate-limit read whole, with exactly `initialize`, `initialized` and the read sent; `initialize` naming chatq and asking for the experimental API only with `-Experimental`; notifications passed by, and a request of the server's own - with the very id the read went out with - refused (-32601) and never taken for the reply; started on the given `CODEX_HOME` with `OPENAI_API_KEY` emptied, and gone once the replies are in; `thread/list` sent with `useStateDbOnly` true whether false or nothing was passed ([Get-ChatqCodexRpcParams](src/codex-appserver.ps1), a hashtable or an object, every other method's params left alone); several requests in one start, each reply to its own, one answered with an error `$null` and the rest standing; a method the server does not know said in its words; a refused `initialize` ending it there; a request that hangs timed out with the server and its parent gone, in well under 20 s; stdin held open until every reply is in - the fake reads stdin beside its work and exits the moment it ends, dropping a request still held by `FAKE_SLEEP`, as 0.159.2 does (S-A4), so a 2 s reply is taken by [Invoke-ChatqCodexRpc](src/codex-appserver.ps1) and lost to a session whose stdin is closed once the request is out; a home that is not there said, nothing started and no folder made; a codex that will not start, and one that ends before it answers, no data and never a throw |
 | codex usage, asked live | `tests/sections/codex-appserver.ps1`, against the fake's app-server mode and `tests/fixtures/usage/codex-ratelimits.json` (the real 0.159.2 answer of S-A4, account id scrubbed): [ConvertFrom-ChatqCodexRateLimitsReply](src/queue.ps1) reading a free plan's one 43200-minute window as `month` / `monthly`, its plan, `ordinaryUsageAllowed` and no credits; windows with no length named by place (primary 5h, secondary week), the per-limit `codex` bucket standing in for an empty `rateLimits`, credits read, no window no answer; a rollout's 43200-minute window `month` too; the overlay's fetch ([Start-ChatqCodexUsageFetch](src/overlay-data.ps1) / [Complete-ChatqCodexUsageFetch](src/overlay-data.ps1)) returning nothing on a pass that waits for nothing, then the month and plan, exactly `initialize`, `initialized` and the read sent, the server gone, and the same answer after; an error said and not quiet, a home that is not there quiet; a codex older than the floor never started - said by [Invoke-ChatqCodexRpc](src/codex-appserver.ps1), quiet to the overlay - and one upgraded in place since, its old version still cached, read again by `--version` and started; `-CodexUsage off` with an ask out ([Update-ChatOverlayUsage](src/overlay-data.ps1)) dropping the ask and ending its server; the probe ([Get-ChatqCodexLiveLimit](src/queue.ps1) inside [Invoke-ChatqProbe](src/queue.ps1)): a full 5 h window ahead limited until its reset with `NoTurn` and no `exec` run, a limit the server says is reached limited with no reset, room left and credits past a full window both left to the `exec` turn |
@@ -132,12 +193,13 @@ pwsh 7, 279, 250, 78 and 35):
 | extension: hidden chats | `tests/extension-check.js`, in a sandbox Claude home: the first `entrypoint` found as Claude Code finds it - the key without a space first, the last by place, escapes read, one cut off none; an SDK's first in the head hides a chat for good, with none in the head the tail's last decides, a window's listed; hidden by its tail - one `chatq-listed` line naming `claude-vscode`, no timestamp, added at the end, byte for byte the script's, listed again, its write time kept, and a second look adds none; a last line lacking its end gets the new one on a line of its own; a process idle in it - mended beside it; one busy in it, or a print-mode run - left, and a head that hides it, a listed chat, or no transcript found - nothing written, no file made; a request's transcript path taken where the slug finds nothing, but only a file named for the chat; the open chip on a chat hidden by its tail - the line written before the open is asked for, then a tab as any other; on one a run writes to - not opened, and said; on one hidden by its head no tab, a terminal offered - `claude --resume <id>` as the terminal's own process, in the chat's folder and Claude home - and "Not now" makes none; the offer taken once the chat runs somewhere - no terminal, and said - and a second offer while one is up - none; a chat whose line cannot be written - not opened, and said; Show it on one hidden by its head, and the picker on one hidden by either, the same; a new chat a run started - said, and no reload offered |
 | extension: the handover and the live view | `tests/extension-check.js`, the window's side of `data/run-state`, VS Code stood in for: `chatManager.watchRuns` off - answered `off` in `run-ack/<this pid>.json` by the handover's id, nothing closed or opened; no tab here reading as the chat, or two - `unsure`, the live view beside, the old view said stale, never `editor.open`; its tab in front of you in a focused window - `in-use`, nothing closed, said once with **Hand over now**, which clears only that job's wait, while it still waits for its tab, through the tool folder's loader and a poke of the watcher, and lets that job's next handover go ahead - clicked on a notice gone stale, nothing run and the rule kept; the tab shown but nobody at it - the live view in its group first, then the tab closed, the record kept, and away in front of you the same with the view taking the focus; a tab behind others - closed, no view over what is shown there, said with **Watch**; the chat working by the registry - `in-use`, nothing said; another window's handover or one whose job is not running - not answered; an answer come late - nothing written, no tab closed, no word that the job waits; a run beside its tab (a background command, unsure, timed out) - the tab left, the view beside, the old view said stale once a run - a write of the same run (its `handoverId`) saying nothing more, the job's next run after the limit said again; the end - the view in front: the chat opened in its place, loaded from disk, then the view closed, the record marked, the run's own request after it taken as seen, put back once; the view not in front, you here - it stays with **Open chat**, away - the chat in its place; the view closed already - asked; a watcher that died mid-run an end too; the end at the limit put back as any end; a process holding the chat again - Show it, nothing opened beside it; one unanswered question holding up no later job's put-back; after a window reload, nothing put back before its watch panel is back, and a run whose panel was closed before put back once that moment is over, and one whose watch tab VS Code keeps but never brings back waiting for it `tabHold` from the first look past `restoreHold` that finds the run over - no clock before - then put back as for a closed view - asked - the tab left, and that tab shown after it saying how the run ended, with **Open chat**, nothing opened or put back again; the wait ended early by the tab brought back - the chat in its panel's place - or closed - asked - put back once, nothing left waiting; and a job run again while its record waits starting the wait over, its next end waiting `tabHold` of its own; the run-state stand-in giving `handoverId` as `Write-ChatRunState` does - a handover's own id, else null unless passed; the status bar - `chatq #15 running` in windows on the job's folders, a click watching it, the warning colour while the phone is asked, none for another folder, a dead watcher or an ended run; a job set running before run-state says so is the run going in, not with its watcher gone; the panel - its own `viewType`, scripts on, kept while hidden, no local files, titled by its mark, `#15` and the title, one per job, the log tailed a whole line at a time, a long log read from its last 2 MB and said, Cancel in a modal and then `Stop-ChatqJobRun`, Log opening the log, Open chat once it ended and the view closed, none for Codex, a continue headed as one, a prompt of megabytes read only from its first few KB and cut at 300 characters, brought back after a reload, one whose state names no job closed; `openCall` given the column; **Watch the running queued prompt** - none running said, one running its view; the chip's watch - its view, no Claude tab, one naming no job nothing, a window not exactly its folder leaving it; the chip's open and the picker - a chatq run going into the chat opens its view first; a watch panel keeps a group Claude's and is never a Claude tab; `watchItems` - init with the model, the mode and the version, text, tools with their argument, results cut to 3 lines and 300 characters with `+N lines`, errors marked, a subagent's rows indented, the heartbeat on its tool's row, `Edit +2 -1`, a denial, the limit's reset, the end's turns and time, thinking and an allowed rate event left out, the latest TodoWrite pinned - kept apart from the rows, so one dropped past the kept rows stays pinned until the next -, a running tool's own clock, a line over 256 KB never parsed, Codex as `Get-ChatqLogEntries` reads it, every text escaped, a line taken only once its newline has come, a retry's init closing what the cut-off attempt left open, the last 5000 rows kept; the header and its end states; the page - a nonce'd script and style and nothing else loaded, VS Code's theme colours, a full batch built apart and put in at once; `package.json` declaring the command, `chatManager.watchRuns` (on) and the panel's activation event, and `watch.js` carried |
 | extension: Ultracode and effort | `tests/extension-check.js`: every `/effort` answer in `tests/fixtures/session-vector.json` read as it says - Ultracode on, off or unsaid, by the version too, a level kept only where it is for the session, a refusal nothing - and every transcript there read as it says, at the reader's chunk and at 777 bytes alike, within a case's budget where it has one (`node tests/fixtures/make-session-vector.js` writes the file again); a line's kind - `/effort`'s answer, a turn's level, an Ultracode notice, a prompt typed, another user record, a compaction - a `claude -p` run's only its notices and compactions, and none of a subagent's, another command's, a tool's result or a meta record, nor the words in a message; Ultracode by the chat's own notice or `/effort` answer since the last prompt typed, else as that prompt found it - a queued run's notice before it counts, a compaction between is off; the level of the latest turn a prompt started where max, or set by the last `/effort` before it for the session only; read backwards in chunks, a line cut across two put together, past the budget unknown and nothing said; with `chatManager.keepSessionSettings` off, the pre-fill - `/effort ultracode` where Ultracode was on, with or without a level, else `/effort <level>`, none where nothing was lost or it is unknown; the word - the chat, what was lost, what its input box holds and that the send key applies it, the level to type after where both were lost, never the effort menu; that key Ctrl+Enter where the Claude extension sends with it, Cmd+Enter on a Mac, else Enter; the pre-fill given and said on Show it's close and reopen (a run's own exit since passed over), a stale tab reopened after the script ended its process, the chat put back after a handover, and the live view's Open chat with no process of the chat; the commands named and nothing in the box for a new tab for a chat a process of this window held outside the tabs, one another window's process the check ended, and a Claude tab here reading as the chat; a process holding it by a late Open chat - Show it, nothing opened beside it; the chip's and the picker's opens nothing, closing no tab of chatq's; the panel's header `Ultracode` and `effort max` where the job or run-state carries them, a level Claude Code does not know not shown, neither while queued; carried into the new process, with the setting on (the default) - the pre-fill planned as none, and as before with the setting off or no hook to be had; the hook on a stand-in `child_process`: in once, out with the original back, one another hook put over it later left in place, a module that refuses it not in; a launch naming the armed chat by `--resume=<id>` or `--resume <id>` given `--settings {"ultracode":true}` and `--effort max` before a `--`, its command and options as they were, once; another chat's launch, one of no chat, one with no list of arguments as it came; a newer arm settling the older as nothing; a launch naming `--settings` or `--effort` of its own keeping it, the other alone carried and what was not logged; an arm gone after `carryWait`; a hook that fails passing the launch through, never thrown; Show it's reopen, its new tab beside the side bar's copy, a run's tab, the chat put back and Open chat - no prompt, no word, `carried` logged; no launch - the commands to type once the arm goes, Ctrl+Enter where that sends, and in part only what did not go in; the chat put back not holding the show queue on its arm; `deactivate` putting `spawn` back; `chatManager.keepSessionSettings` declared (on) |
-| overlay: transcripts | the newest prompt and title of a 3 MB chat from its last 256 KB, counted in bytes read; read back past a 3 MB line when no record follows it; a budget stops the search and keeps the title found; a `last-prompt` that is machinery falls back to the real prompt; a Hangul prompt cut by a block edge put back together; a rename wins over the generated title; a transcript that grew read only from where it was; `/compact` the way it goes - while it runs, the dequeue with no record after it marked pending; once written, the command newer than the prompt before, not the compaction's summary; kept while only the old `last-prompt` is written again, 100 KB on; replaced by the same words as the prompt before, typed again (by its timestamp), and by the next prompt; a prompt after `/model opus[1m]` wins, the arguments read; a skill the model loads is no command; a working row on a pending command says so, an idle one does not; an open chat nothing has titled shows its first real prompt, past a noisy one (two user lines or more had been read as one, and none found) |
+| overlay: transcripts | the newest prompt and title of a 3 MB chat from its last 256 KB, counted in bytes read; read back past a 3 MB line when no record follows it; a budget stops the search and keeps the title found; a `last-prompt` that is machinery falls back to the real prompt; a Hangul prompt cut by a block edge put back together; a rename wins over the generated title; a transcript that grew read only from the end of the last whole line read, and a line still being written as one read comes taken whole by the next; `/compact` the way it goes - while it runs, the dequeue with no record after it marked pending, still so as records that end nothing are added; once written, the command newer than the prompt before, not the compaction's summary; kept while only the old `last-prompt` is written again, 100 KB on, that read taking only the bytes added; a command read with no `last-prompt` beside it kept as the old one is written after it; replaced by the same words as the prompt before, typed again (by its timestamp), and by the next prompt; a prompt after `/model opus[1m]` wins, the arguments read; a skill the model loads is no command; a working row on a pending command says so, an idle one does not; an open chat nothing has titled shows its first real prompt, past a noisy one (two user lines or more had been read as one, and none found) |
 | overlay: sessions | `sessions/<pid>.json` read and the `.key` beside it never opened (held locked, so a read would fail); a dead entry, a new chat tab with no transcript, and chatq's own `claude -p` runs get no row; one chat in two windows is one row at the more urgent state, and one window closing leaves the other; the watcher's fallback reads the same registry with `waitingFor`; against a real process: matching start → alive, `procStart` an hour off, a reused pid and another machine's entry → not, a macOS date `procStart` not held against it |
 | overlay: rows | waiting oldest first, then working, running, idle newest first, queued in queue order; a prompt queued for an open chat rides on its row; a job row carries its first line; the snapshot's counts match its rows |
+| overlay: open tabs | a VS Code tab with no process a row as an idle open chat's - no pids, where `vscode`, its time the transcript's, its title and prompt from it, and `tab` - taking a cut-off and a queued prompt as one does; a tab whose chat a process holds keeping that one's row, and one with no transcript found, or none looked for, getting none; in a pass, the tab's row titled from its transcript and out of Recent at once, and the tab closed, the row gone and the chat back in Recent; `data/open-tabs/` read ([Read-ChatOpenTabs](src/overlay-data.ps1)) one tab a session id, the first kept, each with its window and host pid, a BOM let past, a gone window's file removed and one naming no pid passed by, a file caught mid-write skipped and kept, one whose pid a process started days apart now has removed, and no folder at all nothing and no error; a file parsed again only once its text changed - the same text, the same parse - and its window looked for once in 10 s ([Read-ChatHostFiles](src/chatrm.ps1), reload-pending's reader too): one that died listed 10 s more at most, then its file removed, and with the clock set back looked for again at once; the phone board's own scan giving the tab the same row, not in Recent; in `tests/extension-check.js`, the window's side: an untitled tab, a label on two tabs and one two chats give skipped, a unique one resolved; the file's format, through a `.tmp` and a rename; written only on change, a tab moved writing nothing; a file gone written again, and removed when no tab is left; a look past the label budget leaving the file and said once, the first such look asking for another soon and the next not; the watch on `onDidChangeTabs`, and dispose removing the file; activation sweeping the files of hosts gone, and this host's own, a live window's kept |
 | overlay: answered jobs | what was last typed into an open chat kept - a prompt typed after a command, not the command; a job parked on input answered only by something typed into its chat after it stopped, never by its own prompt nor for a job in another state; a pass skips, `answered in the chat`, the one whose open chat was typed into since and the one whose closed chat's transcript was, its tail read only once it changed after the job stopped, and leaves the one nobody answered; with no overlay, the phone's Status and `chatqlist` skip it as they list and no longer say it needs you, a list with no job waiting closing none |
 | overlay: usage | the live answer's 5 h, week, and a model's week once used, in the server's colours; not asked again on the next pass; a window whose reset passed reads empty and is asked about at once; a 401 falls back to the cached figure and waits 10 minutes, a 429 with no Retry-After 5 and says when it asks again; the refresh button asks at once after that, but not twice in 20 s; what a click did is said at the end of Claude's usage - asking, then when Claude answered, gone 10 s on, or why it did not ask - and reaches overlay.json on the next pass; an old Codex figure says it is from Codex's last run; each provider's line ends in when its figure is from or what is happening to it (asking, checked, cached, last run, retry at the named wait) - under its name as bars - and in neither view does any of that take a row of its own, and a time over a week old shows its date (`Mar 13`, not the weekday that read six months as last Friday); Copilot's quota read from GitHub's answer on the free plan (chat, code) and a paid one (premium alone), a fraction of a percent kept as one (`[Math]::Max(0, 0.1)` had rounded it away), a Copilot line from gh's answer, and none - quietly - when gh is not logged in or not there; Codex asked live through `ChatOverlayCodexUsageSeam` (the sandbox's default answers as a codex that is not there, so no pass starts the fake): the answer over an older rollout with its month, plan and the time it was asked rather than `last run`, a newer rollout over it, asked every `usageSeconds` while a Codex job works and not while idle, again once a window's reset passes; a quiet failure keeping the rollout's figure, logging and saying nothing and waiting 30 minutes; any other logged, said after the last answer with its retry, and waiting 2 then 4 minutes; the refresh button lifting that wait; `codexUsage` off never asking and showing the rollout alone; a restart keeping the last answer and its plan, counted as asked; Retry-After read from a real `HttpResponseMessage` as seconds (2867, the figure the live endpoint sent) or as a date; a 429 with Retry-After waits that long, says `rate-limited until`, and the refresh button keeps to it; the panel's note says so over the last live figure too; a live figure 16 minutes old is not stale while idle asks are 15 apart, a cached one is; with live usage off, only the cache shows; a restart restores the last live figure and that wait from `overlay.json` and does not ask; an expired login is not used; a failed ask is logged and the token appears in no file; a machine with no Codex still gets Claude's |
-| overlay: control | a running overlay is shown, never started twice; `-Stop`, `chatinstall` and `chatuninstall` reach it; commands taken once, a stale one dropped, a pass with none queues none; the collector loop ends on `restart`; `overlay.json` BOM-less with Hangul, schema 1, epoch ms; `-Unlock` / `-Reset` / `-Collapse` wait in `overlay-state.json` while it is not running, and `-Expand` undoes it; `-AutoStart on` read at shell start, `-AutoStart off` kept and honoured; on by default on Windows, with no `overlay` block or no `config.json` at all, and started then; `Start-ChatOverlayAuto` prints one word - off, running while the lock is held, started once through the launch, failed when it fails - and none of the launch's own words, which go to `overlay.log` with the reason, or what it threw; a `config.json` that does not read → off, nothing started; `-Stop` keeping the close against the (stood-in) sign-in and saying so, the auto start then off and starting nothing until the next sign-in, `chatoverlay` - even a launch that fails - and `-AutoStart on` lifting it, and no sign-in known keeping nothing and promising nothing; `chatuninstall` lifting a close; the real `Get-ChatqSignInAt` (Windows) reading a time, the same twice, no later than the test process's start; the code stamp of the script and `src`, a change - a newer write, or a copy with the old times but not the length - restarting it only once looked at a minute on and held 5 s, a new part holding it off again, none noted or no script never; `-Width` and `-Rows` kept and said, out of range refused with nothing on that line saved, out of range in the file held to 260-800 and 1-30, and a running panel sent `reload`; an edge's drag, summed - the left side widening leftward with the right edge where it was (at 150% too) and the right side rightward with the left edge where it was, narrowing back to 260, the bottom a row per row's height of travel down and the top one per row's height up, none within the first, a side never the rows and the top or bottom never the width, a corner both, collapsed width only, an unknown row height taken as 36 units, and from fewer rows drawn than kept, outward never below those kept while back takes one off those drawn; each edge's cursor - up and down, sideways, a diagonal for a corner, sideways for every corner while folded; the edges' window the panel's rect and the band's depth more on every side; the height cap as the top edge is dragged, from the bottom held up to the working area's top, never under its floor; `-Compact on` the prompt line off and `-ChipDelay` kept, both said, out of range refused with the rest of its line, and a running panel told; `-Recent` 5 unless set, kept and said, 0 off, out of range refused, held to 0-20 in `config.json`, a running panel told; where a chat runs from its registry entry's `entrypoint` - `claude-vscode` a VS Code panel, an SDK's (`claude -p`) a run, any other a terminal, none nothing, a run beside a window winning, a job nowhere - in the snapshot the view key is made of; delete greyed on a chat a queued prompt runs in, as on a terminal's; `-Print` marks a terminal's chat `>_`, one a queued prompt runs in `|>`, and lists Recent under the rows; a held job's reason - `waits for a background command (since ...)`, `waits for you to leave its tab` - in the console and the panel's rows where its send time would be, its ETA again once the hold is over, and the same words from `Format-ChatqDeferWhy` as the lists' - a week-old start as its date, a busy wait none; the chip reading **watch** while the row's job runs, `opening` while its child runs, the tray's words for a live view asked for (16) and for a print-mode run no job is (15), and the unread dot kept on 16; `overlay.log` writes a line once in 5 minutes, and every time with `-Always`; hotkeys parsed and nonsense refused; `-UsageView`, `-CopilotUsage` and `-CodexUsage` kept (Codex's on by default), lines by default and for a view it does not know; `-Theme` and `-Opacity` kept, a percent read as one, an opacity out of range refused, an unknown theme drawn dark; `system` following the (stood-in) Windows setting; both palettes name every colour; the buttons' window on the panel's top edge flush with its right, under the panel when the screen's top leaves no room, kept on the screen side to side (on a second screen too), and left on its side when the box opens where only the buttons fit; the panel's default spot leaves room above it for them; the buttons come only after the pointer rests 350 ms on the panel or on the spot they go - their zone takes in the gap to the panel, above it or below - never with a mouse button held, stay while it is on either or a button is held or a drag runs, and go 700 ms after it leaves; placement back onto a screen; the launch line (`powershell.exe -STA`, `CHATQ_OVERLAY`); the tray tooltip under 64 characters; reset countdowns |
+| overlay: control | a running overlay is shown, never started twice; `-Stop`, `chatinstall` and `chatuninstall` reach it; commands taken once, a stale one dropped, a pass with none queues none; the collector loop ends on `restart`; `overlay.json` BOM-less with Hangul, schema 1, epoch ms; `-Unlock` / `-Reset` / `-Collapse` wait in `overlay-state.json` while it is not running, and `-Expand` undoes it; `-AutoStart on` read at shell start, `-AutoStart off` kept and honoured; on by default on Windows, with no `overlay` block or no `config.json` at all, and started then; `Start-ChatOverlayAuto` prints one word - off, running while the lock is held, started once through the launch, failed when it fails - and none of the launch's own words, which go to `overlay.log` with the reason, or what it threw; a `config.json` that does not read → off, nothing started; `-Stop` keeping the close against the (stood-in) sign-in and saying so, the auto start then off and starting nothing until the next sign-in, `chatoverlay` - even a launch that fails - and `-AutoStart on` lifting it, and no sign-in known keeping nothing and promising nothing; `chatuninstall` lifting a close; the real `Get-ChatqSignInAt` (Windows) reading a time, the same twice, no later than the test process's start; the code stamp of the script and `src`, a change - a newer write, or a copy with the old times but not the length - restarting it only once looked at a minute on and held 5 s, a new part holding it off again, none noted or no script never; `-Width` and `-Rows` kept and said, out of range refused with nothing on that line saved, out of range in the file held to 260-800 and 1-30, and a running panel sent `reload`; an edge's drag, summed - the left side widening leftward with the right edge where it was (at 150% too) and the right side rightward with the left edge where it was, narrowing back to 260, the bottom a row per row's height of travel down and the top one per row's height up, none within the first, a side never the rows and the top or bottom never the width, a corner both, collapsed width only, an unknown row height taken as 36 units, and from fewer rows drawn than kept, outward never below those kept while back takes one off those drawn; stretched out, the open rows not drawn first, a row a row's height, then Recent lines, a line a line's height, and past the pool nothing more; stretched in, the Recent lines first, then rows, never under one, Recent down to none - by the top edge too; no travel keeping rows and Recent as saved, outward never fewer, inward from those drawn; with no chat open, travel in past the Recent lines taking no rows, `maxRows` kept as saved; Grow, for the top edge's cap, in WPF units the rows and lines the travel came to, the Recent header with the first line and without the last, none folded; each edge's cursor - up and down, sideways, a diagonal for a corner, sideways for every corner while folded; the edges' window the panel's rect and the band's depth more on every side; the height cap as the top edge is dragged, from the bottom held up to the working area's top, never under its floor; `-Compact on` the prompt line off and `-ChipDelay` kept, both said, out of range refused with the rest of its line, and a running panel told; `-Recent` 5 unless set, kept and said, 0 off, out of range refused, held to 0-20 in `config.json`, a running panel told; where a chat runs from its registry entry's `entrypoint` - `claude-vscode` a VS Code panel, an SDK's (`claude -p`) a run, any other a terminal, none nothing, a run beside a window winning, a job nowhere - in the snapshot the view key is made of; delete greyed on a chat a queued prompt runs in, as on a terminal's; `-Print` marks a terminal's chat `>_`, one a queued prompt runs in `|>`, and lists Recent under the rows; a held job's reason - `waits for a background command (since ...)`, `waits for you to leave its tab` - in the console and the panel's rows where its send time would be, its ETA again once the hold is over, and the same words from `Format-ChatqDeferWhy` as the lists' - a week-old start as its date, a busy wait none; the chip reading **watch** while the row's job runs, `opening` while its child runs, the tray's words for a live view asked for (16) and for a print-mode run no job is (15), and the unread dot kept on 16; `overlay.log` writes a line once in 5 minutes, and every time with `-Always`, and past 500 lines held back lets go of those 5 minutes old as the next is written, a newer one still held back ([Write-ChatOverlayLog](src/overlay-data.ps1)); hotkeys parsed and nonsense refused; `-UsageView`, `-CopilotUsage` and `-CodexUsage` kept (Codex's on by default), lines by default and for a view it does not know; `-Theme` and `-Opacity` kept, a percent read as one, an opacity out of range refused, an unknown theme drawn dark; `system` following the (stood-in) Windows setting; both palettes name every colour; the bar of buttons in the panel's top strip, 4 units under its top edge and 8 in from its right, at the screen's top too, and following the panel off the screen's side, a box wider than a narrow panel sticking out to its left; the settings box above the panel where it fits, else under the bar over the rows, keeping its side while it fits there, and one that fits neither side going to the side with more room, so the least of it runs off the screen; the panel's default spot the main screen's top right, 16 in from the top as from the right; the edges come only after the pointer rests 350 ms on the panel or on the buttons, never with a mouse button held, stay while it is on either or a button is held, and go 700 ms after it leaves; the buttons' zone their window's rect, an open box's gap to the panel in it; placement back onto a screen; the launch line (`powershell.exe -STA`, `CHATQ_OVERLAY`, and `CHATQ_ALLPARTS` dropped once loaded); started for real from a folder named `ov[1]`, it runs in your home folder, not that one, with every part loaded and only `CHATQ_OVERLAY` left for what its panel starts ([Start-ChatOverlayProcess](src/overlay.ps1)); the tray tooltip under 64 characters; reset countdowns |
 | overlay: cut off | an open idle chat the limit stopped says when it resets and sits just under those waiting; a working one has moved on; one not open gets a row of its own with its project; a 529 says what it waits on; a continue queued replaces the row; a limit that is over says so; the scan the overlay runs every minute reads a transcript again only once it moved (none the second time, one after it grows), never reads a chat it is told is working, and names where each chat ran; a limit record with no `cwd` of its own takes the tail's; one folder it cannot list costs only that folder |
 | reset ask | `tests/sections/reset-ask.ps1`, beside the overlay section's sandbox: `autoContinue` read as ask, on or off - `false` and `"false"` off, `"on"` on, missing and `true` ask - and written at the top level by `chatq -AutoContinue`, which refuses a target (the switch is for every chat) or another switch and saves nothing on `-WhatIf`; the answer's own pass run first in the panel child, since a process's first pass over the whole sandbox can outlast the 10 s a watcher is given; a cut-off's key from its limit record's `uuid`, else its time, and none for a name that would not make a file; which chats are asked about - a limit, not a 529; a reset 5 minutes behind and under 12 hours, none with no reset time; no job queued or running; not answered; a terminal's chat named in `Left`; nothing while a 5 h or week window is still limited - newest first, with the latest reset; the answer markers made once, `.shown` once, both gone after 8 days; an answer acting only on the chats it was shown, a changed ask acting on nothing; continue queuing a job each and marking only the chats that got one or had one; the continues ahead of an older prompt waiting for another chat, in the order named, behind a job put first; a failed one asked again; leave marking all; `ask-go` and `ask-leave` from `overlay-cmd`, and one naming the keys the Mac menu showed answering those only; announced once, across a restart, and never by `-Print` or a `-Peek` pass; the phone's one `limited` alert only when away; the rows kept 12 hours after their reset; the reset time on the usage line, the collapsed line and the tray tooltip; in the Windows panel child, the banner and its two chips, the tray's items - there while an ask is out, gone (`Available`) once it is answered - the balloon and its click opening the console, the settings box's **Cut off** row (Continue, Ask, Leave); the console's header and **Leave them**; an answer to an ask gone, given in the console, doing nothing, the console kept and its status line saying `the chats changed - here they are now`; the console's Cut off list with `overlay.cutOff` off, from the ask itself, each chat once |
 | auto-continue | `tests/sections/auto-continue.ps1`, before `host-work.ps1`: [Auto-continue](#auto-continue) has it in full |
@@ -148,16 +210,16 @@ pwsh 7, 279, 250, 78 and 35):
 | host work | `tests/sections/host-work.ps1`, after `auto-continue.ps1`: [A new version, and the chats a reload stops](#a-new-version-and-the-chats-a-reload-stops) has it in full |
 | handover | `tests/sections/handover.ps1`, after `host-work.ps1`, with the handover on - the sandbox turns it off everywhere else (`ChatHandoverOff`): a window's tab holds the chat - the job running first, then the window asked, then the run, then ended; `data/run-state` - every field, the same run in each write, the handover's id carried on, the last write on disk UTF-8 with no BOM; its process left - nothing stale, `watcher.log` saying the tab closed, and the window noted once in `data/idle-ended.json` (`Add-ChatIdleEnded`); the run's request naming the window that handed over, though no process holds the chat now, and the job, its `started` alert warning of nothing; a tab in use - not run, back in the queue for a minute, its try not counted, ended saying queued with no handover id, and every list saying `waits for you to leave its tab`; the same tab still in use - running while asked, then queued again with nothing in its history, `jobs.log` or `watcher.log` saying it ran, and asked less often, 2 minutes then 5; a busy chat in between - kept as `busy`, a history line for each change, a minute again; a background wait then a busy one - one history line for the change, none for the same wait again, the lists saying `chat busy`; cancelled during the handover - its try not counted, no start kept, ended carrying the handover's id only where the tab closed; the next run into a chat a handover just ended in held back 30 s from the end, not counted as busy, an older wait's reason, since and note cleared - only an end that had a handover, for that chat, within 30 s, holds; a job that starts clears its old wait's reason; a window unsure of its tab, or with `watchRuns` off - beside it, said, stale; no answer - beside it after the wait; a tab closing whose process outlives the wait - timed out, beside it, and no note of that window; beside a view of the chat each of those ways, the `started` alert ending `open in VS Code: do not type in it until done`, and ended carrying the handover's id only after the timed-out close; not closed and the chat busy by now - back in the queue, never beside a turn; `handover` false - beside it, stale, the `started` alert saying not to type in the chat; a terminal's claude holding it - no handover, the `started` alert ending `open in a terminal too: do not type there until done`; nothing holding the chat - running, then ended, its `started` alert warning of nothing, a failure as failed, a limit back in the queue as queued; a run that throws - ended all the same; a watcher stopped mid-run - its next start fails the job and writes ended, keeping what the run-state said; a continue says so; a queued run's environment - background tasks off, the Bash tool's timeouts an hour and 30 minutes, print mode's wait an hour, one the watcher's own environment sets left as it is; the 4 h deadline after a turn that ended well - done, with a note, after a failed turn or a cancel failed; the chat's own background work - an agent its window's process started waits as a busy chat does, with since when and what it is, a background shell under the process waits on shells alone, past 20 minutes from its start runs beside it, a shell no longer under it or one that cannot be counted holds nothing, a print-mode run's work or work from before the process nothing; the watcher waiting on a shell - `waits for a background command (since ...)` where its time shows and in `watcher.log`, never giving up, and past 20 minutes beside the chat with no handover, the run-state and the history saying why; an agent still out after a day - given up in its own words |
 | Ultracode and effort | `tests/sections/ultracode.ps1`, the last section: every `/effort` answer in `tests/fixtures/session-vector.json` through `Read-ChatEffortSay` - Ultracode, whether a level, and which, `$null` never `$false` - and every transcript there through `Get-ChatSessionSettings` at its own chunk and at 777 bytes, within a case's budget, `Get-ChatUltracode` answering as it; on records shaped as 2.1.284 writes them: a notice, two `/effort` answers, a prompt and a turn quoted in a tool's output nothing, another command's `local_command` in `/effort`'s words nothing, a print-mode run's `/effort`, turn and exits leaving the chat's own; Ultracode and max 5 MB back, past a 2.5 MB line, still found and quickly, past `-Budget` `$null`; a record cut by a block's edge read whole; the chat had it on, the run in auto mode - `"ultracode": true` in a `--settings` file of the run's own, no `--effort`, resumed on its own model, the file gone after, and the job, its history, `watcher.log` and the run-state say so, the console `running since ..., with Ultracode`, the level, both; a queued run's own prompt, exit and turn since change nothing; switched off - neither flag, nothing said; max for the session - `--effort max`, `at effort max`; both - `as the chat had them`; default mode - no Ultracode, the level still, `Ultracode left off (default mode asks before each Workflow)` in the history and a line of its own in `watcher.log`, run-state false; `Get-ChatqRunCarry` by the job's mode, else the chat's as queued, else default - auto and bypassPermissions carry it, acceptEdits, plan and default hold it back by name; a job with `-Model` - neither; `Invoke-ChatqRun` judging it itself, by the mode too, and none when told none; the permit's run - one `--settings`, the permit's, its 4 deny rules and `"ultracode": true`, and so still with that file deleted or spoilt before the run; a run's own settings file gone when its process throws at the start, and with its job when removed; `CLAUDE_CODE_EFFORT_LEVEL` set - no `--effort`, the variable left as it is; a level the menu set since - no `--effort`; a job removed while its carry was read - not run; the settings' rules - a `Workflow` allow in the user, project or local settings carrying it in default mode and saying where, a deny or ask holding it back in auto, plan holding it back whatever allows it, a spoilt local file read as none, `CLAUDE_CODE_EFFORT_LEVEL` in the project's or the user's settings `env` dropping `--effort`, the first file read (user, project, local) named, plan's own words in the history - and a watcher run carried by the project's allow, one held by its deny, each said in the history and `watcher.log`; what the run took, from records it appends - an `ultra_effort_exit` `Ultracode not taken`, none after an exit not taken, an enter or none after one taken, a turn at high under max `ran at effort high, not max` with the job's level put right - and `Get-ChatqRunTook` past a sidechain turn, a turn with no level, a 1.1 MB line and a turn that names `ultra_effort_exit` in its words, nothing found nothing said, and with no notice of the run's the scan back - a `compact_boundary` met first off, a notice line over 1 MB across the first stretch back read whole, one past `-Budget` not known with the level still read; a start cancelled before its run went in - neither the job nor the run-state says Ultracode or a level; a new chat's first run `--session-id` and neither, Codex and a fresh chat never judged |
-| overlay: recent and unread | in a Claude home of their own: Recent newest first, the open chat, a side transcript, an empty one and ones with no folder, or a folder gone, left out; titled as an open row is - a rename, the sidecar's, Claude's own title, else the first real prompt - with its folder from the head; as many as `overlay.recent` says, and 0 off with nothing read; not built again within the minute, and after it only a transcript that moved read again; the listing kept between builds, and taken again a minute on or when the open chats change; a chat that closes in it at once, not a minute on; a build past its slice stopped with one transcript read, each pass going on from the same listing until the list is whole; a folder asked about once in 3 minutes, timed by `-Now`: a chat whose folder is deleted after it was read gone once that is up, and back with the folder, its transcript not read again; a folder on a share (`\\` or `//`) or a mapped network drive never asked about and listed, and a folder asked about counted against the slice as a read is; `-Print` listing the whole Recent count, the slice lifted; the macOS collector listing and reading nothing, its snapshot with no Recent; the snapshot's `recent` beside `rows`, not in them, its head the chat just closed, none that is open, and in the view key; unread marked when a chat goes from working or waiting to idle and carried on its row, never for one idle all along; cleared by the open chip only once its child says the open request was written - 0, 25, 40 or 41 - and kept on 10, 15, 20, 21 (a chat Claude Code never lists, which its window offers in a terminal), 26, 42, 43 (the same, its window not brought forward), 30, 50 or no answer in 60 s; cleared by working again, and by its session going; never marked for a chat whose window is in front as it finishes - a VS Code chat by its window's `Code.exe`, a terminal's by what draws it, five hops up - its chain walked in one process snapshot a pass, taken for four chains at once, only at that change and never twice, stopped at `Explorer.EXE` in its own case and at a parent younger than its child (a pid used again), and let go once the process is gone, while one with nothing known in front is marked; a snapshot that failed marks the chat, keeps no chain and is taken again the next time, and one over 250 ms is logged; none marked or counted off Windows, the pass skipping it; a pass counting them, and the tray tooltip saying `N new`; each of those opens said on the panel from the click - busy - to its end - only 0, a run's live view (16) and a chat never listed (21) in the quiet tone - 26, 42 and 43 warn - a timeout as late - a child that did not start said at once, and the line gone once its time is up |
+| overlay: recent and unread | in a Claude home of their own: Recent newest first, the open chat, a side transcript, an empty one and ones with no folder, or a folder gone, left out; titled as an open row is - a rename, the sidecar's, Claude's own title, else the first real prompt - with its folder from the head; as many as `overlay.recent` says, and 0 off with nothing read; not built again within the minute, and after it only a transcript that moved read again; the listing kept between builds, and taken again a minute on or when the open chats change; a chat that closes in it at once, not a minute on; a build past its slice stopped with one transcript read, each pass going on from the same listing until the list is whole; a build's time logged only a quarter second past its slice - not one that spent its slice, past 250 ms, but one a folder held there - and a whole build's past 250 ms; a folder asked about once in 3 minutes, timed by `-Now`: a chat whose folder is deleted after it was read gone once that is up, and back with the folder, its transcript not read again; a folder on a share (`\\` or `//`) or a mapped network drive never asked about and listed, and a folder asked about counted against the slice as a read is; `-Print` listing the whole Recent count, the slice lifted; with the Windows panel's pool, 20 built whatever `overlay.recent` says, 0 included - that many of them Recent and the rest `recentMore`, each aged as Recent's are, split again as the count changes with nothing read - and without it none past `overlay.recent`; the macOS collector listing and reading nothing, its snapshot with no Recent; the snapshot's `recent` beside `rows`, not in them, its head the chat just closed, none that is open, and in the view key; unread marked when a chat goes from working or waiting to idle and carried on its row, never for one idle all along; cleared by the open chip only once its child says the open request was written - 0, 25, 40 or 41 - and kept on 10, 15, 20, 21 (a chat Claude Code never lists, which its window offers in a terminal), 26, 42, 43 (the same, its window not brought forward), 30, 50 or no answer in 60 s; cleared by working again, and by its session going; never marked for a chat whose window is in front as it finishes - a VS Code chat by its window's `Code.exe`, a terminal's by what draws it, five hops up - its chain walked in one process snapshot a pass, taken for four chains at once, only at that change and never twice, stopped at `Explorer.EXE` in its own case and at a parent younger than its child (a pid used again), and let go once the process is gone, while one with nothing known in front is marked; a snapshot that failed marks the chat, keeps no chain and is taken again the next time, and one over 250 ms is logged; the snapshot itself from Windows' own list ([Get-ChatProcessTable](src/overlay-data.ps1), no seam), asked for itself too, so a table from the `Win32_Process` query it falls back on fails - this process in it by the name, parent and start `Get-Process` and `Win32_Process` give; none marked or counted off Windows, the pass skipping it; a pass counting them, and the tray tooltip saying `N new`; each of those opens said on the panel from the click - busy - to its end - only 0, a run's live view (16) and a chat never listed (21) in the quiet tone - 26, 42 and 43 warn - a timeout as late - a child that did not start said at once, and the line gone once its time is up |
 | console: pure | When - Next first and looked at every 30 s, a draft's old `now` read as Next, in turn neither, at/in a time or why not; search by every word in the title or project, any case, with a cap; the line saying what Send will do - soon, a limit and when it sends, a busy chat, behind others, a new chat, a 529, the watcher starting, Next behind a job running, and a refused login in the CLI's own words or a failed probe, never as "limited until"; each job's words and colour in the queue; the limit the preview names, from a usage window marked limited, else the latest reset of the chats it cut off, and never Claude's for a Codex chat - with nothing read from disk; where it opens - grown from the panel's top-right corner, its right edge and top held, at the size it was left, pushed onto the panel's screen - right, and up - and no bigger than it, a size saved under the window's least raised to it in the screen's pixels before the right edge is held; a size kept in units turned into the screen's pixels at 1.5 and at 1, one an older file kept in pixels taken as it is; `chatconsole` tells a running overlay, or starts one with `-Open console`; the console hotkey's default, `none`, and nonsense refused |
-| console: in the panel's window | in its own child `powershell.exe -STA`, run from a file in the sandbox - encoded, the script had passed the 32,767 characters a command line holds - the panel shown off every screen and never activated, then made the console: its window takes clicks and focus and is on the taskbar - `WS_EX_APPWINDOW`, no tool window, no `NOACTIVATE`, not click-through - and is not topmost, grown from the panel's top-right corner, its right edge and top held (pushed up on a stood-in screen 1020 pixels tall), at 980 x 680 by the screen's scale, the buttons' window and the chip hidden; a collector pass meanwhile keeps its snapshot and draws nothing into the window; Esc (raised on the prompt), the header's back button, and a close with the dispatcher run after it, each give the panel back exactly - its place, width, rows, fold, styles, topmost, content, shown - the close leaving the window there; hide, collapse, lock, unlock and stop go back to the panel first, and a panel that was hidden goes back to the tray; there and back from the panel each of those left - collapsed, collapsed and locked, hidden, hidden and unlocked, unlocked - each comes back exactly; a slider not yet at rest kept as the console opens, with the panel's place, and none kept from the console's rect; a width a reload set meanwhile holds the panel's right edge, never past a stood-in screen's left, and the place it leaves is kept in `overlay-state.json`; a size saved under the window's least opens at that least, its right edge at the panel's; its size kept in `console-state.json` - not its place - and used the next time; the chat index read in a runspace of its own and its rows taken once ready (on the window's thread it had cost 250 ms here each time the index changed); its lists hold the cut-off and open chats, and the search narrows them; each chat drawn by the panel's row builder - the same first line as the panel's row for it, where it runs and the unread dot included, compact - and a recent one as the panel's Recent; a click raised on a cut-off chat picks it - the accent's bar on the selection's colour, the others plain, Continue kept - and a chat picked is the one written to; a file dropped and a screenshot pasted (through the clipboard seam) become chips, a folder dropped is turned away; Send makes the job chatq would - first, sent now, both files moved in, the box and the staging folder emptied, the status saying so; a queued prompt being edited outlives a redraw of the queue; Remove clicked through its Border with mouse events of their own times: the first asks - **Remove - sure?** in error's colour, the status saying so - the second half of a double-click (150 ms) is no answer and says so, an ask 5 s old goes back to **Remove** (`Update-ChatConsoleAsks`) and says the job was kept, and a click, then another 1.5 s on, removes - timed by the clicks themselves, so a slow redraw or a pass on the window's thread neither answers for a double-click nor ages a click that came in time; Continue clicked twice queues one; a Codex chat is offered its Sandbox row but no mode or model, and is sent none even when picked before; a theme switch keeps what is typed, and the console's mode; going back keeps the draft in `console-state.json`. In a second child, the whole way round as the user goes it, brought forward through `ChatConsoleFrontSeam`: the console hotkey's verb opens the console and brings it forward, and again only forward; with `ChatConsoleActiveSeam` standing for a console in front, the command's verb (`chatconsole`, the tray) only brings it forward and the hotkey's goes back to the panel as it was; a theme switch keeps the draft typed; Esc, and the panel as it was with the draft saved; the console again, the draft back; a close, and the panel as it was, rows and all; with the folder picker's loop stood in for (`Modal`), a collapse held until it ends and then done, the console key dropped; a panel mid-drag does not become the console; a running Claude job's **Watch in VS Code** beside **Cancel**, through the chip's own `Show-ChatFresh` child, one at a time; a waiting job's **Mode** and **Model** chips in its details, written to its file, the chip filled, said, the first chip giving the chat's own back; **Open in VS Code** on a waiting job, through the same child; the size kept in units with `max` false; **Maximize** filling the stood-in working area with no grip, kept with the size it had, **Restore** giving that back, and a console left maximized opening maximized; a double-click on the header (`ClickCount` 2, set by reflection) maximizing and restoring the same, a press on it while maximized running neither `DragMove` nor the held verbs after it, and one once restored going on to them; and, in a child of its own, a process holding an older `ChatOverlayNative` - compiled first without `ApplyInteractiveStyle` and `DropTopmost` - opening the console through `ChatOverlayNativeNext` and going back to the panel |
-| overlay: Windows panel | in a child `powershell.exe -STA`, built but never shown: 10 rows draw as 8 and `+2 more · 2 idle`, none as one line; both windows shown the way the host shows them, still off every screen, and their styles read after that - WPF sets `WS_EX_APPWINDOW` again as a window shows: the panel a tool window that never activates and lets clicks through, the buttons' window one that takes clicks but never focus, neither with a taskbar button; seven buttons, the console's among them, hidden until the pointer comes, the grip at the left end and close at the corner; placed by the code the pointer check runs every 120 ms, on a stood-in screen: above the panel, 4 units off and flush with its right, where they were placed before they first showed, still there after more passes (fed their own rect where their size belonged, they had jumped between two spots each pass - the blink this caught), and moved up as the settings box opens above them, never over the panel; the refresh icon turns while an ask is out and stops after; switching to light redraws the frame and keeps the settings box open; the slider itself moved sets the window's opacity, and the next pointer pass saves it to `config.json`; collapsed, one line of counts and usage and a chevron that offers to expand; usage drawn as a line - name, the windows, when it is from - and as bars, the time under the name, once the settings box says so; while the buttons are hidden, the spot the pointer check counts is the one they then show on, with the gap to the panel; their side held only while they are up - under a panel at the stood-in screen's top, still under it once it is moved down, above it after they go and come again, the hidden spot counted there too (held for good, they had stayed under it until a restart) |
-| overlay: size | in a child `powershell.exe -STA`, shown off every screen, the pointer never read: no resize handle - collapse beside the grip, the line seven wide, the grip's tooltip naming the edges - and the settings and close tooltips; the edges' window shown with the buttons over the panel's rect and 4 units round it, a window that takes clicks but never focus and has no taskbar button, eight parts painted at an alpha of 1, each with its cursor, the line lit along the sides a corner sizes and gone again; folded, no top or bottom, the corners sideways and lighting the side alone; hidden with the buttons; the settings box's width and rows sliders, whole numbers, their values beside them; the width slider widening the panel with its right edge held, the rows slider redrawing with `+7 more`; `config.json` given both once they rest; the bottom-left corner dragged left and down - wider, the right edge held, a row a row's height, kept on release with the panel's place; collapsed, the width only; on a screen 500 pixels tall, a panel whose top is 197 pixels down it held to the 303 below that edge - never past the screen's bottom from where it sits - its rows cut to what fits and the rest counted on `+N more`; `reload` taking both from `config.json`, the right edge held; the width slider at rest keeping where the panel's left edge went, for the next start; a `reload` with a slider still moving writing it first, so `config.json` and the panel agree and the shell's other setting is kept; widened by the screen's left edge, held there and growing to the right; fewer chats than rows - dragged down the rows kept never drop, up one off those drawn; the settings box opened after a drag showing what was dragged to, a nudge moving on from there (a width within one unit: at 125% WPF reports 641.6 for 641); width and rows on one row of the box, **Style** full or compact, compact drawing one line a chat and full bringing the prompts back; where a chat runs after its dot - a window for VS Code, `>_` for a terminal, a play triangle for a queued prompt's run, nothing for a job; the right side dragged - wider to the right, the left edge, top and rows where they were; the top dragged up two and a half rows' height - two rows more, the bottom held to the pixel, the rows and the new place kept; by the foot of a screen 500 pixels tall with rows cut, the top edge up a row's height bringing one back, the rows setting kept, the bottom held but for the one unit kept clear of the foot, and `+N more` counting the rest; the room kept under the rows for that line its height as drawn, measured, not 18 units |
-| overlay: recent panel | in a child `powershell.exe -STA` of its own (with the size checks the `-EncodedCommand` line had passed Windows' 32 K limit): Recent under the open rows - a faint header, a compact line each that the open chip takes, none counted as a row; a row that finished a turn unseen with the accent dot just before its state, the others none; collapsed, no Recent, and the one line saying `1 new`; the chip on a recent line kept through a redraw, and gone when its line goes; the settings box's Recent off, 5 or 10, the one in force filled, kept in `config.json`, and a pass run at once to build it; the height cap from WPF's own scale - the room from the panel's top edge down a stood-in screen 1020 pixels tall, over `TransformToDevice.M11` - and not the window rect's ratio to its width, which a drag can put out of step: a rect that disagrees is passed over; the cap going by the panel's top edge, worked out again as a grip drag is let go higher up a screen 500 pixels tall, more rows drawn at once; dropped at the screen's foot, still one row; `Get-ChatOverlayHeightCap` alone, the working area's own top counted |
-| overlay: life | in a child `powershell.exe -STA`, shown off every screen: a (stood-in) full screen hides the panel with nothing saved and shows it again once it ends; shown by hand during one, kept until it ends and out of the way at the next; hidden to the tray meanwhile, the tray's word holding; a stop marks the close against the sign-in, a restart does not, and with no sign-in known × stops at once and keeps nothing; a changed code stamp restarting it on the timer's pass, but not mid-drag, with the console up, a slider not at rest or out of a full screen's way; the native full-screen call compiled and answering 0 to 7, and its answers read (2, 3 and 4 hold the screen, 0, 1, 5, 6 and 7 do not); × with the sign-in known kept, said in a balloon, the panel gone at once; in its 4 s unlock, collapse, hide, another × and any other balloon dropped, the hotkey taking the close back (shown, unkept, the stop called off, the panel not unlocked), a restart turned into the stop with the close kept, and a `show` command left after the last pass read as the 4 s end and taking it back; the process stopped 4 s on by the close's own timer |
+| console: in the panel's window | in its own child `powershell.exe -STA`, run from a file in the sandbox - encoded, the script had passed the 32,767 characters a command line holds - the panel shown off every screen and never activated, then made the console: its window takes clicks and focus and is on the taskbar - `WS_EX_APPWINDOW`, no tool window, no `NOACTIVATE`, not click-through - and is not topmost, grown from the panel's top-right corner, its right edge and top held (pushed up on a stood-in screen 1020 pixels tall), at 980 x 680 by the screen's scale, the buttons' window and the chip hidden; a collector pass meanwhile keeps its snapshot and draws nothing into the window; Esc (raised on the prompt), the header's back button, and a close with the dispatcher run after it, each give the panel back exactly - its place, width, rows, fold, styles, topmost, content, shown - the close leaving the window there; hide, collapse, lock, unlock and stop go back to the panel first, and a panel that was hidden goes back to the tray; there and back from the panel each of those left - collapsed, collapsed and locked, hidden, hidden and unlocked, unlocked - each comes back exactly; a slider not yet at rest kept as the console opens, with the panel's place, and none kept from the console's rect; a width a reload set meanwhile holds the panel's right edge, never past a stood-in screen's left, and the place it leaves is kept in `overlay-state.json`; a size saved under the window's least opens at that least, its right edge at the panel's; its size kept in `console-state.json` - not its place - and used the next time; the chat index read in a runspace of its own and its rows taken once ready (on the window's thread it had cost 250 ms here each time the index changed); its lists hold the cut-off and open chats, and the search narrows them; each chat drawn by the panel's row builder - the same first line as the panel's row for it, where it runs and the unread dot included, compact - and a recent one as the panel's Recent; a click raised on a cut-off chat picks it - the accent's bar on the selection's colour, the others plain, Continue kept - and a chat picked is the one written to; a file dropped and a screenshot pasted (through the clipboard seam) become chips, a folder dropped is turned away; Send makes the job chatq would - first, sent now, both files moved in, the box and the staging folder emptied, the status saying so; a queued prompt being edited outlives a redraw of the queue; Remove clicked through its Border with mouse events of their own times: the first asks - **Remove - sure?** in error's colour, the status saying so - the second half of a double-click (150 ms) is no answer and says so, an ask 5 s old goes back to **Remove** (`Update-ChatConsoleAsks`) and says the job was kept, and a click, then another 1.5 s on, removes - timed by the clicks themselves, so a slow redraw or a pass on the window's thread neither answers for a double-click nor ages a click that came in time; Continue clicked twice queues one; a Codex chat is offered its Sandbox row but no mode or model, and is sent none even when picked before; a theme switch keeps what is typed, and the console's mode; going back keeps the draft in `console-state.json`. In a second child, the whole way round as the user goes it, brought forward through `ChatConsoleFrontSeam`: the console hotkey's verb opens the console and brings it forward, and again only forward; with `ChatConsoleActiveSeam` standing for a console in front, the command's verb (`chatconsole`, the tray) only brings it forward and the hotkey's goes back to the panel as it was; a theme switch keeps the draft typed; Esc, and the panel as it was with the draft saved; the console again, the draft back; a close, and the panel as it was, rows and all; with the folder picker's loop stood in for (`Modal`), a collapse held until it ends and then done, the console key dropped; a panel mid-drag does not become the console; a running Claude job's **Watch in VS Code** beside **Cancel**, through the chip's own `Show-ChatFresh` child, one at a time; a waiting job's **Mode** and **Model** chips in its details, written to its file, the chip filled, said, the first chip giving the chat's own back; **Open in VS Code** on a waiting job, through the same child; the size kept in units with `max` false; **Maximize** filling the stood-in working area with no grip, kept with the size it had, **Restore** giving that back, and a console left maximized opening maximized; a double-click on the header (`ClickCount` 2, set by reflection) maximizing and restoring the same, a press on it while maximized running neither `DragMove` nor the held verbs after it, and one once restored going on to them; and, in a child of its own, a process holding an older `ChatOverlayNative` - compiled first without `ApplyInteractiveStyle` and `DropTopmost` - opening the console through `ChatOverlayNativeNext` and going back to the panel, the types it did not hold yet compiled in one go beside it |
+| overlay: Windows panel | in a child `powershell.exe -STA`, built but never shown: 10 rows draw as 8 and `+2 more · 2 idle`, none as one line; both windows shown the way the host shows them, still off every screen, and their styles read after that - WPF sets `WS_EX_APPWINDOW` again as a window shows: the panel a tool window that never activates and lets clicks through, the buttons' window one that takes clicks but never focus, neither with a taskbar button; six buttons in a window of their own, not shown before the panel is - left to right collapse, refresh, settings, minimize, maximize and close, the last three named as on any window, no grip, the arrow cursor on each; minimize a short line, maximize a square, close a cross, each 8 units across; minimize hiding the panel to the tray, maximize opening the console in its place; a press on the bar off its buttons dragging the panel, one on a button never; placed by the code the pointer check runs every 120 ms, on a stood-in screen: the bar in the panel's top strip, 4 units under its top edge and 8 in from its right, as wide as the panel less 16, still there after more passes (fed their own rect where their size belonged, the buttons had jumped between two spots each pass - the blink this caught), and following the panel's width of itself; the bar shown with the panel and gone with it - to the tray and back, out of a full screen's way and back; the panel's rows starting under the bar, 2 units clear of it; the settings box opening above the panel, its foot 4 units over the panel's top edge, the bar where it was; the refresh icon turns while an ask is out and stops after; switching to light redraws the frame and keeps the settings box open; the slider itself moved sets the window's opacity - on the buttons alone, never the bar, its window or the settings box, whose alpha of 1 would drop to nothing and let clicks through, and again once the buttons are made anew - and the next pointer pass saves it to `config.json`; collapsed, one line of counts and usage and a chevron that offers to expand; usage drawn as a line - name, the windows, when it is from - and as bars, the time under the name, once the settings box says so; the pointer check counting the buttons' window, an open box and its gap to the panel in it; the box's side held only while it is open - under the bar at the stood-in screen's top, still there once the panel is dragged down, kept open by the pointer check while a button is held, the bar placed for no box once it shuts it, above the panel once opened again (held for good, it had stayed under until a restart); as it starts, one compile for every C# type the overlay uses ([Initialize-ChatOverlayNative](src/overlay-windows.ps1); [Join-ChatTypeCode](src/overlay-windows.ps1) puts each `using` once and first), the front's left out in a test run, and a compile of them all that fails logged, each type then coming in on its own - the panel's at once, the process list where it is used, Windows' own list and not the query; the rows' rects kept until the panel moves or the rows are drawn anew ([Get-ChatOverlayRowRects](src/overlay-windows.ps1)), and worked out again as the reset time, set in place, takes a line off the usage line of a panel at its cap, whose size stays ([Update-ChatOverlayClock](src/overlay-windows.ps1)); a pointer check far off the panel only marking it off, and the whole check while a slider is not at rest, the bar's place worked out once for both its zone and its placing - again where the bar's width is behind the panel's ([Update-ChatOverlayHover](src/overlay-windows.ps1)); every fifth tick placing the bar over the panel, but not mid-drag or mid-resize |
+| overlay: size | in a child `powershell.exe -STA`, shown off every screen, the pointer never read: no resize handle and no grip - collapse first, six in all, the bar's tooltip naming the edges - and the settings and close tooltips; the edges' window shown with the pointer over the panel's rect and 4 units round it, a window that takes clicks but never focus and has no taskbar button, eight parts painted at an alpha of 1, each with its cursor, the line lit along the sides a corner sizes and gone again; folded, no top or bottom, the corners sideways and lighting the side alone; hidden with the bar; the settings box's width and rows sliders, whole numbers, their values beside them; the width slider widening the panel with its right edge held, the rows slider redrawing with `+7 more`; `config.json` given both once they rest; the bottom-left corner dragged left and down - wider, the right edge held, a row a row's height, kept on release with the panel's place; collapsed, the width only; on a screen 500 pixels tall, a panel whose top is 197 pixels down it held to the 303 below that edge - never past the screen's bottom from where it sits - its rows cut to what fits and the rest counted on `+N more`; `reload` taking both from `config.json`, the right edge held; the width slider at rest keeping where the panel's left edge went, for the next start; a `reload` with a slider still moving writing it first, so `config.json` and the panel agree and the shell's other setting is kept; widened by the screen's left edge, held there and growing to the right; fewer chats than rows - dragged down the rows kept never drop, up one off those drawn; the settings box opened after a drag showing what was dragged to, a nudge moving on from there (a width within one unit: at 125% WPF reports 641.6 for 641); width and rows on one row of the box, **Style** full or compact, compact drawing one line a chat and full bringing the prompts back; where a chat runs after its dot - a window for VS Code, `>_` for a terminal, a play triangle for a queued prompt's run, nothing for a job; the right side dragged - wider to the right, the left edge, top and rows where they were; the top dragged up two and a half rows' height - two rows more, the bottom held to the pixel, the rows and the new place kept; by the foot of a screen 500 pixels tall with rows cut, the top edge up a row's height bringing one back, the rows setting kept, the bottom held but for the one unit kept clear of the foot, and `+N more` counting the rest; the room kept under the rows for that line its height as drawn, measured, not 18 units; seven rows fit with the panel at the screen's top, the settings box opening under the bar, over the rows, on the screen |
+| overlay: recent panel | in a child `powershell.exe -STA` of its own (with the size checks the `-EncodedCommand` line had passed Windows' 32 K limit): Recent under the open rows - a faint header, a compact line each that the open chip takes, none counted as a row; a row that finished a turn unseen with the accent dot just before its state, the others none; collapsed, no Recent, and the one line saying `1 new`; the chip on a recent line kept through a redraw, and gone when its line goes; the settings box's Recent off, 5 or 10, the one in force filled, kept in `config.json`, and a pass run at once to build it; the height cap from WPF's own scale - the room from the panel's top edge down a stood-in screen 1020 pixels tall, over `TransformToDevice.M11` - and not the window rect's ratio to its width, which a drag can put out of step: a rect that disagrees is passed over; the cap going by the panel's top edge, worked out again as a grip drag is let go higher up a screen 500 pixels tall, more rows drawn at once; dropped at the screen's foot, still one row; `Get-ChatOverlayHeightCap` alone, the working area's own top counted; Recent drawn as `overlay.recent` of the snapshot's `recent` then its `recentMore`, a count set live redrawing unsaved, 0 no header; the bottom edge dragged past every open row bringing Recent lines from the pool, live, and let go saving Recent's count and not `maxRows`, the list split anew and the box's chip lit; back up, the Recent lines going first, then a row, only what changed saved, and Recent taken to none lighting Off; a press let go where it was saving nothing, and down again the open row coming back before the Recent lines; the top edge by the screen's foot bringing back a Recent line the foot cut for a line's travel up, the count kept, the bottom held |
+| overlay: life | in a child `powershell.exe -STA`, shown off every screen: a (stood-in) full screen hides the panel with nothing saved and shows it again once it ends; shown by hand during one, kept until it ends and out of the way at the next; hidden to the tray meanwhile, the tray's word holding; a stop marks the close against the sign-in, a restart does not, and with no sign-in known × stops at once and keeps nothing; a changed code stamp restarting it on the timer's pass, but not mid-drag, with the console up, a slider not at rest or out of a full screen's way; the native full-screen call compiled and answering 0 to 7, and its answers read (2, 3 and 4 hold the screen, 0, 1, 5, 6 and 7 do not); × with the sign-in known kept, said in a balloon, the panel gone at once; in its 4 s unlock, collapse, hide, another × and any other balloon dropped, the hotkey taking the close back (shown, unkept, the stop called off, the panel not unlocked), a restart turned into the stop with the close kept, and a `show` command left after the last pass read as the 4 s end and taking it back; the process stopped 4 s on by the close's own timer; the heap compacted by the first pass past its time, not before and never again, and - in a process of its own - 64 MB of big buffers freed between ones still held given back and said in the log; and in another, a tick that threw past its catch every time, in the pointer check's place, its timer set going again after each throw ([Register-ChatOverlayUiCatch](src/overlay-windows.ps1)), and the 1 s timer's place - slower, stopping itself on its second tick - neither held back by those throws nor started again by the five after its stop, the throw said in the log once |
 | overlay: macOS panel | `tests/overlay-mac-check.js`: the JXA pulled out of `src/overlay-mac.ps1`, pure ASCII, free of `?.` and `??`, compiled; its countdowns, bars, lines, row cap, prompt toggle, unlocked hint, commands taken once and only when newer than the panel, the menu bar count; the theme chosen from the config and the OS, both looks with every colour, usage as a line a provider ending in its time, or as bars when set; opacity held to 0.3-1; a terminal's chat marked `>_`, one a queued prompt runs in a play triangle, and one in VS Code neither; no unread mark - a row that says unread drawn as any other, the dot being Windows only |
 
-## CI
+### CI
 
 `.github/workflows/test.yml` runs on `windows-latest`, once under Windows
 PowerShell 5.1 and once under PowerShell 7, and fails on any failed check. The
@@ -200,7 +262,7 @@ On pwsh 7 `Add-Type` builds libraries only, so the argument-quoting check builds
 its echo exe with .NET Framework's `csc.exe` instead. Where neither can, it says
 `skip` and is not counted as passed.
 
-## Phone alerts and replies
+### Phone alerts and replies
 
 ```powershell
 node tests/reply-page-check.js    # docs/reply.html, the page the phone pairs and replies from
@@ -366,49 +428,6 @@ with PowerShell stood in for - and everything
 past the seams: Join, ntfy.sh, GitHub Pages, a phone's browser, a PC that
 sleeps, and a real overlay sending a live alert.
 
-**S34, by hand with a real phone.** Android and Chrome, Join installed.
-Each step leaves lines in `data/logs/replies.log` and `watcher.log`; a live
-alert also in `overlay.log` and `outbox.log`.
-1. **The page is served.** The repository's **Settings → Pages**: deploy
-   from a branch, `main`, `/docs`. On the phone,
-   <https://phal40lax78.github.io/Charlie-and-the-chat-factory/reply.html> opens
-   and says the phone is not paired.
-2. **The window.** `chatnotify -Setup`, the tray's **Phone alerts...** and
-   **Chat Manager: Phone alerts...** each open it, and a second ask says it
-   is open already. Paste a whole Join push URL: the device is picked out
-   of it. **Find devices** lists the phone and the groups without the
-   window stalling; **Send test** reaches the phone while the window stays
-   live. From a pwsh 7 shell whose Windows PowerShell policy is
-   `Restricted`, it still opens.
-3. **Pair.** `chatnotify -Pair`: the push arrives; tap it, **Pair**, and a
-   code shows on the phone. The same code comes up at the PC; `y`, and a
-   `paired` push arrives. Pair again from the window: the phone warns that
-   it is paired already, names the server and topic, and wants a second
-   tap; confirm in the window this time.
-4. **The way back.** `chatnotify -Test`, tap it, **Send a test reply**:
-   `reply reached <PC> after N s` comes back as a push within about 15 s.
-5. **Reply to a job.** Queue a prompt that stops on a permission prompt,
-   and leave the PC past `quietMinutes`. On its `needs input` alert, type a
-   prompt and **Send**: a `queued #n` push, the job queued in the chat's
-   own mode (no `(phone's limit)` in the push), the old one skipped; with
-   `chatnotify -ReplyMaxMode acceptEdits`, a chat in `auto` or above is
-   queued in `acceptEdits` and the push says the phone's limit. On a
-   `started` alert, **Stop** - two taps -
-   stops the run within about 30 s. **Status** answers with the queue.
-6. **A live alert.** `chatnotify` says the chats you run yourself are on,
-   and the overlay running. Start a turn in a VS Code chat, leave VS
-   Code in front and the PC alone: once `quietMinutes` pass and the turn
-   ends, a `done` arrives. A permission prompt left 20 s gives
-   `needs input`; its page offers only **Send** and **Status**. Send a
-   prompt from it: the push says it goes once the prompt at the PC is
-   answered, and after you answer it there, it does.
-7. **A reply while the PC slept.** Send an alert, let the PC sleep, and
-   send a prompt from the phone. Wake it: within about 15 s the watcher
-   reads the reply and queues it; `replies.log` has the one line, not two.
-8. **Off and on.** `chatnotify -Reply off`, then answer an old alert: the
-   page says sent, and nothing runs. `-Reply on`: still nothing from that
-   answer, and a new alert can be answered.
-
 The phone features went through three reviews before release - 28, 17 and
 6 findings, some found by two lenses - covering the crypto and what each
 server sees, the reply state and the watcher, the pairing, the setup window
@@ -416,7 +435,7 @@ and the page, and the live alerts. Their fixes are held by `phone.ps1` and
 `reply-page-check.js` where a test can hold them; what was left on purpose
 is in FUTURE_WORK.md.
 
-## Auto-continue
+### Auto-continue
 
 `tests/sections/auto-continue.ps1`, the section before `host-work.ps1`, for the automatic
 mode (`autoContinue: "on"`; the ask is `reset-ask.ps1`'s), with chats of its
@@ -448,7 +467,7 @@ writes; the reset ask's items writing `ask-go <keys>` for the keys drawn,
 `none` when none were. `job-core.ps1`'s field list has `auto`, `cutUuid`
 and `deferWhy`.
 
-## A new version, and the chats a reload stops
+### A new version, and the chats a reload stops
 
 What 0.9.0 adds so that an update of chatq, or a reload chatq asks for,
 does not end the window's chats by surprise
@@ -594,43 +613,7 @@ the request file, `autoReload` after a delete and a queued run's reload
 by itself are both held while a chat of the window works, a quiet one
 still reloads, and a plain **Reload** clicked is asked again.
 
-**S45, by hand, still to do** - never in the VS Code the work runs in (below).
-In a VS Code of its own - `code --user-data-dir <scratch>\user
---extensions-dir <scratch>\ext` - with the Claude Code extension and
-this one installed from a VSIX:
-1. Start a chat that runs a background workflow or agent, and wait until
-   its turn has ended and the work goes on.
-2. Build a VSIX one patch higher and install it into that instance only:
-   `code --extensions-dir <scratch>\ext --install-extension <vsix>`.
-   Within 10 s the notice names that chat, "(background work running)".
-   **Chat Manager: Show log** reads `installed: <v> - this window still
-   runs <old>`.
-3. **Reload when they're idle**: the status bar reads *reloads when 1
-   chat is idle*. The chat keeps working; nothing reloads. Once its work
-   reports back, within about a minute and a half the window reloads,
-   the new version's log says `running ... <v>` - the step that matters:
-   `restartExtensionHost` never got this far (the 0.9.0 review read VS
-   Code 1.108.2's workbench, where it does not rescan) - the chat's tab
-   comes back, and the terminals are still there.
-4. Again with a turn running and **Reload now**: the turn ends there, as
-   it would with VS Code's own button. `data/host-work/<old host pid>.json`
-   named the chat before the reload; within a minute after it the overlay
-   asks `VS Code restarted · 1 chat it cut off can continue`, and
-   **continue 1** queues a prompt that says the window restarted
-   mid-turn, which goes into the chat in its own mode. With **Later**,
-   nothing happens and the same install is not said again.
-5. A delete with `chatManager.autoReload` on while a chat of the window
-   runs a workflow: no reload, and the warning names the chat.
-
-**While developing chatq:** installing a VSIX into the VS Code the work
-runs in ends every chat there - Claude Code's sessions, their permission
-prompts, their workflows and agents - on that window's next restart or
-reload; on 2026-09-27 it took this repo's own sessions down twice. Answer
-the notice with **Reload when they're idle**, or try the extension in an
-Extension Development Host (`code --extensionDevelopmentPath=<repo>\extension`)
-or a VS Code with its own `--extensions-dir`, as above.
-
-## Usage heads-ups, quiet hours, voice and text from Tasker
+### Usage heads-ups, quiet hours, voice and text from Tasker
 
 `tests/sections/phone-extras.ps1`, after `phone.ps1`, holds
 [src/phone-extras.ps1](src/phone-extras.ps1) with the same seams - Join's
@@ -679,21 +662,7 @@ the page filling the box, saving the draft and sending nothing until
 **Send**; and a static check that `press(`, `deliver(` and `seal(` are
 called only from a click or keydown handler, or from `press` itself.
 
-**By hand, with a real phone (S43):**
-1. **A threshold.** With the overlay running and the phone away from the
-   PC, let the 5-hour window cross 90%: one push, none on the passes after.
-2. **Quiet hours.** `chatnotify -QuietHours` set to the next five minutes,
-   queue a job that finishes inside them: no push then, one summary as the
-   window ends.
-3. **Voice.** `chatnotify -Say test`, then `-Test`: the phone says
-   `chatq test`. A chat with a Hangul title and `-Say 'needs input'`: heard
-   in Korean. If it is not, `language=ko` needs to be `ko-KR`
-   ([Get-ChatqSayLanguage](src/phone-extras.ps1)).
-4. **Tasker, route B** (README, Reply from Tasker): step 1's Flash shows
-   the push's title and link; type `테스트 ok` in the dialog, the page opens
-   with it in the box and the note under it; **Send**; a `queued #N` push.
-
-## Permissions from the phone
+### Permissions from the phone
 
 `tests/sections/permit.ps1` runs after `phone.ps1` and `phone-extras.ps1`, on both CI legs, for
 [src/permit.ps1](src/permit.ps1) and
@@ -738,7 +707,7 @@ at another PowerShell, or at nothing. No model, no network.
   redirected stdio: Windows PowerShell first, then pwsh 7 when there is one
   (the PowerShell running the tests when it is 7). The first byte on stdout
   is `{`; a call writes `<rid>.req.json` with the input as sent; a sealed
-  permit is `{"behavior":"allow"}` within 2 s; a refuse carries its note;
+  permit is `{"behavior":"allow"}` within 4 s; a refuse carries its note;
   a declined request says why; two pending are answered in reverse order
   to their own ids, with a ping answered meanwhile; a cancelled call is
   marked withdrawn; an answer copied from another request, one naming
@@ -777,31 +746,7 @@ the kept CryptoKey, `buildPayload` with and without `h`, the buttons for a
 the fake DOM the second-tap guard on Allow, a note kept per alert and the
 too-late card, and a card with `x` saying not all of the call is shown.
 
-**S35, the bridge against the real CLI** - ran once, 2026-09-27, five
-`claude -p` runs on haiku in a throwaway folder (the spike's limit). What
-it answered is recorded in the spec, section 12: an allow without
-`updatedInput` runs the call as asked; a deny's message reaches Claude and
-`permission_denials` carries `tool_use_id` (and no
-`system/permission_denied` streams); a call past `MCP_TOOL_TIMEOUT` is a
-tool error the model retries, never a deny, and claude cancels it; a bridge
-that cannot start shows `failed` in `init` and ends the run at the first
-prompt with `mcp__chatqpermit__decide ... not found` on stderr; the model
-never sees `decide`; `SystemRoot` arrives; the bridge is up in 0.2-1.3 s.
-**Still open, by hand:** the `//c/...` form of the data deny rules
-(`acceptEdits` editing `data/`), elicitation under `host`, a call `auto`'s
-classifier sends to a prompt, and two tool calls in one message.
-
-**S36, by hand with a real phone** (after S34): permits on
-(`chatnotify -Permit on`); queue a prompt that needs `git push` and leave
-the PC. The `chatq · permission` push names no command; the page shows it,
-redacted where it should be. **Allow once** (two taps): the run goes on
-within about 10 s and an `allowed` push follows. Again with **Deny** and a
-note: Claude's reply quotes it, and the job is `done`. Again without
-answering: after 10 minutes `needs input ... - no answer from the phone`,
-and Allow then says too late. **Stop** from a `started` alert while a
-request waits. At the PC: the toast and the phone both show it.
-
-## Claude's questions from the phone
+### Claude's questions from the phone
 
 `tests/sections/ask.ps1` runs after `phone-board.ps1`, on both CI legs, for
 [src/ask.ps1](src/ask.ps1), [src/ask-hook.ps1](src/ask-hook.ps1) and
@@ -886,70 +831,7 @@ question has an answer; the answer wire against `tests/fixtures/ask-vector.json`
 unchanged; `answer` in both `ACTS` lists; a draft kept per `rid`; a `reply`
 body with empty `parts` and an `ask` showing the card alone.
 
-**S46, the spike against the real CLI** - part 1 ran 2026-09-28, part 2 on
-2026-09-29, on `claude.exe` 2.1.283 from the VS Code extension, `--model
-haiku` and `--tools AskUserQuestion`, a Node script playing the extension
-(`--permission-prompt-tool stdio`, `can_use_tool`). Part 1, six runs, about
-$0.20, with Node hooks: with no hook the host's answer reaches Claude; a
-PreToolUse hook that answers skips the dialog, and one that waits holds it
-back for as long as it waits - so the hook is a PermissionRequest hook, which
-runs beside it; the host answering first wins and the hook's later answer is
-dropped; the hook answering first wins, the CLI sends the host a
-`control_cancel_request`, and Claude takes it; a hook killed at its timeout
-changes nothing, and `Red, Blue` reads as both options. The hook's stdin
-carries the session, transcript, mode and input, and no `tool_use_id`. Part
-2, ten runs, the items a script can run:
-1. **Item 3:** the `tool_use` line is in the transcript before the hook
-   reads it.
-2. **Item 5:** a plugin's `PermissionRequest` hook fires for
-   `AskUserQuestion` and answers; a `timeout` of 43260 raises no error; one
-   with none ran 75 s unkilled.
-3. **Item 6:** in `plan` and `bypassPermissions` the hook fires with the real
-   `permission_mode`, and the host is still asked.
-4. **Item 7:** an edited label is taken; answers keyed to no question close
-   the dialog with `The user did not answer the questions.`
-5. **Item 9:** the registry says `waiting`, `input needed` all the while the
-   hook holds the question; a `claude -p` run registers too.
-6. **Item 10:** `powershell.exe -File` loads chatq in 4-8 s and 124-137 MB;
-   its parent is Git bash, not claude; a kill at the timeout ends the whole
-   tree; stdout holds the decision line only.
-
-**Still open, by hand** (S46 items 1, 2 and 4 - S47 does them), before
-`-Ask on` is recommended: in real VS Code with the plugin installed, does the
-dialog close when the phone answers; what does the panel show while the hook
-runs (`statusMessage`, a spinner, nothing); does the CLI end the hook when
-the PC answers first, or does the hook's own 5 s look; is a hook installed
-while a chat is open picked up, and does `/reload-plugins` or a window
-reload do it (the install line's words wait on this); and in the terminal's
-`claude`, does the hook run beside its prompt and does its answer close it -
-until it does, a terminal chat is declined `term`. **Item 8** waits for a
-design of its own (FUTURE_WORK, "Questions in chatq's queued runs"): a queued
-run with `--permission-prompts host`, a run-scoped `PermissionRequest` hook
-and the MCP prompt tool - which is asked first, and does `localDisplayOnly`
-deny before the hook can answer.
-
-**S47, by hand with a real phone** (after S46's items above; Part A needs
-none of it):
-1. **Seeing it.** Make a chat ask and leave the PC alone for 5 minutes. The
-   push says only `waiting on you: input needed (a question)`. The page
-   shows the question, every option with its whole description, and `Answer
-   it at the PC.`; the board from the bookmark shows the same card.
-2. **Answering.** `chatnotify -Ask on`, and a new chat asks. Answer from the
-   phone: within about 20 s the dialog closes and the chat goes on with that
-   answer; the transcript's `answers` shows it and `replies.log` says
-   `landed`.
-3. **Two questions,** one a multiple choice and one answered with Other.
-4. **The PC first.** Answer at the PC: the phone's Send is told `already
-   answered at the PC`.
-5. **The gates.** A `bypassPermissions` chat: read-only, `mode`. A question
-   open before `-Ask on`: read-only, `hook`. A terminal chat: `Answer it in
-   the terminal.`
-6. **Off.** `chatnotify -Ask off`: the plugin is gone from `/plugin`, and
-   questions still show on the phone. `chatnotify -Ask on -Manual` prints
-   the block, and `chatuninstall -All` stops with a message until the hook is
-   out of the settings.
-
-## The phone board and the whole answer
+### The phone board and the whole answer
 
 ```powershell
 node tests/board-page-check.js    # docs/reply.html's board, whole answer and down channel
@@ -1119,28 +1001,7 @@ finish; real time did.
 its 250 a day - a phone's browser, a sleeping PC, and a real overlay
 writing the snapshot the board reads.
 
-**S44, by hand with a real phone** (Android Chrome, then an iPhone on
-Safari 16.4 or later), after S34:
-1. **The whole answer.** A job that ends `done`: tap the alert, and the
-   answer shows above the box within a few seconds, Hangul and code
-   blocks drawn. One over 4 KB sealed goes as an attachment and shows too.
-   Three hours later, the same page says ntfy.sh dropped it; **Ask the PC
-   for it** brings it back within about 15 s.
-2. **The board.** `chatnotify -Listen always`; the bare page from a
-   home-screen shortcut shows the board within 30 s, the overlay's rows as
-   the overlay has them; **Older chats** adds the rest, a Codex thread
-   among them. `chatoverlay -Stop`: the next board says the overlay is not
-   running, and still lists the open chats.
-3. **Acts.** Send to an idle chat: the ack on the page and a `chatq ·
-   reply` push, the job in the chat's own mode - `acceptEdits` at most once
-   `-ReplyMaxMode acceptEdits` is set. **Send now** on a queued
-   job, **Skip** with two taps, **+ New chat** in a listed folder.
-4. **Nobody listening.** `chatnotify -Listen alerts` with no alert out:
-   the page gives `No answer from the PC` at 45 s.
-5. **Budget.** `replies.log` has one line per act; after a day of use
-   `down` in `replies.json` stays under 200.
-
-## The demo frames
+### The demo frames
 
 `docs/make-demo.ps1` draws every frame in the README: `docs/demo-queue.svg`,
 `docs/demo-list.svg`, `docs/demo-overlay.png`, and the `chatrm` walk-through,
@@ -1171,7 +1032,9 @@ Each run moves the clock times in the queue frames; nothing else changes.
 The listing shows its images from `main` on GitHub, but its README text only
 changes with a new release.
 
-## Spikes against the real CLIs
+## Tier 1: this PC, for real
+
+### Spikes against the real CLIs
 
 These ran once while building, against Claude Code 2.1.278 and the Codex bundled
 with openai.chatgpt 26.908 (codex-cli 0.154), on throwaway chats only. Rows
@@ -1190,7 +1053,7 @@ which of the 0.154 Codex rows still hold there.
 | S9 | the watcher outlives its parent | yes: queued with `-In 1m` from a shell that then exited, the job ran on time |
 | S11 | Codex `exec resume --json -c sandbox_mode=… <id> -` | same thread id, appended to the same rollout; `exec resume` also takes `-m` |
 | S14 | `codex queue`, `archive`, `unarchive` | present in codex-cli 0.154 (`--help`). `queue` sends `thread/queue/add` to Codex's shared app-server daemon when one runs, else to an app server it starts for itself - which is **not** the VS Code panel's: the panel runs a private app server of its own per window and never the daemon (S-A5) |
-| S15 | the usage cache | `~/.claude.json` → `cachedUsageUtilization.utilization.limits[]`: `kind` (`session`, `weekly_all`, `weekly_scoped` with a model scope), `percent`, `resets_at`, plus `fetchedAtMs` |
+| S15 | the usage cache | `~/.claude.json` → `cachedUsageUtilization.utilization.limits[]`: `kind` (`session`, `weekly_all`, `weekly_scoped` with a model scope), `percent`, `resets_at`, plus `fetchedAtMs`. `resets_at` comes a moment off the minute on some fetches: `12:59:59.855638+00:00` where another said `13:00:00+00:00` (2026-10-06), so it is read to the nearest minute ([ConvertTo-ChatqResetDate](src/queue.ps1)) |
 | S16 | `codex archive` on a real thread | the rollout moves out of `sessions/YYYY/MM/DD/` into a flat `~/.codex/archived_sessions/`, which `chatrestore` lists; `codex unarchive` puts it back under `sessions/`. `codex delete` refuses without a terminal unless given `--force` and a UUID |
 | — | archive → restore of a real Claude chat | the transcript moved into `data/archive/` and back, and the archive folder was gone after |
 | — | the toast, from a shell on 5.1 | shown in-process; the idle clock read 145 s since the last input, so the phone would have stayed quiet |
@@ -1250,83 +1113,122 @@ Codex home. An `if` whose branch yields an empty array assigns `$null`, so the
 usage header failed there, and every pass queued an empty command, which made
 the panel redraw every 2 s. Both are fixed and in the table above.
 
-## Review
+### The overlay's own cost
 
-v0.1.0 went through a four-angle review with a separate skeptic per finding;
-the 30 confirmed defects are fixed. The v0.2.0 plan went through a design
-critique before a line was written — 37 findings, among them leftovers removed
-before the transcript was confirmed gone, network retries that dropped
-themselves as "already continued", a watcher handoff that could leave nobody
-watching, and StrictMode breaking at load. Each is fixed and, where a test can
-hold it, in the table above.
+Not in the self-test: what the overlay costs is measured by hand, on the
+live overlay, read-only.
 
-The 0.4.0 overlay's buttons, collapse, refresh and usage waits went through a
-three-angle review (WPF and Win32, PowerShell pitfalls, state and
-lifecycle) with a skeptic per finding. It found 11 distinct defects, and
-all are fixed. Among them:
-- a panel hidden before a restart came back off every screen;
-- the buttons popped up the moment the pointer crossed the panel, with ×
-  nearest it, so a click meant for the window beside it could close the
-  overlay;
-- the `rate-limited until` note was hidden whenever a live figure showed, so
-  the refresh button looked broken;
-- a command sent during start-up was dropped;
-- the style checks read the windows before WPF shows them, which is when it
-  puts the taskbar flag back.
+- **The processor, by cycles.** On the machine this was written on,
+  `Process.TotalProcessorTime` reads PowerShell's work at a fraction of
+  what it is: a 2 s busy loop read as 0.28 s, and the overlay as 1% of a
+  core where its cycles said 5.6%. So count cycles -
+  `QueryProcessCycleTime` for the process, `QueryThreadCycleTime` for
+  each thread - over a sample of a minute or more, and divide by the
+  cycles a busy second takes, from a C# spin timed the same way before
+  and after the sample. The panel's thread is nearly all of it.
+- **One function's cost.** The calling thread's cycles around the real
+  function: loaded through the parser with its native calls stood in
+  for, or in a child `powershell.exe -STA` with the panel shown off every
+  screen.
+- **At 2026-10-06**, on that machine (some 390 processes, 5 open chats):
+  the overlay at 9.0% of one core before a first pass over its cost (60 s,
+  the panel's thread 8.7%) and 5.6% after it (90 s, 5.1%), one sample each,
+  with the pointer and the chats as they happened to be; 283 to 287 MB
+  private. Piece by piece: the pointer check with the pointer away, 2.9
+  to 3.1 ms a check, now a compare of rects; the rows' rects, 8 to 10 ms
+  a check with the pointer on the panel, now kept; the process list,
+  0.19 to 0.34 s by `Win32_Process` and 13 to 22 ms from Toolhelp32; the
+  C# as it starts, three compiles of 0.46 to 0.64 s together, now one of
+  seven types in 0.22 to 0.25 s; the VS Code windows' files, 47 ms a
+  read, 2.6 ms while they are unchanged.
+- **A second pass, the same day**, with 104 transcripts written in the
+  last week. The cut-off scan's cold start: 219 ms split whole, 49 ms
+  read back from the end, the same answer for each transcript. A redraw
+  for an age's minute: about once a minute, 24 ms, some 0.04% of a core -
+  left as it is ([Update-ChatOverlayView](src/overlay-windows.ps1) says
+  why). The queue read whole: 1.2 ms a file, 24 ms at 20 files, 114 at
+  100, and only as a job file changes - left as it is
+  ([Get-ChatqJobs](src/queue.ps1) says why). A shell's load:
+  168.5 MB private and 503 ms with all 25 parts, 124.3 MB and 395 ms
+  without the overlay's three, a bare PowerShell 51.9 MB - each a fresh
+  `powershell -File` under fake homes with `CHATQ_WATCHER=1`, the median
+  of 7 alternated, after a full collection. The heap compacted three
+  minutes in, by the overlay's log: 22, 41, 52, 56, 71 and 82 MB given
+  back in 74 to 120 ms on six starts - the 120 with the suite running -
+  232 to 236 MB left each time. It grows back: one run's large object
+  heap went between 22 and 40 MB with the full collections and its
+  private between 252 and 269 MB an hour in; the next held 52.7 and 284
+  MB from 38 to 50 minutes in, with no full collection between, where an
+  overlay not compacted had held 58 and 300 an hour in. What one holds an
+  hour on is within one run's difference from the next. These by the
+  `.NET CLR Memory` counters, every
+  `powershell` instance read in one go and the overlay's found by its
+  `Process ID`, since the instance names shift between reads - and by
+  the instance in each sample's path, `powershell#3`: a sample's
+  `InstanceName` drops the `#3`, so matching on it mixes in every other
+  `powershell`'s counters.
+- **A third pass, 2026-10-07**, on the large object heap: the CLR's
+  allocation events on the live overlay, three minutes at a time (an ETW
+  session on the .NET runtime's provider, GC keyword - one tick per some
+  100 KB allocated, with the heap and the type), and those counters a
+  minute apart. Reading a grown transcript on from 64 KB back put a
+  130 KB string on that heap for each busy chat every pass: 28 ticks
+  there in three minutes, some 160 KB each. Read on from the last whole
+  line instead, an [Update-ChatOverlayText](src/overlay-data.ps1) call
+  on a transcript 2 KB longer takes 920 KB and 8.7 ms where it took
+  1,168 KB and 13.9, 300 of them bring on no full collection where they
+  brought one, and three minutes of the overlay after it held 4 ticks
+  there, about 1 MB each and none of them again. The background scan's
+  first look at a long chat gone idle, 8 MB a call and a 16 MB string
+  each, took that heap from 10 MB to 89 between two counter reads, and
+  it stayed. [Update-ChatBackgroundScan](src/chatrm.ps1) from the start
+  of a 40 MB transcript, twice in one process, what each call allocates
+  by `AppDomain` monitoring: 8 MB a call after the first took 46 to
+  87 ms and 27 to 32 MB, with one and two full collections a read; in
+  40 KB pieces, 34 to 48 ms and 19 to 23 MB, and none. A shell's load
+  again, that machine near its limit (93% of commit, under 1 GB free),
+  the median of 5 alternated: 101 MB private and 0.54 s without the
+  overlay's three parts, 111 MB and 0.68 to 0.73 s with them, under
+  `CHATQ_WATCHER` and `CHATQ_OVERLAY` alike. The .NET heap after a full
+  collection, 38 MB against 46, differs by the same 8 MB as with memory
+  to spare; the private bytes, 10 MB where they differed by 44 - the GC
+  holds less with memory short.
+- **The overlay that stopped, 2026-10-07**, the machine's commit charge
+  full: its log said `ui:` and an `OutOfMemoryException`, then nothing
+  for 80 minutes, while its process took 47 ms of the processor in a
+  20 s sample - no pass, no command read, no restart on the new code put
+  in meanwhile. A `DispatcherTimer` queues its next run only once its
+  Tick returns: in a child `powershell -STA`, one whose Tick throws,
+  handled, reads as running with its private `_operation` empty, where a
+  running one's holds its next run - the same under Windows PowerShell
+  5.1 and pwsh 7.6. The self-test's check of
+  [Register-ChatOverlayUiCatch](src/overlay-windows.ps1) fails against
+  each wrong way to mend it: no timer started again (one throw, then
+  none), every running one (the 1 s timer's place held back through 102
+  throws, never ticking) and a stopped one too (a third tick, and left
+  running).
+- **An hour on, the same day**, those counters a minute apart from 19:02
+  to 20:03, on the overlay as it started with the third pass's changes
+  in, the machine near its commit limit again. The heap compacted three
+  minutes in, 283 MB private to 239. The large object heap went from
+  6.3 MB after that to 13.1 in 17 minutes, then held 13.1 to 14.6 and was
+  12.3 at the end, where two runs before the third pass held 22 to 53 MB.
+  So the overlay still compacts it once
+  ([Invoke-ChatOverlayHeapCompact](src/overlay-windows.ps1)): a second
+  would have little to give back. The full collections came 17 to 21
+  minutes apart, generation 2 going from 89-95 MB up to 146-159 and back,
+  and the private bytes with it, from 250-252 MB up to 272-290.
+- **The C# compiler's own limits**, each compile in a `powershell.exe`
+  of its own with a time bound: under a `TEMP` of up to 210 characters
+  it works, at 211 it fails (`Error generating Win32 resource`), and at
+  262 and 280 it hangs. Under a folder named with a character outside the
+  code page it fails - Thai, `é` and `ü` on code page 949 - and with
+  Korean, Hanja, Cyrillic, Greek, a space, `(` or `&` it works. The
+  folder it makes in `TEMP` is gone after a normal exit and left behind
+  by a forced one, and taking it away while the process lives harms
+  neither the next compile nor the exit.
 
-It missed one, found in use: the buttons blinked and could not be clicked.
-Their placement was handed the window's rect where its size belonged, so
-each pass put them somewhere new. The placement function's own tests passed
-a size and were right; only the call was wrong, and nothing ran the call on
-a shown window. The panel test now does, on a stood-in screen.
-
-0.5.0 went through three independent reviews before release: the overlay
-and the docs, the console, and the job core with the runner. Together they
-made 33 findings - 29 distinct defects, four found by two of them - and
-all are fixed.
-Among them:
-- two jobs for one chat inside a second got ids where one began the other,
-  and the watcher could not look the first up by id, so it looped on it and
-  held up the whole queue;
-- a new chat's transcript was looked for only where its folder's slug said.
-  Claude cuts and hashes a path over 200 characters, so there every retry
-  passed `--session-id` again, which Claude refuses;
-- a new chat's title went to `claude.cmd` through cmd.exe, where a `"` and
-  an `&` in it ran the rest as a command of its own;
-- a running job's log could not be read (`File.ReadLines` shares only
-  Read), which left the console's details pane half drawn;
-- Cancel on a job whose run had just ended, and whose watcher had gone,
-  marked it failed and lost its result;
-- the cut-off scan read every working chat's transcript each minute, and
-  one folder it could not list ended the whole scan;
-- the console parsed the whole chat index on its window's thread each time
-  the index changed: 250 ms for 226 chats here, about 2 s for 2,000. It now
-  reads it in a runspace of its own.
-Each is in the table above where a test can hold it.
-
-0.7.0's extension, which writes PowerShell profiles and can change an
-execution policy, went through one review before release: 13 findings, 11
-fixed, all in the table above. Among them:
-- a stale `chatManagerReload.signalFile` became the place the scripts were
-  written, so one naming `C:\reload-request` would have put them in `C:\`;
-  a relative `chatManager.folder` would have written beside Code.exe;
-- a loader whose version did not read as three numbers was taken for no
-  loader, and overwritten;
-- "Added." was said, and the answer kept, even when `chatinstall` failed;
-  a PowerShell that gave no answer counted as one lacking the line;
-- a failed copy said nothing, left `.new` files, and was tried again at
-  every start;
-- the git check looked at the folder only, not the ones above it;
-- with the old extension watching another file than `chatManager.folder`'s,
-  nobody handled requests;
-- the policy was offered only after the line was written, and never where
-  a line already there could not run.
-Two are left as they are: one duplicate delete prompt at the switch, since
-the new ID starts with no memory of requests seen, and a profile line that
-does not spell the path out is asked about again, as `chatinstall` itself
-would not recognise it.
-
-## Still to check by hand
+### Still to check by hand
 
 - **S4, a chat still open in the VS Code panel.** Open a throwaway chat, leave it
   idle, queue a prompt for it and let it run. Does the panel show the run, or
@@ -1336,8 +1238,6 @@ would not recognise it.
   first half: the side bar does not show the run by itself, and keeps its
   cached view even once the process is ended. S30 item 5 closes the rest.
 - **S9, closing the terminal and quitting VS Code while the watcher waits.**
-- **S10, Join**, and **ntfy**: `chatnotify … -Test` reaches the phone, Hangul
-  intact.
 - **S12, at the next real limit:** the probe reports rejected with the right
   reset time, the job sends a minute after, and the transcript holds no stray
   prompt or error from the wait.
@@ -1368,20 +1268,23 @@ would not recognise it.
   **Reload** offer.
 - **S23, the overlay by hand on Windows.** What reading the window back could
   not show:
-  1. A click on the panel lands in the window under it, and typing stays there.
-  2. Resting the pointer on it for a moment brings up the row of buttons
-     on its top edge, outside it, flush with its top-right corner - under it
-     once the panel is dragged to the top of the screen, and on top again
-     once it is dragged back down and they go and come - grip at the left,
-     × at the corner. Sweeping the pointer across it brings up nothing. They
-     go a moment after the pointer leaves; moving from the panel onto them
-     does not lose them. A click on the panel still goes through, and so
-     does one on the empty space beside the buttons. With the panel near
-     the top, opening the settings box leaves the buttons where they are.
-     Resting just outside the panel's edge brings them too.
-  3. Holding the grip drags the panel, the buttons follow, and the position
-     is kept after `chatoverlay -Stop` and a start.
-  4. The settings box opens above the buttons, outside the panel: the slider
+  1. A click on the panel's rows lands in the window under it, and typing
+     stays there; one on its top strip, the bar, does not - locked too.
+  2. The bar of buttons shows with the panel, in its top strip - collapse,
+     refresh, settings, minimize, maximize, × at the right end - with no
+     pointer on it. The pointer turns to the four-way arrow over its empty
+     part, with a tooltip saying it moves the panel and the edges size it,
+     and to the plain arrow over a button. Resting the pointer on the panel
+     for a moment brings up the edges; sweeping across brings up nothing,
+     and they go a moment after the pointer leaves. With the panel low on
+     the screen the settings box opens above it, its right end at the
+     bar's; dragged to the top of the screen, under the bar over the rows;
+     either way the bar stays in the panel's top strip. At 30% opacity the
+     buttons fade with the panel, and the bar still takes clicks.
+  3. Holding the bar off its buttons drags the panel, the bar with it, and
+     the position is kept after `chatoverlay -Stop` and a start. A press on
+     a button never drags.
+  4. The settings box opens above the bar, outside the panel: the slider
      changes the opacity as it moves and `config.json` has it a second after
      release; dragging past the box's edge keeps the slider. Dark, Light and
      System redraw at once; with System, switching Windows between light and
@@ -1397,14 +1300,16 @@ would not recognise it.
      and its time moves on refresh. Lines and Bars in the settings box switch
      at once; in bars the same few words sit under each name, and neither
      view has a row of notes about usage.
-  7. Hide to tray hides it, a balloon says the tray icon brings it back
-     (once), and the tray icon does - also after `chatoverlay -Stop` and a
-     start while hidden. × closes it, a balloon saying it stays closed until
+  7. Minimize hides it and its bar, a balloon says the tray icon brings it
+     back (once), and the tray icon does, the bar too - also after
+     `chatoverlay -Stop` and a start while hidden. Maximize turns it into
+     the console, the bar gone, and Esc brings the panel back with the bar.
+     × closes it, a balloon saying it stays closed until
      the next sign-in; a new shell or VS Code window does not start it, and
      `chatoverlay` does, shown.
-  8. **Ctrl+Alt+Shift+O** unlocks it, a drag moves it (the buttons follow),
-     and the key locks it again. Left unlocked, it locks itself two minutes
-     after the pointer leaves.
+  8. **Ctrl+Alt+Shift+O** unlocks it, a drag anywhere on it moves it (the
+     bar follows), and the key locks it again; locked, only the bar drags.
+     Left unlocked, it locks itself two minutes after the pointer leaves.
   9. The tray icon's left click hides and shows it, and its menu's Lock, Hide,
      Collapse, Refresh usage, Move to top right and Quit work. The icon is
      Charlie, sharp at 100% and 150% scaling, with a dot at her bottom right
@@ -1426,8 +1331,8 @@ would not recognise it.
   15. `/compact` in a chat: its row reads "command running" while it runs
       and `/compact` once it ends.
   16. Rested on, the buttons stay still - no flicker between two places -
-      and each one takes a click; opening the settings box never covers
-      the panel.
+      and each one takes a click; the settings box covers the panel only
+      where the screen's top leaves it no room above.
   17. Background work, in a chat of any folder. Ask it for a workflow: once
       its turn ends the row stays green and reads `workflow` and the time
       since the launch, then goes idle within 2 s of its report. Again, and
@@ -1457,20 +1362,16 @@ would not recognise it.
       exclusive full screen, and a slideshow: the panel goes within a
       second, the tray icon stays, and it comes back when that ends. Note
       any app that hides it while not full screen (Windows' busy state).
-- **S24, the overlay on macOS** (never run):
-  1. The panel and `CQ` appear, focus stays where it was, and any Dock icon
-     flash is noted.
-  2. Clicks go through it; it shows on every Space and over full-screen apps.
-  3. Unlock, drag, Lock, and the position is kept.
-  4. Rows update, and the `procStart` format in `~/.claude/sessions/` is noted.
-  5. Hidden for ten minutes, it is current when shown again (App Nap).
-  6. `kill -9` of the pwsh host takes the panel away within 20 s.
-  7. `osacompile -l JavaScript data/overlay-mac.js` succeeds.
-  8. Hangul draws.
-  9. `-LiveUsage on` reads the keychain once, after the password prompt.
-  10. `chatinstall` restarts it and `chatuninstall` stops it.
-  11. `-Theme light`, `-Theme system` (then flip macOS's appearance) and
-      `-Opacity 60` each show within a few seconds.
+      The bar goes and comes back with it.
+  21. **Stretched into Recent.** With a few chats open, drag the bottom
+      edge down: the open chats not drawn come first, then Recent lines,
+      newest first, one per line's height; past the last one the panel
+      grows no further. Drag back up: the Recent lines go first, then
+      rows. Let go and open the settings box: its Recent chip is lit for
+      0, 5 or 10, none for another count, and `config.json` has the new
+      `recent`. With Recent off, a stretch brings Recent lines back. Near
+      the screen's foot, the top edge dragged up brings back the cut rows,
+      then the Recent lines, one at a time, the bottom held.
 - **S25, a new chat from `claude -p`** - half run. Claude Code 2.1.281 took
   `claude -p --session-id <uuid> --name "chatq spike"` in a scratch folder:
   the init line carried that id, the transcript landed at
@@ -1490,7 +1391,7 @@ would not recognise it.
   item 11 is superseded - it opens from the panel's corner, only its size
   kept - and in item 1 the panel is the console while it shows; S33 items
   28-34 check the mode itself. The rest stands.
-  1. Each way in opens it: the speech bubble on the overlay's buttons, Open
+  1. Each way in opens it: the maximize button on the overlay's bar, Open
      console in the tray, Ctrl+Alt+Shift+Q, `chatconsole` from a shell (it
      may only flash its taskbar button - Windows keeps the focus where you
      were), and `chatconsole` with no overlay running, which starts one.
@@ -1766,22 +1667,23 @@ would not recognise it.
      and corner: the pointer turns to that edge's arrows and a blue line
      marks the side it sizes; the middle of the panel still lets a click
      through. Drag the left side left: the panel widens, its right edge
-     and the buttons stay where they were; back narrows it, down to 260.
-     The right side: it widens to the right, its left edge held. The
-     bottom: a row comes for each row's height of travel down, up to the
-     chats open; up takes them away again. The top: the same upward, the
-     bottom edge held. A corner does both. Collapsed, the top and bottom
+     and the buttons stay where they were, the bar widening with it; back
+     narrows it, down to 260. The right side: it widens to the right, its
+     left edge held. The bottom: a row comes for each row's height of
+     travel down, up to the chats open, then Recent lines (S23 item 21);
+     up takes them away again. The top: the same upward, the bottom edge
+     held. A corner does both. Collapsed, the top and bottom
      do nothing and the corners move only the width. With the panel at
      the foot of the screen and `+N more` under its rows, drag the top up
      a row's height: one more row, still at the foot. Let go: `config.json`
-     has `width` and `maxRows`, and a restart keeps both and the panel's
-     place. At 150% scaling as well as 100%, and unlocked as well as
-     locked.
+     has `width` and `maxRows` - and `recent`, when Recent lines came or
+     went - and a restart keeps them and the panel's place. At 150%
+     scaling as well as 100%, and unlocked as well as locked.
   8. **The sliders.** The settings box's Width and Rows move the panel as
      they move, the width with the right edge held, and `config.json` has
      both a second after release. Rows at 30 on a short screen: the panel
-     stops at the screen's bottom and `+N more` counts the rest. Unlock
-     it and drag it half way down: it still stops at the bottom, from
+     stops at the screen's bottom and `+N more` counts the rest. Drag it
+     by its bar half way down: it still stops at the bottom, from
      where it now sits, with fewer rows; dragged back up, the rows come
      back as it is let go.
   9. **`chatoverlay -Width 460 -Rows 12`** on a running panel: it says
@@ -1867,17 +1769,22 @@ would not recognise it.
       outline after its dot; one a terminal `claude` holds has `>_`. A job
       row and a cut-off row have neither. `chatoverlay -Print` puts `>_`
       before the terminal's chat alone.
-  21. **The width slider by the screen's left edge.** Unlock the panel,
-      drag it to the left edge of its screen, and slide Width up: the left
+  21. **The width slider by the screen's left edge.** Drag the panel by
+      its bar to the left edge of its screen, and slide Width up: the left
       edge stays on the screen and the panel grows to the right, the
-      buttons over its right end. Let go, then restart the overlay: it
-      comes back where it was left, as wide. On a second screen to the
+      buttons at its right end and the bar as wide as it, less its ends.
+      Let go, then restart the overlay: it comes back where it was left,
+      as wide. On a second screen to the
       left of the main one as well.
   22. **Dragging down never lowers Rows.** With Rows at 8 and three chats
       open, drag the bottom edge down a little and let go: `config.json`
-      still has `maxRows` 8. Down six rows' height: 9, and on from there.
-      Up one row's height from the start: two rows drawn, and 2 kept. Open
-      the settings box after each: Rows shows what was kept.
+      still has `maxRows` 8. Down further: past the three open rows only
+      Recent lines come, and `maxRows` stays 8 while `recent` takes the
+      new count. Up one row's height from the start: with no Recent drawn,
+      two rows drawn, and 2 kept; with Recent drawn, a Recent line goes
+      first. Open the settings box after each: Rows shows what was kept.
+      With no chat open, dragging up takes only Recent lines, and
+      `maxRows` stays as it was.
   23. **A Cline tab is left alone.** With Cline installed, open its tab
       in the group where Claude tabs go and put it in front. Show it on a
       stale chat (item 4) and the chip on a chat with no tab: the Cline tab
@@ -1921,12 +1828,13 @@ would not recognise it.
       it. The extension's log reads `overlay autoStart: off, the overlay
       closed` and `overlay autoStart: on`.
   28. **Into the console and back, every way.** Note the panel's place,
-      width and rows. Open the console by the speech bubble: it grows from
-      the panel's top-right corner - its right edge and top where the
-      panel's were - with the prompt box taking the keys, and neither the
-      buttons nor the open chip come over it. **Esc**: the panel is back
-      exactly where and as it was, lets clicks through again, and stays
-      over the next window you click. Then in by the tray's **Open
+      width and rows. Open the console by the maximize button: it grows
+      from the panel's top-right corner - its right edge and top where the
+      panel's were - with the prompt box taking the keys, its own header
+      as before with no bar's room above it, and neither the bar nor the
+      open chip come over it. **Esc**: the panel is back exactly where and
+      as it was, its bar with it, lets clicks through again below the bar,
+      and stays over the next window you click. Then in by the tray's **Open
       console** and back by **← Panel**; in by Ctrl+Alt+Shift+Q and back
       by it again; in by `chatconsole` from a shell and back by Alt+F4 -
       the overlay and its tray icon stay. The same with the panel collapsed,
@@ -2024,6 +1932,17 @@ would not recognise it.
       once its handover finds you there,
       `· waits for you to leave its tab`, as the board says it - no
       time. Empty the queue: the item goes.
+  39. **A tab with no process.** Open two titled chats in tabs, plus an
+      untitled new tab, then reload the window and type in neither:
+      within a few seconds `data/open-tabs/<the extension host's pid>.json`
+      lists the two titled tabs and not the untitled one, and the panel
+      shows both as idle rows, out of Recent, the window mark after the
+      dot. Their chip opens each, bringing its tab forward. Close one tab:
+      within about 2 s its row goes and the chat is back at the head of
+      Recent. Rename a third chat to share a tab's first 24 characters:
+      that tab's row goes. The phone board lists the rows too, with the
+      overlay running and closed.
+      Quit the window: the file goes.
 - **S38, a chat Claude Code hides, in a real window** (CHANGELOG, 0.8.1).
   S37 read the rule in Claude Code's code and ran the CLI; the extension's
   side went through stubs only. Each open leaves `open <id>: ...` under
@@ -2154,25 +2073,17 @@ would not recognise it.
      the screen and at its foot, at the default width and compact: the
      seventh row's three chips all there, the box on the screen; the chip
      over an auto row left of its words.
-- **S36, a tool call approved from a real phone** (CHANGELOG, 0.9.0): the
-  steps are under [Permissions from the phone](#permissions-from-the-phone),
-  with S35's items 5-8 still open beside them.
-- **S43, usage heads-ups, quiet hours, voice and Tasker on a real phone**
-  (CHANGELOG, 0.9.0): the steps are under
-  [Usage heads-ups, quiet hours, voice and text from Tasker](#usage-heads-ups-quiet-hours-voice-and-text-from-tasker).
-- **S44, the phone board and the whole answer on a real phone**
-  (CHANGELOG, 0.9.0): the steps are under
-  [The phone board and the whole answer](#the-phone-board-and-the-whole-answer).
 - **S45, a new version installed while the window's chats work**
   (CHANGELOG, 0.9.0): the steps are under
-  [A new version, and the chats a reload stops](#a-new-version-and-the-chats-a-reload-stops),
+  [A new version, and the chats a reload stops (S45)](#a-new-version-and-the-chats-a-reload-stops-s45),
   in a VS Code of its own - never the one the work runs in.
 - **S46, Claude's questions against the real CLI** (CHANGELOG, Unreleased):
-  the spike is recorded, and its items 1, 2 and 4 - the dialog closing in
-  VS Code, a hook picked up by open chats, the terminal - are still open,
-  under [Claude's questions from the phone](#claudes-questions-from-the-phone).
-- **S47, Claude's questions on a real phone** (CHANGELOG, Unreleased): the
-  steps are under the same heading.
+  the spike is recorded under
+  [Claude's questions from the phone (S46)](#claudes-questions-from-the-phone-s46),
+  and its items 1, 2 and 4 - the dialog closing in VS Code, a hook picked up
+  by open chats, the terminal - are still open, in Tier 2 with S47, which
+  does them:
+  [Claude's questions from the phone (S47)](#claudes-questions-from-the-phone-s47).
 - **S48, a queued run takes a real tab's place** (CHANGELOG, Unreleased).
   The self-test drives both halves with the other stood in for; no real
   window has answered a handover yet. **Chat Manager: Show log** and
@@ -2317,5 +2228,350 @@ would not recognise it.
      log has `spawn <id8>: carried effort max` - no Ultracode - and its
      chip shows Max alone. Run on 2026-09-30 with ac284315 before the
      fix, it carried Ultracode entered under 2.1.283 two days before.
+
+### Permissions from the phone (S35)
+
+**S35, the bridge against the real CLI** - ran once, 2026-09-27, five
+`claude -p` runs on haiku in a throwaway folder (the spike's limit). What
+it answered is recorded in the spec, section 12: an allow without
+`updatedInput` runs the call as asked; a deny's message reaches Claude and
+`permission_denials` carries `tool_use_id` (and no
+`system/permission_denied` streams); a call past `MCP_TOOL_TIMEOUT` is a
+tool error the model retries, never a deny, and claude cancels it; a bridge
+that cannot start shows `failed` in `init` and ends the run at the first
+prompt with `mcp__chatqpermit__decide ... not found` on stderr; the model
+never sees `decide`; `SystemRoot` arrives; the bridge is up in 0.2-1.3 s.
+**Still open, by hand:** the `//c/...` form of the data deny rules
+(`acceptEdits` editing `data/`), elicitation under `host`, a call `auto`'s
+classifier sends to a prompt, and two tool calls in one message.
+
+### A new version, and the chats a reload stops (S45)
+
+**S45, by hand, still to do** - never in the VS Code the work runs in (below).
+In a VS Code of its own - `code --user-data-dir <scratch>\user
+--extensions-dir <scratch>\ext` - with the Claude Code extension and
+this one installed from a VSIX:
+1. Start a chat that runs a background workflow or agent, and wait until
+   its turn has ended and the work goes on.
+2. Build a VSIX one patch higher and install it into that instance only:
+   `code --extensions-dir <scratch>\ext --install-extension <vsix>`.
+   Within 10 s the notice names that chat, "(background work running)".
+   **Chat Manager: Show log** reads `installed: <v> - this window still
+   runs <old>`.
+3. **Reload when they're idle**: the status bar reads *reloads when 1
+   chat is idle*. The chat keeps working; nothing reloads. Once its work
+   reports back, within about a minute and a half the window reloads,
+   the new version's log says `running ... <v>` - the step that matters:
+   `restartExtensionHost` never got this far (the 0.9.0 review read VS
+   Code 1.108.2's workbench, where it does not rescan) - the chat's tab
+   comes back, and the terminals are still there.
+4. Again with a turn running and **Reload now**: the turn ends there, as
+   it would with VS Code's own button. `data/host-work/<old host pid>.json`
+   named the chat before the reload; within a minute after it the overlay
+   asks `VS Code restarted · 1 chat it cut off can continue`, and
+   **continue 1** queues a prompt that says the window restarted
+   mid-turn, which goes into the chat in its own mode. With **Later**,
+   nothing happens and the same install is not said again.
+5. A delete with `chatManager.autoReload` on while a chat of the window
+   runs a workflow: no reload, and the warning names the chat.
+
+**While developing chatq:** installing a VSIX into the VS Code the work
+runs in ends every chat there - Claude Code's sessions, their permission
+prompts, their workflows and agents - on that window's next restart or
+reload; on 2026-09-27 it took this repo's own sessions down twice. Answer
+the notice with **Reload when they're idle**, or try the extension in an
+Extension Development Host (`code --extensionDevelopmentPath=<repo>\extension`)
+or a VS Code with its own `--extensions-dir`, as above.
+
+### Claude's questions from the phone (S46)
+
+**S46, the spike against the real CLI** - part 1 ran 2026-09-28, part 2 on
+2026-09-29, on `claude.exe` 2.1.283 from the VS Code extension, `--model
+haiku` and `--tools AskUserQuestion`, a Node script playing the extension
+(`--permission-prompt-tool stdio`, `can_use_tool`). Part 1, six runs, about
+$0.20, with Node hooks: with no hook the host's answer reaches Claude; a
+PreToolUse hook that answers skips the dialog, and one that waits holds it
+back for as long as it waits - so the hook is a PermissionRequest hook, which
+runs beside it; the host answering first wins and the hook's later answer is
+dropped; the hook answering first wins, the CLI sends the host a
+`control_cancel_request`, and Claude takes it; a hook killed at its timeout
+changes nothing, and `Red, Blue` reads as both options. The hook's stdin
+carries the session, transcript, mode and input, and no `tool_use_id`. Part
+2, ten runs, the items a script can run:
+1. **Item 3:** the `tool_use` line is in the transcript before the hook
+   reads it.
+2. **Item 5:** a plugin's `PermissionRequest` hook fires for
+   `AskUserQuestion` and answers; a `timeout` of 43260 raises no error; one
+   with none ran 75 s unkilled.
+3. **Item 6:** in `plan` and `bypassPermissions` the hook fires with the real
+   `permission_mode`, and the host is still asked.
+4. **Item 7:** an edited label is taken; answers keyed to no question close
+   the dialog with `The user did not answer the questions.`
+5. **Item 9:** the registry says `waiting`, `input needed` all the while the
+   hook holds the question; a `claude -p` run registers too.
+6. **Item 10:** `powershell.exe -File` loads chatq in 4-8 s and 124-137 MB;
+   its parent is Git bash, not claude; a kill at the timeout ends the whole
+   tree; stdout holds the decision line only.
+
+## Tier 2: other hardware
+
+### Still to check on other hardware
+
+- **S10, Join**, and **ntfy**: `chatnotify … -Test` reaches the phone, Hangul
+  intact.
+- **S24, the overlay on macOS** (never run):
+  1. The panel and `CQ` appear, focus stays where it was, and any Dock icon
+     flash is noted.
+  2. Clicks go through it; it shows on every Space and over full-screen apps.
+  3. Unlock, drag, Lock, and the position is kept.
+  4. Rows update, and the `procStart` format in `~/.claude/sessions/` is noted.
+  5. Hidden for ten minutes, it is current when shown again (App Nap).
+  6. `kill -9` of the pwsh host takes the panel away within 20 s.
+  7. `osacompile -l JavaScript data/overlay-mac.js` succeeds.
+  8. Hangul draws.
+  9. `-LiveUsage on` reads the keychain once, after the password prompt.
+  10. `chatinstall` restarts it and `chatuninstall` stops it.
+  11. `-Theme light`, `-Theme system` (then flip macOS's appearance) and
+      `-Opacity 60` each show within a few seconds.
+- **S36, a tool call approved from a real phone** (CHANGELOG, 0.9.0): the
+  steps are under
+  [Permissions from the phone (S36)](#permissions-from-the-phone-s36), and
+  S35's items 5-8 are still open in Tier 1, under
+  [Permissions from the phone (S35)](#permissions-from-the-phone-s35).
+- **S43, usage heads-ups, quiet hours, voice and Tasker on a real phone**
+  (CHANGELOG, 0.9.0): the steps are under
+  [Usage heads-ups, quiet hours, voice and text from Tasker (S43)](#usage-heads-ups-quiet-hours-voice-and-text-from-tasker-s43).
+- **S44, the phone board and the whole answer on a real phone**
+  (CHANGELOG, 0.9.0): the steps are under
+  [The phone board and the whole answer (S44)](#the-phone-board-and-the-whole-answer-s44).
+- **S47, Claude's questions on a real phone** (CHANGELOG, Unreleased): the
+  steps are under
+  [Claude's questions from the phone (S47)](#claudes-questions-from-the-phone-s47).
 - **macOS and Linux** are untested; the Unix branches are written but have never
   run.
+
+### Phone alerts and replies (S34)
+
+**S34, by hand with a real phone.** Android and Chrome, Join installed.
+Each step leaves lines in `data/logs/replies.log` and `watcher.log`; a live
+alert also in `overlay.log` and `outbox.log`.
+1. **The page is served.** The repository's **Settings → Pages**: deploy
+   from a branch, `main`, `/docs`. On the phone,
+   <https://phal40lax78.github.io/Charlie-and-the-chat-factory/reply.html> opens
+   and says the phone is not paired.
+2. **The window.** `chatnotify -Setup`, the tray's **Phone alerts...** and
+   **Chat Manager: Phone alerts...** each open it, and a second ask says it
+   is open already. Paste a whole Join push URL: the device is picked out
+   of it. **Find devices** lists the phone and the groups without the
+   window stalling; **Send test** reaches the phone while the window stays
+   live. From a pwsh 7 shell whose Windows PowerShell policy is
+   `Restricted`, it still opens.
+3. **Pair.** `chatnotify -Pair`: the push arrives; tap it, **Pair**, and a
+   code shows on the phone. The same code comes up at the PC; `y`, and a
+   `paired` push arrives. Pair again from the window: the phone warns that
+   it is paired already, names the server and topic, and wants a second
+   tap; confirm in the window this time.
+4. **The way back.** `chatnotify -Test`, tap it, **Send a test reply**:
+   `reply reached <PC> after N s` comes back as a push within about 15 s.
+5. **Reply to a job.** Queue a prompt that stops on a permission prompt,
+   and leave the PC past `quietMinutes`. On its `needs input` alert, type a
+   prompt and **Send**: a `queued #n` push, the job queued in the chat's
+   own mode (no `(phone's limit)` in the push), the old one skipped; with
+   `chatnotify -ReplyMaxMode acceptEdits`, a chat in `auto` or above is
+   queued in `acceptEdits` and the push says the phone's limit. On a
+   `started` alert, **Stop** - two taps -
+   stops the run within about 30 s. **Status** answers with the queue.
+6. **A live alert.** `chatnotify` says the chats you run yourself are on,
+   and the overlay running. Start a turn in a VS Code chat, leave VS
+   Code in front and the PC alone: once `quietMinutes` pass and the turn
+   ends, a `done` arrives. A permission prompt left 20 s gives
+   `needs input`; its page offers only **Send** and **Status**. Send a
+   prompt from it: the push says it goes once the prompt at the PC is
+   answered, and after you answer it there, it does.
+7. **A reply while the PC slept.** Send an alert, let the PC sleep, and
+   send a prompt from the phone. Wake it: within about 15 s the watcher
+   reads the reply and queues it; `replies.log` has the one line, not two.
+8. **Off and on.** `chatnotify -Reply off`, then answer an old alert: the
+   page says sent, and nothing runs. `-Reply on`: still nothing from that
+   answer, and a new alert can be answered.
+
+### Permissions from the phone (S36)
+
+**S36, by hand with a real phone** (after S34): permits on
+(`chatnotify -Permit on`); queue a prompt that needs `git push` and leave
+the PC. The `chatq · permission` push names no command; the page shows it,
+redacted where it should be. **Allow once** (two taps): the run goes on
+within about 10 s and an `allowed` push follows. Again with **Deny** and a
+note: Claude's reply quotes it, and the job is `done`. Again without
+answering: after 10 minutes `needs input ... - no answer from the phone`,
+and Allow then says too late. **Stop** from a `started` alert while a
+request waits. At the PC: the toast and the phone both show it.
+
+### Usage heads-ups, quiet hours, voice and text from Tasker (S43)
+
+**By hand, with a real phone (S43):**
+1. **A threshold.** With the overlay running and the phone away from the
+   PC, let the 5-hour window cross 90%: one push, none on the passes after.
+2. **Quiet hours.** `chatnotify -QuietHours` set to the next five minutes,
+   queue a job that finishes inside them: no push then, one summary as the
+   window ends.
+3. **Voice.** `chatnotify -Say test`, then `-Test`: the phone says
+   `chatq test`. A chat with a Hangul title and `-Say 'needs input'`: heard
+   in Korean. If it is not, `language=ko` needs to be `ko-KR`
+   ([Get-ChatqSayLanguage](src/phone-extras.ps1)).
+4. **Tasker, route B** (README, Reply from Tasker): step 1's Flash shows
+   the push's title and link; type `테스트 ok` in the dialog, the page opens
+   with it in the box and the note under it; **Send**; a `queued #N` push.
+
+### The phone board and the whole answer (S44)
+
+**S44, by hand with a real phone** (Android Chrome, then an iPhone on
+Safari 16.4 or later), after S34:
+1. **The whole answer.** A job that ends `done`: tap the alert, and the
+   answer shows above the box within a few seconds, Hangul and code
+   blocks drawn. One over 4 KB sealed goes as an attachment and shows too.
+   Three hours later, the same page says ntfy.sh dropped it; **Ask the PC
+   for it** brings it back within about 15 s.
+2. **The board.** `chatnotify -Listen always`; the bare page from a
+   home-screen shortcut shows the board within 30 s, the overlay's rows as
+   the overlay has them; **Older chats** adds the rest, a Codex thread
+   among them. `chatoverlay -Stop`: the next board says the overlay is not
+   running, and still lists the open chats.
+3. **Acts.** Send to an idle chat: the ack on the page and a `chatq ·
+   reply` push, the job in the chat's own mode - `acceptEdits` at most once
+   `-ReplyMaxMode acceptEdits` is set. **Send now** on a queued
+   job, **Skip** with two taps, **+ New chat** in a listed folder.
+4. **Nobody listening.** `chatnotify -Listen alerts` with no alert out:
+   the page gives `No answer from the PC` at 45 s.
+5. **Budget.** `replies.log` has one line per act; after a day of use
+   `down` in `replies.json` stays under 200.
+
+### Claude's questions from the phone (S47)
+
+**Still open, by hand** (S46 items 1, 2 and 4 - S47 does them), before
+`-Ask on` is recommended: in real VS Code with the plugin installed, does the
+dialog close when the phone answers; what does the panel show while the hook
+runs (`statusMessage`, a spinner, nothing); does the CLI end the hook when
+the PC answers first, or does the hook's own 5 s look; is a hook installed
+while a chat is open picked up, and does `/reload-plugins` or a window
+reload do it (the install line's words wait on this); and in the terminal's
+`claude`, does the hook run beside its prompt and does its answer close it -
+until it does, a terminal chat is declined `term`. **Item 8** waits for a
+design of its own (FUTURE_WORK, "Questions in chatq's queued runs"): a queued
+run with `--permission-prompts host`, a run-scoped `PermissionRequest` hook
+and the MCP prompt tool - which is asked first, and does `localDisplayOnly`
+deny before the hook can answer.
+
+**S47, by hand with a real phone** (after S46's items above; Part A needs
+none of it):
+1. **Seeing it.** Make a chat ask and leave the PC alone for 5 minutes. The
+   push says only `waiting on you: input needed (a question)`. The page
+   shows the question, every option with its whole description, and `Answer
+   it at the PC.`; the board from the bookmark shows the same card.
+2. **Answering.** `chatnotify -Ask on`, and a new chat asks. Answer from the
+   phone: within about 20 s the dialog closes and the chat goes on with that
+   answer; the transcript's `answers` shows it and `replies.log` says
+   `landed`.
+3. **Two questions,** one a multiple choice and one answered with Other.
+4. **The PC first.** Answer at the PC: the phone's Send is told `already
+   answered at the PC`.
+5. **The gates.** A `bypassPermissions` chat: read-only, `mode`. A question
+   open before `-Ask on`: read-only, `hook`. A terminal chat: `Answer it in
+   the terminal.`
+6. **Off.** `chatnotify -Ask off`: the plugin is gone from `/plugin`, and
+   questions still show on the phone. `chatnotify -Ask on -Manual` prints
+   the block, and `chatuninstall -All` stops with a message until the hook is
+   out of the settings.
+
+## Review
+
+v0.1.0 went through a four-angle review with a separate skeptic per finding;
+the 30 confirmed defects are fixed. The v0.2.0 plan went through a design
+critique before a line was written — 37 findings, among them leftovers removed
+before the transcript was confirmed gone, network retries that dropped
+themselves as "already continued", a watcher handoff that could leave nobody
+watching, and StrictMode breaking at load. Each is fixed and, where a test can
+hold it, in the table above.
+
+The 0.4.0 overlay's buttons, collapse, refresh and usage waits went through a
+three-angle review (WPF and Win32, PowerShell pitfalls, state and
+lifecycle) with a skeptic per finding. It found 11 distinct defects, and
+all are fixed. Among them:
+- a panel hidden before a restart came back off every screen;
+- the buttons popped up the moment the pointer crossed the panel, with ×
+  nearest it, so a click meant for the window beside it could close the
+  overlay;
+- the `rate-limited until` note was hidden whenever a live figure showed, so
+  the refresh button looked broken;
+- a command sent during start-up was dropped;
+- the style checks read the windows before WPF shows them, which is when it
+  puts the taskbar flag back.
+
+It missed one, found in use: the buttons blinked and could not be clicked.
+Their placement was handed the window's rect where its size belonged, so
+each pass put them somewhere new. The placement function's own tests passed
+a size and were right; only the call was wrong, and nothing ran the call on
+a shown window. The panel test now does, on a stood-in screen.
+
+0.5.0 went through three independent reviews before release: the overlay
+and the docs, the console, and the job core with the runner. Together they
+made 33 findings - 29 distinct defects, four found by two of them - and
+all are fixed.
+Among them:
+- two jobs for one chat inside a second got ids where one began the other,
+  and the watcher could not look the first up by id, so it looped on it and
+  held up the whole queue;
+- a new chat's transcript was looked for only where its folder's slug said.
+  Claude cuts and hashes a path over 200 characters, so there every retry
+  passed `--session-id` again, which Claude refuses;
+- a new chat's title went to `claude.cmd` through cmd.exe, where a `"` and
+  an `&` in it ran the rest as a command of its own;
+- a running job's log could not be read (`File.ReadLines` shares only
+  Read), which left the console's details pane half drawn;
+- Cancel on a job whose run had just ended, and whose watcher had gone,
+  marked it failed and lost its result;
+- the cut-off scan read every working chat's transcript each minute, and
+  one folder it could not list ended the whole scan;
+- the console parsed the whole chat index on its window's thread each time
+  the index changed: 250 ms for 226 chats here, about 2 s for 2,000. It now
+  reads it in a runspace of its own.
+Each is in the table above where a test can hold it.
+
+0.7.0's extension, which writes PowerShell profiles and can change an
+execution policy, went through one review before release: 13 findings, 11
+fixed, all in the table above. Among them:
+- a stale `chatManagerReload.signalFile` became the place the scripts were
+  written, so one naming `C:\reload-request` would have put them in `C:\`;
+  a relative `chatManager.folder` would have written beside Code.exe;
+- a loader whose version did not read as three numbers was taken for no
+  loader, and overwritten;
+- "Added." was said, and the answer kept, even when `chatinstall` failed;
+  a PowerShell that gave no answer counted as one lacking the line;
+- a failed copy said nothing, left `.new` files, and was tried again at
+  every start;
+- the git check looked at the folder only, not the ones above it;
+- with the old extension watching another file than `chatManager.folder`'s,
+  nobody handled requests;
+- the policy was offered only after the line was written, and never where
+  a line already there could not run.
+Two are left as they are: one duplicate delete prompt at the switch, since
+the new ID starts with no memory of requests seen, and a profile line that
+does not spell the path out is asked about again, as `chatinstall` itself
+would not recognise it.
+
+The overlay's cost pass (in [CHANGELOG.md](CHANGELOG.md) under 0.10.5)
+went through a five-angle review - the pointer check, the rows' rects, the
+native process list, the VS Code windows' files, and the tests - with a
+skeptic per finding. The native code drew none. It found one defect: on a
+panel at its height cap, the lines view's reset time going took a line off
+the usage line and moved every row up while the panel's size stayed, so
+the kept rects - and the chip that follows them - were a line off until
+the next redraw. And four checks that passed with the fault they were
+written for put back:
+- the fifth tick's never looked at what the tick mid-drag did;
+- the open tabs' passed with every look parsing the file again, and with
+  a clock set back trusting a look from the future;
+- the process table's, and the failed compile's, were met by the
+  `Win32_Process` query the list falls back on.
+All are fixed. Each check was then run with its fault put back, and failed -
+that check and no other.

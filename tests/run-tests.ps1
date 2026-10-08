@@ -17,6 +17,10 @@ Windows PowerShell 5.1 reads a BOM-less script in the ANSI code page.
 param([switch]$Keep)
 
 $ErrorActionPreference = 'Stop'
+# Every section's variables land in this one scope, and Windows PowerShell
+# 5.1 holds a scope to 4096 of them unless told otherwise - the suite passed
+# that on 2026-10-06. 32768 is the most it takes; pwsh has no such cap.
+Set-Variable -Name MaximumVariableCount -Value 32768
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $root = Split-Path -Parent $here
 $sb = Join-Path (Join-Path $here '.sandbox') 'run'
@@ -33,6 +37,22 @@ function Check([string]$Name, [bool]$Ok, $Detail) {
     else { $script:Fail++; Write-Host "  FAIL  $Name  $Detail" -ForegroundColor Red }
 }
 function Section([string]$Name) { Write-Host ''; Write-Host "  $Name" -ForegroundColor Cyan }
+# A file as a section found it - $null when there was none - and put back
+# just so: written again, or removed again. $Text stays untyped: [string]
+# would turn none into '' and write an empty file.
+function Read-TestFile([string]$Path) { if (Test-Path -LiteralPath $Path) { [System.IO.File]::ReadAllText($Path, $utf8) } else { $null } }
+function Restore-TestFile([string]$Path, $Text) { if ($null -ne $Text) { [System.IO.File]::WriteAllText($Path, $Text, $utf8) } else { Remove-Item -LiteralPath $Path -Force -EA SilentlyContinue } }
+
+# A Join push's URL taken apart, for the sections that catch pushes in the
+# Join seam: its query, and its link's fragment, as hashtables. $U stays
+# untyped: no push at all fails on $null, never parses ''.
+function Get-JoinPush($U) {
+    $q = @{}
+    foreach ($p in ($U.Substring($U.IndexOf('?') + 1) -split '&')) { $k, $v = $p -split '=', 2; $q[$k] = [uri]::UnescapeDataString($v) }
+    $f = @{}
+    if ($q['url']) { foreach ($p in ($q['url'].Substring($q['url'].IndexOf('#') + 1) -split '&')) { $k, $v = $p -split '=', 2; $f[$k] = [uri]::UnescapeDataString($v) } }
+    [pscustomobject]@{ Url = $U; Q = $q; F = $f }
+}
 
 # A WPF check runs in an STA Windows PowerShell of its own, and gives back the
 # last line it prints. Its script goes in a file, never on the command line:
@@ -47,6 +67,21 @@ function Invoke-Sta([string]$Name, [string]$Script) {
     }
     finally { Remove-Item -LiteralPath $f -Force -EA SilentlyContinue }
 }
+# What most of those scripts start with, put into each one's text: the
+# sandbox's copy loaded as the overlay loads it, and, after a panel check's
+# own seams, the panel's host state, context and window, locked, not hidden.
+$staLoad = @"
+`$env:CHATQ_OVERLAY = '1'
+. '$(Join-Path $sb 'tool\Charlie-and-the-chat-factory.ps1')'
+Set-StrictMode -Off
+"@
+$staPanel = @'
+$H = New-ChatOverlayHostState
+$script:ChatOverlayHost = $H
+$H.Ctx = New-ChatOverlayContext
+$H.State = [pscustomobject]@{ x = $null; y = $null; locked = $true; hidden = $false }
+New-ChatOverlayWindow $H
+'@
 
 # The sandbox, then every section, from tests/sections/ in this order: one
 # scope, as the one file had, so a later section uses what an earlier one

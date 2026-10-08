@@ -50,16 +50,7 @@ function Invoke-ChatqLocked {
     # odd names on purpose: the block runs in a scope below this one and
     # would see these in place of its caller's variables of the same name
     param([string]$ChatqLockFile, [scriptblock]$ChatqLockedBlock)
-    New-ChatqDir $script:ChatqData
-    $chatqLockHandle = $null
-    $chatqLockUntil = (Get-Date).AddSeconds(3)
-    while (-not $chatqLockHandle) {
-        try { $chatqLockHandle = [System.IO.File]::Open($ChatqLockFile, 'OpenOrCreate', 'ReadWrite', 'None') }
-        catch {
-            if ((Get-Date) -gt $chatqLockUntil) { break }
-            Start-Sleep -Milliseconds (Get-Random -Minimum 15 -Maximum 60)
-        }
-    }
+    $chatqLockHandle = Open-ChatqLock $ChatqLockFile
     if (-not $chatqLockHandle) { throw "data/$(Split-Path $ChatqLockFile -Leaf) is held by another process" }
     try { return (& $ChatqLockedBlock) }
     finally { $chatqLockHandle.Dispose() }
@@ -447,8 +438,7 @@ function Get-ChatqQuietHours {
     $to = ConvertTo-ChatqClock ([string](Get-ChatField $q 'to'))
     if ($null -eq $from -or $null -eq $to -or $from -eq $to) { return $null }
     $urgent = if ($q.PSObject.Properties['urgent'] -and $null -ne $q.urgent) { @(@($q.urgent) | ForEach-Object { [string]$_ } | Where-Object { $_ }) } else { @('failed') }
-    $f = { param($t) '{0:00}:{1:00}' -f $t.Hours, $t.Minutes }
-    [pscustomobject]@{ From = $from; To = $to; Urgent = [string[]]@($urgent); Text = "$(& $f $from)-$(& $f $to)" }
+    [pscustomobject]@{ From = $from; To = $to; Urgent = [string[]]@($urgent); Text = "$($from.ToString('hh\:mm'))-$($to.ToString('hh\:mm'))" }
 }
 
 function Test-ChatqQuietNow {
@@ -799,16 +789,10 @@ function Read-ChatqNotifyExtras {
     param([hashtable]$Ch, $Msgs, $Cfg)
     $r = [pscustomobject]@{ Error = $null; UsageAlerts = $null; UsageAt = $null; UsageReset = $null; QuietHours = $null; Urgent = $null; Say = $null; SayLanguage = $null }
     $bad = { param($t, $e) $Msgs.Add([pscustomobject]@{ Text = $t; Color = 'Yellow' }); $r.Error = $e; $r }
-    $onOff = {
-        param($n)
-        $v = $Ch[$n]
-        if ($v -is [bool]) { return $v }
-        switch (([string]$v).Trim().ToLower()) { 'on' { $true } 'off' { $false } default { $null } }
-    }
     $has = { param($n) $Ch.ContainsKey($n) -and $null -ne $Ch[$n] -and '' -ne $Ch[$n] }
     foreach ($n in 'UsageAlerts', 'UsageReset') {
         if (& $has $n) {
-            $v = & $onOff $n
+            $v = ConvertFrom-ChatqOnOff $Ch[$n]
             if ($null -eq $v) { return (& $bad "-$n takes on or off, not '$($Ch[$n])'" "bad $n value") }
             $r.$n = $v
         }
@@ -827,8 +811,7 @@ function Read-ChatqNotifyExtras {
             $to = if ($m.Success) { ConvertTo-ChatqClock $m.Groups[2].Value -Loose } else { $null }
             if ($null -eq $from -or $null -eq $to) { return (& $bad 'quiet hours: HH:mm-HH:mm, like 00:00-07:00, or off' 'bad quiet hours') }
             if ($from -eq $to) { return (& $bad 'quiet hours: from and to cannot be the same time' 'bad quiet hours') }
-            $f = { param($t) '{0:00}:{1:00}' -f $t.Hours, $t.Minutes }
-            $r.QuietHours = [pscustomobject]@{ From = (& $f $from); To = (& $f $to) }
+            $r.QuietHours = [pscustomobject]@{ From = $from.ToString('hh\:mm'); To = $to.ToString('hh\:mm') }
         }
     }
     $names = { param($v) @(@($v) | ForEach-Object { [string]$_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
@@ -1017,18 +1000,8 @@ function Initialize-ChatqPhoneSetupExtras {
     $U.UsageWas = $true; $U.UsageAtWas = '90'; $U.ResetWas = $true
     $U.QuietWasOn = $false; $U.QuietFromWas = '00:00'; $U.QuietToWas = '07:00'; $U.UrgentWas = 'failed'; $U.SayWas = ''
     $tick = { param($src, $e) Invoke-ChatqPhoneSetupAction $src { param($U) Update-ChatqPhoneSetupExtrasEnabled $U; Update-ChatqPhoneSetupDirty $U } }
-    $mk = {
-        param($Panel, [string]$Ev, [string]$Tip)
-        $cb = [System.Windows.Controls.CheckBox]::new()
-        $cb.Content = $Ev
-        $cb.Tag = $Ev
-        $cb.Margin = [System.Windows.Thickness]::new(0, 3, 16, 3)
-        $cb.ToolTip = $Tip
-        $cb.add_Click($tick)
-        [void]$Panel.Children.Add($cb)
-    }
-    foreach ($ev in $script:ChatqPhoneEvents) { & $mk $U.UrgentPanel $ev "Send '$ev' alerts to the phone during quiet hours all the same" }
-    foreach ($ev in @($script:ChatqPhoneEvents) + 'test') { & $mk $U.SayPanel $ev "Join reads '$ev' alerts out loud on the phone" }
+    foreach ($ev in $script:ChatqPhoneEvents) { Add-ChatqPhoneSetupEventBox $U.UrgentPanel $ev "Send '$ev' alerts to the phone during quiet hours all the same" $tick }
+    foreach ($ev in @($script:ChatqPhoneEvents) + 'test') { Add-ChatqPhoneSetupEventBox $U.SayPanel $ev "Join reads '$ev' alerts out loud on the phone" $tick }
     foreach ($b in $U.QuietHoursBox, $U.UsageBox, $U.ResetBox) { $b.add_Click($tick) }
     foreach ($b in $U.QuietFromBox, $U.QuietToBox, $U.UsageAtBox) {
         $b.add_TextChanged({ param($src, $e) Invoke-ChatqPhoneSetupAction $src { param($U) Update-ChatqPhoneSetupDirty $U } })
@@ -1134,8 +1107,7 @@ function Add-ChatqPhoneSetupExtrasChanges {
         $from = ConvertTo-ChatqClock $U.QuietFromBox.Text.Trim() -Loose
         $to = ConvertTo-ChatqClock $U.QuietToBox.Text.Trim() -Loose
         if ($null -eq $from -or $null -eq $to -or $from -eq $to) { return 'Quiet hours: times like 07:00, and not the same twice.' }
-        $f = { param($t) '{0:00}:{1:00}' -f $t.Hours, $t.Minutes }
-        $win = "$(& $f $from)-$(& $f $to)"
+        $win = "$($from.ToString('hh\:mm'))-$($to.ToString('hh\:mm'))"
         if (-not $U.QuietWasOn -or $win -ne "$($U.QuietFromWas)-$($U.QuietToWas)") { $C.QuietHours = $win }
         $urgent = Get-ChatqPhoneSetupTicked $U.UrgentPanel -Usable
         if ($urgent -ne $U.UrgentWas) { $C.Urgent = if ($urgent) { [string[]]($urgent -split ',') } else { 'none' } }

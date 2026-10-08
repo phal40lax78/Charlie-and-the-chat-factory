@@ -13,7 +13,6 @@
 # button or the hotkey again go back to the panel. Windows only, like the
 # panel's buttons.
 
-$script:ChatConsoleStatePath = Join-Path $script:ChatqData 'console-state.json'
 $script:ChatConsoleDraftDir = Join-Path (Join-Path $script:ChatqData 'console') 'draft'
 # tests: what a paste finds on the clipboard; no index sync in a child
 $script:ChatConsoleClipboardSeam = $null
@@ -229,6 +228,19 @@ function New-ChatConsoleInput {
         $t.VerticalContentAlignment = [System.Windows.VerticalAlignment]::Top
     }
     return $t
+}
+
+function New-ChatConsoleLabelRow {
+    # a row that starts with a dim label 52 wide at its left - the compose
+    # pane's Folder, Name, When, Sandbox, Mode and Model; the rest fills it
+    param([string]$Label)
+    $d = [System.Windows.Controls.DockPanel]::new()
+    $l = New-ChatOverlayText $Label 'dim' 12
+    $l.Width = 52
+    $l.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
+    [System.Windows.Controls.DockPanel]::SetDock($l, [System.Windows.Controls.Dock]::Left)
+    [void]$d.Children.Add($l)
+    return $d
 }
 
 function New-ChatConsoleChips {
@@ -512,12 +524,7 @@ function Initialize-ChatConsoleContent {
     $C.NewBox = [System.Windows.Controls.StackPanel]::new()
     $C.NewBox.Margin = [System.Windows.Thickness]::new(0, 0, 0, 6)
     [System.Windows.Controls.DockPanel]::SetDock($C.NewBox, [System.Windows.Controls.Dock]::Top)
-    $fr = [System.Windows.Controls.DockPanel]::new()
-    $fl = New-ChatOverlayText 'Folder' 'dim' 12
-    $fl.Width = 52
-    $fl.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
-    [System.Windows.Controls.DockPanel]::SetDock($fl, [System.Windows.Controls.Dock]::Left)
-    [void]$fr.Children.Add($fl)
+    $fr = New-ChatConsoleLabelRow 'Folder'
     $browse = New-ChatConsoleButton 'Browse' { Invoke-ChatConsoleBrowse $script:ChatOverlayHost } -Tip 'Pick the folder the new chat works in'
     $browse.Margin = [System.Windows.Thickness]::new(6, 0, 0, 0)
     [System.Windows.Controls.DockPanel]::SetDock($browse, [System.Windows.Controls.Dock]::Right)
@@ -539,12 +546,7 @@ function Initialize-ChatConsoleContent {
     $C.Recent = [System.Windows.Controls.WrapPanel]::new()
     $C.Recent.Margin = [System.Windows.Thickness]::new(52, 3, 0, 3)
     [void]$C.NewBox.Children.Add($C.Recent)
-    $nr = [System.Windows.Controls.DockPanel]::new()
-    $nl = New-ChatOverlayText 'Name' 'dim' 12
-    $nl.Width = 52
-    $nl.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
-    [System.Windows.Controls.DockPanel]::SetDock($nl, [System.Windows.Controls.Dock]::Left)
-    [void]$nr.Children.Add($nl)
+    $nr = New-ChatConsoleLabelRow 'Name'
     $C.NameBox = New-ChatConsoleInput -Tip 'What the chat list calls it - the prompt''s first line if left empty'
     $C.NameBox.Text = $C.NewName
     [void]$nr.Children.Add($C.NameBox)
@@ -1221,12 +1223,7 @@ function Update-ChatConsoleOptions {
     $C.Opts.Children.Clear()
     $row = {
         param($label, $chips, $extra)
-        $d = [System.Windows.Controls.DockPanel]::new()
-        $l = New-ChatOverlayText $label 'dim' 12
-        $l.Width = 52
-        $l.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
-        [System.Windows.Controls.DockPanel]::SetDock($l, [System.Windows.Controls.Dock]::Left)
-        [void]$d.Children.Add($l)
+        $d = New-ChatConsoleLabelRow $label
         if ($extra) { [System.Windows.Controls.DockPanel]::SetDock($extra, [System.Windows.Controls.Dock]::Right); [void]$d.Children.Add($extra) }
         [void]$d.Children.Add($chips)
         [void]$C.Opts.Children.Add($d)

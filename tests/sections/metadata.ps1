@@ -12,6 +12,55 @@ $m = Get-ChatqClaudeMeta $pFw (Get-Slug $projA)
 Check 'cut off by the limit' ($m.LastTurn.Limit) $m.LastTurn
 Check 'reset time read from the record' ($m.LastTurn.ResetsAt -and [Math]::Abs(($m.LastTurn.ResetsAt - [DateTimeOffset]::FromUnixTimeSeconds($future).LocalDateTime).TotalSeconds) -lt 2)
 Check 'a finished chat is not cut off' (-not (Get-ChatqClaudeMeta $pCard (Get-Slug $projA)).LastTurn.Limit)
+
+# The last turn read back from the end: 64 KB first, where it nearly always
+# is, 256 KB where it is further back; where it names no folder, the last
+# record that does, as far back as 256 KB; and the last line whole however
+# the file ends. Transcripts of their own, outside any home, the reads
+# taken down as they go.
+$ltDir = Join-Path $sb 'last-turn'
+$null = New-Item -ItemType Directory -Path $ltDir -Force
+$ltRec = {
+    param([string]$Text, [string]$Cwd)
+    $r = [ordered]@{ type = 'assistant'; uuid = [guid]::NewGuid().ToString(); timestamp = $now.ToString('o') }
+    if ($Cwd) { $r.cwd = $Cwd }
+    $r.message = [ordered]@{ role = 'assistant'; content = @([ordered]@{ type = 'text'; text = $Text }) }
+    $r | ConvertTo-Json -Compress -Depth 6
+}
+# the state lines that trail a turn, some $Bytes of them
+$ltState = { param([int]$Bytes) @(1..[Math]::Ceiling($Bytes / 62) | ForEach-Object { '{"type":"ai-title","aiTitle":"state line padding the tail ok"}' }) }
+$ltFile = {
+    param([string]$Name, [string[]]$Lines, [string]$Nl = "`n", [switch]$NoLastNl, [switch]$Bom)
+    $p = Join-Path $ltDir "$Name.jsonl"
+    $body = ($Lines -join $Nl) + $(if ($NoLastNl) { '' } else { $Nl })
+    [System.IO.File]::WriteAllText($p, $body, $(if ($Bom) { New-Object System.Text.UTF8Encoding $true } else { $utf8 }))
+    $p
+}
+$ltTailFn = ${function:Read-ChatqTail}
+$script:LtReads = [System.Collections.Generic.List[int64]]::new()
+${function:Read-ChatqTail} = { param([string]$Path, [int64]$Size) $script:LtReads.Add($Size); & $ltTailFn $Path $Size }
+try {
+    $ltRead = { param([string]$Path) $script:LtReads.Clear(); $r = Get-ChatqLastTurn $Path; [pscustomobject]@{ Turn = $r; Reads = $script:LtReads -join ',' } }
+    $ltPad = @(& $ltState 200000)
+    $ltNear = & $ltRead (& $ltFile 'near' ($ltPad + (& $ltRec 'first' $projA) + (& $ltRec 'last' $projA) + (& $ltState 2000)))
+    $ltBack = & $ltRead (& $ltFile 'back' ($ltPad + (& $ltRec 'last' $projA) + (& $ltState 100000)))
+    $ltCwd = & $ltRead (& $ltFile 'cwd' ($ltPad + ([ordered]@{ type = 'system'; cwd = $projA } | ConvertTo-Json -Compress) + (& $ltState 150000) + (& $ltRec 'last') + (& $ltState 2000)))
+    $ltLong = & $ltRead (& $ltFile 'long' ($ltPad + (& $ltRec ('last' + 'x' * 100000) $projA) + (& $ltState 2000)))
+    $ltShapes = @(
+        & $ltRead (& $ltFile 'no-last-nl' ($ltPad + (& $ltRec 'last' $projA)) -NoLastNl)
+        & $ltRead (& $ltFile 'crlf' ($ltPad + (& $ltRec 'last' $projA) + (& $ltState 2000)) -Nl "`r`n")
+        & $ltRead (& $ltFile 'half' ($ltPad + (& $ltRec 'last' $projA) + '{"type":"assistant","message":{"role":"assis') -NoLastNl)
+        & $ltRead (& $ltFile 'bom' (@(& $ltRec 'last' $projA) + (& $ltState 300)) -Bom)
+    )
+}
+finally { ${function:Read-ChatqTail} = $ltTailFn }
+Check 'the last turn: 64 KB read where it is near the end, 256 KB where it is further back' (
+    $ltNear.Turn.Text -eq 'last' -and $ltNear.Reads -eq '65536' -and $ltBack.Turn.Text -eq 'last' -and $ltBack.Reads -eq '65536,262144') "$($ltNear.Turn.Text) $($ltNear.Reads) / $($ltBack.Turn.Text) $($ltBack.Reads)"
+Check 'the last turn naming no folder: the last record that does, 150 KB back, found in 256 KB read again' (
+    $ltCwd.Turn.Text -eq 'last' -and $ltCwd.Turn.Cwd -eq $projA -and $ltCwd.Reads -eq '65536,262144') "$($ltCwd.Turn.Cwd) $($ltCwd.Reads)"
+Check 'a last turn longer than the first read, read whole' ($ltLong.Turn.Text -eq ('last' + 'x' * 100000) -and $ltLong.Reads -eq '65536,262144') "$($ltLong.Turn.Text.Length) $($ltLong.Reads)"
+Check 'the last turn found with no newline after it, CRLFs, a half-written line after it, or a BOM before it' (
+    @($ltShapes | Where-Object { $_.Turn.Text -eq 'last' -and $_.Turn.Cwd -eq $projA }).Count -eq 4) (@($ltShapes | ForEach-Object { "$($_.Turn.Text) $($_.Reads)" }) -join ' / ')
 $c = Get-ChatqCodexMeta $cxPath
 Check 'codex cwd and sandbox' ($c.Cwd -eq $projA -and $c.Sandbox -eq 'workspace-write' -and $c.Network) "$($c.Cwd) $($c.Sandbox) $($c.Network)"
 

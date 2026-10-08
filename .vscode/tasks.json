@@ -1,0 +1,141 @@
+// The checks TESTING.md and .github/workflows/test.yml run, as tasks. The
+// actboy168.tasks extension gives each task a status bar button: the label is
+// its text, "detail" its tooltip, options.statusbar.color its colour, and
+// options.statusbar.hide keeps a task in Tasks: Run Task only. Every task is a
+// process, not a shell, so it runs the same whatever the default terminal is.
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "$(check) Quick checks",
+            "detail": "Every .ps1 pure ASCII, then the extension, reply page, board page and macOS overlay checks under node - CI's fast steps, seconds",
+            "dependsOrder": "sequence",
+            "dependsOn": [
+                "ASCII scripts",
+                "Extension check",
+                "Reply page check",
+                "Board page check",
+                "Overlay (macOS panel) check"
+            ],
+            "options": { "statusbar": { "color": "#4CAF50" } },
+            "problemMatcher": []
+        },
+        {
+            "label": "$(beaker) Self-test",
+            "detail": "tests/run-tests.ps1 under Windows PowerShell 5.1: fake CLIs, a sandbox in tests/.sandbox, no network. The exit code is the number of failed checks",
+            "type": "process",
+            "command": "powershell",
+            "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "tests\\run-tests.ps1"],
+            "options": { "cwd": "${workspaceFolder}", "statusbar": { "color": "#00BCD4" } },
+            "group": { "kind": "test", "isDefault": true },
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+        },
+        {
+            "label": "$(beaker) Self-test (7)",
+            "detail": "The same suite under PowerShell 7, as test.yml's pwsh leg: data/pwsh/pwsh.exe where a portable copy is unpacked, else pwsh from PATH",
+            "type": "process",
+            "command": "powershell",
+            "args": [
+                "-NoProfile", "-Command",
+                "$p = 'data\\pwsh\\pwsh.exe'; if (-not (Test-Path -LiteralPath $p)) { $p = 'pwsh' }; & $p -NoProfile -ExecutionPolicy Bypass -File tests\\run-tests.ps1; exit $LASTEXITCODE"
+            ],
+            "options": { "cwd": "${workspaceFolder}", "statusbar": { "color": "#7E57C2" } },
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+        },
+        {
+            "label": "$(package) Package",
+            "detail": "build.js fills payload/, then vsce packs extension/Charlie-and-the-chat-factory.vsix, as CI does. Packs only: an installed .vsix is pinned and never updates from the Marketplace",
+            "type": "process",
+            "command": "npx.cmd",
+            "args": ["--yes", "@vscode/vsce@3", "package", "--out", "Charlie-and-the-chat-factory.vsix"],
+            "options": { "cwd": "${workspaceFolder}/extension", "statusbar": { "color": "#4D9EFF" } },
+            "group": { "kind": "build", "isDefault": true },
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+        },
+        {
+            "label": "$(run-all) CI",
+            "detail": "test.yml's Windows PowerShell leg - quick checks, package, self-test - stopping at the first failure. Its pwsh leg is Self-test (7)",
+            "dependsOrder": "sequence",
+            "dependsOn": ["$(check) Quick checks", "$(package) Package", "$(beaker) Self-test"],
+            "options": { "statusbar": { "color": "#FFB300" } },
+            "problemMatcher": []
+        },
+
+        // the steps Quick checks runs, one by one
+        {
+            "label": "ASCII scripts",
+            "detail": "a non-ASCII byte in a .ps1 breaks Windows PowerShell 5.1 on a non-English code page",
+            "type": "process",
+            "command": "powershell",
+            "args": [
+                "-NoProfile", "-Command",
+                "$bad = Get-ChildItem -Recurse -File -Include *.ps1 | Where-Object { [IO.File]::ReadAllText($_.FullName, [Text.Encoding]::GetEncoding(28591)) -match '[^\\x00-\\x7F]' }; if ($bad) { $bad.FullName; exit 1 }; 'every .ps1 is ASCII'"
+            ],
+            "options": { "cwd": "${workspaceFolder}", "statusbar": { "hide": true } },
+            "problemMatcher": [],
+            "presentation": { "panel": "shared" }
+        },
+        {
+            "label": "Extension check",
+            "type": "process",
+            "command": "node",
+            "args": ["tests/extension-check.js"],
+            "options": { "cwd": "${workspaceFolder}", "statusbar": { "hide": true } },
+            "problemMatcher": [],
+            "presentation": { "panel": "shared" }
+        },
+        {
+            "label": "Reply page check",
+            "type": "process",
+            "command": "node",
+            "args": ["tests/reply-page-check.js"],
+            "options": { "cwd": "${workspaceFolder}", "statusbar": { "hide": true } },
+            "problemMatcher": [],
+            "presentation": { "panel": "shared" }
+        },
+        {
+            "label": "Board page check",
+            "type": "process",
+            "command": "node",
+            "args": ["tests/board-page-check.js"],
+            "options": { "cwd": "${workspaceFolder}", "statusbar": { "hide": true } },
+            "problemMatcher": [],
+            "presentation": { "panel": "shared" }
+        },
+        {
+            "label": "Overlay (macOS panel) check",
+            "type": "process",
+            "command": "node",
+            "args": ["tests/overlay-mac-check.js"],
+            "options": { "cwd": "${workspaceFolder}", "statusbar": { "hide": true } },
+            "problemMatcher": [],
+            "presentation": { "panel": "shared" }
+        },
+
+        // the generators TESTING.md names; they rewrite tracked files, so no button
+        {
+            "label": "Demo frames",
+            "detail": "docs/make-demo.ps1 redraws the README's frames from a made-up sandbox",
+            "type": "process",
+            "command": "powershell",
+            "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "docs\\make-demo.ps1"],
+            "options": { "cwd": "${workspaceFolder}", "statusbar": { "hide": true } },
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+        },
+        {
+            "label": "Icon",
+            "detail": "docs/make-icon.py redraws extension/icon.png and src/icon.ps1 - needs numpy, opencv-python, Pillow",
+            "type": "process",
+            "command": "python",
+            "args": ["docs/make-icon.py"],
+            "options": { "cwd": "${workspaceFolder}", "statusbar": { "hide": true } },
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+        }
+    ]
+}

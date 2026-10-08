@@ -31,6 +31,11 @@ function Set-SfAgents([object[]]$Live) {
     $env:FAKE_AGENTS = '[' + ((@($Live) | ForEach-Object { [ordered]@{ pid = $_.Pid; sessionId = $_.SessionId; kind = $_.Kind; status = $_.Status; startedAt = $_.StartedAt; entrypoint = $_.Entrypoint } | ConvertTo-Json -Compress }) -join ',') + ']'
 }
 function Clear-SfLive { Remove-Item env:FAKE_AGENTS -EA SilentlyContinue; Get-ChildItem -LiteralPath $sfSess -File | Remove-Item -Force }
+function Set-SfLive([int]$ProcId, [string]$Status = 'idle') {
+    # the process in the registry, and claude agents listing it
+    Set-SfSession $ProcId $Status
+    Set-SfAgents @(New-SfLive $ProcId $Status)
+}
 $script:SfStops = [System.Collections.Generic.List[int]]::new()
 $script:ChatStopSeam = { param($e) $script:SfStops.Add([int]$e.Pid); Remove-Item env:FAKE_AGENTS -EA SilentlyContinue; Remove-Item -LiteralPath (Join-Path $sfSess "$($e.Pid).json") -Force -EA SilentlyContinue; 'ended' }
 $script:SfCode = [System.Collections.Generic.List[string]]::new()
@@ -151,7 +156,6 @@ Check 'a claude -p registered as interactive, sdk-cli: print-mode all the same -
 Set-SfSession 1106
 $script:ChatParentSeam = $terminalParent
 $s7 = & $SfStop @(New-SfLive 1106)
-$script:ChatParentSeam = $script:SeamsAtStart.Parent
 $script:ChatParentSeam = { param($e) if ($e.Pid -eq 1108) { @{ Pid = 9; Name = 'pwsh'; StartTime = [datetime]::MinValue } } else { @{ Pid = 4242; Name = 'Code'; StartTime = [datetime]::MinValue } } }
 Set-SfSession 1107
 Set-SfSession 1108 'idle' 'interactive' 'cli'
@@ -255,13 +259,10 @@ $cfgWas = [System.IO.File]::ReadAllText($script:ChatqConfigPath, $utf8)
 $cfgS = Get-ChatqConfig
 Set-ChatqProp $cfgS 'liveIdle' 'stop'
 Save-ChatqJson $script:ChatqConfigPath $cfgS
-Push-Location -LiteralPath $projS
-$jS = New-TestJob 'Show fresh chat' 'stop first'
-Pop-Location
+$jS = New-TestJob 'Show fresh chat' 'stop first' -Cwd $projS
 Set-ChatqProp $jS 'home' $sfHome; Save-ChatqJob $jS
 $script:SfStops.Clear()
-Set-SfSession 1201
-Set-SfAgents @(New-SfLive 1201)
+Set-SfLive 1201
 $sfAlerts = Join-Path $script:ChatqLogDir 'alerts.log'
 $sfAlertN = if (Test-Path -LiteralPath $sfAlerts) { [System.IO.File]::ReadAllLines($sfAlerts, $utf8).Count } else { 0 }
 Invoke-ChatqJob (New-ChatqWatchState) (Find-ChatqJob $jS.id)
@@ -274,13 +275,10 @@ Check 'liveIdle stop: the idle process ended once, the run done, and the window 
 # into, it starts a second agent on it - the started alert says not to
 Check 'liveIdle stop, the process ended: the started alert still says not to type in the chat''s tab until done' (
     $stS.Count -eq 1 -and $stS[0] -like "*stop first $($script:ChatqDot) open in VS Code: do not type in it until done") ($stS -join ' | ')
-Push-Location -LiteralPath $projS
-$jS2 = New-TestJob 'Show fresh chat' 'not while it works'
-Pop-Location
+$jS2 = New-TestJob 'Show fresh chat' 'not while it works' -Cwd $projS
 Set-ChatqProp $jS2 'home' $sfHome; Save-ChatqJob $jS2
 Add-SfLaunch $pS 'wsf0002' (Get-Date).AddMinutes(-5)
-Set-SfSession 1202
-Set-SfAgents @(New-SfLive 1202)
+Set-SfLive 1202
 $script:SfStops.Clear()
 Invoke-ChatqJob (New-ChatqWatchState) (Find-ChatqJob $jS2.id)
 $jS2 = Find-ChatqJob $jS2.id
@@ -289,16 +287,13 @@ $null = Remove-ChatqJob $jS2 'test'
 Add-SfDone $pS 'wsf0002'
 # Cancel clicked while liveIdle stop ends the process (the job running): the
 # prompt never goes in - cancelled, not run
-Push-Location -LiteralPath $projS
-$jS3 = New-TestJob 'Show fresh chat' 'cancelled at the stop'
-Pop-Location
+$jS3 = New-TestJob 'Show fresh chat' 'cancelled at the stop' -Cwd $projS
 Set-ChatqProp $jS3 'home' $sfHome
 # requeued after a first go: the cancel puts that go's start and count back
 $s3Start = (Get-Date).ToUniversalTime().AddHours(-1).ToString('o')
 Set-ChatqProp $jS3 'attempts' 1; Set-ChatqProp $jS3 'startedAt' $s3Start
 Save-ChatqJob $jS3
-Set-SfSession 1203
-Set-SfAgents @(New-SfLive 1203)
+Set-SfLive 1203
 $script:SfStops.Clear()
 $stopWas = $script:ChatStopSeam
 $script:ChatStopSeam = { param($e) Save-ChatqText (Join-Path $script:ChatqQueueDir "$($jS3.id).cancel") 'cancel'; & $stopWas $e }
@@ -316,16 +311,14 @@ Check 'and its first go''s start and count put back, as a cancel during the hand
 Clear-SfLive
 
 # Show-ChatFresh after a run
-Set-SfSession 1301
-Set-SfAgents @(New-SfLive 1301)
+Set-SfLive 1301
 $script:SfStops.Clear()
 $f1 = @(Show-ChatFresh -Via run -SessionId $idS -Cwd $projS -Title 'Show fresh chat' -ConfigDir $sfHome -Transcript $pS -Away $true)[-1]
 $rq1 = [System.IO.File]::ReadAllText($script:ChatReloadPath, $utf8) | ConvertFrom-Json
 Check 'after a run, nobody at the PC: nothing ended any more - live, and the request says so, naming its window' ($f1.OldProcess -eq 'live' -and $f1.Busy -eq $false -and
     -not $script:SfStops.Count -and $rq1.oldProcess -eq 'live' -and $rq1.busy -eq $false -and $rq1.away -eq $true -and (@($rq1.hostPids) -join ',') -eq '4242' -and
     $rq1.home -eq $sfHome -and -not $rq1.PSObject.Properties['jobId']) ($rq1 | ConvertTo-Json -Compress)
-Set-SfSession 1302
-Set-SfAgents @(New-SfLive 1302)
+Set-SfLive 1302
 $script:SfStops.Clear()
 $f2 = @(Show-ChatFresh -Via run -SessionId $idS -Cwd $projS -Title 'Show fresh chat' -ConfigDir $sfHome -Transcript $pS -Away $false)[-1]
 Check 'someone at the PC: left running (live), nothing ended' ($f2.OldProcess -eq 'live' -and -not $script:SfStops.Count) $f2.OldProcess
@@ -339,8 +332,7 @@ Clear-SfLive
 $env:FAKE_AGENTS = '[]'
 $f6 = @(Show-ChatFresh -Via run -SessionId $idS -Cwd $projS -Title 'Show fresh chat' -ConfigDir $sfHome -Transcript $pS -Away $false -HandoverPids @(4242) -JobId 'job-after-handover')[-1]
 $rq6 = [System.IO.File]::ReadAllText($script:ChatReloadPath, $utf8) | ConvertFrom-Json
-Set-SfAgents @(New-SfLive 1303)
-Set-SfSession 1303
+Set-SfLive 1303
 $script:ChatParentSeam = { param($e) @{ Pid = 6161; Name = 'Code'; StartTime = [datetime]::MinValue } }
 $f7 = @(Show-ChatFresh -Via run -SessionId $idS -Cwd $projS -Title 'Show fresh chat' -ConfigDir $sfHome -Transcript $pS -Away $false -HandoverPids @(4242) -JobId 'job-2')[-1]
 $script:ChatParentSeam = $script:SeamsAtStart.Parent
@@ -358,8 +350,7 @@ Add-SfLaunch $pS 'wsf0003' (Get-Date).AddSeconds(-20) 'sdk-cli'
 $i1 = Test-ChatIdle -Cwd $projS -Except $pS -Seconds 5 -ConfigDir $sfHome -Live @(New-SfLive 1310)
 $i2 = Test-ChatIdle -Cwd $projS -Except $pS -Seconds 5 -ConfigDir $sfHome -Live @((New-SfLive 1310), (New-SfLive 1311 'idle' 'print'))
 Check 'Test-ChatIdle: a print-mode run''s leftover work is dead once no such run is alive; while one is, it counts' ($i1 -eq $true -and $i2 -eq $false) "$i1 $i2"
-Set-SfSession 1312
-Set-SfAgents @(New-SfLive 1312)
+Set-SfLive 1312
 $script:SfStops.Clear()
 $f4 = @(Show-ChatFresh -Via run -SessionId $idS -Cwd $projS -Title 'Show fresh chat' -ConfigDir $sfHome -Transcript $pS -Away $true)[-1]
 Check 'after a run that left work of its own behind: not held - live, not busy, nothing ended' ($f4.OldProcess -eq 'live' -and $f4.Busy -eq $false -and -not $script:SfStops.Count) "$($f4.OldProcess) $($f4.Busy)"
@@ -367,8 +358,7 @@ Clear-SfLive
 Set-SfSession 1313
 $script:SfStops.Clear()
 $b1 = @(Show-ChatFresh -Via button -SessionId $idS -Cwd $projS -ConfigDir $sfHome)[-1]
-Set-SfSession 1318
-Set-SfAgents @(New-SfLive 1318)
+Set-SfLive 1318
 $script:ChatWindowTitlesSeam = { @('notes.md - projS - Visual Studio Code') }
 $c0 = @(Show-ChatFresh -Via chip -SessionId $idS -Cwd $projS -ConfigDir $sfHome)[-1]
 $script:ChatWindowTitlesSeam = $script:SeamsAtStart.Titles
@@ -376,8 +366,7 @@ Remove-Item -LiteralPath $script:ChatOpenPath -Force -EA SilentlyContinue
 Check 'Show it and the chip after such a run: the leftover holds nothing - Show it ends the process, the chip leaves it live, neither held' (
     $b1.Outcome -eq 'ok' -and $b1.OldProcess -eq 'ended' -and $c0.ExitCode -eq 0 -and $c0.OldProcess -eq 'live' -and ($script:SfStops -join ',') -eq '1313') "$($b1.OldProcess) $($c0.OldProcess) $($script:SfStops -join ',')"
 Add-SfLaunch $pS 'wsf0004' (Get-Date).AddSeconds(-10) 'claude-vscode'
-Set-SfSession 1314
-Set-SfAgents @(New-SfLive 1314)
+Set-SfLive 1314
 $script:SfStops.Clear()
 $f5 = @(Show-ChatFresh -Via run -SessionId $idS -Cwd $projS -Title 'Show fresh chat' -ConfigDir $sfHome -Transcript $pS -Away $true)[-1]
 Check 'a workflow the window''s process started during the run: held, busy, nothing ended' ($f5.OldProcess -eq 'held' -and $f5.Busy -eq $true -and -not $script:SfStops.Count) "$($f5.OldProcess) $($f5.Busy)"
@@ -388,9 +377,7 @@ Clear-SfLive
 # Show it while a queued prompt goes into the chat - the next one queued
 # for it, say - or any print-mode claude: nothing ended, nothing shown
 Set-SfSession 1315
-Push-Location -LiteralPath $projS
-$jR2 = New-TestJob 'Show fresh chat' 'running while you click'
-Pop-Location
+$jR2 = New-TestJob 'Show fresh chat' 'running while you click' -Cwd $projS
 Set-ChatqJobState $jR2 'running' 'test'
 $script:SfStops.Clear()
 $b2 = @(Show-ChatFresh -Via button -SessionId $idS -Cwd $projS -ConfigDir $sfHome)[-1]
@@ -406,15 +393,16 @@ Clear-SfLive
 $b4 = @(Show-ChatFresh -Via button -SessionId '5e5e5e5e-5e5e-4e5e-8e5e-5e5e5e5e5e5e' -Cwd $projS -ConfigDir $sfHome)[-1]
 Check 'a check that judged nothing (missing) does not say none of the process' ($b4.Outcome -eq 'missing' -and $b4.OldProcess -eq 'kept') "$($b4.Outcome) $($b4.OldProcess)"
 
-# after a request for the chat, the next run into it waits the show out
+# after a request for the chat, the next run into it waits the show out -
+# its hold read against when the request was made, not the clock at the
+# check, which a slow machine has moved on by then
 $script:ChatShowHoldSeconds = 30
+$hT = Get-Date
 Write-ChatReloadRequest -Title 'Show fresh chat' -Cwd $projS -Kind 'ran' -Busy $false -Away $true -SessionId $idS -OldProcess 'ended'
 $h1 = Get-ChatShowHold $idS
 $h2 = Get-ChatShowHold '5e5e5e5e-5e5e-4e5e-8e5e-5e5e5e5e5e5e'
 $h3 = Get-ChatShowHold $idS (Get-Date).AddSeconds(31)
-Push-Location -LiteralPath $projS
-$jH = New-TestJob 'Show fresh chat' 'right after the last'
-Pop-Location
+$jH = New-TestJob 'Show fresh chat' 'right after the last' -Cwd $projS
 Set-ChatqProp $jH 'home' $sfHome; Save-ChatqJob $jH
 Invoke-ChatqJob (New-ChatqWatchState) (Find-ChatqJob $jH.id)
 $jH = Find-ChatqJob $jH.id
@@ -425,7 +413,7 @@ Remove-Item -LiteralPath $script:ChatOpenPath -Force
 $script:ChatShowHoldSeconds = 0
 Check 'a run into a chat a window was just asked to show waits 30 s, not counted as busy; another chat''s, or an older request, does not' (
     $h1 -and $null -eq $h2 -and $null -eq $h3 -and $h4 -and $jH.state -eq 'queued' -and -not $jH.startedAt -and -not $jH.deferredSince -and
-    [int]$jH.attempts -eq 0 -and (ConvertTo-ChatqDate $jH.deferUntil) -gt (Get-Date).AddSeconds(20)) "$h1 $h2 $h3 $h4 $($jH.state) $($jH.deferUntil)"
+    [int]$jH.attempts -eq 0 -and (ConvertTo-ChatqDate $jH.deferUntil) -gt $hT.AddSeconds(29)) "$h1 $h2 $h3 $h4 $($jH.state) $($jH.deferUntil)"
 $null = Remove-ChatqJob $jH 'test'
 
 # Two requests inside one of the extension's polls: the file is the newest,
@@ -526,8 +514,7 @@ $exactTitles = { @('notes.md - projS - Visual Studio Code') }
 $script:ChatWindowTitlesSeam = $exactTitles
 $reloadBytes = [System.IO.File]::ReadAllBytes($script:ChatReloadPath)
 Remove-Item -LiteralPath $script:ChatOpenPath -Force -EA SilentlyContinue
-Set-SfSession 1401
-Set-SfAgents @(New-SfLive 1401)
+Set-SfLive 1401
 $script:SfCode.Clear()
 $script:SfStops.Clear()
 $wlPath = Join-Path $script:ChatqLogDir 'watcher.log'
@@ -548,8 +535,7 @@ Check 'watcher.log: one ASCII line for the show - how, which chat, the process, 
 Check 'code is asked once, for the folder; a run''s request beside it is left byte for byte' (($script:SfCode -join '|') -eq $projS -and $sameReload) ($script:SfCode -join '|')
 Remove-Item -LiteralPath $script:ChatOpenPath -Force
 $script:SfCode.Clear()
-Set-SfSession 1402
-Set-SfAgents @(New-SfLive 1402)
+Set-SfLive 1402
 $script:ChatParentSeam = $terminalParent
 $c2 = @(Show-ChatFresh -Via chip -SessionId $idS -Cwd $projS -ConfigDir $sfHome)[-1]
 $script:ChatParentSeam = $script:SeamsAtStart.Parent
@@ -557,8 +543,7 @@ Check 'the chip on a terminal''s chat: 20, nothing written, code not asked' ($c2
 # mid-turn in a terminal: whose it is comes before held, or a tab would open
 # beside a terminal that is writing to the chat. The chip reads the registry
 # alone, as the panel does: busy is said there
-Set-SfSession 1402 'busy'
-Set-SfAgents @(New-SfLive 1402 'busy')
+Set-SfLive 1402 'busy'
 $script:ChatParentSeam = $terminalParent
 $c2b = @(Show-ChatFresh -Via chip -SessionId $idS -Cwd $projS -ConfigDir $sfHome)[-1]
 $script:ChatParentSeam = $script:SeamsAtStart.Parent
@@ -571,9 +556,7 @@ Check 'the chip on a window''s working chat: 10, a request to focus it naming it
     $c3.ExitCode -eq 10 -and $c3.OldProcess -eq 'held' -and (@($c3.HostPids) -join ',') -eq '4242' -and $oq3 -and $oq3.oldProcess -eq 'held' -and
     (@($oq3.hostPids) -join ',') -eq '4242' -and -not $script:SfStops.Contains(1402)) "$($c3.ExitCode) $($c3.OldProcess) $($oq3 | ConvertTo-Json -Compress)"
 Clear-SfLive
-Push-Location -LiteralPath $projS
-$jR = New-TestJob 'Show fresh chat' 'running now'
-Pop-Location
+$jR = New-TestJob 'Show fresh chat' 'running now' -Cwd $projS
 Set-ChatqJobState $jR 'running' 'test'
 $script:SfCode.Clear()
 Remove-Item -LiteralPath $script:ChatOpenPath -Force -EA SilentlyContinue
@@ -608,13 +591,11 @@ $c4c = @(Show-ChatFresh -Via chip -SessionId $idS -Cwd $projS -ConfigDir $sfHome
 Check 'someone''s own claude -p going into it, no job of chatq''s: 15, as before - nothing asked of the window' (
     $c4c.ExitCode -eq 15 -and -not (Test-Path -LiteralPath $script:ChatOpenPath)) $c4c.ExitCode
 Clear-SfLive
-Set-SfSession 1403
-Set-SfAgents @(New-SfLive 1403)
+Set-SfLive 1403
 $script:SfCode.Clear()
 $script:ChatWindowTitlesSeam = { @('notes.md - my-workspace (Workspace) - Visual Studio Code') }
 $c5 = @(Show-ChatFresh -Via chip -SessionId $idS -Cwd $projS -ConfigDir $sfHome)[-1]
-Set-SfSession 1404
-Set-SfAgents @(New-SfLive 1404)
+Set-SfLive 1404
 $script:ChatWindowTitlesSeam = $exactTitles
 $c6 = @(Show-ChatFresh -Via chip -SessionId $idS -Cwd $projS -ConfigDir $sfHome)[-1]
 Check 'held in a window, none exactly its folder: 25, and no code -n to open a second; one exactly it: code' (
@@ -642,8 +623,7 @@ $unT = Join-Path $sb 'unlisted-chat.jsonl'
 [System.IO.File]::WriteAllText($unT, (& $sdkLine 'sdk-cli') + (& $sdkLine 'claude-vscode'), $utf8)
 $tailT = Join-Path $sb 'tail-hidden-chat.jsonl'
 [System.IO.File]::WriteAllText($tailT, (& $sdkLine 'claude-vscode') + (& $sdkLine 'sdk-cli'), $utf8)
-Set-SfSession 1405
-Set-SfAgents @(New-SfLive 1405)
+Set-SfLive 1405
 $script:ChatWindowTitlesSeam = $exactTitles
 $script:SfCode.Clear()
 $script:ChatCodeSeam = { param($f) $script:SfCode.Add($f); [pscustomobject]@{ Ok = $true; Code = 'ok'; Why = $null; Slow = $false } }
@@ -679,16 +659,13 @@ Check 'Show it''s verdict: one ASCII line, the four fields' ($v -notmatch '[^\x2
 $lastAlert = { @([System.IO.File]::ReadAllLines((Join-Path $script:ChatqLogDir 'alerts.log'), $utf8) | Where-Object { $_ -match "`tdone`t" })[-1] }
 $runS = {
     param([string]$Say)
-    Push-Location -LiteralPath $projS
-    $j = New-TestJob 'Show fresh chat' $Say
-    Pop-Location
+    $j = New-TestJob 'Show fresh chat' $Say -Cwd $projS
     Set-ChatqProp $j 'home' $sfHome; Save-ChatqJob $j
     Invoke-ChatqJob (New-ChatqWatchState) (Find-ChatqJob $j.id)
     return (Find-ChatqJob $j.id)
 }
 $script:SfStops.Clear()
-Set-SfSession 1501
-Set-SfAgents @(New-SfLive 1501)
+Set-SfLive 1501
 $e1 = & $runS 'nobody here'
 $rqE = [System.IO.File]::ReadAllText($script:ChatReloadPath, $utf8) | ConvertFrom-Json
 $a1 = & $lastAlert
@@ -698,16 +675,14 @@ Check 'a run into a chat a window holds, nobody at the PC: its process left runn
 Check 'and the alert says to show it before typing' ($a1 -like '*Show it in VS Code before typing*') $a1
 Clear-SfLive
 $script:ChatqIdleSeam = 30
-Set-SfSession 1502
-Set-SfAgents @(New-SfLive 1502)
+Set-SfLive 1502
 $script:SfStops.Clear()
 $null = & $runS 'someone here'
 $a2 = & $lastAlert
 $script:ChatqIdleSeam = 99999
 Check 'someone at the PC: left running, and the alert says to show it before typing' ($a2 -like '*before typing*' -and -not $script:SfStops.Count) $a2
 Clear-SfLive
-Set-SfSession 1503
-Set-SfAgents @(New-SfLive 1503)
+Set-SfLive 1503
 $script:ChatParentSeam = $terminalParent
 $null = & $runS 'terminal'
 $script:ChatParentSeam = $script:SeamsAtStart.Parent
@@ -800,7 +775,7 @@ $evil = "Evil'; Remove-Item x; '"
 $rowS = { param($cwd, $sid = $idS) [pscustomobject]@{ provider = 'claude'; sessionId = $sid; cwd = $cwd; title = $evil; key = "s:$sid" } }
 $sp1 = Start-ChatShowFreshProcess $Hs (& $rowS "D:\it's here")
 $cmd1 = $script:SfSpawn
-$sp2 = Start-ChatShowFreshProcess $Hs (& $rowS "D:\it$([char]0x2019)s here")
+$null = Start-ChatShowFreshProcess $Hs (& $rowS "D:\it$([char]0x2019)s here")
 $cmd2 = $script:SfSpawn
 $script:SfSpawn = $null
 $sp3 = Start-ChatShowFreshProcess $Hs (& $rowS 'D:\p' 'not-a-guid')
@@ -901,8 +876,7 @@ try { $profS = @(Get-ChatCodeProfileNames) } finally { $env:APPDATA = $apWas; $s
 Check 'VS Code''s profile names, read from its storage.json' (($profS -join ',') -eq 'Work,Play') ($profS -join ',')
 $script:ChatCodeProfilesSeam = { @('Work') }
 $script:ChatWindowTitlesSeam = { @('notes.md - projS - Work - Visual Studio Code') }
-Set-SfSession 1405
-Set-SfAgents @(New-SfLive 1405)
+Set-SfLive 1405
 $script:SfCode.Clear()
 $script:ChatCodeSeam = { param($f) $script:SfCode.Add($f); [pscustomobject]@{ Ok = $true; Code = 'ok'; Why = $null; Slow = $false } }
 $c10 = @(Show-ChatFresh -Via chip -SessionId $idS -Cwd $projS -ConfigDir $sfHome)[-1]
@@ -915,15 +889,9 @@ Check 'the chip on a chat whose window has a profile: the window brought forward
 
 # the chip itself, built and shown off every screen, in the STA process WPF needs
 $chipWpf = @"
-`$env:CHATQ_OVERLAY = '1'
-. '$(Join-Path $sb 'tool\Charlie-and-the-chat-factory.ps1')'
-Set-StrictMode -Off
+$staLoad
 Initialize-ChatOverlayNative
-`$H = New-ChatOverlayHostState
-`$script:ChatOverlayHost = `$H
-`$H.Ctx = New-ChatOverlayContext
-`$H.State = [pscustomobject]@{ x = `$null; y = `$null; locked = `$true; hidden = `$false }
-New-ChatOverlayWindow `$H
+$staPanel
 `$mk = { param(`$sid, `$t) [pscustomobject]@{ key = "s:`$sid"; kind = 'session'; provider = 'claude'; status = 'idle'; rank = 3; project = 'p'; title = `$t; prompt = `$null; stateText = 'idle 1m'; job = `$null; sessionId = `$sid; cwd = 'C:\p' } }
 `$rows = @((& `$mk '11111111-1111-4111-8111-111111111111' 'one'), (& `$mk '22222222-2222-4222-8222-222222222222' 'two'))
 `$none = [pscustomobject]@{ usage = @(); notes = @() }
@@ -970,9 +938,36 @@ Update-ChatOverlayOpen `$H
 `$foot = `$kids.Count -eq 3 -and `$kids[0].Tag.key -eq `$rows[0].key -and `$kids[2].Tag -eq 'said' -and `$kids[2].Text -eq "opened 'two'"
 `$H.OpenProc = `$null
 `$H.OpenSay = `$null
+# nor does this process, the overlay's own kind, bring a real window to the
+# front: CHATQ_NOFRONT came down from the run, so the calls' type was never
+# compiled, and an open whose end finds its window refuses - no seam set.
+# Asked first: without it the open's end is never run, so a run that lost
+# it fails here before any real call could be made.
+`$nfEnv = `$env:CHATQ_NOFRONT -eq '1'
+`$nfType = `$null -eq ('ChatOverlayFront' -as [type])
+`$nfRefused = `$false
+`$nfCalls = `$false
+if (`$nfEnv) {
+    `$script:ChatCodeProfilesSeam = { @() }
+    `$script:ChatCodeWindowListSeam = { @([pscustomobject]@{ Handle = [int64]4242; Title = 'a.ps1 - p - Visual Studio Code' }) }
+    `$H.OpenProc = [pscustomobject]@{ HasExited = `$true; ExitCode = 0 }
+    `$H.OpenAt = Get-Date
+    `$H.OpenTitle = 'two'
+    `$H.OpenSid = 'nofront2'
+    `$H.OpenSessionId = '22222222-2222-4222-8222-222222222222'
+    `$H.OpenCwd = 'C:\p'
+    `$H.OpenFront = [int64]0
+    Update-ChatOverlayOpen `$H
+    `$nfLine = @(Get-Content -LiteralPath (Join-Path `$script:ChatqLogDir 'overlay.log') | Where-Object { `$_ -like '*open: nofront2 to the front:*' })
+    `$nfRefused = `$nfLine.Count -eq 1 -and `$nfLine[0] -like '*still behind - refused - CHATQ_NOFRONT is set' -and `$H.OpenSay.Text -like '*could not be brought to the front*'
+    `$nfCalls = @(Grant-ChatOverlayFront @(4242)).Count -eq 0 -and `$null -eq (Invoke-ChatOverlayFrontCall 'foreground')
+}
+`$nf = "`$nfEnv/`$nfType/`$nfRefused/`$nfCalls"
+`$script:ChatCodeWindowListSeam = `$null
+`$H.OpenSay = `$null
 Set-ChatOverlayHidden `$H `$true
 `$hid = -not `$H.ChipWin.IsVisible -and -not `$H.ChipKey
-'{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}|{9}' -f `$tagged, `$cx, `$flush, `$shown, `$dropped, `$again, `$hid, `$inRow, `$foot, "rects `$(@(`$rects).Count) line `$(`$ln -join ',') chip `$(`$cr -join ',') kids `$(@(`$kids).Count)"
+'{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}|{9}|{10}' -f `$tagged, `$cx, `$flush, `$shown, `$dropped, `$again, `$hid, `$inRow, `$foot, `$nf, "rects `$(@(`$rects).Count) line `$(`$ln -join ',') chip `$(`$cr -join ',') kids `$(@(`$kids).Count)"
 "@
 $chipOut = Invoke-Sta 'chip-test' $chipWpf
 $ch = "$chipOut" -split '\|'
@@ -982,6 +977,8 @@ Check 'the chip takes clicks but never focus, and is in neither Alt+Tab nor the 
 Check 'it sits flush with its row''s right end, armed when the pointer is elsewhere' ($ch[2] -eq 'True' -and $ch[3] -eq 'True') "$chipOut"
 Check 'a redraw without its row takes it away; hiding the panel takes it too' ($ch[4] -eq 'True' -and $ch[5] -eq 'True' -and $ch[6] -eq 'True') "$chipOut"
 Check 'an open under way, and how it went, on a line under the rows - none pushed down, their states left; a say other than the open''s keeps its words as the open ticks' ($ch[7] -eq 'True' -and $ch[8] -eq 'True') "$chipOut"
+Check 'the overlay''s own kind of process, in a test run, brings no real window to the front: CHATQ_NOFRONT inherited, the calls'' type never compiled, an open''s end refused' (
+    $ch.Count -ge 10 -and $ch[9] -eq 'True/True/True/True') "$chipOut"
 
 $script:ChatStopSeam = $script:SeamsAtStart.Stop
 $script:ChatParentSeam = $script:SeamsAtStart.Parent

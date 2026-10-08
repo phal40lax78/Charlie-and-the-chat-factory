@@ -92,12 +92,8 @@ let lookWhy = '';
 // installed, rewritten on every install - as an array, else null
 function readInstalled(dir) {
     if (!dir) return null;
-    try {
-        let raw = fs.readFileSync(path.join(dir, 'extensions.json'), 'utf8');
-        if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
-        const a = JSON.parse(raw);
-        return Array.isArray(a) ? a : null;
-    } catch (e) { return null; }
+    const a = setup.readJson(path.join(dir, 'extensions.json'));
+    return Array.isArray(a) ? a : null;
 }
 
 function idOf(e) { return String((e && e.identifier && e.identifier.id) || '').toLowerCase(); }
@@ -169,7 +165,7 @@ function hostWorkCommand(hostPid, home, hostStart) {
     const start = Number.isFinite(hostStart) && hostStart > 0 ? Math.trunc(hostStart) : 0;
     return 'if (-not (Get-Command Get-ChatHostWork -EA SilentlyContinue)) { [Console]::Out.WriteLine(\'' + TOO_OLD + '\') } else { ' +
         'Remove-Variable r -EA SilentlyContinue; $r = Get-ChatHostWork -HostPid ' + Math.trunc(hostPid) +
-        (home ? ' -ConfigDir ' + ext()._psQuote(home) : '') + '; [Console]::Out.WriteLine((ConvertTo-ChatHostWorkJson $r)); ' +
+        (home ? ' -ConfigDir ' + setup.psQuote(home) : '') + '; [Console]::Out.WriteLine((ConvertTo-ChatHostWorkJson $r)); ' +
         'if (Get-Command Save-ChatHostWorkNote -EA SilentlyContinue) { Save-ChatHostWorkNote $r -HostStart ' + start + ' } }';
 }
 
@@ -192,10 +188,8 @@ function lookFailure(err, stdout, stderr) {
 const WHYS = ['', 'turn', 'prompt', 'run', 'background'];
 // The last line that is JSON, every field the right type - else null. Pure.
 function parseHostWork(stdout) {
-    const lines = String(stdout || '').split(/\r?\n/).map(s => s.trim()).filter(s => s.startsWith('{'));
-    if (!lines.length) return null;
     let o;
-    try { o = JSON.parse(lines[lines.length - 1]); } catch (e) { return null; }
+    try { o = JSON.parse(setup.lastSaid(stdout, /^\{/)); } catch (e) { return null; }
     if (!o || !Number.isInteger(o.hostPid) || typeof o.known !== 'boolean' || !Array.isArray(o.chats)) return null;
     for (const c of o.chats) {
         if (!c || typeof c.sessionId !== 'string' || !WHYS.includes(c.why) || typeof c.written !== 'boolean') return null;

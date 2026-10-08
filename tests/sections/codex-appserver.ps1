@@ -160,8 +160,8 @@ Check 'codex usage: a 43200-minute window from a rollout reads month as well' ($
 # a probe's own answers: one fixture folder per case, under the sandbox
 $cuDir = Join-Path $sb 'appserver-probe'
 $null = New-Item -ItemType Directory -Path $cuDir -Force
-$cuAnswer = { param([string]$primary, [string]$extra)
-    $body = '{"result":{"ordinaryUsageAllowed":true,"rateLimits":{"limitId":"codex","primary":' + $primary + ',"secondary":null,"credits":{"hasCredits":false,"unlimited":false,"balance":null},"planType":"plus","rateLimitReachedType":null' + $extra + '}}}'
+$cuAnswer = { param([string]$primary, [string]$reached = 'null', [string]$credits = 'false')
+    $body = '{"result":{"ordinaryUsageAllowed":true,"rateLimits":{"limitId":"codex","primary":' + $primary + ',"secondary":null,"credits":{"hasCredits":' + $credits + ',"unlimited":false,"balance":null},"planType":"plus","rateLimitReachedType":' + $reached + '}}}'
     [System.IO.File]::WriteAllText((Join-Path $cuDir 'account_rateLimits_read.json'), $body, $utf8)
 }
 $cuJob = [pscustomobject]@{ id = 'cu-probe'; seq = 0; provider = 'codex'; kind = 'prompt'; sessionId = $cxId; cwd = $sb; home = $codexHome; title = 'x'; model = $null; runModel = $null }
@@ -244,7 +244,7 @@ try {
 
     # the probe: a window at 100% whose reset is ahead - limited, no turn
     $cuReset = [DateTimeOffset]::UtcNow.AddHours(3).ToUnixTimeSeconds()
-    & $cuAnswer ('{"usedPercent":100,"windowDurationMins":300,"resetsAt":' + $cuReset + '}') ''
+    & $cuAnswer ('{"usedPercent":100,"windowDurationMins":300,"resetsAt":' + $cuReset + '}')
     Remove-Item -LiteralPath $cuRec -Recurse -Force -EA SilentlyContinue
     $cuP = Invoke-ChatqProbe 'codex' $cuJob
     $cuPArgv = & $cuArgv
@@ -253,21 +253,17 @@ try {
         [Math]::Abs(($cuP.Until - [DateTimeOffset]::FromUnixTimeSeconds($cuReset).LocalDateTime).TotalSeconds) -lt 2 -and
         $cuP.Detail -like 'account/rateLimits/read: 5h window at 100%*' -and $cuPArgv -match 'app-server' -and $cuPArgv -notmatch 'exec') "$($cuP | ConvertTo-Json -Compress) / $cuPArgv"
     # a limit the server says is reached, under 100%: limited, with no reset to name
-    & $cuAnswer '{"usedPercent":40,"windowDurationMins":10080,"resetsAt":null}' ''
-    $body = [System.IO.File]::ReadAllText((Join-Path $cuDir 'account_rateLimits_read.json'), $utf8).Replace('"rateLimitReachedType":null', '"rateLimitReachedType":"rate_limit_reached"')
-    [System.IO.File]::WriteAllText((Join-Path $cuDir 'account_rateLimits_read.json'), $body, $utf8)
+    & $cuAnswer '{"usedPercent":40,"windowDurationMins":10080,"resetsAt":null}' '"rate_limit_reached"'
     $cuR = Invoke-ChatqProbe 'codex' $cuJob
     Check 'the Codex probe: a limit the server says is reached is limited, its kind kept, no turn' (
         $cuR.Limited -and $cuR.NoTurn -and $null -eq $cuR.Until -and $cuR.Type -eq 'rate_limit_reached') "$($cuR | ConvertTo-Json -Compress)"
     # unclear - room left, or credits to carry past a full window: the turn decides
     $env:FAKE_SCENARIO = Join-Path $here 'fixtures\stream\codex-done.jsonl'
-    & $cuAnswer '{"usedPercent":12,"windowDurationMins":300,"resetsAt":null}' ''
+    & $cuAnswer '{"usedPercent":12,"windowDurationMins":300,"resetsAt":null}'
     Remove-Item -LiteralPath $cuRec -Recurse -Force -EA SilentlyContinue
     $cuU = Invoke-ChatqProbe 'codex' $cuJob
     $cuUArgv = & $cuArgv
-    & $cuAnswer ('{"usedPercent":100,"windowDurationMins":300,"resetsAt":' + $cuReset + '}') ''
-    $body = [System.IO.File]::ReadAllText((Join-Path $cuDir 'account_rateLimits_read.json'), $utf8).Replace('"hasCredits":false', '"hasCredits":true')
-    [System.IO.File]::WriteAllText((Join-Path $cuDir 'account_rateLimits_read.json'), $body, $utf8)
+    & $cuAnswer ('{"usedPercent":100,"windowDurationMins":300,"resetsAt":' + $cuReset + '}') 'null' 'true'
     Remove-Item -LiteralPath $cuRec -Recurse -Force -EA SilentlyContinue
     $cuC = Invoke-ChatqProbe 'codex' $cuJob
     $cuCArgv = & $cuArgv

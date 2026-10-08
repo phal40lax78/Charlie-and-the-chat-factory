@@ -181,12 +181,9 @@ $script:ChatProviders = [ordered]@{
             $firstLine = if ($nl -ge 0) { $p.Head.Substring(0, $nl) } else { $p.Head }
             $hidden = $firstLine -like '*"isSidechain":true*'
             $title = $null; $source = 'first message'
-            foreach ($t in @($p.Tail, $p.Head)) {
-                if (-not $title) { $title = Get-ChatJsonString $t 'customTitle'; if ($title) { $source = 'renamed' } }
-            }
-            if (-not $title) {
+            foreach ($k in @(@('customTitle', 'renamed'), @('aiTitle', 'auto'))) {
                 foreach ($t in @($p.Tail, $p.Head)) {
-                    if (-not $title) { $title = Get-ChatJsonString $t 'aiTitle'; if ($title) { $source = 'auto' } }
+                    if (-not $title) { $title = Get-ChatJsonString $t $k[0]; if ($title) { $source = $k[1] } }
                 }
             }
             # the raw JSON text: a title holding a quote came through as \"

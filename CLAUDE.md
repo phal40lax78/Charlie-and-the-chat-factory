@@ -28,5 +28,5 @@
 **Define success criteria. Loop until verified.**
 
 For multi-step tasks, state a brief plan with a check per step, using the
-tiers in [TESTING.md](TESTING.md). Tier 0 is always runnable; Tier 1 and 2 need
-hardware and the user's go-ahead.
+tiers in [TESTING.md](TESTING.md). Tier 0 is always runnable; Tier 1 (this PC
+for real) and Tier 2 (other hardware) need the user's go-ahead.

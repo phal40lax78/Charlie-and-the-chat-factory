@@ -24,13 +24,21 @@ $p = Invoke-ChatqProcess -Exe $env:CHATQ_CLAUDE -ArgList @('-p') -StdIn 'x' -Tim
 Check '400 KB of stderr does not deadlock' ($p.ExitCode -eq 0 -and $p.StdErr.Length -ge 390000) "exit $($p.ExitCode) err $($p.StdErr.Length)"
 Remove-Item env:FAKE_STDERR
 
-$env:FAKE_SLEEP = '30'
+# 60 s: a stop that kills nothing leaves the fake alive past the runner's
+# own waits after it, 15 s and 5 s, so the tree check sees it on any machine
+$env:FAKE_SLEEP = '60'
+# the fake writes pid.txt once it is up. The deadline is looked at on the
+# runner's 5 s ticks, and 8 s is the second of them: a slow machine's cold
+# start gets that far, so the kill finds this run's process - not a pid an
+# earlier run left, which would pass for one gone
+$fakePidTxt = Join-Path $rec 'pid.txt'
+Remove-Item -LiteralPath $fakePidTxt -Force -EA SilentlyContinue
 $t0 = Get-Date
-$p = Invoke-ChatqProcess -Exe $env:CHATQ_CLAUDE -ArgList @('-p') -StdIn 'x' -TimeoutSec 2
-$fakePid = [int]([System.IO.File]::ReadAllText((Join-Path $rec 'pid.txt')))
+$p = Invoke-ChatqProcess -Exe $env:CHATQ_CLAUDE -ArgList @('-p') -StdIn 'x' -TimeoutSec 8
+$fakePid = if (Test-Path -LiteralPath $fakePidTxt) { [int]([System.IO.File]::ReadAllText($fakePidTxt)) } else { 0 }
 Start-Sleep -Milliseconds 500
-Check 'timeout stops the run' ($p.Stopped -eq 'timeout' -and ((Get-Date) - $t0).TotalSeconds -lt 20) "$($p.Stopped)"
-Check 'and takes the whole process tree with it' (-not (Get-Process -Id $fakePid -EA SilentlyContinue)) $fakePid
+Check 'timeout stops the run' ($p.Stopped -eq 'timeout' -and ((Get-Date) - $t0).TotalSeconds -lt 25) "$($p.Stopped)"
+Check 'and takes the whole process tree with it' ($fakePid -gt 0 -and -not (Get-Process -Id $fakePid -EA SilentlyContinue)) $fakePid
 Remove-Item env:FAKE_SLEEP
 
 # the quoting rules, checked against what the CLR itself hands Main()

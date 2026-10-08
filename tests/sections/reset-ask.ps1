@@ -10,7 +10,7 @@
 # markers, the registry and the chats made here are put back at the end.
 
 Section 'reset ask'
-$raCfgWas = if (Test-Path -LiteralPath $script:ChatqConfigPath) { [System.IO.File]::ReadAllText($script:ChatqConfigPath, $utf8) } else { $null }
+$raCfgWas = Read-TestFile $script:ChatqConfigPath
 $raWas = @{ Usage = $script:ChatOverlayUsageSeam; Alive = $script:ChatqAliveSeam; Spawn = $script:ChatqSpawn; Send = $script:ChatqLiveSendSeam; Idle = $script:ChatqIdleSeam }
 $raJobsBefore = @(Get-ChatqJobs | ForEach-Object { [string]$_.id })
 $script:RaSpawns = 0
@@ -329,8 +329,8 @@ $kOf = { param($id) "${id}_$(& $raUu $id)" }
 $raWant = @($raK1, $raKV, $raKN, $raKW | ForEach-Object { & $kOf $_ })
 $shownOf = { @(Get-ChildItem -LiteralPath $script:ChatqAutoDir -Filter '*.shown' -File -EA SilentlyContinue | ForEach-Object { $_.BaseName } | Sort-Object) }
 Remove-Item -LiteralPath $script:ChatOverlayCmdPath -Force -EA SilentlyContinue
-$cxA = New-ChatOverlayContext
-$cxA.WantAsk = $true
+function New-RaAskContext { $c = New-ChatOverlayContext; $c.WantAsk = $true; $c }
+$cxA = New-RaAskContext
 $snA = Invoke-ChatOverlayCycle $cxA
 $haA = $snA.header.ask
 Check 'the collector asks once the reset is 5 minutes behind: the chats it cut off, newest first - not one reset a minute ago, nor one reset 13 hours ago' (
@@ -355,8 +355,7 @@ Check 'the snapshot saved, the keys it named are kept - what the macOS menu''s a
 $null = Save-ChatqAskAnswer -Keys @(& $kOf $raK2) -Answer leave -Source test
 $cxA.AskNews = $null
 $null = Invoke-ChatOverlayCycle $cxA
-$cxB = New-ChatOverlayContext
-$cxB.WantAsk = $true
+$cxB = New-RaAskContext
 $null = Invoke-ChatOverlayCycle $cxB
 Check 'announced once: not again on the next pass, nor by an overlay started again - the .shown markers' (
     $null -eq $cxA.AskNews -and $cxB.Ask.Count -eq 4 -and $null -eq $cxB.AskNews -and @(& $raLog | Where-Object { $_ -like '*ask: 4 cut-off chats can continue*' }).Count -eq 1)
@@ -365,8 +364,7 @@ $prOut = (@(Write-ChatOverlayPrint 6>&1 | ForEach-Object { "$_" }) -join '')
 Check 'chatoverlay -Print shows the ask''s note, and when 5h resets after its percent - and announces nothing' (
     $prOut -like "*limit over at $raHm - 4 chats it cut off can continue*" -and $prOut -like "*5h 42% resets $(& $raAt $raUse5h)*" -and (& $shownOf).Count -eq $shownN) $prOut
 Get-ChildItem -LiteralPath $script:ChatqAutoDir -Filter '*.shown' -File | Remove-Item -Force
-$cxP = New-ChatOverlayContext
-$cxP.WantAsk = $true
+$cxP = New-RaAskContext
 $snP = Invoke-ChatOverlayCycle $cxP -Peek
 $cxN = New-ChatOverlayContext
 Send-ChatOverlayCommand 'ask-go'
@@ -374,34 +372,29 @@ $null = Invoke-ChatOverlayCycle $cxN
 Check 'a -Peek pass, or a context that does not show it (chatoverlay -Print''s), finds the ask but never announces it, marks it shown, or acts on an answer' (
     $cxP.Ask.Count -eq 4 -and $snP.header.ask.count -eq 4 -and $null -eq $cxP.AskNews -and $cxN.Ask.Count -eq 4 -and $null -eq $cxN.AskNews -and (& $shownOf).Count -eq 0 -and
     -not @(Get-ChatqJobs | Where-Object { $_.sessionId -in $raK1, $raKV, $raKN, $raKW }).Count -and -not @($cxN.Commands | Where-Object { $_.verb -like 'ask-*' }).Count) "$($cxP.AskNews) $($cxN.AskNews) $((& $shownOf).Count)"
-$cxR = New-ChatOverlayContext
-$cxR.WantAsk = $true
+$cxR = New-RaAskContext
 $null = Invoke-ChatOverlayCycle $cxR
 Check 'with its markers gone, the next overlay announces it again' ($cxR.AskNews -and @($cxR.AskNews.Keys).Count -eq 4)
 $null = Set-ChatqAutoContinue -Value off
-$cxO = New-ChatOverlayContext
-$cxO.WantAsk = $true
+$cxO = New-RaAskContext
 $snO = Invoke-ChatOverlayCycle $cxO -Peek
 $null = Set-ChatqAutoContinue -Value ask
 Check 'autoContinue off: no ask, no note - the orange rows stay' (
     $null -eq $cxO.Ask -and $null -eq $snO.header.ask -and -not @($snO.header.notes | Where-Object { $_.PSObject.Properties['kind'] }).Count -and
     @($cxO.CutOff | Where-Object { $_.Id -eq $raK1 }).Count -eq 1) "$($cxO.Ask) $(@($cxO.CutOff).Count)"
-$cxF = New-ChatOverlayContext
-$cxF.WantAsk = $true
+$cxF = New-RaAskContext
 $cxF.Config.cutOff = $false
 $snF = Invoke-ChatOverlayCycle $cxF -Peek
 Check 'the orange rows off (cutOff false): still asked, no row drawn for it' (
     $cxF.Ask.Count -eq 4 -and -not @($cxF.CutOff).Count -and -not @($snF.rows | Where-Object { $_.status -eq 'cutoff' }).Count) "$($cxF.Ask.Count) $(@($cxF.CutOff).Count)"
 $script:RaUsage = @([pscustomobject]@{ Label = '5h'; Percent = 100; ResetsAt = (Get-Date).AddMinutes(60); Severity = 'critical' })
-$cxL = New-ChatOverlayContext
-$cxL.WantAsk = $true
+$cxL = New-RaAskContext
 $snL = Invoke-ChatOverlayCycle $cxL -Peek
 $script:RaUsage = @([pscustomobject]@{ Label = '5h'; Percent = 42; ResetsAt = $raUse5h; Severity = 'normal' }, [pscustomobject]@{ Label = 'week'; Percent = 50; ResetsAt = (Get-Date).AddDays(3); Severity = 'normal' })
 Check 'at the limit again, its reset ahead: nothing asked until then' ($null -eq $cxL.Ask -and $null -eq $snL.header.ask) "$($cxL.Ask)"
 # the macOS menu's answers, as verbs in overlay-cmd
 Remove-Item -LiteralPath $script:ChatOverlayCmdPath -Force -EA SilentlyContinue
-$cxV = New-ChatOverlayContext
-$cxV.WantAsk = $true
+$cxV = New-RaAskContext
 $null = Invoke-ChatOverlayCycle $cxV
 $savedV = @($cxV.AskSavedKeys)
 Send-ChatOverlayCommand 'ask-leave'
@@ -447,8 +440,7 @@ Check 'Send-ChatqResetAskAlert: off with no phone, or limited not let through; w
     $pOff -eq 'off' -and $pWait -eq 'wait' -and $pSent -eq 'sent' -and $pEv -eq 'off' -and $script:RaSent.Count -eq 1) "$pOff $pWait $pSent $pEv $($script:RaSent.Count)"
 $script:RaSent.Clear()
 & $rk $raK6 'Ask six' 0.2 $rs20
-$cxPh = New-ChatOverlayContext
-$cxPh.WantAsk = $true
+$cxPh = New-RaAskContext
 $cxPh.WantPhone = $true
 $script:ChatqIdleSeam = 0
 $null = Invoke-ChatOverlayCycle $cxPh
@@ -519,9 +511,7 @@ Check 'the console with overlay.cutOff off: the ask''s chats listed under Cut of
 & $rk $raWc 'Panel answer' 0.25 $rs20
 $kWc = & $kOf $raWc
 $raWpf = @"
-`$env:CHATQ_OVERLAY = '1'
-. '$(Join-Path $sb 'tool\Charlie-and-the-chat-factory.ps1')'
-Set-StrictMode -Off
+$staLoad
 `$script:RaErr = @()
 trap { `$script:RaErr += "`$(`$_.Exception.Message) @ `$(`$_.InvocationInfo.ScriptLineNumber)"; continue }
 `$cfgWas = [IO.File]::ReadAllText(`$script:ChatqConfigPath)
@@ -531,11 +521,7 @@ Set-ChatOverlayConfig @{ width = 380; maxRows = 8; prompts = `$true; recent = 0;
 `$script:RaBalloons = [System.Collections.Generic.List[object]]::new()
 `$script:ChatOverlayBalloonSeam = { param(`$b) `$script:RaBalloons.Add([pscustomobject]`$b) }
 Initialize-ChatOverlayNative
-`$H = New-ChatOverlayHostState
-`$script:ChatOverlayHost = `$H
-`$H.Ctx = New-ChatOverlayContext
-`$H.State = [pscustomobject]@{ x = `$null; y = `$null; locked = `$true; hidden = `$false }
-New-ChatOverlayWindow `$H
+$staPanel
 `$H.Placed = `$true
 `$script:ChatOverlayWorkAreaSeam = { param(`$r) [pscustomobject]@{ X = -4000; Y = 0; Width = 1920; Height = 1020 } }
 Set-ChatOverlayHidden `$H `$false
@@ -704,16 +690,18 @@ Exit-ChatOverlayConsoleMode `$H
 `$wcRow = @(Get-ChatqCutOffChats @() -Hours 168 | Where-Object { `$_.Id -eq '$raWc' })[0]
 `$H.Ctx.Ask = Get-ChatqResetAsk -CutOff @(`$wcRow) -Held @{} -Asked @{} -Jobs @()
 `$wcKeys = @(`$H.Ctx.Ask.Keys)
-# a pass first: this process's first over the whole sandbox can take most
-# of the 10 s a watcher asked for has to come up in, and the answer's own
-# pass would then find the stand-in watcher late and say it did not start
-`$null = Invoke-ChatOverlayCycle `$H.Ctx -Peek
-`$H.Ctx.Ask = Get-ChatqResetAsk -CutOff @(`$wcRow) -Held @{} -Asked @{} -Jobs @()
+# the stand-in watcher never comes up, and the answer's pass - this
+# process's first over the whole sandbox - can outlast the 10 s a watcher
+# asked for has to start in on a slow machine: the request's clock held at
+# now, so it stays pending however long the answer takes
+`$twr = `${function:Test-ChatqWatcherRequest}
+`${function:Test-ChatqWatcherRequest} = { param(`$Request, [bool]`$Queued) if (`$Request) { `$Request.At = Get-Date }; & `$twr `$Request `$Queued }
 `$H.Dragging = `$true
 Invoke-ChatOverlayAskAnswer `$H 'continue' `$wcKeys
 `$heldOk = `$H.AskHeld -and `$H.AskHeld.Answer -eq 'continue' -and `$H.Ctx.Ask -and -not @(Get-ChatqJobs | Where-Object { `$_.sessionId -eq '$raWc' }).Count
 `$H.Dragging = `$false
 Invoke-ChatOverlayHeldVerbs `$H
+`${function:Test-ChatqWatcherRequest} = `$twr
 `$wcJobs = @(Get-ChatqJobs | Where-Object { `$_.sessionId -eq '$raWc' -and `$_.kind -eq 'continue' -and `$_.state -eq 'queued' })
 `$mark = Read-ChatqJson (Join-Path `$script:ChatqAutoDir ('$kWc' + '.json'))
 `$answerOk = `$heldOk -and `$null -eq `$H.AskHeld -and (`$wcKeys -join ',') -eq '$kWc' -and `$wcJobs.Count -eq 1 -and `$mark.answer -eq 'continue' -and `$mark.source -eq 'overlay' -and
@@ -751,7 +739,7 @@ Remove-Item -LiteralPath $script:ChatqAutoDir -Recurse -Force -EA SilentlyContin
 Remove-Item -LiteralPath $sessDir -Recurse -Force -EA SilentlyContinue
 Remove-Item -Path (Join-Path $script:ChatqOutboxDir '*') -Force -EA SilentlyContinue
 foreach ($p in $script:ChatOverlayCmdPath, $script:ChatOverlayPath, $script:ChatqWakePath) { Remove-Item -LiteralPath $p -Force -EA SilentlyContinue }
-if ($null -ne $raCfgWas) { [System.IO.File]::WriteAllText($script:ChatqConfigPath, $raCfgWas, $utf8) } else { Remove-Item -LiteralPath $script:ChatqConfigPath -Force -EA SilentlyContinue }
+Restore-TestFile $script:ChatqConfigPath $raCfgWas
 $script:ChatOverlayUsageSeam = $raWas.Usage
 $script:ChatqAliveSeam = $raWas.Alive
 $script:ChatqSpawn = $raWas.Spawn

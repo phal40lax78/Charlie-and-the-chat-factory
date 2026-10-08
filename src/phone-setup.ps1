@@ -559,10 +559,12 @@ function Get-ChatqPhoneSetupLaunch {
     without it the dot-source below fails before any window exists.
     CHATQ_OVERLAY=1 is the overlay's own guard: loading the script there then
     binds no keys and starts no watcher, since nobody types into that process.
-    Both go again once the script has loaded: -ExecutionPolicy lives on in
-    the process's environment as PSExecutionPolicyPreference, and a watcher
-    the dialog starts - Pair phone always does when none runs - would hand
-    Bypass on to every job it runs for hours, and CHATQ_OVERLAY with it.
+    CHATQ_ALLPARTS=1 loads the overlay's parts too, which a shell's load
+    leaves out: the window takes its icon from one. All three go again once
+    the script has loaded: -ExecutionPolicy lives on in the process's
+    environment as PSExecutionPolicyPreference, and a watcher the dialog
+    starts - Pair phone always does when none runs - would hand Bypass on to
+    every job it runs for hours, and the other two with it.
     The provider homes go along because the test alert may start a watcher
     from it. A failure before the window is up still reaches
     data/logs/phone-setup.log, which Start-ChatqPhoneSetup reads back.
@@ -580,13 +582,13 @@ function Get-ChatqPhoneSetupLaunch {
         $pre = "`$env:PSModulePath = [Environment]::GetFolderPath('MyDocuments') + '\WindowsPowerShell\Modules;' + `$env:ProgramFiles + '\WindowsPowerShell\Modules;' + " +
         "`$PSHOME + '\Modules;' + [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine'); "
     }
-    $pre += '$env:CHATQ_OVERLAY=''1''; '
+    $pre += '$env:CHATQ_OVERLAY=''1''; $env:CHATQ_ALLPARTS=''1''; '
     foreach ($n in 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'CHATQ_CLAUDE', 'CHATQ_CODEX', 'CHATQ_GH') {
         $v = [Environment]::GetEnvironmentVariable($n)
         if ($v) { $pre += "`$env:$n=$(& $q $v); " }
     }
     $log = Join-Path $script:ChatqLogDir 'phone-setup.log'
-    $drop = "Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference', 'env:CHATQ_OVERLAY' -EA SilentlyContinue"
+    $drop = "Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference', 'env:CHATQ_OVERLAY', 'env:CHATQ_ALLPARTS' -EA SilentlyContinue"
     $cmd = $pre + "try { . $(& $q $Path); $drop; Show-ChatqPhoneSetup } catch { try { [void][IO.Directory]::CreateDirectory($(& $q $script:ChatqLogDir)); " +
     "[IO.File]::AppendAllText($(& $q $log), (Get-Date).ToString('o') + '  phone setup failed to start: ' + `$_.Exception.Message + [char]10) } catch {} }"
     $enc = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($cmd))
@@ -603,6 +605,19 @@ function Show-ChatqPhoneSetup {
     #>
     param([ValidateSet('', 'dark', 'light')][string]$Theme = '')
     Set-StrictMode -Off
+    # Started by a copy from before the overlay's parts were left out of a
+    # load - its launch sets CHATQ_OVERLAY alone - this process has none of
+    # them, and the window takes its icon from one: started again, the way
+    # this copy starts it. This process stays until that one holds the lock,
+    # or a caller's wait is up: a caller that sees it end first says the
+    # window did not open.
+    if (-not (Get-Command Get-ChatIconSource -CommandType Function -EA SilentlyContinue)) {
+        if (Start-ChatqPhoneSetup -NoWait) {
+            $until = (Get-Date).AddSeconds([double]$script:ChatqPhoneSetupWaitSec)
+            while ((Get-Date) -lt $until -and -not (Test-ChatqLockHeld $script:ChatqPhoneSetupLockPath)) { Start-Sleep -Milliseconds 100 }
+        }
+        return
+    }
     $lock = Open-ChatqPhoneSetupLock
     if (-not $lock) { Write-Host '  phone setup is already open' -ForegroundColor DarkGray; return }
     try {
@@ -655,7 +670,7 @@ function Initialize-ChatqPhoneSetupNative {
     # loads. Per-monitor, so the text is sharp on a 150% screen and a drag to
     # another monitor redraws at that one's scale instead of blurring.
     try {
-        if (-not ('ChatqPhoneSetupNative' -as [type])) { Add-Type -TypeDefinition $script:ChatqPhoneSetupNativeCode }
+        if (-not ('ChatqPhoneSetupNative' -as [type])) { Invoke-ChatCompile { Add-Type -TypeDefinition $script:ChatqPhoneSetupNativeCode } }
         [void][ChatqPhoneSetupNative]::SetDpiAware()
     }
     catch { Write-ChatqPhoneSetupLog "dpi: $($_.Exception.Message)" }
@@ -707,10 +722,9 @@ function New-ChatqPhoneSetupWindow {
     foreach ($n in 'KeyBox', 'KeyGhost', 'KeyLink', 'DeviceBox', 'FindBtn', 'DeviceNote', 'TestBtn', 'TestNote', 'ReplySection', 'ReplyBox', 'ReplyStatus',
         'PairBtn', 'PairNote', 'CandPanel', 'CandHint', 'CandList', 'EventsPanel', 'QuietBox', 'LiveBox', 'ToastBox', 'Others', 'NtfyTopicBox', 'NtfyTopicGhost',
         'NtfyServerBox', 'NtfyServerGhost', 'NtfyServerNote', 'NtfyTokenBox', 'NtfyTokenGhost', 'CommandBox', 'CommandLinksBox', 'Bar', 'BarSave', 'BarDiscard', 'BarKeep',
-        'Status', 'SaveBtn', 'CloseBtn') {
+        'Status', 'SaveBtn', 'CloseBtn', 'PermitBox', 'PermitHint', 'AskBox', 'AskHint') {
         $U[$n] = $w.FindName($n)
     }
-    foreach ($n in 'PermitBox', 'PermitHint', 'AskBox', 'AskHint') { $U[$n] = $w.FindName($n) }
     $w.Tag = $U
     # the whole answer, the board and listening all the time (src/phone-board.ps1)
     Initialize-ChatqBoardSetup $U
@@ -718,15 +732,9 @@ function New-ChatqPhoneSetupWindow {
     # tall content on a short screen scrolls instead of running off it
     try { $w.MaxHeight = [Math]::Max(360, [System.Windows.SystemParameters]::WorkArea.Height - 24) } catch {}
     foreach ($ev in $script:ChatqPhoneEvents) {
-        $cb = [System.Windows.Controls.CheckBox]::new()
-        $cb.Content = $ev
-        $cb.Tag = $ev
-        $cb.Margin = [System.Windows.Thickness]::new(0, 3, 16, 3)
-        $cb.ToolTip = "Send '$ev' alerts to the phone"
         # what limited covers since auto-continue (src/auto-continue.ps1)
-        if ($ev -eq 'limited') { $cb.ToolTip = 'the limit came back mid-run, or cut off a chat you run yourself that auto-continue will continue' }
-        $cb.add_Click({ param($src, $e) Invoke-ChatqPhoneSetupAction $src { param($U) Update-ChatqPhoneSetupDirty $U } })
-        [void]$U.EventsPanel.Children.Add($cb)
+        $tip = if ($ev -eq 'limited') { 'the limit came back mid-run, or cut off a chat you run yourself that auto-continue will continue' } else { "Send '$ev' alerts to the phone" }
+        Add-ChatqPhoneSetupEventBox $U.EventsPanel $ev $tip { param($src, $e) Invoke-ChatqPhoneSetupAction $src { param($U) Update-ChatqPhoneSetupDirty $U } }
     }
     $U.DeviceNote.Text = 'Where alerts go. Enter in the key box finds your devices too.'
     $U.TestNote.Text = 'Saves first, then alerts the phone right away.'
@@ -755,11 +763,9 @@ function New-ChatqPhoneSetupWindow {
     $U.TestBtn.add_Click({ param($src, $e) Invoke-ChatqPhoneSetupAction $src { param($U) Invoke-ChatqPhoneSetupTest $U } })
     $U.ReplyBox.add_Click({ param($src, $e) Invoke-ChatqPhoneSetupAction $src { param($U) Update-ChatqPhoneSetupReplyStatus $U; Update-ChatqPhoneSetupDirty $U } })
     $U.PairBtn.add_Click({ param($src, $e) Invoke-ChatqPhoneSetupAction $src { param($U) Invoke-ChatqPhoneSetupPair $U } })
-    $U.ToastBox.add_Click({ param($src, $e) Invoke-ChatqPhoneSetupAction $src { param($U) Update-ChatqPhoneSetupDirty $U } })
-    $U.LiveBox.add_Click({ param($src, $e) Invoke-ChatqPhoneSetupAction $src { param($U) Update-ChatqPhoneSetupDirty $U } })
-    $U.CommandLinksBox.add_Click({ param($src, $e) Invoke-ChatqPhoneSetupAction $src { param($U) Update-ChatqPhoneSetupDirty $U } })
-    $U.PermitBox.add_Click({ param($src, $e) Invoke-ChatqPhoneSetupAction $src { param($U) Update-ChatqPhoneSetupDirty $U } })
-    $U.AskBox.add_Click({ param($src, $e) Invoke-ChatqPhoneSetupAction $src { param($U) Update-ChatqPhoneSetupDirty $U } })
+    foreach ($b in $U.ToastBox, $U.LiveBox, $U.CommandLinksBox, $U.PermitBox, $U.AskBox) {
+        $b.add_Click({ param($src, $e) Invoke-ChatqPhoneSetupAction $src { param($U) Update-ChatqPhoneSetupDirty $U } })
+    }
     foreach ($b in $U.QuietBox, $U.NtfyServerBox, $U.CommandBox) {
         $b.add_TextChanged({ param($src, $e) Invoke-ChatqPhoneSetupAction $src { param($U) Update-ChatqPhoneSetupGhosts $U; Update-ChatqPhoneSetupDirty $U } })
     }
@@ -854,6 +860,19 @@ function Set-ChatqPhoneSetupNote {
     $Block.ToolTip = if ($Text) { $Text } else { $null }
 }
 
+function Add-ChatqPhoneSetupEventBox {
+    # one event's tick box in a row of them - the events, still-send and read
+    # aloud (src/phone-extras.ps1) - its click going to -OnClick
+    param($Panel, [string]$Ev, [string]$Tip, [scriptblock]$OnClick)
+    $cb = [System.Windows.Controls.CheckBox]::new()
+    $cb.Content = $Ev
+    $cb.Tag = $Ev
+    $cb.Margin = [System.Windows.Thickness]::new(0, 3, 16, 3)
+    $cb.ToolTip = $Tip
+    $cb.add_Click($OnClick)
+    [void]$Panel.Children.Add($cb)
+}
+
 function Get-ChatqPhoneSetupGroups {
     # Join's fixed groups, as a lookup lists them: offered before any lookup,
     # so group.phone is one pick away even with no network
@@ -903,7 +922,7 @@ function Read-ChatqPhoneSetupForm {
         # Test-ChatqPhoneEvent reads it
         $pe = if ($cfg.PSObject.Properties['phoneEvents'] -and $null -ne $cfg.phoneEvents) { @($cfg.phoneEvents | ForEach-Object { [string]$_ }) } else { $null }
         foreach ($cb in $U.EventsPanel.Children) { $cb.IsChecked = ($null -eq $pe) -or ($pe -contains [string]$cb.Tag) }
-        $U.EventsWas = Get-ChatqPhoneSetupEventsText $U
+        $U.EventsWas = Get-ChatqPhoneSetupTicked $U.EventsPanel
         $U.QuietWas = [int](Get-ChatqQuietMinutes $cfg)
         $U.QuietBox.Text = [string]$U.QuietWas
         # chats run in VS Code itself: on unless the file says false, as toast
@@ -964,11 +983,6 @@ function Update-ChatqPhoneSetupGhosts {
     else { Set-ChatqPhoneSetupNote $U $U.NtfyServerNote $script:ChatqPhoneSetupServerHint 'dim' }
 }
 
-function Get-ChatqPhoneSetupEventsText {
-    param($U)
-    return (@($U.EventsPanel.Children | Where-Object { $_.IsChecked } | ForEach-Object { [string]$_.Tag }) -join ',')
-}
-
 function Get-ChatqPhoneSetupPicked {
     # the device picked in the list, or $null
     param($U)
@@ -995,7 +1009,7 @@ function Get-ChatqPhoneSetupSnapshot {
     param($U)
     $d = Get-ChatqPhoneSetupPicked $U
     $dev = if (-not $d) { '' } elseif (Test-ChatqPhoneSetupSameDevice $U $d) { '=' } else { [string]$d.Id }
-    return (@($U.KeyBox.Password, $dev, (Get-ChatqPhoneSetupEventsText $U),
+    return (@($U.KeyBox.Password, $dev, (Get-ChatqPhoneSetupTicked $U.EventsPanel),
             $U.QuietBox.Text.Trim(), [bool]$U.LiveBox.IsChecked, [bool]$U.ToastBox.IsChecked, $U.NtfyTopicBox.Password, $U.NtfyServerBox.Text.Trim().TrimEnd('/'),
             $U.NtfyTokenBox.Password, $U.CommandBox.Text, [bool]$U.CommandLinksBox.IsChecked, [bool]$U.PermitBox.IsChecked, (Get-ChatqBoardSetupSnapshot $U)) -join "`n") + "`n" + (Get-ChatqPhoneSetupExtrasSnapshot $U)
 }

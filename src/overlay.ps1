@@ -89,19 +89,23 @@ function Get-ChatOverlayLaunch {
     always Windows PowerShell with -STA, even from pwsh: WPF needs an STA
     thread, and every Windows has powershell.exe. The command carries the
     environment it needs, and a failure before the log function exists still
-    reaches the log. -Open console: the console opens as it starts - a
-    command left for it now would be swept away as it takes its lock.
+    reaches the log. CHATQ_OVERLAY marks the process as the overlay - no key
+    bindings, no watches - and stays, for every process it starts to inherit;
+    CHATQ_ALLPARTS loads the parts only it draws from - the panel's, the
+    console's, the Mac's - and goes once they are in, so none of those loads
+    them too. -Open console: the console opens as it starts - a command left
+    for it now would be swept away as it takes its lock.
     #>
     param([string]$Path = $script:ChatqScriptPath, [ValidateSet('', 'console')][string]$Open = '')
     $q = { param($s) "'" + [System.Management.Automation.Language.CodeGeneration]::EscapeSingleQuotedStringContent([string]$s) + "'" }
-    $pre = '$env:CHATQ_OVERLAY=''1''; '
+    $pre = '$env:CHATQ_OVERLAY=''1''; $env:CHATQ_ALLPARTS=''1''; '
     foreach ($n in 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'CHATQ_CLAUDE', 'CHATQ_CODEX', 'CHATQ_GH') {
         $v = [Environment]::GetEnvironmentVariable($n)
         if ($v) { $pre += "`$env:$n=$(& $q $v); " }
     }
     $entry = if ($script:ChatqIsWindows) { "Start-ChatOverlayHost$(if ($Open) { " -Open '$Open'" })" } else { 'Start-ChatOverlayMacHost' }
     $log = Join-Path $script:ChatqLogDir 'overlay.log'
-    $cmd = $pre + "try { . $(& $q $Path); $entry } catch { try { [void][IO.Directory]::CreateDirectory($(& $q $script:ChatqLogDir)); " +
+    $cmd = $pre + "try { . $(& $q $Path); Remove-Item -LiteralPath 'env:CHATQ_ALLPARTS' -EA SilentlyContinue; $entry } catch { try { [void][IO.Directory]::CreateDirectory($(& $q $script:ChatqLogDir)); " +
     "[IO.File]::AppendAllText($(& $q $log), (Get-Date).ToString('o') + '  overlay failed to start: ' + `$_.Exception.Message + [char]10) } catch {} }"
     $enc = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($cmd))
     if ($script:ChatqIsWindows) {
@@ -123,11 +127,15 @@ function Start-ChatOverlayProcess {
         return $false
     }
     $l = Get-ChatOverlayLaunch $path -Open $Open
+    # in your home folder, never the caller's, escaped, and -EA Stop, for
+    # the reasons in Start-ChatqWatcherProcess: the panel outlives the shell
+    # or VS Code that started it, and every copy it restarts into
+    $wd = [WildcardPattern]::Escape($HOME)
     try {
-        if ($script:ChatqIsWindows) { Start-Process -FilePath $l.Exe -ArgumentList $l.Args -WindowStyle Hidden | Out-Null }
+        if ($script:ChatqIsWindows) { Start-Process -FilePath $l.Exe -ArgumentList $l.Args -WindowStyle Hidden -WorkingDirectory $wd -EA Stop | Out-Null }
         else {
             New-ChatqDir $script:ChatqLogDir
-            Start-Process -FilePath 'nohup' -ArgumentList (@($l.Exe) + $l.Args) `
+            Start-Process -FilePath 'nohup' -ArgumentList (@($l.Exe) + $l.Args) -WorkingDirectory $wd -EA Stop `
                 -RedirectStandardOutput (Join-Path $script:ChatqLogDir 'overlay.out') `
                 -RedirectStandardError (Join-Path $script:ChatqLogDir 'overlay.err') | Out-Null
         }
@@ -176,18 +184,20 @@ function chatoverlay {
     every five minutes while Codex works and fifteen while it is idle -
     or what Codex wrote on its last run, when that is newer.
 
-    Clicks go through it and it never takes focus. On Windows the pointer
-    brings up its edges, to drag as any window's (the sides for width, the
-    top and bottom for rows, the corners for both), and a row of buttons
-    over its top-right corner: a grip to drag it by, collapse to
-    one line, refresh usage, the console (chatconsole), settings (width, rows,
+    Clicks go through it and it never takes focus. On Windows a bar along
+    its top strip is the exception: shown with the panel, it takes the
+    mouse, so hold it anywhere off its buttons to drag the panel. Its
+    buttons are collapse to one line, refresh usage, settings (width, rows,
     opacity, theme, usage as lines or bars, full or compact rows, how many
     recent chats, and whether chats the limit cut off are asked about or
-    only marked), hide to the tray -
-    the tray icon shows it again - and close. The hotkey (Ctrl+Alt+Shift+O)
-    or the tray menu unlocks the whole panel to drag; it locks again by
-    itself two minutes after the pointer leaves. Windows and macOS
-    (untested); elsewhere -Print shows the same in the console.
+    only marked), then, as on any window, minimize (to the tray - the tray
+    icon shows it again), maximize (the console, chatconsole) and close.
+    Rest the pointer on the panel and its edges come, to drag as any
+    window's (the sides for width, the top and bottom for rows and then
+    recent chats, the corners for both). The hotkey (Ctrl+Alt+Shift+O) or
+    the tray menu unlocks the whole panel to drag; it locks again by itself
+    two minutes after the pointer leaves. Windows and macOS (untested);
+    elsewhere -Print shows the same in the console.
     .PARAMETER Stop
     Close it.
     .PARAMETER Unlock
@@ -445,7 +455,7 @@ function chatconsole {
     its top-right corner, and Esc, the back button in its header or
     Ctrl+Alt+Shift+Q again return it to the panel, where and as it was. So
     this starts the overlay if it is not running. Windows only.
-    Ctrl+Alt+Shift+Q, the overlay's speech-bubble button and the tray menu
+    Ctrl+Alt+Shift+Q, the overlay's maximize button and the tray menu
     open it too.
     #>
     Set-StrictMode -Off

@@ -24,45 +24,34 @@ $st = New-ChatqRunState
 $st.LastText = 'Here is the payload: {"message":"hello"}'
 $o = Get-ChatqClaudeOutcome $st ([pscustomobject]@{ ExitCode = 1; StdErr = 'OAuth token has expired. Please run /login'; Stopped = $null }) 'auto'
 Check 'the words come from the error, never from the chat''s reply' ($o.kind -eq 'auth' -and $o.reason -ceq 'login refused: OAuth token has expired. Please run /login') "$($o.kind) $($o.reason)"
-$st = New-ChatqRunState
-foreach ($l in [System.IO.File]::ReadAllLines((Join-Path $here 'fixtures\stream\codex-auth.jsonl'), $utf8)) { if ($l.Trim()) { Update-ChatqCodexState $st $l } }
-$o = Get-ChatqCodexOutcome $st ([pscustomobject]@{ ExitCode = 1; StdErr = ''; Stopped = $null })
+$o = Invoke-CodexScenario 'codex-auth'
 Check 'codex refused -> auth, its message and "unexpected status" code kept' ($o.kind -eq 'auth' -and $o.reason -ceq 'login refused: Your refresh token has expired. Please sign in again. (401)') "$($o.kind) $($o.reason)"
 Check 'and the error text whole beside it' ($o.detail -like 'unexpected status 401 Unauthorized: {"error":{"message":"Your refresh token*"code":"refresh_token_expired"}}') $o.detail
-$st = New-ChatqRunState
-foreach ($l in [System.IO.File]::ReadAllLines((Join-Path $here 'fixtures\stream\codex-network.jsonl'), $utf8)) { if ($l.Trim()) { Update-ChatqCodexState $st $l } }
-$o = Get-ChatqCodexOutcome $st ([pscustomobject]@{ ExitCode = 1; StdErr = ''; Stopped = $null })
+$o = Invoke-CodexScenario 'codex-network'
 Check 'codex "stream disconnected" -> network' ($o.kind -eq 'network') "$($o.kind) $($o.reason)"
 # Codex's 5xx and capacity words, as codex-cli 0.159.2 has them: overloaded,
 # waited out as an outage - a 400 stays failed, and so does a turn that
 # failed for its own reason while stderr's noise held a 500
-$cxOut = {
-    param([string]$Name, [string]$StdErr = '', [string]$Failed)
-    $s = New-ChatqRunState
-    if ($Name) { foreach ($l in [System.IO.File]::ReadAllLines((Join-Path $here "fixtures\stream\$Name.jsonl"), $utf8)) { if ($l.Trim()) { Update-ChatqCodexState $s $l } } }
-    if ($Failed) { $s.TurnStarted = $true; $s.TurnFailed = $Failed; $s.Failed = $Failed }
-    Get-ChatqCodexOutcome $s ([pscustomobject]@{ ExitCode = 1; StdErr = $StdErr; Stopped = $null })
-}
-$ovHigh = & $cxOut 'codex-overload'
-$ovCap = & $cxOut 'codex-capacity'
-$ov5 = & $cxOut 'codex-5xx'
+$ovHigh = Invoke-CodexScenario 'codex-overload'
+$ovCap = Invoke-CodexScenario 'codex-capacity'
+$ov5 = Invoke-CodexScenario 'codex-5xx'
 Check 'codex high demand, a model at capacity, "last status: 503" -> overloaded, in Codex''s own words' (
     $ovHigh.kind -eq 'overloaded' -and $ovHigh.reason -like 'We*re currently experiencing high demand*' -and
     $ovCap.kind -eq 'overloaded' -and $ovCap.reason -ceq 'Selected model is at capacity. Please try a different model.' -and
     $ov5.kind -eq 'overloaded' -and $ov5.reason -ceq 'exceeded retry limit, last status: 503 Service Unavailable') "$($ovHigh.kind) $($ovHigh.reason) / $($ovCap.kind) / $($ov5.kind) $($ov5.reason)"
-$ov400 = & $cxOut 'codex-badrequest'
-$ovCtx = & $cxOut $null 'ERROR rmcp: resource metadata probe returned unexpected status: 500 Internal Server Error; server_error' 'Codex ran out of room in the model''s context window. Start a new thread or clear earlier history before retrying.'
-$ovErr = & $cxOut $null "2026-09-30T10:00:01Z  WARN codex_core::models_manager: failed to refresh available models: timeout`nError: exceeded retry limit, last status: 502 Bad Gateway"
+$ov400 = Invoke-CodexScenario 'codex-badrequest'
+$ovCtx = Invoke-CodexScenario $null 'ERROR rmcp: resource metadata probe returned unexpected status: 500 Internal Server Error; server_error' 'Codex ran out of room in the model''s context window. Start a new thread or clear earlier history before retrying.'
+$ovErr = Invoke-CodexScenario $null "2026-09-30T10:00:01Z  WARN codex_core::models_manager: failed to refresh available models: timeout`nError: exceeded retry limit, last status: 502 Bad Gateway"
 # a run that failed with no turn.failed - a resume whose rollout is gone,
 # an exit before thread.started - while a models refresh logged a 503
-$ovNoise = & $cxOut $null "2026-09-30T10:00:01Z ERROR codex_core::models_manager: failed to refresh available models: unexpected status 503 Service Unavailable`nError: thread/resume failed: no rollout found for thread id 0199"
+$ovNoise = Invoke-CodexScenario $null "2026-09-30T10:00:01Z ERROR codex_core::models_manager: failed to refresh available models: unexpected status 503 Service Unavailable`nError: thread/resume failed: no rollout found for thread id 0199"
 Check 'a 400 stays failed; a context-window failure with a 500 in stderr''s noise stays failed; with no turn.failed, only stderr''s own Error: line is read, and is the reason' (
     $ov400.kind -eq 'failed' -and $ov400.reason -like 'unexpected status 400 Bad Request*' -and
     $ovCtx.kind -eq 'failed' -and $ovCtx.reason -like 'Codex ran out of room*' -and
     $ovErr.kind -eq 'overloaded' -and $ovErr.reason -ceq 'exceeded retry limit, last status: 502 Bad Gateway' -and
     $ovNoise.kind -eq 'failed') "$($ov400.kind) / $($ovCtx.kind) $($ovCtx.reason) / $($ovErr.kind) $($ovErr.reason) / $($ovNoise.kind) $($ovNoise.reason)"
-$ovAuth = & $cxOut 'codex-5xx' 'unexpected status 401 Unauthorized: {"error":{"message":"Your refresh token has expired. Please sign in again."}}'
-$ovLim = & $cxOut 'codex-limit'
+$ovAuth = Invoke-CodexScenario 'codex-5xx' 'unexpected status 401 Unauthorized: {"error":{"message":"Your refresh token has expired. Please sign in again."}}'
+$ovLim = Invoke-CodexScenario 'codex-limit'
 $ovStop = Get-ChatqCodexOutcome (& { $s = New-ChatqRunState; $s.Failed = 'exceeded retry limit, last status: 503'; $s }) ([pscustomobject]@{ ExitCode = 1; StdErr = ''; Stopped = 'timeout' })
 Check 'a refused login still beats a 5xx, the usage limit still beats everything, and chatq''s own stop is no overload' (
     $ovAuth.kind -eq 'auth' -and $ovLim.kind -eq 'limited' -and $ovStop.kind -eq 'failed' -and $ovStop.reason -eq 'timeout') "$($ovAuth.kind) / $($ovLim.kind) / $($ovStop.kind) $($ovStop.reason)"

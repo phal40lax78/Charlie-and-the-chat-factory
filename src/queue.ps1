@@ -29,6 +29,9 @@ $script:ChatqRestartPath = Join-Path $script:ChatqData 'restart'
 # a queued run's own --settings, <jobId>.json, while it runs: Ultracode as
 # its chat had it (Invoke-ChatqRun)
 $script:ChatqRunSettingsDir = Join-Path $script:ChatqData 'run-settings'
+# the console's own state, its folders among it - which the phone's board
+# offers too, in a process that never loads the console's part
+$script:ChatConsoleStatePath = Join-Path $script:ChatqData 'console-state.json'
 # tests only: a scriptblock that stands in for launching a real watcher
 $script:ChatqSpawn = $null
 $script:ChatqScriptPath = $script:ChatScriptPath
@@ -80,13 +83,15 @@ $script:ChatqHookTimeoutSec = $null
 $script:ChatqClipboardSeam = $null
 $script:ChatqAliveSeam = $null
 # and for showing a chat fresh: a chat process's parent, ending one, the code
-# CLI and the Code.exe it is found beside, the window titles and profile
-# names, the overlay's child - none of them real in a test
+# CLI and the Code.exe it is found beside, the window titles (and the
+# windows with their handles) and profile names, the overlay's child - none
+# of them real in a test
 $script:ChatParentSeam = $null
 $script:ChatStopSeam = $null
 $script:ChatCodeSeam = $null
 $script:ChatCodeExesSeam = $null
 $script:ChatWindowTitlesSeam = $null
+$script:ChatCodeWindowListSeam = $null
 $script:ChatCodeProfilesSeam = $null
 $script:ChatShowSpawnSeam = $null
 
@@ -102,15 +107,7 @@ function Read-ChatqTail {
     try {
         $n = [int][Math]::Min($Size, $fs.Length)
         if ($n -le 0) { return '' }
-        $fs.Seek(-$n, [System.IO.SeekOrigin]::End) | Out-Null
-        $buf = [byte[]]::new($n)
-        $got = 0
-        while ($got -lt $n) {
-            $r = $fs.Read($buf, $got, $n - $got)
-            if ($r -le 0) { break }
-            $got += $r
-        }
-        return [System.Text.Encoding]::UTF8.GetString($buf, 0, $got)
+        return (Read-ChatTextAt $fs (-$n) $n End)
     }
     finally { $fs.Dispose() }
 }
@@ -169,6 +166,21 @@ function ConvertTo-ChatqDate {
             [System.Globalization.DateTimeStyles]::RoundtripKind).ToLocalTime()
     }
     catch { return $null }
+}
+
+function ConvertTo-ChatqResetDate {
+    # A resets_at off Claude's usage endpoint, to the nearest minute. The
+    # endpoint jitters it around the reset - 12:59:59.855 on one fetch,
+    # 13:00:00 on the next - and HH:mm cuts the first down, so one reset read
+    # 21:59 and 22:00 by turns. Rounded in UTC: local ticks rebuilt as a new
+    # local time lose which pass of a DST fall-back hour they were, an hour
+    # off for one of the two.
+    param($Text)
+    $d = ConvertTo-ChatqDate $Text
+    if (-not $d) { return $null }
+    $m = [TimeSpan]::TicksPerMinute
+    $t = $d.ToUniversalTime().Ticks + [int64]($m / 2)
+    return [datetime]::new($t - ($t % $m), [System.DateTimeKind]::Utc).ToLocalTime()
 }
 
 #endregion
@@ -426,16 +438,25 @@ function Get-ChatqLastTurn {
     # (ai-title, last-prompt, queue-operation) that trail every turn. Tells a
     # chat the limit cut off - its last message is Claude's own synthetic
     # "You've hit your session limit" - from one that finished or moved on.
+    # The cut-off scan runs this on every transcript of the last week as the
+    # overlay starts: 64 KB read first, where the message nearly always is
+    # (65 of 69 in a trial), and the lines found back from the end one at a
+    # time, never the window split whole - 69 transcripts in 49 ms, not 219.
     param([string]$Path)
     $len = try { ([System.IO.FileInfo]::new($Path)).Length } catch { return $null }
-    foreach ($size in 262144, 4194304) {
+    foreach ($size in 65536, 262144, 4194304) {
         $t = Read-ChatqTail $Path $size
         if (-not $t) { return $null }
-        $lines = $t -split "`n"
-        $start = if ($size -lt $len) { 1 } else { 0 }   # [0] is cut mid-line
-        for ($i = $lines.Count - 1; $i -ge $start; $i--) {
-            $line = $lines[$i].TrimStart([char]0xFEFF).Trim()
-            if (-not $line -or $line.IndexOf('"message":', [StringComparison]::Ordinal) -lt 0) { continue }
+        $cut = $size -lt $len   # the window's first line is cut mid-line
+        $end = $t.Length
+        while ($end -ge 0) {
+            $nl = if ($end -gt 0) { $t.LastIndexOf([char]10, $end - 1) } else { -1 }
+            if ($nl -lt 0 -and $cut) { break }
+            $s = $nl + 1
+            $e = $end
+            $end = $nl
+            if ($t.IndexOf('"message":', $s, $e - $s, [StringComparison]::Ordinal) -lt 0) { continue }
+            $line = $t.Substring($s, $e - $s).TrimStart([char]0xFEFF).Trim()
             $o = try { $line | ConvertFrom-Json } catch { $null }
             if (-not $o -or -not $o.message -or $o.isSidechain) { continue }
             $text = ''
@@ -451,10 +472,12 @@ function Get-ChatqLastTurn {
             if ($o.quotaLimits -and $o.quotaLimits.resetsAt) {
                 $resets = [System.DateTimeOffset]::FromUnixTimeSeconds([int64]$o.quotaLimits.resetsAt).LocalDateTime
             }
-            # where it ran: this record's own, else the last one the tail names
+            # where it ran: this record's own, else the last one the tail names -
+            # looked for as far back as 256 KB, the first read's size once
             $cwd = if ($o.PSObject.Properties['cwd'] -and $o.cwd) { [string]$o.cwd }
             else {
                 $cm = [regex]::Matches($t, '"cwd":"((?:[^"\\]|\\.)*)"')
+                if (-not $cm.Count -and $cut -and $size -lt 262144) { $cm = [regex]::Matches([string](Read-ChatqTail $Path 262144), '"cwd":"((?:[^"\\]|\\.)*)"') }
                 if ($cm.Count) { Convert-ChatJsonEscaped $cm[$cm.Count - 1].Groups[1].Value } else { $null }
             }
             return [pscustomobject]@{
@@ -948,6 +971,69 @@ function New-ChatqDir {
     if (-not (Test-Path -LiteralPath $Path)) { New-Item -ItemType Directory -Path $Path -Force | Out-Null }
 }
 
+function Open-ChatqLock {
+    # A lock file opened with no sharing, or $null when it cannot be had in
+    # 3 s of tries; each caller throws its own words for that. A wait of its
+    # own length each time: two writers retrying in step would otherwise let
+    # one of them take it every time.
+    param([string]$Path)
+    New-ChatqDir $script:ChatqData
+    $h = $null
+    $until = (Get-Date).AddSeconds(3)
+    while (-not $h) {
+        try { $h = [System.IO.File]::Open($Path, 'OpenOrCreate', 'ReadWrite', 'None') }
+        catch {
+            if ((Get-Date) -gt $until) { break }
+            Start-Sleep -Milliseconds (Get-Random -Minimum 15 -Maximum 60)
+        }
+    }
+    return $h
+}
+
+function Invoke-ChatCompile {
+    <#
+    A C# compile - Add-Type given a type's source - with its working files in
+    data/tmp: csc writes them under TEMP as it runs, and nothing of this
+    tool goes there. Each compile has a folder of its own there, taken away
+    after it: the compiler leaves a folder in TEMP until the process exits,
+    and a process killed never takes it away. One killed mid-compile
+    leaves its folder in data/tmp, so a compile takes away any there a day
+    old - none is in use that long, a compile taking a second. TEMP is put
+    back after, as WPF and every process started later take theirs from
+    this one. csc cannot work in a TEMP over 210 characters - it fails, and
+    past 260 hangs - nor in one with a character this PC's code page
+    lacks. A compile's folder past 200 characters or with such a
+    character, or one that cannot be made, leaves the compile where it
+    always was.
+    #>
+    param([scriptblock]$Compile)
+    $was = $env:TMP, $env:TEMP
+    $own = $null
+    try {
+        $name = [System.IO.Path]::GetFileNameWithoutExtension([System.IO.Path]::GetRandomFileName())
+        $dir = [System.IO.Path]::GetFullPath((Join-Path (Join-Path $script:ChatqData 'tmp') $name))
+        $ansi = [System.Text.Encoding]::Default
+        if ($dir.Length -le 200 -and $ansi.GetString($ansi.GetBytes($dir)) -ceq $dir) {
+            foreach ($old in @(try { [System.IO.Directory]::GetDirectories([System.IO.Path]::GetDirectoryName($dir)) } catch {})) {
+                try { if ([System.IO.Directory]::GetCreationTimeUtc($old) -lt [datetime]::UtcNow.AddDays(-1)) { [System.IO.Directory]::Delete($old, $true) } } catch {}
+            }
+            $null = [System.IO.Directory]::CreateDirectory($dir)
+            $own = $dir
+            $env:TMP = $own
+            $env:TEMP = $own
+        }
+    }
+    catch {}
+    try { & $Compile }
+    finally {
+        if ($own) {
+            $env:TMP = $was[0]
+            $env:TEMP = $was[1]
+            try { [System.IO.Directory]::Delete($own, $true) } catch {}
+        }
+    }
+}
+
 function Save-ChatqText {
     # UTF-8 without a BOM, written aside and swapped in, so a reader - the
     # watcher, the board preview - never sees half a file
@@ -1011,6 +1097,11 @@ function Get-ChatqStamp {
 }
 
 function Get-ChatqJobs {
+    # Every file read and parsed each call, each job a new object: of some
+    # 40 callers many change what they get, so a cache of parsed jobs would
+    # have to hand out copies, and a copy costs what the parse does. 1.2 ms
+    # a file in a trial - 24 ms at 20 jobs, 114 at 100 - and the overlay
+    # reads it only as a job file changes.
     if (-not (Test-Path -LiteralPath $script:ChatqQueueDir)) { return @() }
     $jobs = foreach ($f in @(Get-ChildItem -LiteralPath $script:ChatqQueueDir -Filter *.json -File -EA SilentlyContinue)) {
         $j = Read-ChatqJson $f.FullName
@@ -1050,6 +1141,17 @@ function Save-ChatqJson {
     Save-ChatqText $Path ($Object | ConvertTo-Json -Depth 8)
 }
 
+function Add-ChatqLogLine {
+    # One stamped line onto data/logs/<Name>, the file rolled to <Name>.1
+    # past 1 MB; UTF-8 without a BOM. No try of its own: each log's writer
+    # keeps its catch, and whatever it does after the write.
+    param([string]$Name, [string]$Line)
+    New-ChatqDir $script:ChatqLogDir
+    $p = Join-Path $script:ChatqLogDir $Name
+    if ((Test-Path -LiteralPath $p) -and (Get-Item -LiteralPath $p).Length -gt 1MB) { Move-Item -LiteralPath $p -Destination "$p.1" -Force }
+    [System.IO.File]::AppendAllText($p, "$((Get-Date).ToString('o'))  $Line`n", (New-Object System.Text.UTF8Encoding $false))
+}
+
 function Write-ChatqJobLog {
     # Every move a job makes, in one file that outlives it. A job's own history
     # goes with its file, so a chatqrm used to leave no trace at all - where a
@@ -1058,12 +1160,7 @@ function Write-ChatqJobLog {
     # collision is better than either of them stopping over a diary.
     param([string]$Text)
     try {
-        New-ChatqDir $script:ChatqLogDir
-        $p = Join-Path $script:ChatqLogDir 'jobs.log'
-        if ((Test-Path -LiteralPath $p) -and (Get-Item -LiteralPath $p).Length -gt 1MB) {
-            Move-Item -LiteralPath $p -Destination "$p.1" -Force
-        }
-        [System.IO.File]::AppendAllText($p, "$((Get-Date).ToString('o'))  $Text`n", (New-Object System.Text.UTF8Encoding $false))
+        Add-ChatqLogLine 'jobs.log' $Text
     }
     catch {}
 }
@@ -1841,7 +1938,6 @@ function Invoke-ChatqProcess {
     # cancel, stop and the deadline are looked at every 5 s whether the run is
     # silent or chattering - a stream of quick tool calls must not hide them
     $check = {
-        $lastTick = Get-Date
         if ($OnTick -and (& $OnTick)) { return 'cancelled' }
         if ((Get-Date) -gt $deadline) { return 'timeout' }
         return $null
@@ -1850,6 +1946,7 @@ function Invoke-ChatqProcess {
         while ($true) {
             $task = $p.StandardOutput.ReadLineAsync()
             while (-not $task.Wait(5000)) {
+                $lastTick = Get-Date
                 $stopped = . $check
                 if ($stopped) { break }
             }
@@ -1859,6 +1956,7 @@ function Invoke-ChatqProcess {
             if ($log) { $log.WriteLine($line); $log.Flush() }
             if ($OnLine) { & $OnLine $line }
             if (((Get-Date) - $lastTick).TotalSeconds -ge 5) {
+                $lastTick = Get-Date
                 $stopped = . $check
                 if ($stopped) { break }
             }
@@ -2345,19 +2443,30 @@ function Get-ChatqClaudeBlock {
     return $best
 }
 
-function Read-ChatqUsageCache {
-    # Only the cachedUsageUtilization block is lifted out and parsed - the rest
-    # of ~/.claude.json holds the account and is none of this tool's business
-    param([string]$ConfigDir)
-    $path = if ($ConfigDir) { Join-Path $ConfigDir '.claude.json' } else { Join-Path $HOME '.claude.json' }
-    if (-not (Test-Path -LiteralPath $path)) { return $null }
-    $t = try { Read-ChatAllText $path } catch { return $null }
+function Read-ChatqCachedUtilization {
+    # The cachedUsageUtilization block of the .claude.json at -Path, parsed,
+    # or $null - for one with no fetchedAtMs too. Only that block is lifted
+    # out and parsed - the rest of the file holds the account and is none of
+    # this tool's business. Read by Read-ChatqUsageCache,
+    # Read-ChatqClaudeUsageCache and Get-ChatqUsage.
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) { return $null }
+    $t = try { Read-ChatAllText $Path } catch { return $null }
     $i = $t.IndexOf('"cachedUsageUtilization"', [StringComparison]::Ordinal)
-    if ($i -lt 0) { return $null }
-    $j = $t.IndexOf('{', $i)
+    $j = if ($i -ge 0) { $t.IndexOf('{', $i) } else { -1 }
     $obj = if ($j -ge 0) { Read-ChatqJsonObjectAt $t $j } else { $null }
     $u = if ($obj) { try { $obj | ConvertFrom-Json } catch { $null } } else { $null }
     if (-not $u -or -not $u.fetchedAtMs) { return $null }
+    return $u
+}
+
+function Read-ChatqUsageCache {
+    # a wide limit Claude Code's usage cache (Read-ChatqCachedUtilization)
+    # saw full, with its reset still ahead
+    param([string]$ConfigDir)
+    $path = if ($ConfigDir) { Join-Path $ConfigDir '.claude.json' } else { Join-Path $HOME '.claude.json' }
+    $u = Read-ChatqCachedUtilization $path
+    if (-not $u) { return $null }
     $fetched = [System.DateTimeOffset]::FromUnixTimeMilliseconds([int64]$u.fetchedAtMs).LocalDateTime
     $now = Get-Date
     $best = $null
@@ -2366,7 +2475,7 @@ function Read-ChatqUsageCache {
         # one model's weekly limit ('weekly_scoped', with a scope) is not a wall
         if ($l.PSObject.Properties['scope'] -and $l.scope) { continue }
         if ($l.kind -and $script:ChatqWideLimits -notcontains [string]$l.kind) { continue }
-        $until = ConvertTo-ChatqDate $l.resets_at
+        $until = ConvertTo-ChatqResetDate $l.resets_at
         # full at the time it was fetched, and that fetch was inside the window
         if ($until -and $until -gt $now -and $fetched -gt $until.AddDays(-7)) {
             if (-not $best -or $until -gt $best.Until) {
@@ -2542,9 +2651,7 @@ function Get-ChatqClaudeStatus {
             Get-Content -LiteralPath $script:ChatqStatusUrl -Raw -Encoding UTF8 | ConvertFrom-Json
         }
         else {
-            if ([Net.ServicePointManager]::SecurityProtocol -notmatch 'Tls12') {
-                [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-            }
+            Enable-ChatqTls12
             Invoke-RestMethod -Uri $script:ChatqStatusUrl -Method Get -TimeoutSec 15 -UseBasicParsing
         }
         $c = @($j.components | Where-Object { $_.name -eq $script:ChatqStatusComponent }) | Select-Object -First 1
@@ -2587,22 +2694,6 @@ function Invoke-ChatqProbe {
         $args2 = @('exec', '--ephemeral', '--skip-git-repo-check', '--json', '-s', 'read-only', '-c', 'model_reasoning_effort=low')
         if ($model -and -not $NoModel) { $args2 += @('-m', $model) }
         $args2 += '-'
-        # a -Model cmd.exe cannot carry is this job's own failure, not its
-        # lane's: Refused, which Confirm-ChatqAllowed fails the job on. The
-        # chat's own is only ever named to the probe, so it is asked without.
-        $no = Get-ChatqCmdArgRefusal $exe $args2
-        if ($no -and $model -and -not $Job.runModel -and -not $NoModel) { return (Invoke-ChatqProbe $Provider $Job -NoModel) }
-        if ($no) { return [pscustomobject]@{ Allowed = $false; Limited = $false; Overloaded = $false; Auth = $false; Refused = $true; Error = $no; Until = $null; Type = $null; Detail = $null } }
-        $proc = Invoke-ChatqProcess -Exe $exe -ArgList $args2 -WorkDir $dir -StdIn 'Reply with one word: ok' `
-            -SetEnv @{ CODEX_HOME = $Job.home } -TimeoutSec 180 -OnLine { param($l) Update-ChatqCodexState $st $l }
-        $out = Get-ChatqCodexOutcome $st $proc
-        $ok = $out.kind -eq 'done'
-        # the chat's model as its rollout last named it may be one the account
-        # has since lost; a resume names none, so ask again without it. Not
-        # for a -Model: the run will use exactly that, so the probe must.
-        if (-not $ok -and $out.kind -eq 'failed' -and $model -and -not $Job.runModel -and -not $NoModel) {
-            return (Invoke-ChatqProbe $Provider $Job -NoModel)
-        }
     }
     else {
         # default mode: the probe asks nothing, and a settings defaultMode of
@@ -2610,25 +2701,35 @@ function Invoke-ChatqProbe {
         $args2 = @('-p', '--no-session-persistence', '--safe-mode', '--tools', '', '--permission-mode', 'default',
             '--output-format', 'stream-json', '--verbose')
         if ($model -and -not $NoModel) { $args2 += @('--model', $model) }
-        # a model cmd.exe cannot carry: never thrown into the watcher. The
-        # chat's own is only ever named to the probe, so it is asked without
-        # one; a -Model the run would use is this job's own failure, not its
-        # lane's - Refused, which Confirm-ChatqAllowed fails the job on.
-        # New-ChatqJob and Set-ChatqJobRunAs refuse one as it is given, so
-        # only a job queued before them, or edited by hand, gets here.
-        $no = Get-ChatqCmdArgRefusal $exe $args2
-        if ($no -and $model -and -not $Job.runModel -and -not $NoModel) { return (Invoke-ChatqProbe $Provider $Job -NoModel) }
-        if ($no) { return [pscustomobject]@{ Allowed = $false; Limited = $false; Overloaded = $false; Auth = $false; Refused = $true; Error = $no; Until = $null; Type = $null; Detail = $null } }
+    }
+    # a model cmd.exe cannot carry: never thrown into the watcher. The
+    # chat's own is only ever named to the probe, so it is asked without
+    # one; a -Model the run would use is this job's own failure, not its
+    # lane's - Refused, which Confirm-ChatqAllowed fails the job on.
+    # New-ChatqJob and Set-ChatqJobRunAs refuse one as it is given, so
+    # only a job queued before them, or edited by hand, gets here.
+    $no = Get-ChatqCmdArgRefusal $exe $args2
+    if ($no -and $model -and -not $Job.runModel -and -not $NoModel) { return (Invoke-ChatqProbe $Provider $Job -NoModel) }
+    if ($no) { return [pscustomobject]@{ Allowed = $false; Limited = $false; Overloaded = $false; Auth = $false; Refused = $true; Error = $no; Until = $null; Type = $null; Detail = $null } }
+    if ($Provider -eq 'codex') {
+        $proc = Invoke-ChatqProcess -Exe $exe -ArgList $args2 -WorkDir $dir -StdIn 'Reply with one word: ok' `
+            -SetEnv @{ CODEX_HOME = $Job.home } -TimeoutSec 180 -OnLine { param($l) Update-ChatqCodexState $st $l }
+        $out = Get-ChatqCodexOutcome $st $proc
+        $ok = $out.kind -eq 'done'
+    }
+    else {
         $proc = Invoke-ChatqProcess -Exe $exe -ArgList $args2 -WorkDir $dir -StdIn 'Reply with one word: ok' `
             -SetEnv @{ CLAUDE_CONFIG_DIR = $Job.home } -TimeoutSec 180 -OnLine { param($l) Update-ChatqClaudeState $st $l }
         $out = Get-ChatqClaudeOutcome $st $proc 'default'
         $ok = $out.kind -notin 'limited', 'overloaded' -and $st.Result -and -not $st.Result.is_error
-        # a model id from months ago may be retired; the run itself never names
-        # one (a resume keeps the chat's model), so ask again without it. Not
-        # when -Model named one: the run will use exactly that, so the probe must.
-        if (-not $ok -and $out.kind -eq 'failed' -and $model -and -not $Job.runModel -and -not $NoModel) {
-            return (Invoke-ChatqProbe $Provider $Job -NoModel)
-        }
+    }
+    # The chat's model as it last named it may be one the account has since
+    # lost (Codex's rollout), or an id from months ago since retired
+    # (Claude); the run itself never names one - a resume keeps the chat's
+    # model - so ask again without it. Not for a -Model: the run will use
+    # exactly that, so the probe must.
+    if (-not $ok -and $out.kind -eq 'failed' -and $model -and -not $Job.runModel -and -not $NoModel) {
+        return (Invoke-ChatqProbe $Provider $Job -NoModel)
     }
     $until = if ($out.resetsAt) { ConvertTo-ChatqDate $out.resetsAt } else { $null }
     return [pscustomobject]@{
@@ -3157,7 +3258,7 @@ function Invoke-ChatqRun {
     # quote or a %name% in a title would fail the run, and a ! is cmd's
     # own where delayed expansion is on.
     $name = [string]$Job.title
-    if ($exe -match '\.(cmd|bat)$') { $name = (($name -replace '["%!&|<>^]', ' ') -replace '\s+', ' ').Trim() }
+    if (Test-ChatqCmdExe $exe) { $name = (($name -replace '["%!&|<>^]', ' ') -replace '\s+', ' ').Trim() }
     $start = if (Test-ChatqFreshChat $Job) { @('--session-id', $Job.sessionId, '--name', $name) } else { @('--resume', $Job.sessionId) }
     $a = @('-p') + $start + @('--output-format', 'stream-json', '--verbose',
         '--permission-mode', $mode, '--permission-prompts', 'none')

@@ -66,9 +66,7 @@ $script:ChatRunStateSeam = {
 }
 $runH = {
     param([string]$Title, [string]$Say)
-    Push-Location -LiteralPath $projH
-    $j = New-TestJob $Title $Say
-    Pop-Location
+    $j = New-TestJob $Title $Say -Cwd $projH
     Set-ChatqProp $j 'home' $hHome; Save-ChatqJob $j
     $script:HStates.Clear()
     Invoke-ChatqJob (New-ChatqWatchState) (Find-ChatqJob $j.id)
@@ -200,9 +198,7 @@ Check 'a busy chat in between, then the tab in use again: a minute again, and it
     @($h2e.history).Count -eq $hist2 + 2 -and @($h2e.history)[-1].why -eq 'waits for you to leave its tab') "$($h2d.deferWhy) $($h2e.deferWhy) $($h2e.deferUntil) $(@($h2e.history).Count)"
 # busy is a reason of its own: a background command ending into a turn of
 # the chat's own is a change the history says, and only once
-Push-Location -LiteralPath $projH
-$jBz = New-TestJob 'Handover chat' 'background, then busy'
-Pop-Location
+$jBz = New-TestJob 'Handover chat' 'background, then busy' -Cwd $projH
 $bzNow = Get-Date
 $null = Set-ChatqJobDeferred $jBz @{ Action = 'defer'; Why = 'background'; Since = $bzNow.AddMinutes(-3); Note = 'npm test' } $bzNow
 $bzH1 = @((Find-ChatqJob $jBz.id -Exact).history).Count
@@ -266,9 +262,7 @@ foreach ($f in $script:ChatReloadPath, $script:ChatOpenPath) {
 }
 $script:ChatShowHoldSeconds = 30
 $endAt = ConvertTo-ChatqDate $cc.Ended.at
-Push-Location -LiteralPath $projH
-$j15 = New-TestJob 'Handover chat' 'right after the handover'
-Pop-Location
+$j15 = New-TestJob 'Handover chat' 'right after the handover' -Cwd $projH
 Set-ChatqProp $j15 'home' $hHome
 Set-ChatqProp $j15 'deferWhy' 'background'
 Set-ChatqProp $j15 'deferSince' (Get-Date).ToUniversalTime().AddMinutes(-9).ToString('o')
@@ -312,9 +306,7 @@ Clear-HLive
 
 # Cancel during the handover of a job requeued after an earlier go: its
 # start and its count are that go's again - not cleared, not this one's
-Push-Location -LiteralPath $projH
-$jRc = New-TestJob 'Handover chat' 'cancelled on its second go'
-Pop-Location
+$jRc = New-TestJob 'Handover chat' 'cancelled on its second go' -Cwd $projH
 $rcStart = (Get-Date).ToUniversalTime().AddHours(-1).ToString('o')
 Set-ChatqProp $jRc 'home' $hHome; Set-ChatqProp $jRc 'attempts' 1; Set-ChatqProp $jRc 'startedAt' $rcStart; Save-ChatqJob $jRc
 Set-HLive 2106
@@ -466,9 +458,7 @@ Check 'and with the chat open nowhere, its started alert warns of nothing' ($st7
 $null = Remove-ChatqJob (Find-ChatqJob $h8.id) 'test'
 $script:HThrow = $true
 $thrown = $null
-Push-Location -LiteralPath $projH
-$j9 = New-TestJob 'Handover chat' 'throws'
-Pop-Location
+$j9 = New-TestJob 'Handover chat' 'throws' -Cwd $projH
 $script:HStates.Clear()
 try { Invoke-ChatqJob (New-ChatqWatchState) (Find-ChatqJob $j9.id) } catch { $thrown = $_.Exception.Message }
 $script:HThrow = $false
@@ -478,9 +468,7 @@ $j9 = Find-ChatqJob $j9.id
 Complete-ChatqJob $j9 'failed' ([pscustomobject]@{ kind = 'failed'; reason = 'test' }) 'test'
 
 # a watcher gone mid-run: the next one's start says ended
-Push-Location -LiteralPath $projH
-$j10 = New-TestJob 'Handover chat' 'interrupted'
-Pop-Location
+$j10 = New-TestJob 'Handover chat' 'interrupted' -Cwd $projH
 Set-ChatqProp $j10 'runnerPid' 999999
 Set-ChatqProp $j10 'startedAt' (Get-ChatqStamp)
 Set-ChatqJobState $j10 'running' 'test'
@@ -565,9 +553,7 @@ Remove-Item -LiteralPath $hbTmp -Force -EA SilentlyContinue
 Add-HbLine $pHB (& $hbShell 'bhb0001') 5
 Set-HLive 3101 $idHB
 $script:ChatShellChildSeam = { param($p) 1 }
-Push-Location -LiteralPath $projH
-$j13 = New-TestJob 'Background wait chat' 'after the suite'
-Pop-Location
+$j13 = New-TestJob 'Background wait chat' 'after the suite' -Cwd $projH
 Set-ChatqProp $j13 'home' $hHome
 # as if it had waited on a busy chat for a day before: a shell's wait still never gives up
 Set-ChatqProp $j13 'deferredSince' (Get-Date).ToUniversalTime().AddHours(-25).ToString('o')
@@ -597,9 +583,7 @@ Check 'past its 20 minutes: run beside the chat, no handover asked, the run-stat
     (Test-Path -LiteralPath (Join-Path $hSess '3101.json'))) "$($j13.state) $(& $hPhases) $((& $hState 'running').beside)"
 # an agent: waits as long as it runs, and counts towards giving up
 Add-HbLine $pHB $hbAgent 5
-Push-Location -LiteralPath $projH
-$j14 = New-TestJob 'Background wait chat' 'after the agent'
-Pop-Location
+$j14 = New-TestJob 'Background wait chat' 'after the agent' -Cwd $projH
 Set-ChatqProp $j14 'home' $hHome
 Set-ChatqProp $j14 'deferredSince' (Get-Date).ToUniversalTime().AddHours(-25).ToString('o')
 Save-ChatqJob $j14

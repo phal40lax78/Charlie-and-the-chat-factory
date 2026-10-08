@@ -158,10 +158,7 @@ function chatinstall {
     # one still reports the real delta rather than comparing against a version
     # that never finished installing
     try {
-        $vdir = Split-Path $script:ChatVersionPath -Parent
-        if ($vdir -and -not (Test-Path -LiteralPath $vdir)) {
-            New-Item -ItemType Directory -Path $vdir -Force | Out-Null
-        }
+        New-ChatqDir (Split-Path $script:ChatVersionPath -Parent)
         Set-Content -LiteralPath $script:ChatVersionPath -Value $script:ChatVersion -Encoding UTF8
     }
     catch {}
@@ -736,10 +733,12 @@ function Start-ChatCycle {
 # Opt out with $ChatNoKeyBindings = $true before the dot-source line. Read
 # through Get-Variable: under StrictMode an unset one throws, and every shell
 # start would lose its key handlers. Never in the background watcher or the
-# overlay, which have no keyboard, nor anywhere else not interactive.
+# overlay, which have no keyboard, nor anywhere else not interactive. A shell
+# with no PSReadLine fails the import, which the catch at the end takes:
+# asking first (Get-Module -ListAvailable) read every module folder, 0.1 to
+# 0.35 s of every shell's start.
 if (-not (Get-Variable -Name ChatNoKeyBindings -ValueOnly -EA SilentlyContinue) -and
-    -not $env:CHATQ_WATCHER -and -not $env:CHATQ_OVERLAY -and [Environment]::UserInteractive -and
-    (Get-Module PSReadLine -ListAvailable -EA SilentlyContinue)) {
+    -not $env:CHATQ_WATCHER -and -not $env:CHATQ_OVERLAY -and [Environment]::UserInteractive) {
     try {
         Import-Module PSReadLine -EA Stop
 

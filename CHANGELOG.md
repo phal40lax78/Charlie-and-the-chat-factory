@@ -1,5 +1,158 @@
 # Changelog
 
+## 0.10.5 — A window's buttons on the overlay's bar, idle tabs shown, and an overlay that keeps going
+
+- **The watcher and the overlay no longer hold the folder they were
+  started from.** Each inherited the folder of whatever started it - a
+  shell, or VS Code - and kept it for as long as it ran: hours after VS
+  Code had closed, and on through every watcher or overlay it handed
+  over to, while Windows will not delete or rename a folder a process
+  is in, or any folder above it. Both now start in your home folder, so
+  a relative path in `CHATQ_CLAUDE`, `CHATQ_CODEX`, `CHATQ_GH`,
+  `CHATQ_CODE`, `CLAUDE_CONFIG_DIR` or `CODEX_HOME`, in your alert
+  command, or typed into the console's folder box is read from there.
+  Under Windows PowerShell 5.1, starting either from a folder with `[`
+  or `]` in its name could fail, or put it in a look-alike folder beside
+  that one; neither happens now.
+- **The overlay's buttons work like a window's: minimize, maximize,
+  close.** The hide button looked like a download, and the console's was
+  a speech bubble. Now the row ends as any window's caption does:
+  minimize (a short line) hides the panel to the tray, maximize (a
+  square) turns it into the console, and × closes it. Collapse, refresh
+  and settings come first, as before.
+- **The buttons sit on a bar along the panel's top strip, always there,
+  and the bar moves the panel.** They used to float above the panel and
+  come only once the pointer rested on it, with a six-dot grip to drag
+  it by. Now the bar shows whenever the panel does and takes the mouse
+  even while the panel is locked: hold it anywhere off a button and drag.
+  The grip is gone, and so is the speech bubble. The rows below still let
+  clicks through, but a click on the top strip now lands on the bar, not
+  on the window underneath. The panel is a little taller for it, the
+  panel's opacity fades the buttons and never the bar, and the settings
+  box opens above the panel, or under the bar near the screen's top. A
+  first start now puts the panel as far from the screen's top as from
+  its right, with no room left above it for buttons.
+- **The overlay stretches taller, into Recent.** It looked frozen: an
+  edge drag only raised the row count, and with every open chat showing
+  nothing grew. Now dragging the top or bottom edge outward first brings
+  in the open chats not drawn yet, then adds Recent chats, newest first,
+  up to 20 - even with Recent off - and stops there, never taller than
+  what it has to show. Dragging back takes Recent off first, then rows.
+  The count you let go at is saved as `overlay.recent`, which the
+  console's Recent list, `chatoverlay -Print` and the phone board follow
+  too; with no chat open, dragging in no longer lowers the saved row
+  count.
+- **Every open chat shows, idle VS Code tabs too.** A Claude tab a
+  window's reload brought back has no process behind it, so the overlay
+  listed its chat under Recent as if it were closed. Each VS Code window
+  now lists its Claude tabs in `data/open-tabs/`, and the overlay and the
+  phone board give each one an idle row of its own. A tab is matched to
+  its chat by its label, so an untitled tab, two tabs of one label and a
+  label two chats share are still left out.
+- **A Claude reset reads one time, not a minute either side.** Claude's
+  usage endpoint gives a reset a moment off the minute - 21:59:59.855 on
+  one fetch, 22:00:00 on the next - and the clock time cut the first
+  down, so the overlay, the phone board, `chatqlist` and the limit check
+  showed one reset as 21:59 and 22:00 by turns. Its time is now taken to
+  the nearest minute.
+- **The overlay takes less of the processor, and no longer stops for a
+  moment as a chat finishes or a chip opens one.** Its pointer check,
+  eight times a second, now only notes that the pointer is away while it
+  is well off the panel, where it worked out the bar's place, the edges
+  and the chip each time; on the panel, the rows' places are kept until
+  the rows are drawn anew or move. As a chat finished with its
+  window in front, the overlay asked WMI for every process to find that
+  window, which froze the panel, its bar and the console for 0.2 to
+  0.5 s; it now reads Windows' own process list, in about 15 ms. Its C#
+  is compiled once as it starts, in 0.25 s where three compiles took
+  about half a second, and no longer at the first open from a chip or
+  the first chat with a background shell, which froze it 0.15 to 0.25 s
+  each. The VS Code windows' open-tab and reload files are parsed again
+  only once they change, and their windows looked up once in 10 s rather
+  than every 2 s, so a window that crashed without taking its file away
+  shows its tabs, or its reload banner, up to 10 s longer.
+- **The overlay's panel first shows sooner.** As it starts, the overlay
+  looks through every transcript written in the last week for chats cut
+  off by the limit. It read the last 256 KB of each and split it all into
+  lines; it now reads back from the end, 64 KB first and more only where
+  the last turn is further back - 49 ms for 104 transcripts, where it took
+  219. As it runs, its log's filter of repeated lines no longer keeps
+  every line it ever held back, and with the pointer near the panel each
+  pointer check works out the bar's place once, not twice.
+- **Three minutes in, the overlay gives back what its start took.** As
+  it starts, the overlay reads the end of every transcript of the last
+  week, and .NET kept the memory those reads took. It now packs that
+  memory once, a pause of about 0.1 s: 22 to 82 MB given back on the
+  six starts measured. Its memory grows back as it runs, though, so an
+  hour on it holds about what it did: 252 to 284 MB on two runs, where
+  one not packed held 300.
+- **A busy chat no longer costs the overlay a large block of memory every
+  2 s.** Each time a chat's transcript grew, the overlay read it again
+  from 64 KB before where it had stopped, in case a line was cut there:
+  a 130 KB string for every busy chat on every pass. A block that size
+  goes on .NET's heap for large ones, which only a full collection clears
+  and which is left full of holes after. It now reads on from the end of
+  the last whole line it read: a transcript 2 KB longer is read in 8.7 ms
+  where it took 13.9, taking 920 KB where it took 1.2 MB, and 300 such
+  reads bring on no full collection where they brought one.
+- **A long chat gone idle no longer leaves the overlay some 80 MB
+  bigger.** The first time the overlay finds a chat idle, it reads its
+  transcript from the start for background shells, 8 MB a pass - and
+  each pass's text, a 16 MB string, went on .NET's heap for large ones:
+  one overlay's went from 10 MB to 89 and stayed there. It now reads
+  40 KB at a time, a line longer than that a piece at a time, and takes
+  out only the lines that can start or end a shell. On a 40 MB
+  transcript an 8 MB pass takes 34 to 48 ms where it took 46 to 87, and
+  19 to 23 MB where it took 27 to 32, and the whole read brings on no
+  full collection where it brought one or two.
+- **The overlay's log no longer calls nearly every start's Recent list
+  slow.** The overlay builds Recent a quarter second at a time, and
+  logged any build over 250 ms - so one that spent its quarter second was
+  logged as it stopped. A build is now logged only a quarter second past
+  its slice, where a folder it asked after held it up, and a whole one -
+  `chatoverlay -Print`'s, the phone board's - past 250 ms as before.
+- **An error that gets past the overlay's own catch no longer stops it
+  for good.** The overlay's passes run on a timer that sets itself going
+  again only once its last run returns. With the PC's memory full, an
+  error got past the overlay's catch, and the timer never ran again: the
+  panel stayed on screen, but its rows stopped changing, no phone alert
+  went out, no `chatoverlay` command was taken and new code did not
+  restart it - for over an hour, until it was ended by hand. A timer
+  stopped that way is now set going again at once, the pointer check's
+  too, and the `ui:` line in `overlay.log` still says what went wrong.
+- **The C# compiler's files go in `data/tmp`, not `%TEMP%`.** The Windows
+  calls chatq makes - the overlay's, the watcher's, the alerts' - are
+  compiled where a process first needs them, and the compiler wrote its
+  working files under `%TEMP%`, where a process ended by force left a
+  folder behind for good. They now go in a folder of their own in
+  `data/tmp`, taken away once the compile is done - and one a process
+  ended mid-compile left, by a compile a day later - and `TEMP` is put
+  back after for whatever starts next. A chatq folder the compiler cannot work
+  in - over some 180 characters deep, or named with a letter outside the
+  PC's language for non-Unicode programs, an `é` on a Korean Windows -
+  keeps them in `%TEMP%` as before.
+- **A terminal opens 0.2 to 0.45 s sooner, and holds 10 to 44 MB less.**
+  Loading chatq no longer searches every module folder for PSReadLine
+  before binding its keys; a PowerShell without PSReadLine is passed over
+  as before. And a shell no longer loads the overlay's panel, its console
+  and its Mac panel, which only the overlay's own process draws: 8 MB
+  less of .NET's heap and 0.1 to 0.2 s less to load - 124 MB where it
+  was 168 on a PC with memory to spare, 101 where it was 111 on one
+  nearly out. Every other chatq process leaves them out too: the
+  watcher, the hooks, the phone's sender, the extension's runs and
+  whatever the overlay starts. Only the overlay and the phone setup's
+  window load it all. An overlay or terminal from before this update
+  starts those two through the new copy, a second load: on a PC short of
+  memory, a terminal opened before it may say the overlay did not start
+  just before it shows.
+- **Less code, the same behaviour.** A review took out about 650 lines of
+  copies and steps nothing needed, across the scripts, the extension and
+  the checks: one helper each where up to seven places wrote a log line,
+  read an on/off switch, retried a lock file, cut text without splitting a
+  character or printed a clock time; one reader for the usage Claude Code
+  caches; one kit for the page checks and one for the test vectors.
+  Nothing you see or set changes, and every check still runs.
+
 ## 0.10.4 — Codex catches up: its own sandbox, live usage, and overloads that wait
 
 - **Codex usage, asked live - and a Codex limit check that spends no

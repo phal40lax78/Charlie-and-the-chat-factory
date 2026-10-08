@@ -16,6 +16,7 @@
 const fs = require('fs');
 const path = require('path');
 const nodeCrypto = require('crypto');
+const { markedBlock, codeOnly, fakeElement, fakeIndexedDb } = require(path.join(__dirname, 'page-kit.js'));
 const webcrypto = globalThis.crypto || nodeCrypto.webcrypto;
 let failed = 0, total = 0;
 const check = (name, ok, detail) => {
@@ -40,36 +41,25 @@ const hmac = (key, msg) => nodeCrypto.createHmac('sha256', key).update(typeof ms
 const alertKeyOf = (d, aid) => hmac(Buffer.from(d), 'chatq-alert:' + aid);
 // the confirmation code of a phone key, as the PC works it out
 const codeOf = (d) => String(hmac(Buffer.from(d), 'chatq-confirm').readUInt32BE(0) % 1000000).padStart(6, '0');
-// verify, then decrypt: null for anything the watcher would drop
-const openMessage = (message, k) => {
+// verify, then decrypt: null for anything the watcher would drop. prefix
+// the message's first part; idName what its second is called
+const opener = (prefix, idName) => (message, k) => {
     const parts = String(message).split('.');
-    if (parts.length !== 5 || parts[0] !== 'chatq1' || !/^[a-z2-7]{10}$/.test(parts[1])) return null;
+    if (parts.length !== 5 || parts[0] !== prefix || !/^[a-z2-7]{10}$/.test(parts[1])) return null;
     const want = hmac(hmac(k, 'mac'), parts.slice(0, 4).join('.'));
     const got = unb64(parts[4]);
     if (got.length !== want.length || !nodeCrypto.timingSafeEqual(got, want)) return null;
     try {
         const d = nodeCrypto.createDecipheriv('aes-256-cbc', hmac(k, 'enc'), unb64(parts[2]));
         const text = Buffer.concat([d.update(unb64(parts[3])), d.final()]).toString('utf8');
-        return { aid: parts[1], text, json: JSON.parse(text) };
+        return { [idName]: parts[1], text, json: JSON.parse(text) };
     } catch (e) {
         return null;
     }
 };
+const openMessage = opener('chatq1', 'aid');
 // the same for a message about no alert, "chatq3c.", under k_phone
-const openComposeMessage = (message, k) => {
-    const parts = String(message).split('.');
-    if (parts.length !== 5 || parts[0] !== 'chatq3c' || !/^[a-z2-7]{10}$/.test(parts[1])) return null;
-    const want = hmac(hmac(k, 'mac'), parts.slice(0, 4).join('.'));
-    const got = unb64(parts[4]);
-    if (got.length !== want.length || !nodeCrypto.timingSafeEqual(got, want)) return null;
-    try {
-        const d = nodeCrypto.createDecipheriv('aes-256-cbc', hmac(k, 'enc'), unb64(parts[2]));
-        const text = Buffer.concat([d.update(unb64(parts[3])), d.final()]).toString('utf8');
-        return { cid: parts[1], text, json: JSON.parse(text) };
-    } catch (e) {
-        return null;
-    }
-};
+const openComposeMessage = opener('chatq3c', 'cid');
 // the PC's private key, from the fixture's .NET-shaped fields
 const pairKey = (() => {
     try {
@@ -127,18 +117,10 @@ const openPair = (message) => {
 }
 
 // --- the page's two marked blocks ---------------------------------------------
-const slice = (name) => {
-    const b = '/* chatq-' + name + '-begin */', e = '/* chatq-' + name + '-end */';
-    const i = html.indexOf(b), j = html.indexOf(e);
-    if (i < 0 || j < i || html.indexOf(b, i + 1) >= 0 || html.indexOf(e, j + 1) >= 0) return null;
-    return html.slice(i + b.length, j);
-};
-const cryptoJs = slice('crypto');
-const logicJs = slice('logic');
+const cryptoJs = markedBlock(html, 'crypto');
+const logicJs = markedBlock(html, 'logic');
 check('the crypto block is marked, once', cryptoJs !== null);
 check('the logic block is marked, once, after it', logicJs !== null && html.indexOf('chatq-logic-begin') > html.indexOf('chatq-crypto-end'));
-// the code only: what its strings and comments say (a "setup window") is not a use
-const codeOnly = (js) => String(js).replace(/'(?:[^'\\\n]|\\.)*'/g, "''").replace(/\/\/.*$/gm, '');
 check('the crypto and logic blocks touch no page: no document, window, location, storage or fetch',
     cryptoJs !== null && logicJs !== null && !/\b(document|window|location|sessionStorage|localStorage|indexedDB|navigator|fetch|XMLHttpRequest)\b/.test(codeOnly(cryptoJs + logicJs)));
 const GLOBALS = ['crypto', 'TextEncoder', 'btoa', 'atob', 'URL'];
@@ -154,6 +136,8 @@ check('the crypto block runs alone under Node\'s webcrypto', !!C && typeof C.sea
 check('the logic block runs on top of it', !!P && typeof P.parseFragment === 'function');
 
 const randomAid = () => Array.from(nodeCrypto.randomBytes(10), (b) => 'abcdefghijklmnopqrstuvwxyz234567'[b % 32]).join('');
+// a link's fragment: each field in order as name=value, an undefined one left out
+const fragOf = (q) => '#' + Object.keys(q).filter((n) => q[n] !== undefined).map((n) => n + '=' + encodeURIComponent(q[n])).join('&');
 
 (async () => {
     if (C) {
@@ -280,10 +264,7 @@ const randomAid = () => Array.from(nodeCrypto.randomBytes(10), (b) => 'abcdefghi
             odd.length <= 40 && /^[\x20-\x7e]*$/.test(odd) && !/["\\]/.test(odd) && P.LABEL_MAX === 40, odd);
 
         // --- the links -------------------------------------------------------
-        const alertLink = (x) => {
-            const q = Object.assign({ v: '2', a: 'k2m3n4p5q6', e: 'needs input', n: '7', c: 'fix the build ' + HANGUL, p: 'claude', j: 'needs-input' }, x);
-            return '#' + Object.keys(q).filter((n) => q[n] !== undefined).map((n) => n + '=' + encodeURIComponent(q[n])).join('&');
-        };
+        const alertLink = (x) => fragOf(Object.assign({ v: '2', a: 'k2m3n4p5q6', e: 'needs input', n: '7', c: 'fix the build ' + HANGUL, p: 'claude', j: 'needs-input' }, x));
         const r = P.parseFragment(alertLink({}));
         check('an alert link: every field read, the title decoded',
             r.ok && r.mode === 'alert' && r.f.aid === 'k2m3n4p5q6' && r.f.event === 'needs input' && r.f.seq === '7' &&
@@ -309,10 +290,7 @@ const randomAid = () => Array.from(nodeCrypto.randomBytes(10), (b) => 'abcdefghi
             P.cardText('old').code === 'chatnotify -Pair');
         check('a newer version of the link says so', P.parseFragment(alertLink({ v: '3' })).why === 'version' && P.parseFragment(alertLink({ m: 'unpair' })).why === 'version');
 
-        const pairLink = (x) => {
-            const q = Object.assign({ v: '2', m: 'pair', s: 'https://ntfy.sh', t: 'chatq-abcdefghijklmnopqrstuvwx', a: 'abcdefghij', n: pv.modulus, x: pv.exponent, h: 'DESKTOP-7' }, x);
-            return '#' + Object.keys(q).filter((n) => q[n] !== undefined).map((n) => n + '=' + encodeURIComponent(q[n])).join('&');
-        };
+        const pairLink = (x) => fragOf(Object.assign({ v: '2', m: 'pair', s: 'https://ntfy.sh', t: 'chatq-abcdefghijklmnopqrstuvwx', a: 'abcdefghij', n: pv.modulus, x: pv.exponent, h: 'DESKTOP-7' }, x));
         const pl = P.parseFragment(pairLink({}));
         check('a pairing link: server, topic, pid, the key and the host read',
             pl.ok && pl.mode === 'pair' && pl.f.server === 'https://ntfy.sh' && pl.f.topic === 'chatq-abcdefghijklmnopqrstuvwx' && pl.f.pid === 'abcdefghij' &&
@@ -765,96 +743,6 @@ async function checkAnswerCrypto() {
         P.ACTS.indexOf('answer') >= 0);
 }
 
-// An in-memory IndexedDB, as much of one as the page uses: open with an
-// upgrade, object stores, get / put / delete in a transaction that completes
-// (or aborts) after its requests, every callback on a later turn as a
-// browser's are. A value goes in as a structured clone would take it: plain
-// data copied, a CryptoKey kept as the object it is (a browser clones one
-// with its extractable flag, which is what is checked). dbs outlives a
-// reload, as the phone's database does. opt: throwOpen (open itself throws,
-// as some private modes do), refuseOpen (open fails), failPut (a write
-// aborts, as a full disk does).
-const fakeIndexedDb = (dbs, opt) => {
-    opt = opt || {};
-    const later = (fn) => setTimeout(fn, 0);
-    const isCryptoKey = (x) => !!x && typeof x === 'object' && x.constructor && x.constructor.name === 'CryptoKey';
-    const clone = (v) => {
-        if (!v || typeof v !== 'object' || isCryptoKey(v)) return isCryptoKey(v) ? v : structuredClone(v);
-        const out = Array.isArray(v) ? [] : {};
-        Object.keys(v).forEach((k) => { out[k] = clone(v[k]); });
-        return out;
-    };
-    const transaction = (db, name, mode) => {
-        const st = db.stores.get(name);
-        if (!st) throw new Error('NotFoundError');
-        const tx = {}, work = [];
-        let failed = false;
-        const request = (fn) => {
-            const r = {};
-            work.push(() => {
-                try {
-                    r.result = fn();
-                    if (r.onsuccess) r.onsuccess({});
-                } catch (e) {
-                    failed = true;
-                    r.error = e;
-                    if (r.onerror) r.onerror({ preventDefault() { } });
-                }
-            });
-            return r;
-        };
-        tx.objectStore = (n) => {
-            if (n !== name) throw new Error('NotFoundError');
-            return {
-                get: (k) => request(() => (st.has(k) ? st.get(k) : undefined)),
-                put: (v, k) => {
-                    if (mode !== 'readwrite') throw new Error('ReadOnlyError');
-                    return request(() => { if (opt.failPut) throw new Error('QuotaExceededError'); st.set(k, clone(v)); return k; });
-                },
-                delete: (k) => {
-                    if (mode !== 'readwrite') throw new Error('ReadOnlyError');
-                    return request(() => { st.delete(k); });
-                }
-            };
-        };
-        later(() => {
-            work.forEach((w) => w());
-            if (failed) {
-                if (tx.onerror) tx.onerror({});
-                if (tx.onabort) tx.onabort({});
-            } else if (tx.oncomplete) tx.oncomplete({});
-        });
-        return tx;
-    };
-    return {
-        open(name, version) {
-            if (opt.throwOpen) throw new Error('InvalidStateError');
-            const req = {};
-            later(() => {
-                if (opt.refuseOpen) {
-                    req.error = new Error('UnknownError');
-                    if (req.onerror) req.onerror({ preventDefault() { } });
-                    return;
-                }
-                let db = dbs.get(name);
-                if (!db) dbs.set(name, db = { version: 0, stores: new Map() });
-                req.result = {
-                    objectStoreNames: { contains: (n) => db.stores.has(n) },
-                    createObjectStore: (n) => { db.stores.set(n, new Map()); return {}; },
-                    transaction: (n, mode) => transaction(db, n, mode),
-                    close() { }
-                };
-                if (db.version < version) {
-                    db.version = version;
-                    if (req.onupgradeneeded) req.onupgradeneeded({});
-                }
-                if (req.onsuccess) req.onsuccess({});
-            });
-            return req;
-        }
-    };
-};
-
 // The page's whole script under a fake DOM: just enough elements, a clock it
 // reads, storage that outlives a reload as a tab's and a phone's do (the
 // phone's IndexedDB too), and a fetch that records what it was given and
@@ -868,15 +756,14 @@ async function driveThePage() {
     const D = nodeCrypto.randomBytes(32);
     const SERVER = 'https://ntfy.sh', TOPIC = 'chatq-topictopictopictopic12';
     const phoneRec = (d, x) => JSON.stringify(Object.assign({ v: 2, s: SERVER, t: TOPIC, d: b64url(d), at: 1789990000000, h: 'DESKTOP-7' }, x));
-    const frag = (x) => '#' + Object.entries(Object.assign({ v: '2', a: 'abcdefgh23', e: 'needs input', n: '12', c: 'Fix the build', p: 'claude', j: 'needs-input' }, x))
-        .filter(([, v]) => v !== undefined).map(([n, v]) => n + '=' + encodeURIComponent(v)).join('&');
-    const pairFrag = (x) => '#' + Object.entries(Object.assign({ v: '2', m: 'pair', s: SERVER, t: 'chatq-newtopicnewtopicnewtopi', a: 'pairpairpa', n: pv.modulus, x: pv.exponent, h: 'DESKTOP-7' }, x))
-        .map(([n, v]) => n + '=' + encodeURIComponent(v)).join('&');
+    const frag = (x) => fragOf(Object.assign({ v: '2', a: 'abcdefgh23', e: 'needs input', n: '12', c: 'Fix the build', p: 'claude', j: 'needs-input' }, x));
+    const pairFrag = (x) => fragOf(Object.assign({ v: '2', m: 'pair', s: SERVER, t: 'chatq-newtopicnewtopicnewtopi', a: 'pairpairpa', n: pv.modulus, x: pv.exponent, h: 'DESKTOP-7' }, x));
     const realSetTimeout = setTimeout;
     const waitFor = async (ok) => {
         for (let i = 0; i < 400 && !ok(); i++) await new Promise((r) => realSetTimeout(r, 5));
         return ok();
     };
+    const type = (e, v) => { e.value = v; e.fire('input'); };
     let clock = 1790000000000;
     class FakeDate extends Date {
         constructor(...a) { if (a.length) super(...a); else super(clock); }
@@ -918,31 +805,7 @@ async function driveThePage() {
     const load = async (hash, opt) => {
         opt = opt || {};
         const doc = { activeElement: null, title: '', els: {} };
-        const el = (id, tag) => {
-            const e = {
-                id, tagName: (tag || 'div').toUpperCase(), hidden: false, disabled: false, value: '', placeholder: '', type: '',
-                attrs: {}, kids: [], on: {}, cls: new Set(), _text: '',
-                get textContent() { return this._text; },
-                set textContent(v) { this._text = String(v); this.kids = []; },
-                get children() { return this.kids; },
-                get firstChild() { return this.kids[0] || null; },
-                get lastChild() { return this.kids[this.kids.length - 1] || null; },
-                setAttribute(k, v) { this.attrs[k] = String(v); },
-                getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; },
-                removeAttribute(k) { delete this.attrs[k]; },
-                addEventListener(t, fn) { (this.on[t] = this.on[t] || []).push(fn); },
-                fire(t, ev) { (this.on[t] || []).forEach((fn) => fn(ev || { preventDefault() { } })); },
-                appendChild(c) { this.kids.push(c); return c; },
-                insertBefore(c, ref) { const i = ref ? this.kids.indexOf(ref) : -1; if (i < 0) this.kids.push(c); else this.kids.splice(i, 0, c); return c; },
-                removeChild(c) { this.kids.splice(this.kids.indexOf(c), 1); return c; },
-                querySelectorAll(sel) { return this.kids.filter((c) => c.tagName === sel.toUpperCase()); },
-                classList: null,
-                focus() { doc.activeElement = this; },
-                blur() { if (doc.activeElement === this) doc.activeElement = null; }
-            };
-            e.classList = { toggle: (c, on) => { if (on === undefined ? !e.cls.has(c) : on) e.cls.add(c); else e.cls.delete(c); }, contains: (c) => e.cls.has(c) };
-            return e;
-        };
+        const el = fakeElement(doc);
         ids.forEach((id) => {
             doc.els[id] = el(id, id === 'text' ? 'textarea' : ['send', 'again', 'pair'].includes(id) ? 'button' : 'div');
             doc.els[id].hidden = hiddenAtFirst.has(id);
@@ -1067,8 +930,7 @@ async function driveThePage() {
     // an alert link now opens the form, the key derived from what was kept
     if (phoneD) {
         const a = await load(frag({ e: 'done', n: '3', c: 'paired now' }));
-        a.$('text').value = 'hello';
-        a.$('text').fire('input');
+        type(a.$('text'), 'hello');
         a.$('send').fire('click');
         await waitFor(() => a.posts.length === 1 && a.$('status').getAttribute('data-kind') === 'ok');
         const ao = a.posts[0] ? openMessage(a.posts[0].o.body, alertKeyOf(phoneD, 'abcdefgh23')) : null;
@@ -1121,8 +983,7 @@ async function driveThePage() {
             fb.$('cardBig').textContent === codeOf(fd).slice(0, 3) + ' ' + codeOf(fd).slice(3), fb.$('cardWarn').textContent);
         if (what === 'no IndexedDB at all' && fd) {
             const fr = await load(frag({ e: 'done', a: 'fallbackaa' }), opt);
-            fr.$('text').value = 'from the fallback';
-            fr.$('text').fire('input');
+            type(fr.$('text'), 'from the fallback');
             fr.$('send').fire('click');
             await waitFor(() => fr.posts.length === 1 && fr.$('status').getAttribute('data-kind') === 'ok');
             const fro = fr.posts[0] ? openMessage(fr.posts[0].o.body, alertKeyOf(fd, 'fallbackaa')) : null;
@@ -1177,8 +1038,7 @@ async function driveThePage() {
     check('the box has the focus, Send is off while it is empty',
         pg.doc.activeElement === $('text') && $('send').disabled && $('send').textContent === 'Send' && !$('compose').hidden);
     check('the small buttons, in order', pg.more().map((b) => b.textContent).join('|') === 'Allow edits & continue|Continue|Skip|Status');
-    $('text').value = '  yes ' + HANGUL + '\n';
-    $('text').fire('input');
+    type($('text'), '  yes ' + HANGUL + '\n');
     check('typing turns Send on and counts the bytes', !$('send').disabled && $('count').textContent === P.counter('yes ' + HANGUL).label &&
         $('count').getAttribute('data-state') === 'ok');
     $('send').fire('click');
@@ -1199,8 +1059,7 @@ async function driveThePage() {
     await waitFor(() => pg.posts.length === 2 && !$('send').disabled);
     const o2 = pg.open(1);
     check('Send again: a new message, a new nonce', !!o2 && o2.json.text === 'yes ' + HANGUL && o2.json.nonce !== o1.json.nonce && $('log').kids.length === 2);
-    $('text').value = 'something else';
-    $('text').fire('input');
+    type($('text'), 'something else');
     check('an edited text is no longer greyed, and the button says Send, not Send again', !$('text').cls.has('sent') && $('send').textContent === 'Send');
 
     pg.answer = { ok: false, status: 503 };
@@ -1224,8 +1083,7 @@ async function driveThePage() {
     check('pressing Continue again after it failed re-posts the same message too', pg.posts[5].o.body === pg.posts[4].o.body);
 
     // Send after a failed send: the big button, the same sealed message
-    $('text').value = 'ship it';
-    $('text').fire('input');
+    type($('text'), 'ship it');
     $('send').fire('click');
     await waitFor(() => pg.posts.length === 7 && $('status').getAttribute('data-kind') === 'bad');
     check('a failed prompt: Send turns into Try again while the text is unchanged', $('send').textContent === 'Try again' && !$('send').disabled);
@@ -1241,12 +1099,10 @@ async function driveThePage() {
     check('Send after a failure re-posts the same sealed message - no new nonce to get past the replay guard',
         re.posts.length === 1 && re.posts[0].o.body === pg.posts[6].o.body && !store.has('chatq-draft:abcdefgh23'));
     re.answer = { ok: false, status: 500 };
-    re.$('text').value = 'ship it now';
-    re.$('text').fire('input');
+    type(re.$('text'), 'ship it now');
     re.$('send').fire('click');
     await waitFor(() => re.posts.length === 2 && re.$('status').getAttribute('data-kind') === 'bad');
-    re.$('text').value = 'ship it, now';
-    re.$('text').fire('input');
+    type(re.$('text'), 'ship it, now');
     check('editing the text drops the failed message: Send, Try again hidden', re.$('send').textContent === 'Send' && re.$('again').hidden);
     re.answer = { ok: true, status: 200 };
     re.$('send').fire('click');
@@ -1257,12 +1113,10 @@ async function driveThePage() {
     // drafts, one per alert
     store.clear();
     const da = await load(frag({ a: 'draftaaaaa', c: 'A' }));
-    da.$('text').value = 'for A';
-    da.$('text').fire('input');
+    type(da.$('text'), 'for A');
     const dbp = await load(frag({ a: 'draftbbbbb', c: 'B' }));
     check('a draft is per alert: another alert\'s box starts empty', dbp.$('text').value === '');
-    dbp.$('text').value = 'for B';
-    dbp.$('text').fire('input');
+    type(dbp.$('text'), 'for B');
     const da2 = await load(frag({ a: 'draftaaaaa', c: 'A' }));
     check('and coming back to the first brings its text back', da2.$('text').value === 'for A' && !da2.$('text').cls.has('sent'));
     check('no key and no topic anywhere in the tab\'s storage', [...store.values()].every((v) => v.indexOf(b64url(D)) < 0 && v.indexOf(TOPIC) < 0));
@@ -1284,8 +1138,7 @@ async function driveThePage() {
     // a new link while a POST is out
     pg = await load(frag({ c: 'first' }));
     pg.answer = { hold: true };
-    pg.$('text').value = 'mid-flight';
-    pg.$('text').fire('input');
+    type(pg.$('text'), 'mid-flight');
     pg.$('send').fire('click');
     await waitFor(() => pg.posts.length === 1 && !!pg.release);
     pg.go(frag({ a: 'secondaaaa', c: 'second', e: 'done' }));
@@ -1341,8 +1194,7 @@ async function driveThePage() {
     const liveDone = await load(frag({ e: 'done', j: 'live' }));
     check('j=live done: the hint says it goes when the chat is idle', /goes into this chat when it is idle/.test(liveDone.$('hint').textContent), liveDone.$('hint').textContent);
     const long = await load(frag({ e: 'done', a: 'longlonglo' }));
-    long.$('text').value = HANGUL[0].repeat(1000);
-    long.$('text').fire('input');
+    type(long.$('text'), HANGUL[0].repeat(1000));
     check('too long: the counter says by how much and Send stays off', long.$('count').getAttribute('data-state') === 'over' && long.$('send').disabled);
     long.$('send').fire('click');
     await new Promise((r) => realSetTimeout(r, 30));
@@ -1362,8 +1214,7 @@ async function driveThePage() {
     const preRe = await load('');
     check('a reload: the text still in the box, from the draft, no note, nothing sent',
         preRe.$('text').value === 'from tasker ' + HANGUL && preRe.$('prefill').hidden && preRe.posts.length === 0);
-    preRe.$('text').value = 'typed here';
-    preRe.$('text').fire('input');
+    type(preRe.$('text'), 'typed here');
     const preOver = await load(frag({ e: 'done', a: 'prefillaaa', c: 'Tasker', text: 'second reply' }));
     check('a second text= for the same alert replaces what was typed, and the note says so',
         preOver.$('text').value === 'second reply' && /It replaced what was typed here before\.$/.test(preOver.$('prefill').textContent) && preOver.posts.length === 0,
@@ -1415,10 +1266,8 @@ async function driveThePage() {
         !pp.$('compose').hidden && pp.$('text').placeholder === 'A note for Claude, with Deny (optional)');
     pp.$('send').fire('click');
     check('Allow: the first tap only asks', pp.posts.length === 0 && pp.$('send').textContent === 'Tap again to allow' && pp.$('send').getAttribute('data-armed') === '1');
-    pp.$('text').value = 'x';
-    pp.$('text').fire('input');
-    pp.$('text').value = '';
-    pp.$('text').fire('input');
+    type(pp.$('text'), 'x');
+    type(pp.$('text'), '');
     check('Allow: typing meanwhile does not take the question back', pp.$('send').textContent === 'Tap again to allow');
     clock += 120;
     pp.$('send').fire('click');
@@ -1432,8 +1281,7 @@ async function driveThePage() {
         !!po1 && po1.json.act === 'permit' && po1.json.h === pcard.h && po1.json.text === '' && po1.aid === 'permitaaaa' && pp.posts[0].url === SERVER + '/' + TOPIC &&
         pp.$('statusText').textContent === 'Sent - the PC reads it within about 5 s.', po1 && po1.text);
     const pd = await load(pfrag({}));
-    pd.$('text').value = 'not on main ' + HANGUL;
-    pd.$('text').fire('input');
+    type(pd.$('text'), 'not on main ' + HANGUL);
     pd.btn('refuse').fire('click');
     await waitFor(() => pd.posts.length === 1 && pd.$('status').getAttribute('data-kind') === 'ok');
     const po2 = pd.open(0);

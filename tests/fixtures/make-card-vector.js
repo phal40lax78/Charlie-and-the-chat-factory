@@ -17,15 +17,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-
-const b64url = (buf) => Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-const hmac = (key, msg) => crypto.createHmac('sha256', key).update(Buffer.from(msg, 'utf8')).digest();
-const seal = (k, prefix, aid, iv, text) => {
-    const cipher = crypto.createCipheriv('aes-256-cbc', hmac(k, 'enc'), iv);
-    const ct = Buffer.concat([cipher.update(Buffer.from(text, 'utf8')), cipher.final()]);
-    const head = prefix + '.' + aid + '.' + b64url(iv) + '.' + b64url(ct);
-    return head + '.' + b64url(hmac(hmac(k, 'mac'), head));
-};
+const { b64url, hmac, seal, ascii } = require(path.join(__dirname, 'vector-kit.js'));
 
 const master = Buffer.from(Array.from({ length: 32 }, (_, i) => i));
 const aid = 'abcdefghij';
@@ -44,19 +36,17 @@ const digest = b64url(crypto.createHash('sha256').update(Buffer.from('chatq-perm
 const card = '{"v":1,"t":"Bash","w":"git push origin main # ' + hangul + '","d":"Push the release","f":"parser","c":"Parser rewrite ' + hangul +
     '","n":12,"h":"' + digest + '","u":1790000600000}';
 const kc = hmac(master, 'chatq-card:' + aid);
-const sealedCard = seal(kc, 'chatq1c', aid, cardIv, card);
+const sealedCard = seal(kc, 'chatq1c.' + aid, card, cardIv);
 
 // the phone's answer: a permit whose payload ends with h, sealed as every
 // reply is, under the alert's own key
 const permitPayload = '{"v":1,"act":"permit","text":"","nonce":"AAAAAAAAAAAAAAAAAAAAAA","ts":1790000000000,"h":"' + digest + '"}';
-const permitMessage = seal(hmac(master, 'chatq-alert:' + aid), 'chatq1', aid, replyIv, permitPayload);
+const permitMessage = seal(hmac(master, 'chatq-alert:' + aid), 'chatq1.' + aid, permitPayload, replyIv);
 
 const out = {
     master: b64url(master), aid, rid, tool, inputRaw, digest,
     iv: b64url(cardIv), card, kc: b64url(kc), sealed: sealedCard,
     replyIv: b64url(replyIv), permitPayload, permitMessage
 };
-// anything past ASCII written as a JSON escape, so the file stays ASCII
-const text = JSON.stringify(out, null, 2).replace(/[^\x00-\x7f]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0')) + '\n';
-fs.writeFileSync(path.join(__dirname, 'card-vector.json'), text);
+fs.writeFileSync(path.join(__dirname, 'card-vector.json'), ascii(out));
 console.log(sealedCard);

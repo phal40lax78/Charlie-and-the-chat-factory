@@ -51,14 +51,16 @@ if (CO) {
         },
         rows: [row(1, 'waiting'), row(2, 'idle'), row(3, 'queued')]
     };
-    const flat = CO.lines(snap, now, true).map(l => l.map(r => r[0]).join(''));
+    // the panel's lines as their text, each line's runs joined
+    const drawn = (s, at) => CO.lines(s, at, true).map(l => l.map(r => r[0]).join(''));
+    const flat = drawn(snap, now);
     check('usage first, then the notes', flat[0].indexOf('Claude') === 0 && flat[0].indexOf('42%') > 0 && flat[1] === 'next queued prompt: 17:10');
     // lines (the default): one a provider, its time at the end; bars: a row a window
     const two = Object.assign({}, snap, { header: { notes: [], usage: [
         { provider: 'Claude', stale: false, status: '22:22', windows: [{ label: '5h', percent: 42, severity: 'normal' }, { label: 'week', percent: 80, severity: 'warning' }] },
         { provider: 'Copilot', stale: false, status: '22:20', windows: [{ label: 'chat', percent: 5, severity: 'normal' }] }] } });
-    const asLines = CO.lines(two, now, true).map(l => l.map(r => r[0]).join(''));
-    const asBars = CO.lines(Object.assign({}, two, { config: { maxRows: 2, prompts: true, usageView: 'bars' } }), now, true).map(l => l.map(r => r[0]).join(''));
+    const asLines = drawn(two, now);
+    const asBars = drawn(Object.assign({}, two, { config: { maxRows: 2, prompts: true, usageView: 'bars' } }), now);
     check('usage as a line a provider ending in its time, or as bars when set',
         asLines[0].indexOf('Claude') === 0 && asLines[0].indexOf('5h 42% \u00B7 week 80%') > 0 && /22:22$/.test(asLines[0]) &&
         asLines[1].indexOf('Copilot') === 0 && asBars[1].indexOf('week') > 0 && asBars[2].indexOf('Copilot') === 0 &&
@@ -66,15 +68,15 @@ if (CO) {
     check('rows up to maxRows, each with its prompt, then "+N more"',
         flat.indexOf('    prompt 1') > 0 && flat.some(l => l.indexOf('chat 2') >= 0) && !flat.some(l => l.indexOf('chat 3') >= 0) && flat.indexOf('+1 more') > 0);
     const termSnap = Object.assign({}, snap, { rows: [Object.assign(row(1, 'idle'), { where: 'terminal' }), Object.assign(row(2, 'idle'), { where: 'vscode' })] });
-    const termFlat = CO.lines(termSnap, now, true).map(l => l.map(r => r[0]).join(''));
+    const termFlat = drawn(termSnap, now);
     check('a chat in a terminal marked >_, one in VS Code not',
         termFlat.some(l => l.indexOf('>_ chat 1') >= 0) && termFlat.some(l => l.indexOf('chat 2') >= 0) && !termFlat.some(l => l.indexOf('>_ chat 2') >= 0));
     const runSnap = Object.assign({}, snap, { rows: [Object.assign(row(1, 'busy'), { where: 'run' }), Object.assign(row(2, 'idle'), { where: 'terminal' })] });
-    const runFlat = CO.lines(runSnap, now, true).map(l => l.map(r => r[0]).join(''));
+    const runFlat = drawn(runSnap, now);
     check('a chat a queued prompt runs in marked with a play triangle, not >_',
         runFlat.some(l => l.indexOf('\u25B7 chat 1') >= 0) && !runFlat.some(l => l.indexOf('>_ chat 1') >= 0) && runFlat.some(l => l.indexOf('>_ chat 2') >= 0));
     const newSnap = Object.assign({}, snap, { rows: [Object.assign(row(1, 'idle'), { unread: true }), row(2, 'idle')] });
-    const newFlat = CO.lines(newSnap, now, true).map(l => l.map(r => r[0]).join(''));
+    const newFlat = drawn(newSnap, now);
     // unread is Windows only: no chip here clears it, so no mark is drawn
     check('no unread mark on macOS: a row that says unread draws as any other',
         newFlat.some(l => l.indexOf('chat 1') >= 0) && !newFlat.some(l => l.indexOf('* chat') >= 0));
@@ -157,7 +159,7 @@ if (CO) {
         /add\('Auto-continue cut-off chats', 'toggleAuto:'\)/.test(js) && /autoItem\.setState\(CO\.autoOn\(snap\) \? 1 : 0\)/.test(js) &&
         /'toggleAuto:'[\s\S]*?CO\.autoVerb\(snap\)/.test(js));
     const autoRow = { key: 'c:1', status: 'cutoff', rank: 0.5, project: 'p', title: 'cut chat', prompt: null, stateText: '#12 auto 13:01' };
-    const autoFlat = CO.lines({ at: noon, config: { maxRows: 4 }, rows: [autoRow], header: { usage: [], notes: [] } }, noon, true).map(l => l.map(r => r[0]).join(''));
+    const autoFlat = drawn({ at: noon, config: { maxRows: 4 }, rows: [autoRow], header: { usage: [], notes: [] } }, noon);
     check('auto-continue: a cut-off row shows its words as the rows give them', autoFlat.some(l => l.indexOf('cut chat') >= 0 && /#12 auto 13:01$/.test(l)), autoFlat.join(' / '));
 }
 console.log('');

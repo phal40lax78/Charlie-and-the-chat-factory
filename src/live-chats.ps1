@@ -65,16 +65,15 @@ function Read-ChatqSessionRegistry {
             if ($hit -and $hit.Entry) { $hit.Entry }
             continue
         }
-        $p = { param($n) if ($o.PSObject.Properties[$n]) { $o.$n } else { $null } }
         $e = [pscustomobject]@{
-            Pid = [int]$o.pid; SessionId = [string](& $p 'sessionId'); Cwd = [string](& $p 'cwd')
-            Status = [string](& $p 'status'); WaitingFor = & $p 'waitingFor'; Name = [string](& $p 'name')
-            Kind = [string](& $p 'kind'); ProcStart = & $p 'procStart'; StartedAt = & $p 'startedAt'
-            UpdatedAt = & $p 'updatedAt'; StatusUpdatedAt = & $p 'statusUpdatedAt'; PidDomain = [string](& $p 'pidDomain')
+            Pid = [int]$o.pid; SessionId = [string](Get-ChatField $o 'sessionId'); Cwd = [string](Get-ChatField $o 'cwd')
+            Status = [string](Get-ChatField $o 'status'); WaitingFor = Get-ChatField $o 'waitingFor'; Name = [string](Get-ChatField $o 'name')
+            Kind = [string](Get-ChatField $o 'kind'); ProcStart = Get-ChatField $o 'procStart'; StartedAt = Get-ChatField $o 'startedAt'
+            UpdatedAt = Get-ChatField $o 'updatedAt'; StatusUpdatedAt = Get-ChatField $o 'statusUpdatedAt'; PidDomain = [string](Get-ChatField $o 'pidDomain')
             # claude-vscode for a VS Code panel's process, something else for a terminal's
-            Entrypoint = [string](& $p 'entrypoint')
+            Entrypoint = [string](Get-ChatField $o 'entrypoint')
             # the CLI's own version: the question hook asks for one it was tried on (src/ask.ps1)
-            Version = [string](& $p 'version')
+            Version = [string](Get-ChatField $o 'version')
         }
         # statusUpdatedAt moves on every write of the file, not only when the
         # status does - a limit reset rewrites them all at once, and every
@@ -541,20 +540,8 @@ function Read-ChatHeadTail {
     if (-not $fs) { return $null }
     try {
         $size = $fs.Length
-        $read = {
-            param([int64]$At)
-            $buf = New-Object byte[] $script:ChatListSpan
-            $null = $fs.Seek($At, [System.IO.SeekOrigin]::Begin)
-            $n = 0
-            while ($n -lt $buf.Length) {
-                $got = $fs.Read($buf, $n, $buf.Length - $n)
-                if ($got -le 0) { break }
-                $n += $got
-            }
-            [System.Text.Encoding]::UTF8.GetString($buf, 0, $n)
-        }
-        $head = & $read 0
-        $tail = if ($size -gt $script:ChatListSpan) { & $read ($size - $script:ChatListSpan) } else { $head }
+        $head = Read-ChatTextAt $fs 0 $script:ChatListSpan
+        $tail = if ($size -gt $script:ChatListSpan) { Read-ChatTextAt $fs ($size - $script:ChatListSpan) $script:ChatListSpan } else { $head }
         return [pscustomobject]@{ Head = $head; Tail = $tail; Length = $size }
     }
     catch { return $null }
@@ -746,6 +733,17 @@ function Show-ChatFresh {
     # a click - the chip's or Show it's - waits on this: the registry, as the
     # panel reads it every 2 s, not claude agents, a CLI to start first
     $live = @(Get-ChatqLiveSessions $ConfigDir -RegistryOnly:($Via -in 'button', 'chip'))
+    # The chat's window brought forward for the chip: -Ok when it was, else why not.
+    # A window holds it, but none is on exactly its folder - a multi-root
+    # one, say: code -n <folder> would open a second window on it, so the
+    # request alone goes. Which windows are exact is only guessed at from
+    # their titles out here (S30).
+    $raise = {
+        param([int[]]$Held, [string]$Ok)
+        if ($Held.Count -and -not (Test-ChatWindowExact $Cwd @(Get-ChatCodeWindowTitles) @(Get-ChatCodeProfileNames))) { return 'not-raised' }
+        $c = Open-ChatCodeWindow $Cwd
+        if ($c.Ok) { $Ok } else { [string]$c.Code }
+    }
     # A queued prompt going into it now - another after the one whose Show it
     # this is, say - or any print-mode claude: ending the window's process
     # and showing the chat would load it part way through, a second writer
@@ -770,12 +768,7 @@ function Show-ChatFresh {
             $jobHome = if ($ConfigDir) { $ConfigDir } else { [string]$runJob.home }
             $name = if ($Title) { $Title } else { [string]$runJob.title }
             Write-ChatWatchRequest -SessionId $SessionId -Cwd $Cwd -Title $name -ConfigHome $jobHome -JobId ([string]$runJob.id) -Seq $runJob.seq -HostPids $hp
-            $outcome = 'watch'
-            if ($hp.Count -and -not (Test-ChatWindowExact $Cwd @(Get-ChatCodeWindowTitles) @(Get-ChatCodeProfileNames))) { $outcome = 'not-raised' }
-            else {
-                $c = Open-ChatCodeWindow $Cwd
-                if (-not $c.Ok) { $outcome = [string]$c.Code }
-            }
+            $outcome = & $raise $hp 'watch'
             return (& $done $outcome $null ([pscustomobject]@{ OldProcess = 'held'; HostPids = $hp; Stopped = @() }))
         }
         return (& $done 'running' $true ([pscustomobject]@{ OldProcess = 'held'; HostPids = @(); Stopped = @() }))
@@ -805,15 +798,7 @@ function Show-ChatFresh {
     elseif ($Via -eq 'chip' -and $j.OldProcess -ne 'other') {
         Write-ChatOpenRequest -SessionId $SessionId -Cwd $Cwd -Title $Title -ConfigHome $ConfigDir -Busy $busy `
             -OldProcess $j.OldProcess -HostPids $j.HostPids -Transcript $Transcript
-        # A window holds it, but none is on exactly its folder - a multi-root
-        # one, say: code -n <folder> would open a second window on it, so the
-        # request alone goes. Which windows are exact is only guessed at from
-        # their titles out here (S30).
-        if (@($j.HostPids).Count -and -not (Test-ChatWindowExact $Cwd @(Get-ChatCodeWindowTitles) @(Get-ChatCodeProfileNames))) { $outcome = 'not-raised' }
-        else {
-            $c = Open-ChatCodeWindow $Cwd
-            if (-not $c.Ok) { $outcome = [string]$c.Code }
-        }
+        $outcome = & $raise @($j.HostPids) $outcome
         # A chat whose head says an SDK started it - every one + New chat
         # made - is one Claude Code never lists nor opens in a tab: the
         # window offers it in a terminal instead (the extension's
@@ -866,16 +851,54 @@ function Test-ChatWindowExact {
     $leaf = Split-Path ([string]$Cwd).TrimEnd('\', '/') -Leaf
     if (-not $leaf) { return $false }
     foreach ($t in @($Titles)) {
-        $s = (([string]$t) -replace '\s+-\s+Visual Studio Code( - Insiders)?(\s*\[[^\]]*\])?\s*$', '').Trim()
-        $cut = @($s)
-        foreach ($p in @($Profiles)) {
-            if ($p -and $s.EndsWith(" - $p", [StringComparison]::OrdinalIgnoreCase)) { $cut += $s.Substring(0, $s.Length - $p.Length - 3) }
-        }
-        foreach ($c in $cut) {
-            if ($c -eq $leaf -or $c.EndsWith(" - $leaf", [StringComparison]::OrdinalIgnoreCase)) { return $true }
-        }
+        if (Test-ChatWindowTitleOn $t $leaf $Profiles) { return $true }
     }
     return $false
+}
+
+function Test-ChatWindowTitleOn {
+    # Does this one window title name -Root last before VS Code's own name,
+    # or before a profile's? The rule Test-ChatWindowExact applies to every
+    # title, kept here so Select-ChatCodeWindow applies the same one. Pure.
+    param([string]$Title, [string]$Root, [string[]]$Profiles = @())
+    if (-not $Root) { return $false }
+    $s = (([string]$Title) -replace '\s+-\s+Visual Studio Code( - Insiders)?(\s*\[[^\]]*\])?\s*$', '').Trim()
+    $cut = @($s)
+    foreach ($p in @($Profiles)) {
+        if ($p -and $s.EndsWith(" - $p", [StringComparison]::OrdinalIgnoreCase)) { $cut += $s.Substring(0, $s.Length - $p.Length - 3) }
+    }
+    foreach ($c in $cut) {
+        if ($c -eq $Root -or $c.EndsWith(" - $Root", [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    }
+    return $false
+}
+
+function Select-ChatCodeWindow {
+    <#
+    The one VS Code window to bring to the front for a chat, from -Windows
+    (Get-ChatCodeWindowList: Handle, Title). By its folder: the window whose
+    title ends on the folder's name, the rule Test-ChatWindowExact goes by.
+    By -Name, for a window with other folders beside it (25, 26): the name
+    the extension wrote in the chat's tab file (windowName), which a
+    multi-root title shows as "<name> (Workspace)". Exactly one match or
+    $null - two windows on folders of one name are two guesses, and the
+    wrong one in front is worse than none. Titles are a proxy (S30). Pure.
+    #>
+    param([string]$Cwd, [object[]]$Windows = @(), [string[]]$Profiles = @(), [string]$Name)
+    $roots = if ($Name) { @("$Name (Workspace)", $Name) }
+    else {
+        $leaf = if ($Cwd) { Split-Path ([string]$Cwd).TrimEnd('\', '/') -Leaf }
+        if ($leaf) { @($leaf) } else { @() }
+    }
+    if (-not $roots) { return $null }
+    $hits = @(foreach ($w in @($Windows)) {
+            if (-not $w -or -not (Get-ChatField $w 'Handle')) { continue }
+            foreach ($r in $roots) {
+                if (Test-ChatWindowTitleOn ([string](Get-ChatField $w 'Title')) $r $Profiles) { $w; break }
+            }
+        })
+    if ($hits.Count -eq 1) { return $hits[0] }
+    return $null
 }
 
 function Get-ChatCodeProfileNames {
@@ -903,7 +926,9 @@ function Get-ChatCodeProfileNames {
 }
 
 # the titles of VS Code's windows, read and nothing else: nothing here moves,
-# raises or activates a window
+# raises or activates a window. The one place that brings a window to the
+# front is the overlay's ChatOverlayFront (overlay-windows.ps1), and only
+# after the user's own click on open.
 $script:ChatCodeWindowsCode = @'
 using System;
 using System.Collections.Generic;
@@ -938,10 +963,70 @@ function Get-ChatCodeWindowTitles {
     if ($script:ChatWindowTitlesSeam) { return @(& $script:ChatWindowTitlesSeam) }   # tests
     if (-not $script:ChatqIsWindows) { return @() }
     try {
-        $ids = @(Get-Process -Name 'Code', 'Code - Insiders' -EA SilentlyContinue | ForEach-Object { [int]$_.Id })
+        $ids = @(Get-ChatCodePids)
         if (-not $ids) { return @() }
-        if (-not ('ChatCodeWindows' -as [type])) { Add-Type -TypeDefinition $script:ChatCodeWindowsCode }
+        if (-not ('ChatCodeWindows' -as [type])) { Invoke-ChatCompile { Add-Type -TypeDefinition $script:ChatCodeWindowsCode } }
         return @([ChatCodeWindows]::Titles([int[]]$ids))
+    }
+    catch { return @() }
+}
+
+# VS Code's windows with their handles, for the overlay to pick the one an
+# open asked for (Select-ChatCodeWindow). Read and nothing else, like
+# ChatCodeWindows beside it, which stays as it is for the titles alone.
+$script:ChatCodeWindowListCode = @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public static class ChatCodeWindowList {
+    public class Entry { public long Handle; public string Title; }
+    delegate bool EnumProc(IntPtr h, IntPtr l);
+    [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc f, IntPtr l);
+    [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+    public static Entry[] List(int[] pids) {
+        List<Entry> found = new List<Entry>();
+        List<uint> want = new List<uint>();
+        foreach (int p in pids) { want.Add((uint)p); }
+        EnumWindows(delegate (IntPtr h, IntPtr l) {
+            uint pid;
+            GetWindowThreadProcessId(h, out pid);
+            if (want.Contains(pid) && IsWindowVisible(h)) {
+                StringBuilder sb = new StringBuilder(512);
+                if (GetWindowText(h, sb, 512) > 0) {
+                    Entry e = new Entry();
+                    e.Handle = h.ToInt64();
+                    e.Title = sb.ToString();
+                    found.Add(e);
+                }
+            }
+            return true;
+        }, IntPtr.Zero);
+        return found.ToArray();
+    }
+}
+'@
+
+function Get-ChatCodePids {
+    # the pids of VS Code's processes, Insiders' too; Windows. Every one of
+    # its top-level windows belongs to the main one among them.
+    if (-not $script:ChatqIsWindows) { return @() }
+    return @(Get-Process -Name 'Code', 'Code - Insiders' -EA SilentlyContinue | ForEach-Object { [int]$_.Id })
+}
+
+function Get-ChatCodeWindowList {
+    # VS Code's visible top-level windows: @{ Handle; Title }, read only.
+    # Titles go no further than Select-ChatCodeWindow - never into a log.
+    if ($script:ChatCodeWindowListSeam) { return @(& $script:ChatCodeWindowListSeam) }   # tests
+    if (-not $script:ChatqIsWindows) { return @() }
+    try {
+        $ids = @(Get-ChatCodePids)
+        if (-not $ids) { return @() }
+        if (-not ('ChatCodeWindowList' -as [type])) { Invoke-ChatCompile { Add-Type -TypeDefinition $script:ChatCodeWindowListCode } }
+        return @([ChatCodeWindowList]::List([int[]]$ids) | ForEach-Object { [pscustomobject]@{ Handle = [int64]$_.Handle; Title = [string]$_.Title } })
     }
     catch { return @() }
 }
@@ -1019,8 +1104,12 @@ function Open-ChatCodeWindow {
     open, or opens a new one on it. -n keeps it from reusing an unrelated
     window when window.openFoldersInNewWindow is off; reusing one would close
     that window's folder. Nothing here moves the pointer, types, or calls a
-    window API - VS Code raises its own window. The vscode:// link would do
-    it without code on PATH, but asks first when opened from outside.
+    window API - VS Code tries to raise its own window, which Windows mostly
+    lets only flash on the taskbar, this being several processes away from
+    any click. From the overlay's open, the overlay lets VS Code do it at the
+    click, and brings the window to the front itself once this has run
+    (Invoke-ChatOverlayRaise). The vscode:// link would do it without code
+    on PATH, but asks first when opened from outside.
     Returns @{ Ok; Code (ok, no-code, code-failed); Why; Slow }.
     #>
     param([string]$Folder)

@@ -154,7 +154,7 @@ and `downPerDay` are config-only (the table under "A few settings are only in co
   `Get-ChatqLogEntries $Job -MaxBytes 8MB`, only the entries after the log's last `init`
   (one run), `text` and `tool` kept - Claude and Codex alike, since the job log has both.
   Falls back to `Get-ChatqTurnText $Job.path` for a Claude job with no log.
-- **`Send-ChatqReplyText -Rc -Aid -Event -Job [-Quick]`** -> `$true` when the down message went.
+- **`Send-ChatqReplyText -Rc -Aid -Event -Job`** -> `$true` when the down message went.
   Only when `reply.full`, the event is `done`, `needs input` or `failed`, `$Job.sessionId` is
   set, the text is not empty and the day's `down.full` is under `downPerDay` (counted in a
   `Use-ChatqReplyState` block *before* the send, never inside it). Text from
@@ -164,7 +164,7 @@ and `downPerDay` are config-only (the table under "A few settings are only in co
   {"v":3,"kind":"reply","ref":"<aid>","ts":<ms>,"event":"done","title":"<chat title>",
    "at":"<iso, turn end>","cut":0,"parts":[{"t":"text","s":"..."},{"t":"tool","s":"Bash git status"}]}
   ```
-- **`Send-ChatqDown -Rc -Did -Body <ordered hashtable> [-Quick]`** -> `@{ Ok; Error; Bytes;
+- **`Send-ChatqDown -Rc -Did -Body <ordered hashtable>`** -> `@{ Ok; Error; Bytes;
   Attached }`. Seals with `Protect-ChatqDownMessage`. Sealed length <= 3,900 bytes: `POST
   <server>/<downTopic>` with the sealed text as a `text/plain` body. Longer: `PUT
   <server>/<downTopic>` with the sealed text as the body and headers `X-Filename: <did>.txt`,
@@ -172,12 +172,12 @@ and `downPerDay` are config-only (the table under "A few settings are only in co
   Google), `X-Cache: yes`, priority 1 (`X-Priority: 1`). Over 1.9 MB sealed, or a PUT the
   server refuses (a self-hosted ntfy without attachments answers 400/413): the parts are cut
   from the front until the sealed text fits inline, `cut` says how much, sent inline. One try
-  with an 8 s timeout (`-Quick` or not: it goes ahead of the push, which must not wait 60 s).
+  with an 8 s timeout (inside a run or not: it goes ahead of the push, which must not wait 60 s).
   Seam `$script:ChatqDownSeam` `{ param($Method, $Url, $Headers, $Body) }` -> `$null` sent,
   or an error string. Never throws; failures to `replies.log`, one line per 10 min.
 - **`Send-ChatqAlert`** (src/alerts.ps1), in the branch that registers an answerable alert:
   after `New-ChatqReplyAlert` and **before** the channel loop:
-  `$full = Send-ChatqReplyText $rc $reply.Aid $Event $Job -Quick:$Quick`, then
+  `$full = Send-ChatqReplyText $rc $reply.Aid $Event $Job`, then
   `$reply.Link = Get-ChatqReplyLink $rc $reply.Aid $Event $Job -Full:$full -At <alert unix s>`.
   Not for `-PairLink`, `-NoReply`, or events other than the three.
 - **`Get-ChatqReplyLink`** gains `-Full` (adds `r=1`) and `-At` (adds `w=<unix seconds>`; every

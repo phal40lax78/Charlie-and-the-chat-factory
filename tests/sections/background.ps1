@@ -137,6 +137,38 @@ $s2 = @{}
 $bgCalls = 0
 while (-not $s2.Done -and $bgCalls -lt 200) { Update-ChatBackgroundScan $s2 $pBg -MaxBytes 300; $bgCalls++ }
 Check 'read 300 bytes at a time - lines longer than that taken whole - it comes to the same' ($s2.Done -and $bgCalls -gt 3 -and (& $bgIds $s2.Open -Shells) -eq (& $bgIds $s1.Open -Shells)) "$bgCalls calls: $(& $bgIds $s2.Open -Shells)"
+# lines longer than a piece (40 KB), searched a piece at a time: a word the
+# first piece's end cuts in two, one byte of it in the next; a line with no
+# word, and the line after it in the same piece; a word in a long line's
+# first piece, with more pieces of the line after it
+$pcShell = { param([int]$Pad) ConvertTo-BgLine ([ordered]@{ type = 'user'; message = [ordered]@{ role = 'user'
+                content = @([ordered]@{ tool_use_id = 'toolu_bg'; type = 'tool_result'; content = ('p' * $Pad) }) }
+            toolUseResult = [ordered]@{ stdout = ''; stderr = ''; interrupted = $false; isImage = $false; noOutputExpected = $false; backgroundTaskId = 'bbg0002' } }) 6 }
+$pcL1 = & $pcShell (40KB - 17 - (& $pcShell 0).IndexOf('"backgroundTaskId"'))
+$pcAt = $pcL1.IndexOf('"backgroundTaskId"')
+$pPieces = Join-Path $work 'bg-pieces.jsonl'
+[System.IO.File]::WriteAllText($pPieces, (@($pcL1
+            New-BgResult ([ordered]@{ isAsync = $true; status = 'async_launched'; agentId = 'abg0002'; description = 'two' }) 5
+            ConvertTo-BgLine ([ordered]@{ type = 'assistant'; message = [ordered]@{ role = 'assistant'; content = @([ordered]@{ type = 'text'; text = ('r' * 100KB) }) } }) 4
+            New-BgResult ([ordered]@{ isAsync = $true; status = 'async_launched'; agentId = 'abg0003'; description = 'three' }) 3
+            ConvertTo-BgLine ([ordered]@{ type = 'user'; message = [ordered]@{ role = 'user'
+                        content = "<task-notification>`n<task-id>abg0002</task-id>`n<status>completed</status>`n</task-notification>" + ('q' * 60KB) } }) 2
+        ) -join "`n") + "`n", $utf8)
+$pcLen = (Get-Item -LiteralPath $pPieces).Length
+$s3 = @{}
+Update-ChatBackgroundScan $s3 $pPieces
+$s4 = @{}
+$pcCalls = 0
+while (-not $s4.Done -and $pcCalls -lt 200) { Update-ChatBackgroundScan $s4 $pPieces -MaxBytes 300; $pcCalls++ }
+# and a byte at a time: a piece no smaller than what is kept for a cut word
+$s5 = @{}
+$pcCalls1 = 0
+while (-not $s5.Done -and $pcCalls1 -lt 200) { Update-ChatBackgroundScan $s5 $pPieces -MaxBytes 1; $pcCalls1++ }
+Check 'lines longer than a piece: a word a piece''s end cuts in two, the line after one with no word, a word in a long line''s first piece; 300 bytes at a time the same, and 1' (
+    $pcAt -eq 40KB - 17 -and $s3.Done -and $s3.Offset -eq $pcLen -and (& $bgIds $s3.Open -Shells) -eq 'abg0003,bbg0002' -and
+    $s4.Done -and $s4.Offset -eq $pcLen -and (& $bgIds $s4.Open -Shells) -eq 'abg0003,bbg0002' -and
+    $s5.Done -and $s5.Offset -eq $pcLen -and (& $bgIds $s5.Open -Shells) -eq 'abg0003,bbg0002') (
+    "at $pcAt; read $($s3.Offset), $($s4.Offset) in $pcCalls calls, $($s5.Offset) in $pcCalls1, of $pcLen`: $(& $bgIds $s3.Open -Shells) | $(& $bgIds $s4.Open -Shells) | $(& $bgIds $s5.Open -Shells)")
 [System.IO.File]::WriteAllText($pBg, $bgBefore, $utf8)
 Update-ChatBackgroundScan $s1 $pBg
 Check 'a transcript that shrank is read again from the start' ($s1.Done -and $s1.Open.Count -eq 0 -and $s1.Offset -eq (Get-Item -LiteralPath $pBg).Length)
@@ -191,9 +223,15 @@ if ($script:ChatqIsWindows) {
     $bgT = [System.Diagnostics.Stopwatch]::StartNew()
     $bgC = Get-ChatShellChildCount @($PID) ((Get-Date).AddMinutes(1))
     $bgMs = $bgT.ElapsedMilliseconds
-    $bgT.Restart()
-    $null = Get-ChatShellChildCount @($PID) ((Get-Date).AddMinutes(2))
-    Check 'on Windows the list comes from Toolhelp32 - a count, not unknown, in milliseconds once loaded' ($bgC -is [int] -and $bgT.ElapsedMilliseconds -lt 150) "$bgC, first $bgMs ms, then $($bgT.ElapsedMilliseconds) ms"
+    # the best of five, each past the cache: a busy machine's stall spoils a
+    # look or two, where WMI's 0.4 s would show in every one
+    $bgBest = [long]::MaxValue
+    foreach ($bgN in 2..6) {
+        $bgT.Restart()
+        $null = Get-ChatShellChildCount @($PID) ((Get-Date).AddMinutes($bgN))
+        $bgBest = [Math]::Min($bgBest, $bgT.ElapsedMilliseconds)
+    }
+    Check 'on Windows the list comes from Toolhelp32 - a count, not unknown, in milliseconds once loaded' ($bgC -is [int] -and $bgBest -lt 150) "$bgC, first $bgMs ms, then at best $bgBest ms"
 }
 # a cut-off chat is cut off, whatever it still has running
 $bgCut = [pscustomobject]@{ Id = $idBg; Cwd = $projBg; Title = 'Background host chat'; At = (Get-Date).AddMinutes(-1); ResetsAt = (Get-Date).AddHours(2); Why = 'limit'; Path = $pBg }

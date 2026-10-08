@@ -120,7 +120,7 @@ function Set-ChatqKeepAwake {
     try {
         if ($script:ChatqIsWindows) {
             if (-not ('ChatqPower' -as [type])) {
-                Add-Type -Name ChatqPower -Namespace '' -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint esFlags);'
+                Invoke-ChatCompile { Add-Type -Name ChatqPower -Namespace '' -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint esFlags);' }
             }
             # ES_CONTINUOUS (0x80000000) | ES_SYSTEM_REQUIRED (0x1), or CONTINUOUS alone to let go
             $flags = if ($On) { [uint32]2147483649 } else { [uint32]2147483648 }
@@ -149,12 +149,7 @@ function Set-ChatqKeepAwake {
 function Write-ChatqWatchLog {
     param([string]$Text)
     try {
-        New-ChatqDir $script:ChatqLogDir
-        $p = Join-Path $script:ChatqLogDir 'watcher.log'
-        if ((Test-Path -LiteralPath $p) -and (Get-Item -LiteralPath $p).Length -gt 1MB) {
-            Move-Item -LiteralPath $p -Destination "$p.1" -Force
-        }
-        [System.IO.File]::AppendAllText($p, "$((Get-Date).ToString('o'))  $Text`n", (New-Object System.Text.UTF8Encoding $false))
+        Add-ChatqLogLine 'watcher.log' $Text
         if ($script:ChatqForeground) { Write-Host "  $((Get-Date).ToString('HH:mm:ss'))  $Text" -ForegroundColor DarkGray }
     }
     catch {}
@@ -1528,13 +1523,19 @@ function Start-ChatqWatcherProcess {
         return $false
     }
     $l = Get-ChatqWatcherLaunch $path
+    # in your home folder, never the caller's: the watcher runs on for hours
+    # after the shell that started it, and Windows will not delete or rename a
+    # folder a process is in. Escaped, as Start-Process reads the folder as a
+    # wildcard; -EA Stop, or a folder it cannot use is an error the catch never
+    # sees, and $true goes back for a watcher that never started
+    $wd = [WildcardPattern]::Escape($HOME)
     try {
         if ($script:ChatqIsWindows) {
-            Start-Process -FilePath $l.Exe -WindowStyle Hidden -ArgumentList $l.Args | Out-Null
+            Start-Process -FilePath $l.Exe -WindowStyle Hidden -ArgumentList $l.Args -WorkingDirectory $wd -EA Stop | Out-Null
         }
         else {
             New-ChatqDir $script:ChatqLogDir
-            Start-Process -FilePath 'nohup' -ArgumentList (@($l.Exe) + $l.Args) `
+            Start-Process -FilePath 'nohup' -ArgumentList (@($l.Exe) + $l.Args) -WorkingDirectory $wd -EA Stop `
                 -RedirectStandardOutput (Join-Path $script:ChatqLogDir 'watcher.out') `
                 -RedirectStandardError (Join-Path $script:ChatqLogDir 'watcher.err') | Out-Null
         }

@@ -16,6 +16,7 @@ const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
 const nodeCrypto = require('crypto');
+const { markedBlock, codeOnly, fakeElement, fakeIndexedDb } = require(path.join(__dirname, 'page-kit.js'));
 const webcrypto = globalThis.crypto || nodeCrypto.webcrypto;
 let failed = 0, total = 0;
 const check = (name, ok, detail) => {
@@ -85,15 +86,8 @@ const openAlert = (message, d) => {
 }
 
 // --- the page's blocks -----------------------------------------------------------------
-const slice = (name) => {
-    const b = '/* chatq-' + name + '-begin */', e = '/* chatq-' + name + '-end */';
-    const i = html.indexOf(b), j = html.indexOf(e);
-    if (i < 0 || j < i || html.indexOf(b, i + 1) >= 0 || html.indexOf(e, j + 1) >= 0) return null;
-    return html.slice(i + b.length, j);
-};
-const cryptoJs = slice('crypto'), logicJs = slice('logic'), boardJs = slice('board');
+const cryptoJs = markedBlock(html, 'crypto'), logicJs = markedBlock(html, 'logic'), boardJs = markedBlock(html, 'board');
 check('the board block is marked, once, after the logic block', boardJs !== null && html.indexOf('chatq-board-begin') > html.indexOf('chatq-logic-end'));
-const codeOnly = (js) => String(js).replace(/'(?:[^'\\\n]|\\.)*'/g, "''").replace(/\/\/.*$/gm, '');
 check('the board block touches no page: no document, window, location, storage, navigator or fetch',
     boardJs !== null && !/\b(document|window|location|sessionStorage|localStorage|indexedDB|navigator|fetch|XMLHttpRequest)\b/.test(codeOnly(boardJs)));
 const GLOBALS = ['crypto', 'TextEncoder', 'btoa', 'atob', 'URL'];
@@ -393,62 +387,19 @@ async function drive() {
     const realSetTimeout = setTimeout;
     const settle = () => new Promise((r) => realSetTimeout(r, 15));
     const waitFor = async (ok) => { for (let i = 0; i < 300 && !ok(); i++) await settle(); return ok(); };
+    const type = (e, v) => { e.value = v; e.fire('input'); };
     const dbs = new Map();
     const key = await webcrypto.subtle.importKey('raw', D, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
     const code = String(hmac(D, 'chatq-confirm').readUInt32BE(0) % 1000000).padStart(6, '0');
     // the phone, paired: its record in IndexedDB, the key a CryptoKey that will not export
     dbs.set('chatq', { version: 1, stores: new Map([['phone', new Map([['phone', { v: 3, s: SERVER, t: TOPIC, key, at: 1789990000000, h: 'DESKTOP-7', code }]])]]) });
-    const idb = {
-        open(name) {
-            const req = {};
-            realSetTimeout(() => {
-                const db = dbs.get(name);
-                req.result = {
-                    objectStoreNames: { contains: (n) => db.stores.has(n) }, close() { },
-                    transaction: (n) => {
-                        const st = db.stores.get(n), tx = {}, work = [];
-                        tx.objectStore = () => ({
-                            get: (k) => { const r = {}; work.push(() => { r.result = st.get(k); if (r.onsuccess) r.onsuccess({}); }); return r; },
-                            put: (v, k) => { const r = {}; work.push(() => { st.set(k, v); if (r.onsuccess) r.onsuccess({}); }); return r; }
-                        });
-                        realSetTimeout(() => { work.forEach((w) => w()); if (tx.oncomplete) tx.oncomplete({}); }, 0);
-                        return tx;
-                    }
-                };
-                if (req.onsuccess) req.onsuccess({});
-            }, 0);
-            return req;
-        }
-    };
+    const idb = fakeIndexedDb(dbs);
     const store = new Map(), local = new Map();
     const storage = (m) => ({ setItem: (k, v) => m.set(k, String(v)), getItem: (k) => (m.has(k) ? m.get(k) : null), removeItem: (k) => m.delete(k) });
     const load = async (hash) => {
         const doc = { activeElement: null, title: '', els: {}, visibilityState: 'visible', on: {} };
         doc.addEventListener = (t, fn) => { (doc.on[t] = doc.on[t] || []).push(fn); };
-        const el = (id, tag) => {
-            const e = {
-                id, tagName: String(tag || 'div').toUpperCase(), hidden: false, disabled: false, value: '', placeholder: '', type: '', className: '',
-                attrs: {}, kids: [], on: {}, cls: new Set(), _text: '',
-                get textContent() { return this._text; },
-                set textContent(v) { this._text = String(v); this.kids = []; },
-                get children() { return this.kids; },
-                get firstChild() { return this.kids[0] || null; },
-                get lastChild() { return this.kids[this.kids.length - 1] || null; },
-                setAttribute(k, v) { this.attrs[k] = String(v); },
-                getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; },
-                removeAttribute(k) { delete this.attrs[k]; },
-                addEventListener(t, fn) { (this.on[t] = this.on[t] || []).push(fn); },
-                fire(t, ev) { (this.on[t] || []).forEach((fn) => fn(ev || { preventDefault() { } })); },
-                appendChild(c) { this.kids.push(c); return c; },
-                insertBefore(c, ref) { const i = ref ? this.kids.indexOf(ref) : -1; if (i < 0) this.kids.push(c); else this.kids.splice(i, 0, c); return c; },
-                removeChild(c) { this.kids.splice(this.kids.indexOf(c), 1); return c; },
-                querySelectorAll(sel) { return this.kids.filter((c) => c.tagName === sel.toUpperCase()); },
-                focus() { doc.activeElement = this; },
-                blur() { if (doc.activeElement === this) doc.activeElement = null; }
-            };
-            e.classList = { toggle: (c, on) => { if (on === undefined ? !e.cls.has(c) : on) e.cls.add(c); else e.cls.delete(c); }, contains: (c) => e.cls.has(c) };
-            return e;
-        };
+        const el = fakeElement(doc);
         tags.forEach((m) => { doc.els[m[3]] = el(m[3], m[1]); doc.els[m[3]].hidden = /\shidden(\s|=|$)/.test(m[2] + ' ' + m[4]); });
         doc.getElementById = (id) => doc.els[id] || null;
         doc.createElement = (tag) => el('', tag);
@@ -551,14 +502,11 @@ async function drive() {
         /as of \d\d:\d\d/.test(pg.text(pg.$('bUsage'))) && /^Claude/.test(pg.$('bUsage').kids[0]._text));
     check('the footer: + New chat, listens all the time, Status; "+14 older chats"', !pg.$('bNew').hidden && pg.$('bListen')._text === 'Listens all the time' &&
         /\+14 older chats are not listed\./.test(pg.text(pg.$('bList'))) && pg.$('bNote').hidden);
-    pg.$('bSearch').value = 'plugin';
-    pg.$('bSearch').fire('input');
+    type(pg.$('bSearch'), 'plugin');
     const afterSearch = pg.rows().length;
-    pg.$('bSearch').value = 'nothing like it';
-    pg.$('bSearch').fire('input');
+    type(pg.$('bSearch'), 'nothing like it');
     const none = pg.text(pg.$('bList'));
-    pg.$('bSearch').value = '';
-    pg.$('bSearch').fire('input');
+    type(pg.$('bSearch'), '');
     check('search as you type: one row for "plugin", and "No chat matches" for nothing', afterSearch === 1 && /No chat matches "nothing like it"\./.test(none) && pg.rows().length === 7);
 
     // a tap: the chat view, and each act sealed with the row's own handle
@@ -584,8 +532,7 @@ async function drive() {
     check('Skip: the first tap only asks, a second one sends skip for that job', armed === 'Tap again to skip' && pg.opened(n0 + 1).json.act === 'skip' && pg.opened(n0 + 1).json.h === 'hjobqa');
     pg.answer(n0 + 1, { kind: 'ack', act: 'skip', ok: true, say: '#14 skipped' });
     await pg.run(4000);
-    pg.$('cText').value = 'yes, commit it ' + HANGUL;
-    pg.$('cText').fire('input');
+    type(pg.$('cText'), 'yes, commit it ' + HANGUL);
     check('the box counts bytes as the alert form does, and keeps a draft for this chat', /bytes$/.test(pg.$('cCount')._text) && !pg.$('cSend').disabled &&
         store.get('chatq-cdraft:claude:2b3c4d5e') === 'yes, commit it ' + HANGUL);
     pg.$('cSend').fire('click');
@@ -632,6 +579,8 @@ async function drive() {
     check('a board chat whose mode the PC read: the chat view says its own, not the cap', notifyMode === 'plan' && !pg.$('board').hidden, notifyMode);
     let p0 = pg.posts.length;
     await pg.run(31000);
+    // the refresh's timer does not hand run() its sealing: waited for
+    await waitFor(() => pg.posts.length > p0);
     const refreshed = pg.posts.length > p0 && pg.opened(pg.posts.length - 1).json.act === 'board';
     pg.answer(pg.posts.length - 1, board);
     await pg.run(4000);
@@ -639,7 +588,9 @@ async function drive() {
     pg.doc.visibilityState = 'hidden';
     p0 = pg.posts.length;
     await pg.run(31000);
-    const whileHidden = pg.posts.length - p0;
+    // an ask still sealing has no post yet, but has greyed Refresh: askBoard
+    // does that before its first await
+    const whileHidden = pg.posts.length - p0 + (pg.$('bRefresh').disabled ? 1 : 0);
     pg.doc.visibilityState = 'visible';
     (pg.doc.on.visibilitychange || []).forEach((fn) => fn());
     await waitFor(() => pg.posts.length > p0);
@@ -649,7 +600,7 @@ async function drive() {
     clock += 11 * 60000;
     p0 = pg.posts.length;
     await pg.run(31000);
-    check('after 10 minutes it stops, and says Paused - tap Refresh', pg.posts.length === p0 && /Paused - tap Refresh\./.test(pg.$('bNote')._text));
+    check('after 10 minutes it stops, and says Paused - tap Refresh', pg.posts.length === p0 && !pg.$('bRefresh').disabled && /Paused - tap Refresh\./.test(pg.$('bNote')._text));
     pg.$('bRefresh').fire('click');
     await waitFor(() => pg.posts.length === p0 + 1);
     check('Refresh asks again, and the budget starts over', pg.opened(p0).json.act === 'board');
@@ -677,27 +628,24 @@ async function drive() {
     check('an older Codex chat: its folder and provider, its own mode brought down, no last answer to read, the box',
         pg.$('cTitle')._text === 'Codex thread' && pg.$('cMeta')._text === 'svc \u00b7 codex' && pg.$('cMode')._text === 'workspace-write (phone\'s limit)' &&
         pg.$('cActs').hidden && !pg.$('cCompose').hidden && pg.$('cState')._text === 'a message goes next', pg.$('cMeta')._text + ' / ' + pg.$('cMode')._text);
-    pg.$('cText').value = 'rerun the tests';
-    pg.$('cText').fire('input');
-    p0 = pg.posts.length;
-    pg.$('cSend').fire('click');
-    await waitFor(() => pg.posts.length === p0 + 1);
+    // typed into the chat view's box and sent: the count of posts before it
+    const sendText = async (v) => { type(pg.$('cText'), v); const n = pg.posts.length; pg.$('cSend').fire('click'); await waitFor(() => pg.posts.length === n + 1); return n; };
+    p0 = await sendText('rerun the tests');
     const ls = pg.opened(p0);
     check('Send to it: the act send with the list\'s handle and the first 8 of its id; its draft kept under codex', ls.json.act === 'send' && ls.json.h === 'hlistb' &&
         ls.json.id === '7a8b9c0d' && ls.json.text === 'rerun the tests' && store.get('chatq-cdraft:codex:7a8b9c0d') === 'rerun the tests');
     pg.answer(p0, { kind: 'ack', act: 'send', ok: true, say: 'queued #16 for Codex thread' });
     await pg.run(4000);
     pg.$('cBack').fire('click');
+    // a board asked for again greys Refresh at once, its post only once
+    // sealed: whether it asked read now, the post waited for
+    let asking = pg.$('bRefresh').disabled;
     await pg.run(4000);
-    if (pg.posts.length > p0 + 1) { pg.answer(pg.posts.length - 1, board); await pg.run(4000); }
+    if (asking) { await waitFor(() => pg.posts.length > p0 + 1); pg.answer(pg.posts.length - 1, board); await pg.run(4000); }
     // an older chat that moved on: its handle comes only from the list, so the
     // list is asked for again with the board - a board alone would leave it
     pg.row('Old chat').fire('click');
-    pg.$('cText').value = 'and the docs';
-    pg.$('cText').fire('input');
-    p0 = pg.posts.length;
-    pg.$('cSend').fire('click');
-    await waitFor(() => pg.posts.length === p0 + 1);
+    p0 = await sendText('and the docs');
     pg.answer(p0, { kind: 'ack', act: 'send', ok: false, say: 'that chat moved on at the PC - the list is out of date, refresh it' });
     await pg.run(4000);
     await waitFor(() => pg.posts.length === p0 + 3);
@@ -716,18 +664,17 @@ async function drive() {
     // left before the answer came: it lands in no other chat's view
     pg.$('cBack').fire('click');
     pg.row('Codex thread').fire('click');
-    pg.$('cText').value = 'for the codex one';
-    pg.$('cText').fire('input');
+    type(pg.$('cText'), 'for the codex one');
     pg.answer(p0, { kind: 'ack', act: 'send', ok: true, say: 'queued #17 for Old chat' });
     await pg.run(4000);
     check('an answer to a view left since changes nothing in the one opened after it: its text, its draft, its status', pg.$('cTitle')._text === 'Codex thread' &&
         pg.$('cText').value === 'for the codex one' && store.get('chatq-cdraft:codex:7a8b9c0d') === 'for the codex one' && pg.$('cStatus').hidden,
         pg.$('cText').value + ' / ' + pg.$('cStatusText')._text);
-    pg.$('cText').value = '';
-    pg.$('cText').fire('input');
+    type(pg.$('cText'), '');
     pg.$('cBack').fire('click');
+    asking = pg.$('bRefresh').disabled;
     await pg.run(4000);
-    if (pg.posts.length > p0 + 1) { pg.answer(pg.posts.length - 1, board); await pg.run(4000); }
+    if (asking) { await waitFor(() => pg.posts.length > p0 + 1); pg.answer(pg.posts.length - 1, board); await pg.run(4000); }
 
     // + New chat: the folders, then the new chat's view
     pg.$('bNew').fire('click');
@@ -737,11 +684,7 @@ async function drive() {
     check('a folder: "New chat in proj_AS-BW", a name, the mode it runs in', pg.$('cTitle')._text === 'New chat in proj_AS-BW' && !pg.$('cName').hidden &&
         pg.$('cMode')._text === 'default - anything that would ask is denied' && !pg.$('cCompose').hidden);
     pg.$('cName').value = 'Docs pass';
-    pg.$('cText').value = 'write the docs';
-    pg.$('cText').fire('input');
-    p0 = pg.posts.length;
-    pg.$('cSend').fire('click');
-    await waitFor(() => pg.posts.length === p0 + 1);
+    p0 = await sendText('write the docs');
     const nw = pg.opened(p0);
     check('Send: the act new with the folder\'s handle, the name and the text', nw.json.act === 'new' && nw.json.h === 'hfolda' && nw.json.name === 'Docs pass' && nw.json.text === 'write the docs');
     pg.answer(p0, { kind: 'ack', act: 'new', ok: true, say: 'new chat "Docs pass" queued as #15 in proj_AS-BW - runs in default' });
@@ -790,7 +733,6 @@ async function drive() {
     const inputs = (pg, id, type) => pg.all(id).filter((e) => e.tagName === 'INPUT' && (!type || e.type === type));
     const sendOf = (pg, id) => pg.all(id).find((e) => e.tagName === 'BUTTON' && e.getAttribute('data-act') === 'answer');
     const pick = (e, on) => { e.checked = on !== false; e.fire('change'); };
-    const type = (e, v) => { e.value = v; e.fire('input'); };
     // until passes while the card is shown: read-only on the minute's tick
     aBoard.row('Soon over').fire('click');
     const soonHad = !!sendOf(aBoard, 'cAsk');

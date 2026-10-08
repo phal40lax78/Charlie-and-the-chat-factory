@@ -153,8 +153,7 @@ function Save-ChatIndex {
     # half a CSV parses as a shorter list without complaint.
     param([object[]]$Rows)
     try {
-        $dir = Split-Path $script:ChatIndexPath -Parent
-        if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+        New-ChatqDir (Split-Path $script:ChatIndexPath -Parent)
         $tmp = "$($script:ChatIndexPath).tmp"
         $Rows | ForEach-Object {
             [pscustomobject]@{
@@ -388,6 +387,22 @@ function Read-ChatAllText {
     finally { $fs.Dispose() }
 }
 
+function Read-ChatTextAt {
+    # -Count bytes of an open file as UTF-8 text, from -At bytes past -From
+    # (Begin, or End with -At negative) - fewer where the file ends first.
+    # Read until it has them all: one Read may hand back less
+    param($Stream, [int64]$At, [int]$Count, [System.IO.SeekOrigin]$From = [System.IO.SeekOrigin]::Begin)
+    $buf = [byte[]]::new($Count)
+    $null = $Stream.Seek($At, $From)
+    $n = 0
+    while ($n -lt $Count) {
+        $got = $Stream.Read($buf, $n, $Count - $n)
+        if ($got -le 0) { break }
+        $n += $got
+    }
+    return [System.Text.Encoding]::UTF8.GetString($buf, 0, $n)
+}
+
 function Read-ChatChunk {
     # head+tail only - transcripts run to megabytes and there are thousands
     param([string]$Path, [int]$Size = 524288)
@@ -463,27 +478,6 @@ function Get-ChatTimestampFromText {
         }
     }
     return $File.LastWriteTime
-}
-
-function Get-ChatLastTimestamp {
-    # the last timestamp sits in the final few KB; ISO-8601, culture-invariant
-    param([string]$Path)
-    $fi = [System.IO.FileInfo]::new($Path)
-    $tailLen = [Math]::Min(65536, $fi.Length)
-    $buf = [byte[]]::new($tailLen)
-    try { $fs = Open-ChatRead $Path } catch { return $fi.LastWriteTime }
-    try {
-        $fs.Seek(-$tailLen, [System.IO.SeekOrigin]::End) | Out-Null
-        $fs.Read($buf, 0, $tailLen) | Out-Null
-    }
-    finally { $fs.Dispose() }
-    $m = [regex]::Matches([System.Text.Encoding]::UTF8.GetString($buf), '"timestamp":\s*"([^"]+)"')
-    if ($m.Count) {
-        return [datetime]::Parse($m[$m.Count - 1].Groups[1].Value,
-            [System.Globalization.CultureInfo]::InvariantCulture,
-            [System.Globalization.DateTimeStyles]::RoundtripKind).ToLocalTime()
-    }
-    return $fi.LastWriteTime
 }
 
 function Get-ChatHeadTailPrompts {

@@ -51,6 +51,13 @@ $argv = @([regex]::Matches([string]$env:FAKE_ARGV, '"((?:\\"|[^"])*)"|(\S+)') | 
         if ($_.Groups[1].Success) { $_.Groups[1].Value.Replace('\"', '"') } else { $_.Groups[2].Value }
     })
 $utf8 = New-Object System.Text.UTF8Encoding $false
+function Exit-Fake([string]$Line, [int]$Code) {
+    # one line out - stdout for an answer, stderr for an error - and exit
+    $s = if ($Code) { [Console]::OpenStandardError() } else { [Console]::OpenStandardOutput() }
+    $b = $utf8.GetBytes("$Line`n")
+    $s.Write($b, 0, $b.Length); $s.Flush()
+    exit $Code
+}
 
 if ($argv -contains 'app-server') {
     # codex app-server over stdio, before anything reads stdin to its end: a
@@ -152,12 +159,7 @@ if ($argv.Count -and $argv[0] -in 'archive', 'unarchive') {
     $to = if ($argv[0] -eq 'archive') { 'archived_sessions' } else { 'sessions' }
     $root = Join-Path $home2 $from
     $f = @(Get-ChildItem -LiteralPath $root -Filter "*$($argv[1])*.jsonl" -File -Recurse -EA SilentlyContinue) | Select-Object -First 1
-    if (-not $f -or $env:FAKE_ARCHIVE_FAIL) {
-        $e = [Console]::OpenStandardError()
-        $b = $utf8.GetBytes("Error: no session found for $($argv[1])`n")
-        $e.Write($b, 0, $b.Length); $e.Flush()
-        exit 1
-    }
+    if (-not $f -or $env:FAKE_ARCHIVE_FAIL) { Exit-Fake "Error: no session found for $($argv[1])" 1 }
     $rel = $f.FullName.Substring($root.Length).TrimStart('\', '/')
     $dest = Join-Path (Join-Path $home2 $to) $rel
     New-Item -ItemType Directory -Path (Split-Path $dest -Parent) -Force | Out-Null
@@ -168,12 +170,9 @@ if ($argv.Count -and $argv[0] -in 'archive', 'unarchive') {
 if ($argv.Count -and $argv[0] -eq 'agents') {
     # claude agents --json: FAKE_AGENTS, or nobody live
     if ($env:FAKE_AGENTS_SEEN) { [IO.File]::AppendAllText($env:FAKE_AGENTS_SEEN, "agents`n", $utf8) }
-    $o = [Console]::OpenStandardOutput()
     $said = if ($env:FAKE_AGENTS_FILE -and (Test-Path -LiteralPath $env:FAKE_AGENTS_FILE)) { [IO.File]::ReadAllText($env:FAKE_AGENTS_FILE, $utf8) }
     elseif ($env:FAKE_AGENTS) { $env:FAKE_AGENTS } else { '[]' }
-    $b = $utf8.GetBytes($said + "`n")
-    $o.Write($b, 0, $b.Length); $o.Flush()
-    exit 0
+    Exit-Fake $said 0
 }
 
 if ($env:FAKE_RECORD) {
@@ -198,11 +197,8 @@ if ($env:FAKE_RECORD) {
 
 if ($argv -contains '--version') {
     # FAKE_VERSION stands in for another CLI's line - codex's 'codex-cli 0.159.2'
-    $o = [Console]::OpenStandardOutput()
     $said = if ($env:FAKE_VERSION) { $env:FAKE_VERSION } else { '2.1.278 (Claude Code)' }
-    $b = $utf8.GetBytes("$said`n")
-    $o.Write($b, 0, $b.Length); $o.Flush()
-    exit 0
+    Exit-Fake $said 0
 }
 
 if ($env:FAKE_STDERR) {
@@ -225,12 +221,7 @@ if ($i -ge 0 -and $i + 1 -lt $argv.Count) {
     if ($env:FAKE_NEW_CHAT) {
         # an id already on disk is refused, as claude.exe 2.1.281 does
         $taken = @(Get-ChildItem -Path (Join-Path (Join-Path $env:CLAUDE_CONFIG_DIR 'projects') '*') -Filter "$session.jsonl" -File -EA SilentlyContinue)
-        if ($taken) {
-            $e = [Console]::OpenStandardError()
-            $b = $utf8.GetBytes("Error: Session ID $session is already in use.`n")
-            $e.Write($b, 0, $b.Length); $e.Flush()
-            exit 1
-        }
+        if ($taken) { Exit-Fake "Error: Session ID $session is already in use." 1 }
         $cwd = (Get-Location).Path
         # CLAUDE_CODE_PROJECT_DIR_NAME names the folder outright, as a path
         # over 200 characters gets a cut, hashed name: not the slug either way
@@ -344,10 +335,7 @@ if (($env:FAKE_PERMIT -or $env:FAKE_PERMIT_SELF) -and $argv -contains '--permiss
         }
         if (-not $up) {
             # as claude.exe 2.1.283 ends a run whose prompt tool never came up
-            $e = [Console]::OpenStandardError()
-            $b = $utf8.GetBytes("Error: MCP tool mcp__chatqpermit__decide (passed via --permission-prompt-tool) not found. Available MCP tools: none`n")
-            $e.Write($b, 0, $b.Length); $e.Flush()
-            exit 1
+            Exit-Fake 'Error: MCP tool mcp__chatqpermit__decide (passed via --permission-prompt-tool) not found. Available MCP tools: none' 1
         }
         $n++
         $args0 = [ordered]@{ tool_name = [string]$c.tool_name; input = $c.input; tool_use_id = [string]$c.id }

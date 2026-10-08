@@ -9,7 +9,7 @@
 # the jobs and chats made here - is put back at the end.
 
 Section 'phone replies'
-$phCfgWas = if (Test-Path -LiteralPath $script:ChatqConfigPath) { [System.IO.File]::ReadAllText($script:ChatqConfigPath, $utf8) } else { $null }
+$phCfgWas = Read-TestFile $script:ChatqConfigPath
 $phWas = @{ Spawn = $script:ChatqSpawn; Join = $script:ChatqJoinSeam; Poll = $script:ChatqReplyPollSeam; Devices = $script:ChatqJoinDevicesSeam; Idle = $script:ChatqIdleSeam
     Foreground = $script:ChatqForeground; Ask = $script:ChatqAskSeam; PairWait = $script:ChatqPairWaitSeam }
 # chatnotify -Pair waits for the phone and asks only where it can ask: here
@@ -31,17 +31,19 @@ $script:ChatqSpawn = { $script:PhSpawns++; $true }
 $script:ChatqReplySeen = @{}; $script:ChatqReplyHandled = @{}
 $phLastJoin = {
     # the last Join push: its query, and its link's fragment, as hashtables
-    $u = $script:PhJoins[$script:PhJoins.Count - 1]
-    $q = @{}
-    foreach ($p in ($u.Substring($u.IndexOf('?') + 1) -split '&')) { $k, $v = $p -split '=', 2; $q[$k] = [uri]::UnescapeDataString($v) }
-    $f = @{}
-    if ($q['url']) { foreach ($p in ($q['url'].Substring($q['url'].IndexOf('#') + 1) -split '&')) { $k, $v = $p -split '=', 2; $f[$k] = [uri]::UnescapeDataString($v) } }
-    [pscustomobject]@{ Url = $u; Q = $q; F = $f }
+    Get-JoinPush $script:PhJoins[$script:PhJoins.Count - 1]
 }
 # what ntfy's poll answers: one JSON message per line, @(id, body) pairs
 $phFeedOf = { param([object[]]$Msgs) ($Msgs | ForEach-Object { ([ordered]@{ id = $_[0]; time = 1; event = 'message'; topic = 't'; message = $_[1] } | ConvertTo-Json -Compress) }) -join "`n" }
 $phSay = { param([string]$Id, [string]$Body) $script:PhFeed = & $phFeedOf @(, @($Id, $Body)); $null = Invoke-ChatqReplyPoll -Force; (& $phLastJoin).Q['text'] }
 $phLog = { $p = Join-Path $script:ChatqLogDir 'replies.log'; if (Test-Path -LiteralPath $p) { [System.IO.File]::ReadAllText($p, $utf8) } else { '' } }
+$phAsked = {
+    # a job stopped on a question, and its needs input alert sent: the alert's id
+    param($PhJob, [string]$PhWhy)
+    Complete-ChatqJob $PhJob 'needs-input' ([pscustomobject]@{ kind = 'needs-input'; reason = $PhWhy }) 'asked'
+    $null = Send-ChatqAlert 'needs input' 'x' 2 -Job $PhJob
+    (& $phLastJoin).F['a']
+}
 function New-PhPairMessage {
     # what the page sends on Pair: the phone's key and label, sealed to the
     # public key in the pairing link's fragment
@@ -201,9 +203,16 @@ Check 'chatnotify alone shows the replies line' ($status -like '*replies from th
 # config.json's lock (Lock-ChatqConfig). Another process - a pairing
 # confirmed there - holds it and saves: chatnotify waits, then reads the
 # file afresh, so what that process wrote stays. Held for good: nothing saved.
+# The process says it has the lock in a file of its own: a look by opening
+# the lock here could take it in the moment that process tries for it. It
+# holds it a second: this side, slow, could reach the lock after a shorter
+# hold and wait for nothing; and chatnotify's 3 s of tries outlast it by two
+$lkMark = Join-Path $sb 'config-lock-held.txt'
+Remove-Item -LiteralPath $lkMark -Force -EA SilentlyContinue
 $cfgProbe = @"
 `$h = [System.IO.File]::Open('$($script:ChatqConfigLockPath)', 'OpenOrCreate', 'ReadWrite', 'None')
-Start-Sleep -Milliseconds 500
+if (`$h) { [System.IO.File]::WriteAllText('$lkMark', 'held') }
+Start-Sleep -Milliseconds 1000
 `$t = [System.IO.File]::ReadAllText('$($script:ChatqConfigPath)')
 `$i = `$t.IndexOf('{')
 [System.IO.File]::WriteAllText('$($script:ChatqConfigPath)', `$t.Substring(0, `$i + 1) + '"lockProbe":"kept",' + `$t.Substring(`$i + 1))
@@ -216,7 +225,7 @@ $prLk = [System.Diagnostics.Process]::Start($psiLk)
 $heldLk = $false
 $untilLk = (Get-Date).AddSeconds(20)
 while (-not $heldLk -and -not $prLk.HasExited -and (Get-Date) -lt $untilLk) {
-    try { ([System.IO.File]::Open($script:ChatqConfigLockPath, 'OpenOrCreate', 'ReadWrite', 'None')).Dispose(); Start-Sleep -Milliseconds 20 } catch { $heldLk = $true }
+    if (Test-Path -LiteralPath $lkMark) { $heldLk = $true } else { Start-Sleep -Milliseconds 20 }
 }
 $rLk = Set-ChatqNotifyConfig @{ Toast = 'on' }
 $null = $prLk.WaitForExit(10000)
@@ -329,9 +338,7 @@ Check 'a message id with a line break is skipped: not in the log, not the cursor
 # the old job's own mode, when it had one - never one the message names
 $jm = (New-ChatqJob -Row $row -Prompt 'plan it first' -Kind prompt).Job
 Set-ChatqProp $jm 'mode' 'plan'
-Complete-ChatqJob $jm 'needs-input' ([pscustomobject]@{ kind = 'needs-input'; reason = 'plan ready' }) 'asked'
-$null = Send-ChatqAlert 'needs input' 'x' 2 -Job $jm
-$am = (& $phLastJoin).F['a']
+$am = & $phAsked $jm 'plan ready'
 $sm = Protect-ChatqReplyMessage -Key $rc.Key -Aid $am -Payload ([ordered]@{ v = 1; act = 'prompt'; text = 'go'; mode = 'bypassPermissions'; nonce = 'ph-mode-nonce'; ts = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() } | ConvertTo-Json -Compress)
 $txt = & $phSay 'phmode' $sm
 $nm = @(Get-ChatqJobs | Where-Object { $_.rule -eq 'phone' -and $_.id -ne $new.id })[0]
@@ -342,11 +349,9 @@ $idBy = '2c2c2c2c-2c2c-42c2-82c2-2c2c2c2c2c2c'
 $pBy = New-FakeChat $projA $idBy 'Bypass chat' 1 @('go wild') -Mode 'bypassPermissions'
 $rowBy = Get-ChatqRowById -Id $idBy -Provider claude -Path $pBy
 $jby = (New-ChatqJob -Row $rowBy -Prompt 'carry on' -Kind prompt).Job
-Complete-ChatqJob $jby 'needs-input' ([pscustomobject]@{ kind = 'needs-input'; reason = 'asked' }) 'asked'
 # none by default: keep - the chat's own mode, as at the PC, a Codex
 # chat's sandbox too
-$null = Send-ChatqAlert 'needs input' 'x' 2 -Job $jby
-$txt = & $phSay 'phkeep1' (Protect-ChatqReplyMessage -Key $rc.Key -Aid (& $phLastJoin).F['a'] -Act prompt -Text 'keep going')
+$txt = & $phSay 'phkeep1' (Protect-ChatqReplyMessage -Key $rc.Key -Aid (& $phAsked $jby 'asked') -Act prompt -Text 'keep going')
 $nkp = @(Get-ChatqJobs | Where-Object { $_.rule -eq 'phone' -and $_.sessionId -eq $idBy })[0]
 Check 'no cap by default (keep): a prompt into a bypassPermissions chat keeps its mode, a Codex chat its sandbox, and nothing says a limit' (
     (Get-ChatqReplyConfig).MaxMode -eq 'keep' -and $nkp -and $nkp.modeAtQueue -eq 'bypassPermissions' -and -not $nkp.mode -and $txt -notlike "*the phone's limit*" -and
@@ -363,9 +368,7 @@ if ($nkp) { $null = Remove-ChatqJob $nkp }
 $null = Set-ChatqNotifyConfig @{ ReplyMaxMode = 'acceptEdits' }
 # a job of its own: the reply above answered - skipped - the first one
 $jby = (New-ChatqJob -Row $rowBy -Prompt 'carry on again' -Kind prompt).Job
-Complete-ChatqJob $jby 'needs-input' ([pscustomobject]@{ kind = 'needs-input'; reason = 'asked' }) 'asked'
-$null = Send-ChatqAlert 'needs input' 'x' 2 -Job $jby
-$aby = (& $phLastJoin).F['a']
+$aby = & $phAsked $jby 'asked'
 $txt = & $phSay 'phcap1' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $aby -Act prompt -Text 'rm everything')
 $nby = @(Get-ChatqJobs | Where-Object { $_.rule -eq 'phone' -and $_.sessionId -eq $idBy })[0]
 Check 'a prompt into a chat that runs in bypassPermissions runs in acceptEdits, and the push says so' ($nby -and $nby.modeAtQueue -eq 'bypassPermissions' -and
@@ -382,10 +385,8 @@ Check 'retry of a bypassPermissions job requeues it in acceptEdits' ((Find-Chatq
 $null = Set-ChatqNotifyConfig @{ ReplyMaxMode = 'auto' }
 $jb2 = Find-ChatqJob $jb.id
 Set-ChatqProp $jb2 'mode' 'bypassPermissions'
-Complete-ChatqJob $jb2 'needs-input' ([pscustomobject]@{ kind = 'needs-input'; reason = 'again' }) 'asked'
 # each stop its own alert: one about the job before would answer nothing
-$null = Send-ChatqAlert 'needs input' 'x' 2 -Job $jb2
-$a4 = (& $phLastJoin).F['a']
+$a4 = & $phAsked $jb2 'again'
 $txt = & $phSay 'phallowcap' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $a4 -Act allow)
 $jb3 = Find-ChatqJob $jb.id
 Check 'allow on a bypassPermissions job, the cap set to auto: requeued in auto' ($jb3.state -eq 'queued' -and $jb3.mode -eq 'auto' -and $txt -like '*in auto*') "$($jb3.state) $($jb3.mode) / $txt"
@@ -394,9 +395,7 @@ $null = Set-ChatqNotifyConfig @{ ReplyMaxMode = 'acceptEdits' }
 Check 'a mode cap that is no mode is refused' ($bad.Error -and (Get-ChatqReplyConfig).MaxMode -eq 'acceptEdits') $bad.Error
 Set-ChatqProp $jb3 'mode' $null
 Set-ChatqProp $jb3 'modeAtQueue' 'plan'
-Complete-ChatqJob $jb3 'needs-input' ([pscustomobject]@{ kind = 'needs-input'; reason = 'wanted to edit' }) 'asked'
-$null = Send-ChatqAlert 'needs input' 'x' 2 -Job $jb3
-$a4 = (& $phLastJoin).F['a']
+$a4 = & $phAsked $jb3 'wanted to edit'
 $txt = & $phSay 'phallow1' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $a4 -Act allow)
 $jb4 = Find-ChatqJob $jb.id
 Check 'allow: a plan-mode job goes back in the queue in acceptEdits' ($jb4.state -eq 'queued' -and $jb4.mode -eq 'acceptEdits' -and $txt -like "#$($jb.seq) queued again in acceptEdits*") "$($jb4.state) $($jb4.mode) / $txt"
@@ -406,9 +405,7 @@ $txt = & $phSay 'phallow3' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $a4 -Act
 Check 'allow on a job that does not need input says so' ($txt -like '*allow is for a job that needs input*') $txt
 $cxRow = Get-ChatqRowById -Id $cxId -Provider codex
 $jc = (New-ChatqJob -Row $cxRow -Prompt 'codex, go on' -Kind prompt).Job
-Complete-ChatqJob $jc 'needs-input' ([pscustomobject]@{ kind = 'needs-input'; reason = 'asked' }) 'asked'
-$null = Send-ChatqAlert 'needs input' 'x' 2 -Job $jc
-$ac = (& $phLastJoin).F['a']
+$ac = & $phAsked $jc 'asked'
 $txt = & $phSay 'phallowcodex' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $ac -Act allow)
 $jc2 = Find-ChatqJob $jc.id
 Check 'allow on a Codex job is refused, the job untouched' ($txt -eq 'allow is Claude only - use retry' -and $jc2.state -eq 'needs-input' -and -not $jc2.mode) "$txt / $($jc2.state) $($jc2.mode)"
@@ -450,9 +447,7 @@ $null = Remove-ChatqJob $jcp2 'test'
 # whatever this process's CLAUDE_CONFIG_DIR says
 $jh = (New-ChatqJob -Row $row -Prompt 'home one' -Kind prompt).Job
 Set-ChatqProp $jh 'home' $null
-Complete-ChatqJob $jh 'needs-input' ([pscustomobject]@{ kind = 'needs-input'; reason = 'asked' }) 'asked'
-$null = Send-ChatqAlert 'needs input' 'x' 2 -Job $jh
-$txt = & $phSay 'phhome1' (Protect-ChatqReplyMessage -Key $rc.Key -Aid (& $phLastJoin).F['a'] -Act prompt -Text 'home is default')
+$txt = & $phSay 'phhome1' (Protect-ChatqReplyMessage -Key $rc.Key -Aid (& $phAsked $jh 'asked') -Act prompt -Text 'home is default')
 $nh = @(Get-ChatqJobs | Where-Object { $_.rule -eq 'phone' } | Where-Object { (Read-ChatqPrompt $_) -eq 'home is default' })[0]
 $phElsewhere = Join-Path $sb 'claude-elsewhere'
 $jg = (New-ChatqJob -Row $row -Prompt 'home two' -Kind prompt).Job
@@ -626,9 +621,7 @@ Check 'answered from that push, it goes - in plan, the mode the PC left the chat
     $txt -eq "queued #$($nMv.seq) for $($nMv.title) - runs in plan, the chat's own at the PC") "$($nMv.mode) / $txt"
 # the job queued again at the PC, then stopped again on something else
 $jNi = (New-ChatqJob -Row $rowMv -Prompt 'needs a yes' -Kind prompt).Job
-Complete-ChatqJob $jNi 'needs-input' ([pscustomobject]@{ kind = 'needs-input'; reason = 'asked to edit' }) 'asked'
-$null = Send-ChatqAlert 'needs input' 'x' 2 -Job $jNi
-$aNi = (& $phLastJoin).F['a']
+$aNi = & $phAsked $jNi 'asked to edit'
 $null = Reset-ChatqJob (Find-ChatqJob $jNi.id -Exact)
 $txt = & $phSay 'phmv4' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $aNi -Act allow)
 $jNi2 = Find-ChatqJob $jNi.id -Exact
@@ -721,9 +714,7 @@ Check 'a prompt at the PC followed by 400 KB and 80 tool results: still seen, no
 # a job closed as answered in its chat: a prompt after it in the chat's own mode
 $jAc = (New-ChatqJob -Row $rowMv -Prompt 'edit it' -Kind prompt).Job
 Set-ChatqProp $jAc 'mode' 'acceptEdits'
-Complete-ChatqJob $jAc 'needs-input' ([pscustomobject]@{ kind = 'needs-input'; reason = 'asked' }) 'asked'
-$null = Send-ChatqAlert 'needs input' 'x' 2 -Job $jAc
-$aAc = (& $phLastJoin).F['a']
+$aAc = & $phAsked $jAc 'asked'
 & $phTyped $pMv $idMv 'answered here, in plan' 'plan'
 $txt = & $phSay 'phmvac' (Protect-ChatqReplyMessage -Key $rc.Key -Aid $aAc -Act prompt -Text 'go on')
 $aAc2 = (& $phLastJoin).F['a']
@@ -1188,7 +1179,7 @@ Check 'a refused key, or an answer that is not JSON, says so and still lists the
 # The watcher is made to look alive by holding its lock here. Its saved view
 # says Claude is limited by something only it could know; while it only
 # listens, that view is not trusted and the transcripts are scanned instead.
-$phStateWas = if (Test-Path -LiteralPath $script:ChatqStatePath) { [System.IO.File]::ReadAllText($script:ChatqStatePath, $utf8) } else { $null }
+$phStateWas = Read-TestFile $script:ChatqStatePath
 $Wl = New-ChatqWatchState
 $Wl.blocked['claude'] = [pscustomobject]@{ Until = (Get-Date).AddHours(3); Type = 'phone-test-type'; Source = 'test' }
 $wlk = [System.IO.File]::Open($script:ChatqLockPath, 'OpenOrCreate', 'ReadWrite', 'None')
@@ -1201,20 +1192,29 @@ try {
     $flag = (Get-ChatqState).listening
 }
 finally { $wlk.Dispose() }
-if ($null -ne $phStateWas) { [System.IO.File]::WriteAllText($script:ChatqStatePath, $phStateWas, $utf8) } else { Remove-Item -LiteralPath $script:ChatqStatePath -Force -EA SilentlyContinue }
+Restore-TestFile $script:ChatqStatePath $phStateWas
 Check 'a running watcher''s view is trusted; a listening one''s is not - the transcripts are read instead' ($bRun['claude'].Type -eq 'phone-test-type' -and $flag -eq $true -and
     (-not $bListen['claude'] -or $bListen['claude'].Type -ne 'phone-test-type')) "$($bRun['claude'].Type) / $($bListen['claude'].Type) / $flag"
 
 # --- the watcher listens, then leaves ----------------------------------------------
 # The waits, the keep-awake and the board are watched through the functions
-# themselves: a wait is a second, not 15, so the whole window is seconds long.
+# themselves: a wait is a second, not 15, and the third ends the window -
+# three waits, then out, however long a pass takes on a slow machine.
 foreach ($j in @(Get-ChatqJobs | Where-Object { $_.id -notin $phJobsBefore })) { $null = Remove-ChatqJob $j 'test' }
 # the loop runs whatever is queued: whatever earlier sections left there is
 # skipped, this being the last section
 foreach ($j in @(Get-ChatqJobs | Where-Object { $_.state -eq 'queued' })) { Complete-ChatqJob $j 'skipped' ([pscustomobject]@{ kind = 'skipped'; reason = 'test' }) 'test' }
 $phFn = @{ Wait = ${function:Wait-ChatqUntil}; Awake = ${function:Set-ChatqKeepAwake}; Board = ${function:Write-ChatqBoard}; Open = ${function:Test-ChatqReplyOpen} }
 $script:PhWaits = 0; $script:PhAwakeOn = 0; $script:PhBoards = 0; $script:PhListenSeen = $false
-${function:Wait-ChatqUntil} = { param([datetime]$When) $script:PhWaits++; Start-Sleep -Milliseconds 1000 }
+${function:Wait-ChatqUntil} = {
+    param([datetime]$When)
+    $script:PhWaits++
+    Start-Sleep -Milliseconds 1000
+    if ($script:PhWaits -eq 3) { $null = Use-ChatqReplyState { param($st) $st.openUntil = (Get-Date).AddSeconds(-1).ToUniversalTime().ToString('o') } }
+    # a window never seen shut fails the check below rather than hang the
+    # run: chatqrun -Stop's file, which the loop takes and leaves on
+    if ($script:PhWaits -eq 60) { Save-ChatqText $script:ChatqStopPath 'stop' }
+}
 ${function:Set-ChatqKeepAwake} = { param([bool]$On) if ($On) { $script:PhAwakeOn++ } }
 ${function:Write-ChatqBoard} = { $script:PhBoards++; if ((Get-ChatqState).listening) { $script:PhListenSeen = $true } }
 # what the log gained since a length Get-Item took: that is bytes, so the
@@ -1222,11 +1222,11 @@ ${function:Write-ChatqBoard} = { $script:PhBoards++; if ((Get-ChatqState).listen
 # characters lands past the start of what is new
 $logSince = { param($p, $from) $b = [System.IO.File]::ReadAllBytes($p); $utf8.GetString($b, $from, $b.Length - $from) }
 try {
-    # a window 7 s long: the old one shut (replies off and on), reply.hours
-    # at 0.002 and one alert sent
+    # a window: the old one shut (replies off and on), reply.hours at 0.02 -
+    # 72 s, only a cap, the third wait ends it - and one alert sent
     chatnotify -Reply off *> $null
     chatnotify -Reply on *> $null
-    $null = Set-ChatqNotifyConfig @{ ReplyHours = 0.002 }
+    $null = Set-ChatqNotifyConfig @{ ReplyHours = 0.02 }
     $null = Send-ChatqAlert 'done' 'short window' 1
     $script:PhFeed = ''
     $script:ChatqReplyPolledAt = $null
@@ -1549,7 +1549,7 @@ Remove-Item -LiteralPath $pLive -Force -EA SilentlyContinue
 # --- put it all back ------------------------------------------------------------
 foreach ($j in @(Get-ChatqJobs | Where-Object { $_.id -notin $phJobsBefore })) { $null = Remove-ChatqJob $j 'test' }
 Remove-Item -LiteralPath $pBy -Force -EA SilentlyContinue
-if ($null -ne $phCfgWas) { [System.IO.File]::WriteAllText($script:ChatqConfigPath, $phCfgWas, $utf8) } else { Remove-Item -LiteralPath $script:ChatqConfigPath -Force -EA SilentlyContinue }
+Restore-TestFile $script:ChatqConfigPath $phCfgWas
 Remove-Item -LiteralPath $script:ChatqReplyPath -Force -EA SilentlyContinue
 $script:ChatqAskSeam = $phWas.Ask
 $script:ChatqPairWaitSeam = $phWas.PairWait

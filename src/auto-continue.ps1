@@ -237,9 +237,7 @@ function Format-ChatqAutoTime {
     # 13:01 today, Mon 13:01 on another day
     param($When, [datetime]$Now = (Get-Date))
     if (-not $When) { return '' }
-    $inv = [System.Globalization.CultureInfo]::InvariantCulture
-    if (([datetime]$When).Date -eq $Now.Date) { return ([datetime]$When).ToString('HH:mm', $inv) }
-    return ([datetime]$When).ToString('ddd HH:mm', $inv)
+    return (Format-ChatqClockTime ([datetime]$When) $Now)
 }
 
 function Format-ChatqAutoTitle {
@@ -247,9 +245,7 @@ function Format-ChatqAutoTitle {
     param([string]$Title, [int]$Max = 24)
     $t = [string]$Title
     if ($t.Length -le $Max) { return $t }
-    $n = $Max - 1
-    if ([char]::IsHighSurrogate($t[$n - 1])) { $n-- }
-    return $t.Substring(0, $n) + $script:ChatqEllipsis
+    return (Limit-ChatqText $t ($Max - 1)) + $script:ChatqEllipsis
 }
 
 function Get-ChatqAutoMarkerJobs {
@@ -357,7 +353,7 @@ function Get-ChatqAutoState {
         if ($reset -and $reset -gt $Now -and ($at -in '', 'next' -or ($at -like 'after *' -and -not $behindWait))) { $at = Format-ChatqAutoTime $reset.AddMinutes(1) $Now }
         if (-not $at) { $at = 'next' }
         $state = if ($reset -and $reset -gt $Now) { 'armed' } else { 'due' }
-        $why = "the limit cut it off$(if ($CutOff.At) { ' at ' + (Format-ChatqAutoTime $CutOff.At $Now) }), and auto-continue sends ""continue"" $(if ($at -match '^\d|^[A-Z][a-z]{2} ') { "at $at" } else { $at })$(if ($note) { " - $note" })"
+        $why = "the limit cut it off$cutAt, and auto-continue sends ""continue"" $(if ($at -match '^\d|^[A-Z][a-z]{2} ') { "at $at" } else { $at })$(if ($note) { " - $note" })"
         return (& $make $state "#$($job.seq) auto $at" '' $why $job "#$($job.seq) auto-continues $at$(if ($note) { " ($note)" })" $at)
     }
     $pref = if ($Config -and $Config.Chats -and $Config.Chats[$sid]) { [string]$Config.Chats[$sid].auto } else { '' }
@@ -696,10 +692,7 @@ function Test-ChatqAutoTerminal {
     # not a VS Code panel's: left to it, as it would not have been queued
     param($Job, [object[]]$Live)
     if (-not (Get-ChatField $Job 'auto')) { return $false }
-    return [bool]@($Live | Where-Object {
-            $_ -and [string](Get-ChatField $_ 'SessionId') -eq [string]$Job.sessionId -and -not (
-                ([string](Get-ChatField $_ 'Kind') -in '', 'interactive') -and [string](Get-ChatField $_ 'Entrypoint') -eq 'claude-vscode')
-        }).Count
+    return (Test-ChatqAutoHeldElsewhere ([string]$Job.sessionId) $Live)
 }
 
 function Step-ChatqAutoStreak {

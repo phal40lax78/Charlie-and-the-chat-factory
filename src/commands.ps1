@@ -921,18 +921,9 @@ function chatq {
         Write-Host '  -Continue sends "continue" and nothing else - give the files with -Prompt instead' -ForegroundColor Yellow
         return
     }
-    $got = $null
-    if ($Attach -or $Paste) {
-        $got = Read-ChatqAttachSources $Attach -Paste:$Paste
-        foreach ($s in @($got.Skipped)) { Write-Host "     skipped $s - only files go, not folders" -ForegroundColor DarkGray }
-        if ($got.Error) { Write-Host "  $($got.Error) - nothing queued" -ForegroundColor Yellow; return }
-    }
-    $given = $PSBoundParameters.ContainsKey('Prompt')
-    $textNote = $null
-    if ($got -and $got.Text) {
-        if ($given) { $Prompt = $Prompt.TrimEnd() + "`n`n" + $got.Text; $textNote = "the clipboard's text goes under the prompt" }
-        else { $Prompt = $got.Text; $given = $true; $textNote = "the clipboard's text is the prompt" }
-    }
+    $read = Read-ChatqPromptSources -Attach $Attach -Paste:$Paste -Prompt $Prompt -Given ($PSBoundParameters.ContainsKey('Prompt'))
+    if ($read.Error) { Write-Host "  $($read.Error) - nothing queued" -ForegroundColor Yellow; return }
+    $got = $read.Got; $Prompt = $read.Prompt; $given = $read.Given; $textNote = $read.Note
 
     $res = Resolve-ChatqTarget $t $(if ($given) { $Prompt } else { '' }) $Provider -AllProjects:$AllProjects
     if ($res.Error) { Write-Host "  $($res.Error)" -ForegroundColor Yellow; return }
@@ -965,24 +956,10 @@ function chatq {
         # or locked since it was checked - then stops the job before a word of
         # it has been typed, rather than after.
         $slot = New-ChatqJobSlot $res.Row
-        if ($got) {
-            try { $null = Save-ChatqAttachSources $slot.Dir $got }
-            catch {
-                Remove-Item -LiteralPath $slot.Path -Force -EA SilentlyContinue
-                Write-Host "  a file could not be copied - nothing queued: $($_.Exception.Message)" -ForegroundColor Yellow
-                return
-            }
-        }
-        Write-Host '     write the prompt in the editor tab, then save and close it (empty = cancel)' -ForegroundColor DarkGray
-        Write-Host '     Ctrl+V there pastes a screenshot into it, and it goes with the prompt' -ForegroundColor DarkGray
+        if (-not (Initialize-ChatqEditorSlot $slot $got)) { return }
         Invoke-ChatqEditor $slot.Path
-        $text = Remove-ChatqPromptHeader ([System.IO.File]::ReadAllText($slot.Path, [System.Text.Encoding]::UTF8))
-        if (-not $text) {
-            Remove-Item -LiteralPath $slot.Path -Force -EA SilentlyContinue
-            Remove-Item -LiteralPath $slot.Dir -Recurse -Force -EA SilentlyContinue
-            Write-Host '  cancelled - nothing queued' -ForegroundColor DarkGray
-            return
-        }
+        $text = Read-ChatqEditorSlot $slot
+        if (-not $text) { return }
         # relevance was scored on the title alone - now the prompt can weigh in.
         # Not over to the other provider's chat with a -Mode or -Sandbox
         # given: that one would not fit it.
@@ -1023,6 +1000,56 @@ function Write-ChatqPendingFiles {
     }
 }
 
+function Read-ChatqPromptSources {
+    # -Attach and -Paste for chatq and chatq -New: read, each folder skipped
+    # said, the clipboard's text made the prompt or put under the one given.
+    # Returns @{ Error; Got; Prompt; Given; Note }
+    param([string[]]$Attach, [switch]$Paste, [string]$Prompt, [bool]$Given)
+    $got = $null
+    $note = $null
+    if ($Attach -or $Paste) {
+        $got = Read-ChatqAttachSources $Attach -Paste:$Paste
+        foreach ($s in @($got.Skipped)) { Write-Host "     skipped $s - only files go, not folders" -ForegroundColor DarkGray }
+        if ($got.Error) { return [pscustomobject]@{ Error = $got.Error } }
+    }
+    if ($got -and $got.Text) {
+        if ($Given) { $Prompt = $Prompt.TrimEnd() + "`n`n" + $got.Text; $note = "the clipboard's text goes under the prompt" }
+        else { $Prompt = $got.Text; $Given = $true; $note = "the clipboard's text is the prompt" }
+    }
+    return [pscustomobject]@{ Error = $null; Got = $got; Prompt = $Prompt; Given = $Given; Note = $note }
+}
+
+function Initialize-ChatqEditorSlot {
+    # chatq's and chatq -New's editor, up to the tab: the files into the slot
+    # first - a copy that fails takes the prompt file back, is said, and gives
+    # $false - then what to do in the tab. The editor stays its caller's call:
+    # what it prints is never captured here.
+    param($Slot, $Got)
+    if ($Got) {
+        try { $null = Save-ChatqAttachSources $Slot.Dir $Got }
+        catch {
+            Remove-Item -LiteralPath $Slot.Path -Force -EA SilentlyContinue
+            Write-Host "  a file could not be copied - nothing queued: $($_.Exception.Message)" -ForegroundColor Yellow
+            return $false
+        }
+    }
+    Write-Host '     write the prompt in the editor tab, then save and close it (empty = cancel)' -ForegroundColor DarkGray
+    Write-Host '     Ctrl+V there pastes a screenshot into it, and it goes with the prompt' -ForegroundColor DarkGray
+    return $true
+}
+
+function Read-ChatqEditorSlot {
+    # the prompt written in a slot's tab, header left out; left empty, the
+    # slot's file and folder go, it is said, and $null comes back
+    param($Slot)
+    $text = Remove-ChatqPromptHeader ([System.IO.File]::ReadAllText($Slot.Path, [System.Text.Encoding]::UTF8))
+    if ($text) { return $text }
+    Remove-Item -LiteralPath $Slot.Path -Force -EA SilentlyContinue
+    Remove-Item -LiteralPath $Slot.Dir -Recurse -Force -EA SilentlyContinue
+    Write-Host '  cancelled - nothing queued' -ForegroundColor DarkGray
+    return $null
+}
+
 function Invoke-ChatqNewChat {
     <#
     chatq -New: a prompt for a Claude chat that does not exist yet, in
@@ -1042,18 +1069,9 @@ function Invoke-ChatqNewChat {
     if (@($Provider | Where-Object { $_ -and $_ -ne 'claude' }).Count) { Write-Host '  a new chat is a Claude chat - start a Codex one in Codex' -ForegroundColor Yellow; return }
     if (-not ([string]$Folder).Trim()) { Write-Host "  -New takes the new chat's folder - chatq -New . for the one you are in" -ForegroundColor Yellow; return }
     try { $notBefore = ConvertFrom-ChatqWhen $At $In } catch { Write-Host "  $($_.Exception.Message)" -ForegroundColor Yellow; return }
-    $got = $null
-    if ($Attach -or $Paste) {
-        $got = Read-ChatqAttachSources $Attach -Paste:$Paste
-        foreach ($s in @($got.Skipped)) { Write-Host "     skipped $s - only files go, not folders" -ForegroundColor DarkGray }
-        if ($got.Error) { Write-Host "  $($got.Error) - nothing queued" -ForegroundColor Yellow; return }
-    }
-    $given = [bool]$PromptGiven
-    $textNote = $null
-    if ($got -and $got.Text) {
-        if ($given) { $Prompt = $Prompt.TrimEnd() + "`n`n" + $got.Text; $textNote = "the clipboard's text goes under the prompt" }
-        else { $Prompt = $got.Text; $given = $true; $textNote = "the clipboard's text is the prompt" }
-    }
+    $read = Read-ChatqPromptSources -Attach $Attach -Paste:$Paste -Prompt $Prompt -Given ([bool]$PromptGiven)
+    if ($read.Error) { Write-Host "  $($read.Error) - nothing queued" -ForegroundColor Yellow; return }
+    $got = $read.Got; $Prompt = $read.Prompt; $given = $read.Given; $textNote = $read.Note
     if ($given -and -not ([string]$Prompt).Trim()) { Write-Host '  empty prompt - nothing queued' -ForegroundColor Yellow; return }
     # as the phone's new chat: nothing that would break a line or a file name
     $title = (([string]$Name) -replace '[\p{Cc}\p{Cf}]', ' ').Trim()
@@ -1079,24 +1097,10 @@ function Invoke-ChatqNewChat {
     # the editor, as chatq's own: the slot - and the files - before the tab
     $leaf = Split-Path $info.Cwd -Leaf
     $slot = New-ChatqJobSlot $row $(if ($title) { $title } else { "a new chat in $(if ($leaf) { $leaf } else { $info.Cwd })" })
-    if ($got) {
-        try { $null = Save-ChatqAttachSources $slot.Dir $got }
-        catch {
-            Remove-Item -LiteralPath $slot.Path -Force -EA SilentlyContinue
-            Write-Host "  a file could not be copied - nothing queued: $($_.Exception.Message)" -ForegroundColor Yellow
-            return
-        }
-    }
-    Write-Host '     write the prompt in the editor tab, then save and close it (empty = cancel)' -ForegroundColor DarkGray
-    Write-Host '     Ctrl+V there pastes a screenshot into it, and it goes with the prompt' -ForegroundColor DarkGray
+    if (-not (Initialize-ChatqEditorSlot $slot $got)) { return }
     Invoke-ChatqEditor $slot.Path
-    $text = Remove-ChatqPromptHeader ([System.IO.File]::ReadAllText($slot.Path, [System.Text.Encoding]::UTF8))
-    if (-not $text) {
-        Remove-Item -LiteralPath $slot.Path -Force -EA SilentlyContinue
-        Remove-Item -LiteralPath $slot.Dir -Recurse -Force -EA SilentlyContinue
-        Write-Host '  cancelled - nothing queued' -ForegroundColor DarkGray
-        return
-    }
+    $text = Read-ChatqEditorSlot $slot
+    if (-not $text) { return }
     if (-not $title) {
         # named now the prompt is written; its file is renamed to match, as
         # chatq's re-pick does
@@ -1115,7 +1119,6 @@ function Write-ChatqQueued {
     # chatq's last words on a job it queued - its number, when it sends and
     # why, its files - then the watcher started and the board written
     param($Job, $Missed)
-    $job = $Job
     $seq = $job.seq
     # what the prompt links to in data/queue: an image pasted in the tab.
     # None missed can come as $null (New-ChatqJob's), which @() would make
@@ -1567,32 +1570,19 @@ function chatnotify {
     # the saving is shared with the setup window: Set-ChatqNotifyConfig
     $ch = @{}
     if ($Off) { $ch['Off'] = $true }
-    if ($ApiKey) { $ch['ApiKey'] = $ApiKey }
-    if ($Device) { $ch['Device'] = $Device }
-    if ($Ntfy) { $ch['Ntfy'] = $Ntfy }
-    if ($NtfyServer) { $ch['NtfyServer'] = $NtfyServer }
-    if ($NtfyToken) { $ch['NtfyToken'] = $NtfyToken }
-    if ($PSBoundParameters.ContainsKey('Command')) { $ch['Command'] = $Command }
-    if ($CommandLinks) { $ch['CommandLinks'] = $CommandLinks }
-    if ($Toast) { $ch['Toast'] = $Toast }
     if ($QuietMinutes -ge 0) { $ch['QuietMinutes'] = $QuietMinutes }
-    if ($PSBoundParameters.ContainsKey('Events')) { $ch['Events'] = $Events }
-    if ($PSBoundParameters.ContainsKey('ReplyPage')) { $ch['ReplyPage'] = $ReplyPage }
-    if ($LiveAlerts) { $ch['LiveAlerts'] = $LiveAlerts }
-    foreach ($xn in 'UsageAlerts', 'UsageAt', 'UsageReset', 'QuietHours', 'Urgent', 'Say', 'SayLanguage') { if ($PSBoundParameters.ContainsKey($xn)) { $ch[$xn] = $PSBoundParameters[$xn] } }
-    if ($Permit) { $ch['Permit'] = $Permit }
-    if ($PSBoundParameters.ContainsKey('PermitWait')) { $ch['PermitWait'] = $PermitWait }
-    if ($PSBoundParameters.ContainsKey('PermitTools')) { $ch['PermitTools'] = $PermitTools }
-    # answering Claude's questions from the phone (src/ask.ps1)
-    if ($Ask) { $ch['Ask'] = $Ask; $ch['AskManual'] = [bool]$Manual }
-    if ($PSBoundParameters.ContainsKey('AskWait')) { $ch['AskWait'] = $AskWait }
-    # the whole answer, the board and new chats, listening all the time
-    if ($FullText) { $ch['FullText'] = $FullText }
-    if ($Compose) { $ch['Compose'] = $Compose }
-    if ($Listen) { $ch['Listen'] = $Listen }
-    if ($NewMode) { $ch['NewMode'] = $NewMode }
-    # the phone's mode cap: keep (the chat's own) or a mode on the ladder
-    if ($ReplyMaxMode) { $ch['ReplyMaxMode'] = $ReplyMaxMode }
+    # given at all, empty too: an empty -Command or -ReplyPage takes it away
+    foreach ($xn in 'Command', 'Events', 'ReplyPage', 'UsageAlerts', 'UsageAt', 'UsageReset', 'QuietHours', 'Urgent', 'Say', 'SayLanguage', 'PermitWait', 'PermitTools', 'AskWait') {
+        if ($PSBoundParameters.ContainsKey($xn)) { $ch[$xn] = $PSBoundParameters[$xn] }
+    }
+    # given and not empty. Ask: answering Claude's questions from the phone
+    # (src/ask.ps1). FullText, Compose, Listen, NewMode: the whole answer, the
+    # board and new chats, listening all the time. ReplyMaxMode: the phone's
+    # mode cap - keep (the chat's own) or a mode on the ladder
+    foreach ($xn in 'ApiKey', 'Device', 'Ntfy', 'NtfyServer', 'NtfyToken', 'CommandLinks', 'Toast', 'LiveAlerts', 'Permit', 'Ask', 'FullText', 'Compose', 'Listen', 'NewMode', 'ReplyMaxMode') {
+        if ($PSBoundParameters[$xn]) { $ch[$xn] = $PSBoundParameters[$xn] }
+    }
+    if ($Ask) { $ch['AskManual'] = [bool]$Manual }
     # renew is what pairing afresh used to be called, and does the same
     if ($Reply -eq 'renew') { $Pair = $true }
     elseif ($Reply) { $ch['Reply'] = $Reply }

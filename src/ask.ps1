@@ -304,10 +304,7 @@ function Write-ChatqAskLog {
     # data/logs/ask.log, rolled at 1 MB: the hook's side of every question
     param([string]$Text)
     try {
-        New-ChatqDir $script:ChatqLogDir
-        $p = Join-Path $script:ChatqLogDir 'ask.log'
-        if ((Test-Path -LiteralPath $p) -and (Get-Item -LiteralPath $p).Length -gt 1MB) { Move-Item -LiteralPath $p -Destination "$p.1" -Force }
-        [System.IO.File]::AppendAllText($p, "$((Get-Date).ToString('o'))  [$PID] $($Text -replace '[\r\n]+', ' ')`n", (New-Object System.Text.UTF8Encoding $false))
+        Add-ChatqLogLine 'ask.log' "[$PID] $($Text -replace '[\r\n]+', ' ')"
     }
     catch {}
 }
@@ -388,11 +385,7 @@ function ConvertTo-ChatqAskAnswers {
             $idx.Add($k)
         }
         $other = if ($null -ne $O -and $null -ne $oo[$i]) { (([string]$oo[$i]) -replace '[\p{Cc}\p{Cf}]', ' ').Trim() } else { '' }
-        if ($other.Length -gt 500) {
-            $m = 500
-            if ([char]::IsHighSurrogate($other[$m - 1])) { $m-- }
-            $other = $other.Substring(0, $m)
-        }
+        $other = Limit-ChatqText $other 500
         if ($q.m) {
             if (-not $idx.Count -and -not $other) { $r.Why = "question $($i + 1) has no answer"; return $r }
         }
@@ -1040,7 +1033,7 @@ function Read-ChatqAskChanges {
     $r = [pscustomobject]@{ Error = $null; Any = $false; On = $null; Wait = $null; Manual = $false }
     if ($Ch.ContainsKey('Ask') -and $null -ne $Ch['Ask'] -and '' -ne $Ch['Ask']) {
         $v = $Ch['Ask']
-        $r.On = if ($v -is [bool]) { $v } else { switch (([string]$v).Trim().ToLower()) { 'on' { $true } 'off' { $false } default { $null } } }
+        $r.On = ConvertFrom-ChatqOnOff $v
         if ($null -eq $r.On) { $r.Error = "-Ask takes on or off, not '$v'"; return $r }
         $r.Any = $true
     }

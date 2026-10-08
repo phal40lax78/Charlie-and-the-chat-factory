@@ -14,21 +14,9 @@
 //     node tests/fixtures/make-ask-vector.js
 //
 // Run it again only when the wire format changes; the file is checked in.
-const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-
-const b64url = (buf) => Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-const hmac = (key, msg) => crypto.createHmac('sha256', key).update(typeof msg === 'string' ? Buffer.from(msg, 'utf8') : msg).digest();
-const seal = (k, head0, payload, iv) => {
-    const c = crypto.createCipheriv('aes-256-cbc', hmac(k, 'enc'), iv);
-    const ct = Buffer.concat([c.update(Buffer.from(payload, 'utf8')), c.final()]);
-    const head = head0 + '.' + b64url(iv) + '.' + b64url(ct);
-    return head + '.' + b64url(hmac(hmac(k, 'mac'), head));
-};
-// anything past ASCII written as a JSON escape: the file stays ASCII, so
-// Windows PowerShell 5.1 reads it the same whatever its code page
-const ascii = (o) => JSON.stringify(o, null, 2).replace(/[^\x00-\x7f]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0')) + '\n';
+const { b64url, hmac, seal, ascii } = require(path.join(__dirname, 'vector-kit.js'));
 
 const master = Buffer.from(Array.from({ length: 32 }, (_, i) => i));
 const iv = Buffer.from(Array.from({ length: 16 }, (_, i) => 0x10 + i));

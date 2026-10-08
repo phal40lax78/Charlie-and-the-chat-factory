@@ -45,11 +45,16 @@ $env:CHAT_CODE_USER = Join-Path $sb 'code-user'
 $env:CHATQ_CLAUDE = Join-Path $root 'tests\fake-claude.cmd'
 $env:CHATQ_CODEX = $env:CHATQ_CLAUDE
 $env:CHATQ_WATCHER = '1'
+# the panel is drawn here, and its parts are left out of a shell's load
+$env:CHATQ_ALLPARTS = '1'
 # gh's login is this machine's: never asked, whatever the sandbox
 $env:CHATQ_GH = Join-Path $sb 'no-such-gh.exe'
 
 $now = [DateTimeOffset]::UtcNow
+# on the minute, as Claude's resets are: the cut-off rows cut it to the
+# minute, the usage line rounds it, and both read one HH:mm
 $reset = $now.AddMinutes(95)
+$reset = $reset.AddTicks(-($reset.Ticks % [TimeSpan]::TicksPerMinute))
 $slug = $proj.TrimEnd('\') -replace '[^A-Za-z0-9]', '-'
 $pdir = Join-Path (Join-Path $claudeHome 'projects') $slug
 $null = New-Item -ItemType Directory -Path $pdir -Force

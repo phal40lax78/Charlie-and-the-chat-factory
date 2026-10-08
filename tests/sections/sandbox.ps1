@@ -20,9 +20,16 @@ $env:CHAT_CODE_USER = $codeUser
 $env:CHATQ_CLAUDE = Join-Path $here 'fake-claude.cmd'
 $env:CHATQ_CODEX = Join-Path $here 'fake-claude.cmd'
 $env:CHATQ_WATCHER = '1'      # no auto-start from the load below
+# all 25 parts, the overlay's own among them, which a shell's load leaves
+# out - for this run and every child it starts
+$env:CHATQ_ALLPARTS = '1'
 # gh's login is this machine's, whatever the sandbox: no run - child
 # processes included - ever reaches it
 $env:CHATQ_GH = Join-Path $here 'no-such-gh.exe'
+# nor does any run - its STA children included, which inherit this - ever
+# bring a real window to the front: the overlay's calls for it refuse, and
+# their type is never compiled (Invoke-ChatOverlayRaise)
+$env:CHATQ_NOFRONT = '1'
 foreach ($n in 'FAKE_RECORD', 'FAKE_SCENARIO', 'FAKE_LAND', 'FAKE_STDERR', 'FAKE_SLEEP', 'FAKE_AGENTS', 'FAKE_AGENTS_SEEN', 'FAKE_VERSION', 'FAKE_APPSERVER', 'FAKE_APPSERVER_NOMETHOD', 'CHATQ_CODE') { Remove-Item "env:$n" -EA SilentlyContinue }
 
 function Get-Slug([string]$Path) { $Path.TrimEnd('\', '/') -replace '[^A-Za-z0-9]', '-' }
@@ -255,6 +262,12 @@ $script:ChatCodeProfilesSeam = { @() }
 $script:ChatShowSpawnSeam = { param($c) $null }
 # nor which window is in front: none, so a chat that finishes is marked unread
 $script:ChatForegroundSeam = { 0 }
+# nor are VS Code's real windows listed for an open's end, any brought to
+# the front, or VS Code's processes let do it (Start-ChatOverlayRaise,
+# Grant-ChatOverlayFront): no window, every call a no-op
+$script:ChatCodeWindowListSeam = { @() }
+$script:ChatOverlayRaiseSeam = { param($c, $h, $o) $null }
+$script:ChatOverlayGrantSeam = { param($p) @() }
 # nor does any overlay pass start codex app-server for Codex's usage
 # (Start-ChatqCodexUsageFetch): CHATQ_CODEX is the fake, and a pass would
 # leave one behind per collector. Answered as a codex that is not there -

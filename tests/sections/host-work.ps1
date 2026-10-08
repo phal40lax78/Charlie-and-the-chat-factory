@@ -300,7 +300,7 @@ Check 'and the note keeps only those two, with when the host was first found gon
 # under ask, so that one is checked by the restart's part of it. A usage
 # stand-in well under the limit; jobs, markers, config and seams put back.
 $rsAutoBefore = @(if (Test-Path -LiteralPath $script:ChatqAutoDir) { Get-ChildItem -LiteralPath $script:ChatqAutoDir -File | ForEach-Object Name })
-$rsCfgWas = if (Test-Path -LiteralPath $script:ChatqConfigPath) { [System.IO.File]::ReadAllText($script:ChatqConfigPath, $utf8) } else { $null }
+$rsCfgWas = Read-TestFile $script:ChatqConfigPath
 $rsSnapWas = Test-Path -LiteralPath $script:ChatOverlayPath
 $rsWas = @{ Usage = $script:ChatOverlayUsageSeam; Spawn = $script:ChatqSpawn; Balloon = $script:ChatOverlayBalloonSeam
     Status = ${function:Set-ChatConsoleStatus}; ConNow = ${function:Update-ChatConsoleNow}; Ask = ${function:Update-ChatOverlayAsk}
@@ -372,7 +372,7 @@ finally {
     $script:ChatOverlayUsageSeam = $rsWas.Usage
     $script:ChatqSpawn = $rsWas.Spawn
     $script:ChatOverlayBalloonSeam = $rsWas.Balloon
-    if ($null -ne $rsCfgWas) { [System.IO.File]::WriteAllText($script:ChatqConfigPath, $rsCfgWas, $utf8) } else { Remove-Item -LiteralPath $script:ChatqConfigPath -Force -EA SilentlyContinue }
+    Restore-TestFile $script:ChatqConfigPath $rsCfgWas
     if (-not $rsSnapWas) { Remove-Item -LiteralPath $script:ChatOverlayPath -Force -EA SilentlyContinue }
     foreach ($f in @(if (Test-Path -LiteralPath $script:ChatqAutoDir) { Get-ChildItem -LiteralPath $script:ChatqAutoDir -File })) {
         if ($f.Name -notin $rsAutoBefore) { Remove-Item -LiteralPath $f.FullName -Force -EA SilentlyContinue }

@@ -436,7 +436,9 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     stub.window.showInformationMessage = async (m) => { calls.push('ask'); };
     stub.window.showWarningMessage = async (m) => { calls.push('warn'); };
     const state = {};
-    const context = { globalState: { get: (k) => state[k], update: async (k, v) => { state[k] = v; } } };
+    // VS Code's Memento, over a plain object
+    const memo = (o) => ({ get: (k) => o[k], update: async (k, v) => { o[k] = v; } });
+    const context = { globalState: memo(state) };
     const dir = path.join(__dirname, '.sandbox');
     fs.mkdirSync(dir, { recursive: true });
     // a Claude home holding no chats: a label is looked up in the folder's
@@ -515,7 +517,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     await tick();
     const lostList = calls.join();
     const state2 = {};
-    const many = { globalState: { get: (k) => state2[k], update: async (k, v) => { state2[k] = v; } } };
+    const many = { globalState: memo(state2) };
     for (let i = 0; i < 20; i++) {
         fs.writeFileSync(file, JSON.stringify(del('m' + i, 'M', { kind: 'new' })));
         ext._check(many, file, true);
@@ -532,7 +534,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     // older than all it does, and none is
     const upTry = (legacy) => {
         const st = { 'chatManagerReload.lastSeenId': legacy };
-        const ctx = { globalState: { get: (k) => st[k], update: async (k, v) => { st[k] = v; } } };
+        const ctx = { globalState: memo(st) };
         fs.writeFileSync(file, JSON.stringify(Object.assign(del('g3', 'C'), { earlier: [del('g1', 'A'), del('g2', 'B')] })));
         saidDel.length = 0;
         ext._check(ctx, file, true);
@@ -580,6 +582,8 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     // never: the command given never settles
     let never = '';
     const claudeTab = (sid, label, g) => ({ label, sid, input: new TabInputWebview('claudeVSCodePanel'), group: g || group });
+    // the chat's tab put in the first group, and the first tab of it in front
+    const frontTab = () => { tabs.push(claudeTab(SID, 'T')); active.tab = tabs[0]; };
     stub.window.tabGroups = {
         get all() { return groupsNow; }, get activeTabGroup() { return activeGroup; },
         close: async (t) => {
@@ -615,6 +619,8 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     stub.window.showInformationMessage = async (m, ...b) => { calls.push('ask'); asked.push(m); return b.includes(answer) ? answer : undefined; };
     stub.window.showWarningMessage = async (m, ...b) => { calls.push('warn'); asked.push(m); return b.includes(warnAnswer) ? warnAnswer : undefined; };
     const reqT = { kind: 'ran', sessionId: SID, title: 'T' };
+    // the chip's open of the chat, nothing holding it unless x says so
+    const openT = (x) => ext._openTab(Object.assign({ kind: 'open', sessionId: SID, title: 'T', oldProcess: 'none', hostPids: [] }, x));
     const reset = () => {
         calls.length = 0; asked.length = 0; tabs.length = 0; tabs2.length = 0; active.tab = undefined; active2.tab = undefined; fail = {}; makeLater = 0;
         revealMode = 'normal'; peek = null; groupsNow = [group]; activeGroup = group; makeIn = group; never = ''; warnAnswer = undefined;
@@ -660,7 +666,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     reset();
     logged.length = 0;
     fail[OPEN] = 1;
-    const fb1 = await ext._openTab({ kind: 'open', sessionId: SID, title: 'T', oldProcess: 'none', hostPids: [] });
+    const fb1 = await openT();
     const fb1Calls = calls.join(), fb1Logged = logged.slice();
     reset();
     fail[OPEN] = 1;
@@ -676,7 +682,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     fail[OPEN] = 1;
     fail[OPEN_FULL] = 1;
     onFail = (c) => { if (c === OPEN) { groupsNow = [group, group2]; tabs2.push(claudeTab(SID2x, 'B', group2)); } };
-    const rt = await ext._openTab({ kind: 'open', sessionId: SID, title: 'T', oldProcess: 'none', hostPids: [] });
+    const rt = await openT();
     check('both refused once: tried again, the column worked out again for the retry',
         rt !== 'failed' && calls.slice(0, 3).join() === OPEN + ',' + OPEN_FULL + ',' + OPEN && openArgs[0][2] === -1 && openArgs[2][2] === 2,
         rt + ' ' + calls.join() + ' ' + JSON.stringify(openArgs));
@@ -688,7 +694,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     claudeVer = '2.1.281';
     const atMin = ext._openCall(SID)[0];
     claudeVer = '2.1.200';
-    const oldOpen = await ext._openTab({ kind: 'open', sessionId: SID, title: 'T', oldProcess: 'none', hostPids: [] });
+    const oldOpen = await openT();
     check('a Claude extension before 2.1.281, or of no version: primaryEditor.open with the chat id alone, and the tab opens; from 2.1.281 editor.open',
         oldCall === JSON.stringify([OPEN_FULL, SID]) && noVer === oldCall && atMin === OPEN && oldOpen === 'new' && calls.join() === OPEN_FULL + ',' + UNLOCK,
         oldCall + ' ' + noVer + ' ' + atMin + ' ' + oldOpen + ' ' + calls.join());
@@ -750,8 +756,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     check('two chats of one shortened label, the other one\'s tab in front: never closed, and says so',
         r6 === 'stale' && !calls.some(c => c.startsWith('close:')) && tabs.length === 2 && asked[0] === ext._texts.staleTab({ title: longT }), r6 + ' ' + calls.join());
     reset();
-    tabs.push(claudeTab(SID, 'T'));
-    active.tab = tabs[0];
+    frontTab();
     ext._timing.tabRecount = 100;
     revealMode = 'nothing';
     // the chat's new tab comes only after both looks the first one takes
@@ -763,13 +768,13 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     const other2 = { label: 'notes.md', input: new TabInputText('x'), group };
     tabs.push(other2);
     active.tab = other2;
-    const r8 = await ext._openTab({ kind: 'open', sessionId: SID, title: 'T', oldProcess: 'none', hostPids: [] });
+    const r8 = await openT();
     check('a tab in a group holding other editors: the group left as it is', r8 === 'new' && calls.join() === OPEN, calls.join());
     reset();
     fail[UNLOCK] = 1;
     logged.length = 0;
     let r9, unlockThrew = false;
-    try { r9 = await ext._openTab({ kind: 'open', sessionId: SID, title: 'T', oldProcess: 'none', hostPids: [] }); } catch (e) { unlockThrew = true; }
+    try { r9 = await openT(); } catch (e) { unlockThrew = true; }
     check('an unlock that fails is logged, never thrown, and the tab stands', r9 === 'new' && !unlockThrew && logged.some(l => /^unlocking the group failed/.test(l)),
         r9 + ' ' + logged.join(' | '));
     // the chat's tab made in a second group, while the first stays active:
@@ -780,38 +785,37 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     makeIn = group2;
     tabs.push(claudeTab(SID2, 'T2'));
     active.tab = tabs[0];
-    const gr1 = await ext._openTab({ kind: 'open', sessionId: SID, title: 'T', oldProcess: 'none', hostPids: [] });
+    const gr1 = await openT();
     const gr1Calls = calls.join();
     reset();
     groupsNow = [group, group2];
     makeIn = group2;
     activeGroup = group2;
     tabs.push(claudeTab(SID2, 'T2'));
-    const gr2 = await ext._openTab({ kind: 'open', sessionId: SID, title: 'T', oldProcess: 'none', hostPids: [] });
+    const gr2 = await openT();
     check('group: the one holding the chat\'s tab, and only while it is the active group - the command acts on that one',
         gr1 === 'new' && gr1Calls === OPEN && logged.some(l => l === 'group left as it is: the chat\'s tab is not in the active group') &&
         gr2 === 'new' && calls.join() === OPENED, gr1Calls + ' / ' + calls.join() + ' | ' + logged.join(' | '));
     reset();
     logged.length = 0;
     activeGroup = undefined;
-    const gr3 = await ext._openTab({ kind: 'open', sessionId: SID, title: 'T', oldProcess: 'none', hostPids: [] });
+    const gr3 = await openT();
     check('group: no active group - nothing unlocked, and logged as that', gr3 === 'new' && calls.join() === OPEN &&
         logged.includes('group left as it is: no active group'), calls.join() + ' | ' + logged.join(' | '));
     reset();
     logged.length = 0;
     cfgVals['claudeCode.lockEditorGroups'] = true;
-    const gr4 = await ext._openTab({ kind: 'open', sessionId: SID, title: 'T', oldProcess: 'none', hostPids: [] });
+    const gr4 = await openT();
     const gr4Calls = calls.join();
     reset();
     cfgVals['claudeCode.lockEditorGroups'] = false;
-    const gr5 = await ext._openTab({ kind: 'open', sessionId: SID, title: 'T', oldProcess: 'none', hostPids: [] });
+    const gr5 = await openT();
     delete cfgVals['claudeCode.lockEditorGroups'];
     check('group: claudeCode.lockEditorGroups set true is the user\'s choice, and left locked; set false, or unset, it is unlocked',
         gr4 === 'new' && gr4Calls === OPEN && logged.some(l => /lockEditorGroups is set true/.test(l)) && gr5 === 'new' && calls.join() === OPENED,
         gr4Calls + ' / ' + calls.join());
     reset();
-    tabs.push(claudeTab(SID, 'T'));
-    active.tab = tabs[0];
+    frontTab();
     const gr6 = await ext._showTab(reqT);
     check('group: a stale tab closed and opened again - the new one\'s group of Claude tabs unlocked too',
         gr6 === 'reopened' && calls.join() === OPEN + ',close:T,' + OPENED && tabs.length === 1 && tabs[0].sid === SID, gr6 + ' ' + calls.join());
@@ -827,7 +831,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     check('a tab: one that came late, just before the close - taken as the chat\'s new tab, and nothing closed',
         late === 'new' && !calls.some(c => c.startsWith('close:')) && tabs.length === 3, late + ' ' + calls.join());
     // held working: a tab here is the chat's only when exactly one reads as it
-    const heldHere = (x) => ext._openTab(Object.assign({ kind: 'open', sessionId: SID, title: 'T', oldProcess: 'held', hostPids: [process.pid] }, x));
+    const heldHere = (x) => openT(Object.assign({ oldProcess: 'held', hostPids: [process.pid] }, x));
     reset();
     tabs.push(claudeTab(SID, 'T'), claudeTab(SID2, 'T'));
     const w1 = await heldHere({});
@@ -851,7 +855,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     logged.length = 0;
     ext._timing.commandTimeout = 30;
     never = OPEN;
-    const nv1 = await ext._enqueue(() => ext._openTab({ kind: 'open', sessionId: SID, title: 'T', oldProcess: 'none', hostPids: [] }));
+    const nv1 = await ext._enqueue(() => openT());
     const nv2 = await ext._enqueue(() => ext._showTab(reqT));
     never = '';
     const nv3 = await ext._enqueue(async () => 'next');
@@ -914,8 +918,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     answer = undefined;
     const f2c = calls.join(), f2cAsked = asked.slice();
     reset();
-    tabs.push(claudeTab(SID, 'T'));
-    active.tab = tabs[0];
+    frontTab();
     fresh('f2d', { hostPids: [process.pid] });
     ext._check(context, file, false);
     await drain();
@@ -951,8 +954,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     reset();
     logged.length = 0;
     vAsked.length = 0;
-    tabs.push(claudeTab(SID, 'T'));
-    active.tab = tabs[0];
+    frontTab();
     ext._getVerdict = twoChecks(liveV(), endedV());
     const sBefore = Date.now();
     liveHere('s1');
@@ -1022,7 +1024,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         ext._hostStartOf('', 's-2') === 'unknown' && ext._hostStartOf('s-1', 'someValue.sessionId') === 'untracked' && ext._hostStartOf('s-1', undefined) === 'untracked');
     {
         const hws = {};
-        const hctx = { workspaceState: { get: (k) => hws[k], update: async (k, v) => { hws[k] = v; } } };
+        const hctx = { workspaceState: memo(hws) };
         stub.env = { sessionId: 'win-1' };
         const hs1 = ext._noteHostStart(hctx);
         await settle();
@@ -1081,14 +1083,12 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     // the second check finding a process still there, or failing: the tab
     // stays closed, nothing opened beside the process, and said
     reset();
-    tabs.push(claudeTab(SID, 'T'));
-    active.tab = tabs[0];
+    frontTab();
     ext._getVerdict = twoChecks(liveV(), { busy: true, oldProcess: 'held', outcome: 'held', hostPids: [process.pid] });
     const sh = await ext._showLive(reqT, file);
     const shCalls = calls.join(), shAsked = asked.slice();
     reset();
-    tabs.push(claudeTab(SID, 'T'));
-    active.tab = tabs[0];
+    frontTab();
     ext._getVerdict = twoChecks(liveV(), null);
     const sh2 = await ext._showLive(reqT, file);
     check('Show it: the second check finding the process held working, or failing - its tab closed, not opened again beside it, and said',
@@ -1097,8 +1097,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     // scripts older than the extension: the first check ended the process
     // already (no "judged":"only") - the tab shown as before, one check only
     reset();
-    tabs.push(claudeTab(SID, 'T'));
-    active.tab = tabs[0];
+    frontTab();
     ext._getVerdict = twoChecks(endedV(), endedV());
     liveHere('s1c');
     ext._check(context, file, false);
@@ -1108,8 +1107,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     // idle in another window alone - opened there after the run, so up to
     // date: nothing ended, nothing opened here, and said
     reset();
-    tabs.push(claudeTab(SID, 'T'));
-    active.tab = tabs[0];
+    frontTab();
     ext._getVerdict = twoChecks(liveV({ hostPids: [999991] }), endedV());
     const sE = await ext._showIt(reqT, file);
     check('Show it, the first check finding it idle in another window only: left there - no second check, no tab closed or opened here - and said',
@@ -1142,7 +1140,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     logged.length = 0;
     fresh('s5', { busy: true });
     ext._check(context, file, false);
-    await settle();
+    await drain();
     const auBusy = calls.join(), auBusyLogged = logged.slice();
     reset();
     folders.push({ uri: { fsPath: path.resolve('/work/projB') } });
@@ -1161,35 +1159,28 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         ['held', 'other', 'kept'].every(o => ext._showsItself({ kind: 'ran', oldProcess: o, away: true, hostPids: [process.pid] }, undefined, true, 0) === null) &&
         ext._showsItself({ kind: 'new', oldProcess: 'live', hostPids: [process.pid] }, undefined, true, 0) === null &&
         ext._showsItself({ kind: 'ran', oldProcess: 'live', hostPids: [process.pid] }, false, true, 0) === null);
-    reset();
-    answer = 'Show it';
-    ext._getVerdict = twoChecks(null, endedV());
-    fresh('f4', { away: false, oldProcess: 'live' });
-    ext._check(context, file, false);
-    await settle();
-    answer = undefined;
+    // a run's offer answered Show it, its request finding the chat's process
+    // left running; first: what Show it's first check answers
+    const offerLive = async (id, first) => {
+        reset();
+        answer = 'Show it';
+        ext._getVerdict = twoChecks(first, endedV());
+        fresh(id, { away: false, oldProcess: 'live' });
+        ext._check(context, file, false);
+        await settle();
+        answer = undefined;
+    };
+    await offerLive('f4', null);
     check('Show it with the first check failing on a process left running: the reload offer - nothing closed, no second check', calls.join() === 'ask,check:judge,warn' &&
         asked[1] === 'chatq could not end the old process of "T", so only a reload shows the run.' &&
         logged.includes('Show it 11111111: the check failed; the request\'s oldProcess live'), calls.join());
     for (const outcome of ['missing', 'bad']) {
-        reset();
-        answer = 'Show it';
         // what an early return prints - before 0.6.0's fix it said none, and a tab opened beside the live process
-        ext._getVerdict = twoChecks({ busy: null, oldProcess: 'none', outcome, hostPids: [], judged: 'only' }, endedV());
-        fresh('f5' + outcome, { away: false, oldProcess: 'live' });
-        ext._check(context, file, false);
-        await settle();
-        answer = undefined;
+        await offerLive('f5' + outcome, { busy: null, oldProcess: 'none', outcome, hostPids: [], judged: 'only' });
         check('Show it on a first check that judged nothing (' + outcome + '), a process left running: the reload offer, never a tab beside it, no second check',
             calls.join() === 'ask,check:judge,warn' && !calls.includes(OPEN) && !calls.includes(OPEN_FULL), calls.join());
     }
-    reset();
-    answer = 'Show it';
-    ext._getVerdict = twoChecks({ busy: true, oldProcess: 'held', outcome: 'running', hostPids: [], judged: 'only' }, endedV());
-    fresh('f6', { away: false, oldProcess: 'live' });
-    ext._check(context, file, false);
-    await settle();
-    answer = undefined;
+    await offerLive('f6', { busy: true, oldProcess: 'held', outcome: 'running', hostPids: [], judged: 'only' });
     check('Show it while a print-mode run not chatq\'s goes into the chat: nothing closed, shown or reloaded, and says why',
         calls.join() === 'ask,check:judge,ask' && asked[1] === ext._texts.running(reqT), calls.join());
     // the check finds the chat held working, or another chat busy: the
@@ -1250,8 +1241,9 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
 
     // end to end, the overlay's open request
     const ofile = path.join(dir, 'extension-check-open.json');
-    const open = (id, x) => fs.writeFileSync(ofile, JSON.stringify(Object.assign({ id, kind: 'open', title: 'T', sessionId: SID, cwd: path.resolve('/work/projA'),
-        home: null, busy: null, oldProcess: 'none', hostPids: [], at: new Date().toISOString() }, x)));
+    const openReq = (id, sid, title) => ({ id, kind: 'open', title, sessionId: sid, cwd: path.resolve('/work/projA'), home: null, busy: null,
+        oldProcess: 'none', hostPids: [], at: new Date().toISOString() });
+    const open = (id, x) => fs.writeFileSync(ofile, JSON.stringify(Object.assign(openReq(id, SID, 'T'), x)));
     reset();
     logged.length = 0;
     open('o1');
@@ -1289,7 +1281,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     const o2dSaid = calls.join() + ' ' + asked.length;
     aliveSet.clear();
     reset();
-    const o2e = await ext._openTab({ kind: 'open', sessionId: SID, title: 'T', oldProcess: 'live', hostPids: [999991] });
+    const o2e = await openT({ oldProcess: 'live', hostPids: [999991] });
     const o2eSaid = calls.join() + ' ' + asked.length;
     check('but not when a tab here showed it, when no process held it, nor when another window\'s held it',
         o2c === 'revealed' && o2cSaid === OPENED + ' 0' && o2d === 'new' && o2dSaid === OPENED + ' 0' && o2e === 'new' && o2eSaid === OPENED + ' 0',
@@ -1316,7 +1308,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     reset();
     fail[OPEN] = 2;
     fail[OPEN_FULL] = 2;
-    const o2f = await ext._openTab({ kind: 'open', sessionId: SID, title: 'T', oldProcess: 'none', hostPids: [] });
+    const o2f = await openT();
     check('an open the Claude extension refuses twice, both ways: said, and nothing else tried',
         o2f === 'failed' && calls.join() === [OPEN, OPEN_FULL, OPEN, OPEN_FULL, 'ask'].join() && asked[0] === ext._texts.notOpened({ title: 'T' }), calls.join());
     reset();
@@ -1359,8 +1351,6 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     check('the same open twice acts once', calls.join() === OPENED, calls.join());
     // two clicks inside one poll: both chats opened, the earlier first
     reset();
-    const openReq = (id, sid, title) => ({ id, kind: 'open', title, sessionId: sid, cwd: path.resolve('/work/projA'), home: null, busy: null,
-        oldProcess: 'none', hostPids: [], at: new Date().toISOString() });
     fs.writeFileSync(ofile, JSON.stringify(Object.assign(openReq('o7b', SID, 'T'), { earlier: [openReq('o7a', SID2x, 'A')] })));
     const o7 = await ext._checkOpen(context, ofile, false);
     await settle();
@@ -1378,8 +1368,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     reset();
     logged.length = 0;
     aliveSet.add(process.pid);
-    tabs.push(claudeTab(SID, 'T'));
-    active.tab = tabs[0];
+    frontTab();
     ext._getVerdict = twoChecks(liveV(), endedV());
     liveHere('u1', { at: new Date(Date.now() - 60000).toISOString() });
     ext._check(context, file, false);
@@ -1397,8 +1386,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     const sn3Calls = calls.join();
     // a newer run's request, handled by itself, takes the place of one not taken
     reset();
-    tabs.push(claudeTab(SID, 'T'));
-    active.tab = tabs[0];
+    frontTab();
     liveHere('u4', { at: new Date(Date.now() - 60000).toISOString() });
     ext._check(context, file, false);
     await drain();
@@ -1419,8 +1407,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     reset();
     logged.length = 0;
     aliveSet.add(process.pid);
-    tabs.push(claudeTab(SID, 'T'));
-    active.tab = tabs[0];
+    frontTab();
     ext._getVerdict = twoChecks(liveV(), endedV());
     const askBefore = stub.window.showInformationMessage;
     let answerLate = () => { };
@@ -1853,15 +1840,18 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         lw1 + ' ' + lw1Calls + ' / ' + lw2 + ' ' + calls.join());
     // the picker's accept: what runs each chat from home3's own registry
     const reg3 = path.join(home3, 'sessions');
-    const regSet = (entries) => {
-        fs.rmSync(reg3, { recursive: true, force: true });
-        fs.mkdirSync(reg3, { recursive: true });
+    // a registry folder emptied, then an entry written for each [pid, fields],
+    // each pid alive; entry(pid): the fields every entry starts from
+    const regFill = (d, entry) => (entries) => {
+        fs.rmSync(d, { recursive: true, force: true });
+        fs.mkdirSync(d, { recursive: true });
         for (const [pid, x] of entries) {
             aliveSet.add(pid);
-            // started just now, as regPut's - a runner may have booted minutes ago
-            fs.writeFileSync(path.join(reg3, pid + '.json'), JSON.stringify(Object.assign({ pid, cwd: projA, startedAt: pnow, status: 'idle', entrypoint: 'claude-vscode' }, x)));
+            fs.writeFileSync(path.join(d, pid + '.json'), JSON.stringify(Object.assign(entry(pid), x)));
         }
     };
+    // started just now, as regPut's - a runner may have booted minutes ago
+    const regSet = regFill(reg3, (pid) => ({ pid, cwd: projA, startedAt: pnow, status: 'idle', entrypoint: 'claude-vscode' }));
     const chats3 = await ext._listChats(home3, folders);
     const c3 = (sid) => chats3.find(c => c.sid === sid);
     reset();
@@ -1909,6 +1899,118 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     check('pick: a queued prompt going into it (a print-mode run) - refused as running, not as a terminal',
         lr1 === 'refused' && calls.join() === 'ask' && asked[0] === ext._texts.pickRunning({ title: 'only me' }) &&
         logged.includes('pick ' + L.solo.slice(0, 8) + ': running -> refused'), lr1 + ' ' + calls.join() + ' | ' + asked.join(' | '));
+
+    // --- this window's Claude tabs, for the overlay (writeTabs) ---------------
+    // the tabs that name one chat each, from home3's chats of projA: 'T' is
+    // two chats' (L.a, L.b), longT's label two's (L.long1, L.long2), 'only
+    // me' one's, and 'Lonely tab' one's but on two tabs
+    process.env.CLAUDE_CONFIG_DIR = home3;
+    ext._titleCache.clear();
+    const lonely = G(0x2006);
+    mkChat(dir3, lonely, user('Lonely tab') + asst('x'), 8 * MIN);
+    reset();
+    groupsNow = [group, group2];
+    tabs.push(claudeTab(L.solo, 'only me'), claudeTab(L.a, 'T'), claudeTab(L.long1, ext._claudeTabLabel(longT)), claudeTab(null, 'Claude Code'),
+        claudeTab(lonely, 'Lonely tab'), other);
+    tabs2.push(claudeTab(lonely, 'Lonely tab', group2));
+    const tabsOf1 = await ext._openTabChats();
+    check('open tabs: a label on one tab that one chat gives is that chat; an untitled tab, a label two tabs carry, and one two chats give are none',
+        JSON.stringify(tabsOf1) === JSON.stringify([{ sessionId: L.solo, cwd: projA, label: 'only me' }]), JSON.stringify(tabsOf1));
+    const tf = ext._tabsFile();
+    fs.rmSync(path.dirname(tf), { recursive: true, force: true });
+    ext._tabsIo.last = null;
+    const realRename = fs.renameSync;
+    const renamed = [];
+    fs.renameSync = (a, b) => { renamed.push(path.basename(a) + '>' + path.basename(b)); return realRename(a, b); };
+    const tw1 = await ext._lookTabs();
+    const tb1 = JSON.parse(fs.readFileSync(tf, 'utf8'));
+    check('open tabs: data/open-tabs/<host pid>.json - v, pid, started as reload-pending\'s, the window, the tabs - written whole and moved into place',
+        tw1 === 'written' && path.dirname(tf) === path.join(reloadData, 'open-tabs') && path.basename(tf) === process.pid + '.json' &&
+        tb1.v === 1 && tb1.pid === process.pid && Math.abs(tb1.started - (Date.now() - process.uptime() * 1000)) < 5000 && tb1.window === 'projA' &&
+        JSON.stringify(tb1.tabs) === JSON.stringify(tabsOf1) && renamed.join() === process.pid + '.json.tmp>' + process.pid + '.json' && !fs.existsSync(tf + '.tmp'),
+        tw1 + ' ' + JSON.stringify(tb1) + ' | ' + renamed.join());
+    const tw2 = await ext._lookTabs();
+    // the tab's twin closed: its label is one tab's now; listed by id, so a
+    // tab moved changes nothing
+    tabs2.length = 0;
+    const tw3 = await ext._lookTabs();
+    const tb3 = JSON.parse(fs.readFileSync(tf, 'utf8'));
+    tabs.reverse();
+    const tw4 = await ext._lookTabs();
+    check('open tabs: written only when what it says changed - a look with nothing new, or a tab moved, writes nothing',
+        tw2 === 'same' && tw3 === 'written' && tb3.tabs.map(t => t.sessionId).join() === [L.solo, lonely].join() && tw4 === 'same' && renamed.length === 2,
+        [tw2, tw3, tw4, renamed.length].join() + ' ' + JSON.stringify(tb3.tabs));
+    fs.unlinkSync(tf);
+    const tw5 = await ext._lookTabs();
+    const tf5 = fs.existsSync(tf);
+    tabs.length = 0;
+    tabs.push(claudeTab(null, 'Claude Code'), other);
+    const tw6 = await ext._lookTabs();
+    const tf6 = fs.existsSync(tf);
+    const tw7 = await ext._lookTabs();
+    check('open tabs: the file gone, it is written again; no tab named, it goes - and stays gone',
+        tw5 === 'written' && tf5 && tw6 === 'removed' && !tf6 && tw7 === 'same' && !fs.existsSync(tf), [tw5, tf5, tw6, tf6, tw7].join());
+    // a look past labelBudget: the file as it was, said once - the reads held
+    // until both looks are done, since one let go on a timer could land
+    // before a slow second look and make it a cache hit in time; at most
+    // 10 s, so a look that waited for them fails rather than hangs
+    tabs.length = 0;
+    tabs.push(claudeTab(L.solo, 'only me'));
+    await ext._lookTabs();
+    tabs.push(claudeTab(lonely, 'Lonely tab'));
+    ext._titleCache.clear();
+    let freeReads;
+    const readsHeld = new Promise(r => { const t = setTimeout(r, 10000); freeReads = () => { clearTimeout(t); r(); }; });
+    ext._readChat = async (c) => { await readsHeld; return realReadChat(c); };
+    ext._timing.labelBudget = 30;
+    logged.length = 0;
+    ext._tabsIo.late = false;
+    if (ext._tabsIo.timer) { clearTimeout(ext._tabsIo.timer); ext._tabsIo.timer = null; }
+    const tw8 = await ext._lookTabs();
+    const soon8 = !!ext._tabsIo.timer;
+    if (ext._tabsIo.timer) { clearTimeout(ext._tabsIo.timer); ext._tabsIo.timer = null; }
+    const tw9 = await ext._lookTabs();
+    const soon9 = !!ext._tabsIo.timer;
+    const lateSaid = logged.filter(l => /^open-tabs: /.test(l));
+    ext._timing.labelBudget = 0;
+    ext._readChat = realReadChat;
+    freeReads();
+    const tb9 = JSON.parse(fs.readFileSync(tf, 'utf8'));
+    check('open tabs: the folders\' chats not all read within labelBudget - the file left as it was, and said once; the first late looks again soon, the next not',
+        tw8 === 'late' && tw9 === 'late' && tb9.tabs.map(t => t.sessionId).join() === L.solo && soon8 && !soon9 &&
+        lateSaid.join() === 'open-tabs: the folders\' chats not all read in 30 ms - the tabs looked at again later', [tw8, tw9, soon8, soon9].join() + ' | ' + lateSaid.join(' | '));
+    // watched: soon after activation, as the tabs change, and gone with the
+    // window
+    ext._timing.tabsSettle = 0;
+    ext._timing.tabsEvery = 0;
+    let onTabs = null;
+    stub.window.tabGroups.onDidChangeTabs = (fn) => { onTabs = fn; return { dispose() { } }; };
+    const ctxT = { subscriptions: [] };
+    tabs.length = 0;
+    tabs.push(claudeTab(L.solo, 'only me'));
+    fs.unlinkSync(tf);
+    ext._tabsIo.last = null;
+    ext._watchTabs(ctxT);
+    for (let i = 0; i < 50 && !fs.existsSync(tf); i++) await tick();
+    const wt1 = fs.existsSync(tf) ? JSON.parse(fs.readFileSync(tf, 'utf8')).tabs.length : 0;
+    tabs.push(claudeTab(lonely, 'Lonely tab'));
+    if (onTabs) { onTabs(); onTabs(); }
+    for (let i = 0; i < 50 && JSON.parse(fs.readFileSync(tf, 'utf8')).tabs.length < 2; i++) await tick();
+    const wt2 = JSON.parse(fs.readFileSync(tf, 'utf8')).tabs.length;
+    for (const s of ctxT.subscriptions) s.dispose();
+    const wt3 = fs.existsSync(tf);
+    if (onTabs) onTabs();
+    await tick();
+    await tick();
+    check('open tabs: looked at after activation and as the tabs change; the window gone, its file goes, and a change after looks no more',
+        typeof onTabs === 'function' && wt1 === 1 && wt2 === 2 && !wt3 && !fs.existsSync(tf), [typeof onTabs, wt1, wt2, wt3].join());
+    fs.renameSync = realRename;
+    delete stub.window.tabGroups.onDidChangeTabs;
+    // the activations below look at no tabs: the tabs here are the tests'
+    ext._timing.tabsSettle = 3600000;
+    reset();
+    fs.unlinkSync(path.join(dir3, lonely + '.jsonl'));
+    ext._titleCache.clear();
 
     // --- the picker: each registry entry's process, as the OS has it ----------
     // procFacts' PowerShell stood in for: procOf, by pid, what CIM would
@@ -2058,10 +2160,9 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     reset();
     inOther(999236);
     warnAnswer = 'Show it there';
-    const plainWarn2 = stub.window.showWarningMessage;
-    stub.window.showWarningMessage = async (m, ...b) => { const r = await plainWarn2(m, ...b); ext._procSeen.clear(); facts(999236, { ppid: process.pid }); return r; };
+    stub.window.showWarningMessage = async (m, ...b) => { const r = await plainWarn(m, ...b); ext._procSeen.clear(); facts(999236, { ppid: process.pid }); return r; };
     const hm1 = await ext._acceptChat(c3(L.solo));
-    stub.window.showWarningMessage = plainWarn2;
+    stub.window.showWarningMessage = plainWarn;
     check('hand: Show it there, the chat since in this window\'s side bar - nothing done, and said; no second copy unasked',
         hm1 === 'moved' && calls.join() === 'warn,ask' && asked[1] === ext._texts.pickMoved({ title: 'only me' }) && handed() === null && !calls.includes(OPEN),
         hm1 + ' ' + calls.join());
@@ -2071,9 +2172,9 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     logged.length = 0;
     inOther(999238);
     warnAnswer = 'Show it there';
-    stub.window.showWarningMessage = async (m, ...b) => { const r = await plainWarn2(m, ...b); ext._procSeen.clear(); regSet([]); return r; };
+    stub.window.showWarningMessage = async (m, ...b) => { const r = await plainWarn(m, ...b); ext._procSeen.clear(); regSet([]); return r; };
     const hc1 = await ext._acceptChat(c3(L.solo));
-    stub.window.showWarningMessage = plainWarn2;
+    stub.window.showWarningMessage = plainWarn;
     check('hand: Show it there, the chat closed since - opened here from disk, as a closed chat is; nothing handed',
         hc1 === 'new' && calls.join() === 'warn,' + OPENED && handed() === null && logged.includes('pick ' + L.solo.slice(0, 8) + ': closed -> new'),
         hc1 + ' ' + calls.join() + ' | ' + logged.join(' | '));
@@ -2171,19 +2272,18 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         JSON.stringify([qw1, qw2, qw3, qw4, qw5, qw6, qw7]));
     const midday = new Date(2026, 9, 1, 12, 0, 0).getTime();
     const qt = (q, up) => ext._queueText(q, up === undefined ? true : up, midday);
-    const dotQ = ' ' + String.fromCharCode(0xb7) + ' ';
     check('queue: the item\'s words, the board\'s - next, after #seq, a time today, a weekday before one later, when Claude is back; the watcher stopped said instead; none queued, no item',
-        qt({ count: 2, next: 'now' }).text === '$(clock) chatq 2 queued' + dotQ + 'next' &&
-        qt({ count: 1, next: 'after', seq: 7 }).text === '$(clock) chatq 1 queued' + dotQ + 'after #7' &&
-        qt({ count: 1, next: 'at', at: new Date(2026, 9, 1, 16, 5).getTime() }).text === '$(clock) chatq 1 queued' + dotQ + '16:05' &&
-        qt({ count: 1, next: 'at', at: new Date(2026, 9, 2, 9, 0).getTime() }).text === '$(clock) chatq 1 queued' + dotQ + 'Fri 09:00' &&
-        qt({ count: 3, next: 'back' }).text === '$(clock) chatq 3 queued' + dotQ + 'when Claude is back' &&
-        qt({ count: 2, next: 'now' }, false).text === '$(clock) chatq 2 queued' + dotQ + 'watcher stopped' && /chatqrun/.test(qt({ count: 2, next: 'now' }, false).tooltip) &&
+        qt({ count: 2, next: 'now' }).text === '$(clock) chatq 2 queued' + dotSp + 'next' &&
+        qt({ count: 1, next: 'after', seq: 7 }).text === '$(clock) chatq 1 queued' + dotSp + 'after #7' &&
+        qt({ count: 1, next: 'at', at: new Date(2026, 9, 1, 16, 5).getTime() }).text === '$(clock) chatq 1 queued' + dotSp + '16:05' &&
+        qt({ count: 1, next: 'at', at: new Date(2026, 9, 2, 9, 0).getTime() }).text === '$(clock) chatq 1 queued' + dotSp + 'Fri 09:00' &&
+        qt({ count: 3, next: 'back' }).text === '$(clock) chatq 3 queued' + dotSp + 'when Claude is back' &&
+        qt({ count: 2, next: 'now' }, false).text === '$(clock) chatq 2 queued' + dotSp + 'watcher stopped' && /chatqrun/.test(qt({ count: 2, next: 'now' }, false).tooltip) &&
         /Click for the queue/.test(qt({ count: 1, next: 'after', seq: 7 }).tooltip) && qt(null) === null,
         [qt({ count: 1, next: 'at', at: new Date(2026, 9, 2, 9, 0).getTime() }).text, qt({ count: 2, next: 'now' }, false).tooltip].join(' | '));
     const qtw = qt({ count: 1, next: 'waits', words: 'waits for you to leave its tab' });
     check('queue: a wait of no time in the board\'s words - and the tooltip promises no send time',
-        qtw.text === '$(clock) chatq 1 queued' + dotQ + 'waits for you to leave its tab' && /waits for you to leave its tab/.test(qtw.tooltip) && !/sends at/.test(qtw.tooltip),
+        qtw.text === '$(clock) chatq 1 queued' + dotSp + 'waits for you to leave its tab' && /waits for you to leave its tab/.test(qtw.tooltip) && !/sends at/.test(qtw.tooltip),
         qtw.text + ' | ' + qtw.tooltip);
     // a Codex lane's outage is Codex's, never Claude's - as Get-ChatqEta
     // says it on the board and in chatqlist; both down, both named
@@ -2193,8 +2293,8 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     const qtc = qt(qcx), qtb = qt(qboth);
     check('queue: a Codex overload says when Codex is back, text and tooltip, with no word of Claude; both down names both; a q with no who stays Claude\'s',
         qx7.who === 'Claude' && qcx.next === 'back' && qcx.who === 'Codex' && qcxh.who === 'Codex' && qboth.who === 'Claude and Codex' &&
-        qtc.text === '$(clock) chatq 1 queued' + dotQ + 'when Codex is back' && /when Codex is back from its overload/.test(qtc.tooltip) && !/Claude/.test(qtc.text + qtc.tooltip) &&
-        qtb.text === '$(clock) chatq 2 queued' + dotQ + 'when Claude and Codex are back' && /from their overloads/.test(qtb.tooltip),
+        qtc.text === '$(clock) chatq 1 queued' + dotSp + 'when Codex is back' && /when Codex is back from its overload/.test(qtc.tooltip) && !/Claude/.test(qtc.text + qtc.tooltip) &&
+        qtb.text === '$(clock) chatq 2 queued' + dotSp + 'when Claude and Codex are back' && /from their overloads/.test(qtb.tooltip),
         [JSON.stringify([qcx, qcxh, qboth]), qtc.text, qtc.tooltip, qtb.text, qtb.tooltip].join(' | '));
     // the item itself, from data/: the watcher's lock, its state, each job
     // file read again only once it changed
@@ -2244,8 +2344,8 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     const qu4Shown = qi && qi.shown;
     check('queue: the item from data/ - none before anything is queued; shown, the board\'s command on a click, beside the run\'s item; a job file changed read again; the watcher\'s lock down said; nothing queued, hidden',
         qu0 === 'hidden' && qItems.length === 1 && qu1Item && qu1Item.shown && qu1Item.command === 'chatManager.showQueue' && qu1Item.pr === 49 &&
-        qu1 === '$(clock) chatq 1 queued' + dotQ + ext._queueText({ count: 1, next: 'at', at: Date.parse(iso(qnow + 2 * HOUR)) }, true, qnow).text.split(dotQ)[1] &&
-        readsBefore === 2 && qu2 === '$(clock) chatq 1 queued' + dotQ + 'after #1' && qu3 === '$(clock) chatq 1 queued' + dotQ + 'watcher stopped' &&
+        qu1 === '$(clock) chatq 1 queued' + dotSp + ext._queueText({ count: 1, next: 'at', at: Date.parse(iso(qnow + 2 * HOUR)) }, true, qnow).text.split(dotSp)[1] &&
+        readsBefore === 2 && qu2 === '$(clock) chatq 1 queued' + dotSp + 'after #1' && qu3 === '$(clock) chatq 1 queued' + dotSp + 'watcher stopped' &&
         lockAsked.every(f => f === path.join(qData, 'watcher.lock')) && qu4 === 'hidden' && qu4Shown === false,
         [qu0, qu1, qu2, qu3, qu4].join(' | ') + ' ' + qItems.length);
     // off Windows the lock is only advisory: the pid the state saved answers
@@ -2485,7 +2585,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         fs.writeFileSync(path.join(rdata, 'queue', '#15 T.md'), '﻿<!-- chatq: prompt for \'T\' (claude). Everything after this comment is sent -->\n\nfix the parser\nand the tests\nline three\nline four');
         const ackOf = () => { try { return JSON.parse(fs.readFileSync(path.join(rdata, 'run-ack', process.pid + '.json'), 'utf8')); } catch (e) { return null; } };
         const ws = {};
-        context.workspaceState = { get: (k) => ws[k], update: async (k, v) => { ws[k] = v; } };
+        context.workspaceState = memo(ws);
         const recs = () => ext._handovers(context);
         const panels = [];
         stub.window.createWebviewPanel = (viewType, title, show, opts) => {
@@ -2531,14 +2631,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         Object.assign(ext._overlayIo, { exists: () => true, powershell: () => 'PS', platform: () => 'win32' });
         // a Claude home whose registry says what runs the chat
         const homeR = path.join(rt, 'home');
-        const regR = (entries) => {
-            fs.rmSync(path.join(homeR, 'sessions'), { recursive: true, force: true });
-            fs.mkdirSync(path.join(homeR, 'sessions'), { recursive: true });
-            for (const [pid, x] of entries) {
-                aliveSet.add(pid);
-                fs.writeFileSync(path.join(homeR, 'sessions', pid + '.json'), JSON.stringify(Object.assign({ pid, sessionId: SID, cwd: projA, startedAt: Date.now(), status: 'idle', kind: 'interactive', entrypoint: 'claude-vscode' }, x)));
-            }
-        };
+        const regR = regFill(path.join(homeR, 'sessions'), (pid) => ({ pid, sessionId: SID, cwd: projA, startedAt: Date.now(), status: 'idle', kind: 'interactive', entrypoint: 'claude-vscode' }));
         const runOnce = async () => { const r = await ext._onRunState(context); await settle(); return r; };
         const resetRun = () => {
             for (const v of [...ext._watchViews.values()]) v.panel.dispose();
@@ -2560,8 +2653,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         resetRun();
         putJob({});
         const idOff = putRs({});
-        tabs.push(claudeTab(SID, 'T'));
-        active.tab = tabs[0];
+        frontTab();
         cfgVals['chatManager.watchRuns'] = false;
         const h1 = await runOnce();
         delete cfgVals['chatManager.watchRuns'];
@@ -2591,8 +2683,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         resetRun();
         putJob({});
         putRs({});
-        tabs.push(claudeTab(SID, 'T'));
-        active.tab = tabs[0];
+        frontTab();
         const h3 = await runOnce();
         const h3Calls = calls.join(), h3Asked = asked.slice(), h3Ack = ackOf();
         putRs({});
@@ -2607,7 +2698,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         // wait of every lane
         const inUseRs = { jobId: JOB, seq: 15, title: 'T', sessionId: SID };
         const waiting = () => putJob({ state: 'queued', deferWhy: 'in-use', deferUntil: new Date(Date.now() + 60000).toISOString() });
-        const handOverAgain = async () => { putJob({}); putRs({}); tabs.length = 0; tabs.push(claudeTab(SID, 'T')); active.tab = tabs[0]; return runOnce(); };
+        const handOverAgain = async () => { putJob({}); putRs({}); tabs.length = 0; frontTab(); return runOnce(); };
         resetRun();
         waiting();
         putRs({ phase: 'ended', state: 'queued' });
@@ -2647,8 +2738,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         resetRun();
         putJob({});
         putRs({});
-        tabs.push(claudeTab(SID, 'T'));
-        active.tab = tabs[0];
+        frontTab();
         stub.window.state.focused = false;
         // a Show it offered here before and not taken: the view it was for
         // goes with the tab
@@ -2658,8 +2748,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         resetRun();
         putJob({});
         putRs({ away: true });
-        tabs.push(claudeTab(SID, 'T'));
-        active.tab = tabs[0];
+        frontTab();
         const h5b = await runOnce();
         check('handover: the tab shown but nobody at it - its live view opened in its group first, then the tab closed; the record kept; away, in front of you - the same, the view taking the focus',
             h5.acted === 'closing' && h5Calls === 'watch:1:pf,close:T' && h5Recs.length === 1 && h5Recs[0].jobId === JOB && h5Recs[0].sessionId === SID &&
@@ -2683,23 +2772,20 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         regR([[999601, { status: 'busy' }]]);
         putJob({});
         putRs({ home: homeR });
-        tabs.push(claudeTab(SID, 'T'));
-        active.tab = tabs[0];
+        frontTab();
         stub.window.state.focused = false;
         const h7 = await runOnce();
         const h7Calls = calls.join();
         resetRun();
         putJob({});
         putRs({ hostPids: [999991] });
-        tabs.push(claudeTab(SID, 'T'));
-        active.tab = tabs[0];
+        frontTab();
         const h7b = await runOnce();
         const h7bAck = ackOf();
         resetRun();
         putJob({ state: 'failed' });
         putRs({});
-        tabs.push(claudeTab(SID, 'T'));
-        active.tab = tabs[0];
+        frontTab();
         const h7c = await runOnce();
         check('handover: the chat working by the registry - in-use, nothing said; another window\'s handover, or one whose job is not running - not answered here, nothing done',
             h7.acted === 'in-use' && h7Calls === '' && h7b.acted === null && h7bAck === null && h7c.acted === null && ackOf() === null && calls.join() === '',
@@ -2710,8 +2796,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         resetRun();
         putJob({});
         const hbId = putRs({ phase: 'running', beside: 'background', handoverId: null });
-        tabs.push(claudeTab(SID, 'T'));
-        active.tab = tabs[0];
+        frontTab();
         const hb = await runOnce();
         const hbCalls = calls.join(), hbAsked = asked.slice();
         // the same write looked at again, as the timer does: nothing more
@@ -2732,8 +2817,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
             resetRun();
             putJob({});
             putRs(x || {});
-            tabs.push(claudeTab(SID, 'T'));
-            active.tab = tabs[0];
+            frontTab();
             stub.window.state.focused = false;
             await runOnce();
             return panels[0];
@@ -2758,8 +2842,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         putRs({});
         const lateRs = ext._readRunState();
         putRs({ phase: 'running', beside: 'unsure', handoverId: lateRs.id });
-        tabs.push(claudeTab(SID, 'T'));
-        active.tab = tabs[0];
+        frontTab();
         const l1 = await ext._onHandover(context, lateRs);
         await settle();
         const l1Calls = calls.join();
@@ -2770,8 +2853,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         resetRun();
         putJob({});
         putRs({ at: new Date(Date.now() - 10000).toISOString() });
-        tabs.push(claudeTab(SID, 'T'));
-        active.tab = tabs[0];
+        frontTab();
         stub.window.state.focused = false;
         const l3 = await runOnce();
         check('handover: an answer come late - the watcher gone on beside the tab, or its handover older than it listens for - nothing written, no tab closed, no word that the job waits',
@@ -2786,8 +2868,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         // its handover gone by before this window looked
         const l4Id = putRs({});
         putRs({ phase: 'running', beside: 'unsure', handoverId: l4Id });
-        tabs.push(claudeTab(SID, 'T'));
-        active.tab = tabs[0];
+        frontTab();
         const l4 = await runOnce();
         const l4Calls = calls.join(), l4Asked = asked.slice();
         putRs({ phase: 'running', beside: 'unsure', handoverId: l4Id });
@@ -2882,8 +2963,10 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         regR([]);
         // A question left up in the notification centre holds nothing up: a
         // second job ends while the first one's waits, and its chat is put
-        // back. stuck: what would wait on the question for good.
-        const stuck = (p) => Promise.race([p, new Promise(r => setTimeout(() => r('stuck'), 300))]);
+        // back. stuck: what would wait on the question for good - 5 s, which
+        // only a hang waits out: a look and three drains take some 170 ms,
+        // and a busy machine once ran them past the 300 ms this had.
+        const stuck = (p) => Promise.race([p, new Promise(r => setTimeout(() => r('stuck'), 5000))]);
         const pA = await handOver();
         pA.dispose();
         const infoWas = stub.window.showInformationMessage;
@@ -3251,7 +3334,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         resetRun();
         putJob({});
         putRs({ phase: 'running', hostPids: [999991] });
-        const ot = await ext._openTab({ kind: 'open', sessionId: SID, title: 'T', oldProcess: 'none', hostPids: [] });
+        const ot = await openT();
         const otCalls = calls.join();
         calls.length = 0;
         const pc = await ext._acceptChat({ sid: SID, cwd: projA, file: path.join(rt, 'none', SID + '.jsonl'), dir: rt, size: 0, mtimeMs: 0 });
@@ -3263,8 +3346,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         resetRun();
         putJob({});
         putRs({ phase: 'running', hostPids: [999991] });
-        tabs.push(claudeTab(SID, 'T'));
-        active.tab = tabs[0];
+        frontTab();
         ext._getVerdict = twoChecks(liveV(), endedV());
         const sw = await ext._showLive(reqT, file);
         const swCalls = calls.join();
@@ -3278,8 +3360,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         // a turn begun between the look and the close: the tab stays
         resetRun();
         regR([[999603, { status: 'busy' }]]);
-        tabs.push(claudeTab(SID, 'T'));
-        active.tab = tabs[0];
+        frontTab();
         ext._getVerdict = twoChecks(liveV(), endedV());
         const sb = await ext._showLive(Object.assign({}, reqT, { home: homeR }), file);
         check('Show it: the chat working by the registry right before the close - not closed, nothing ended under it, and said', sb === 'stale' && !calls.includes('close:T') && !calls.includes('check:end') &&
@@ -3564,8 +3645,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         const uShow = async (f) => {
             await quiet();
             uPut(f);
-            tabs.push(claudeTab(SID, 'T'));
-            active.tab = tabs[0];
+            frontTab();
             ext._getVerdict = twoChecks(liveV(), endedV());
             const r = await ext._showLive(reqU, file);
             return JSON.stringify([r, prompts(), noticed()]);
@@ -3850,8 +3930,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         const cShow = async () => {
             await quiet();
             uPut(S.real);
-            tabs.push(claudeTab(SID, 'T'));
-            active.tab = tabs[0];
+            frontTab();
             ext._getVerdict = twoChecks(liveV(), endedV());
             fakeCp.spawned.length = 0;
             const r = await ext._showLive(reqU, file);
@@ -3896,18 +3975,22 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
                 JSON.stringify([['new'], [null], [], true, true]), JSON.stringify(['new', true, [null], [], true, true])].join(' '),
             cs.join(' '));
         // a carry missed, or in part: said once the arm settles, what did not
-        // go in to be typed - nothing in the box - in the key that sends
-        ext._timing.carryWait = 30;
+        // go in to be typed - nothing in the box - in the key that sends. With
+        // no launch the arm is left a second, so a slow machine still reads
+        // nothing said before it goes, and its word is waited for; a launch
+        // settles it at once, and the short arm's due time is looked past for
+        // a second word
         const cMiss = async (mk) => {
             onMake = mk;
+            ext._timing.carryWait = mk ? 30 : 1000;
             await quiet();
             uPut(S.real);
-            tabs.push(claudeTab(SID, 'T'));
-            active.tab = tabs[0];
+            frontTab();
             ext._getVerdict = twoChecks(liveV(), endedV());
             const r = await ext._showLive(reqU, file);
             const atOnce = noticed().length;
-            await new Promise(res => setTimeout(res, 120));
+            if (mk) await new Promise(res => setTimeout(res, 120));
+            else { await waitFor(() => noticed().length > 0); await settle(); }
             return JSON.stringify([r, prompts(), atOnce, noticed()]);
         };
         const cm = [await cMiss(null), await cMiss((sid) => launch(['--resume=' + sid, '--settings', '{}'])), await cMiss((sid) => launch(['--resume=' + sid, '--effort', 'high']))];
@@ -3929,10 +4012,11 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         // an open that only reveals a Claude tab reading as the chat: armed
         // all the same - one not revived yet may start its process as it
         // shows - so nothing said at once; no launch, and the commands named
-        // once the arm goes
+        // once the arm goes. The arm outlasts the run's end on a slow machine,
+        // and its word is waited for
         onMake = null;
-        ext._timing.carryWait = 400;
-        const later = () => new Promise(res => setTimeout(res, 600));
+        ext._timing.carryWait = 1500;
+        const later = async () => { await waitFor(() => noticed().length > 0); await settle(); };
         const rvRestore = async () => {
             await handOver({ home: homeR });
             uPut(S.real);
@@ -3977,8 +4061,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         await drain();
         const tWaiting = ext._carryArms.has(SID);
         tabs.length = 0;
-        tabs.push(claudeTab(SID, 'T'));
-        active.tab = tabs[0];
+        frontTab();
         ext._getVerdict = twoChecks(liveV(), endedV());
         fakeCp.spawned.length = 0;
         openArgs.length = 0;
@@ -4039,6 +4122,9 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
             pb.join(' ') === [JSON.stringify([['asked'], true, true, [], false, true, true, false]), JSON.stringify([['shown'], true, true, [], false, true, true, false]),
                 JSON.stringify([['asked'], true, true, [], false, true, true, false])].join(' '),
             pb.join(' '));
+        // its going waited for by the line it logs, not timed: a slow machine
+        // only waits longer. That it was armed as the run ended is the checks
+        // above, with arms that outlast any machine
         ext._timing.putBackWait = 300;
         onMake = null;
         await handOver({ home: homeR });
@@ -4046,14 +4132,13 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         panels[0].dispose();
         logged.length = 0;
         const eQ = await endIt({}, { home: homeR });
-        await within(ext._putBackLast());
-        const qArmed = ext._carryArms.has(SID);
-        await new Promise(res => setTimeout(res, 600));
+        const putBackGone = l => /^open 11111111: no launch of it within \d+ s - nothing carried$/.test(l);
+        await waitFor(() => logged.some(putBackGone));
+        await settle();
         ext._timing.putBackWait = 30 * 60000;
         check('carry: the chat put back by no open of chatq\'s, and no launch of it within timing.putBackWait - the arm gone, logged, nothing said',
-            JSON.stringify(eQ.restored) === '["asked"]' && qArmed && !ext._carryArms.has(SID) && noticed().length === 0 &&
-            logged.some(l => /^open 11111111: no launch of it within \d+ s - nothing carried$/.test(l)),
-            JSON.stringify([eQ.restored, qArmed, ext._carryArms.has(SID), noticed(), logged]));
+            JSON.stringify(eQ.restored) === '["asked"]' && !ext._carryArms.has(SID) && noticed().length === 0 && logged.some(putBackGone),
+            JSON.stringify([eQ.restored, ext._carryArms.has(SID), noticed(), logged]));
         // deactivate: the arms dropped unsaid, child_process.spawn as it was
         ext.deactivate();
         const pkS = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'extension', 'package.json'), 'utf8')).contributes.configuration.properties['chatManager.keepSessionSettings'];
@@ -4140,7 +4225,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         !su._blocksProfile('RemoteSigned') && !su._blocksProfile('Bypass') && !su._blocksProfile(null));
     check('setup: the last True or False a PowerShell printed, and none is no answer', su._lastBool('WARNING: x\r\nFalse\r\nTrue\r\n') === true && su._lastBool('noise') === null);
     const pa = su._psArgs("C:\\it's\\Charlie-and-the-chat-factory.ps1", 'Test-ChatProfileLine');
-    const pt = Buffer.from(pa[pa.length - 1], 'base64').toString('utf16le');
+    const pt = dec(pa);
     check('setup: its PowerShell loads no profile, is marked as no interactive shell, and quotes the path',
         pa.includes('-NoProfile') && pa.includes('Bypass') && pt === "$env:CHATQ_OVERLAY='1'; . 'C:\\it''s\\Charlie-and-the-chat-factory.ps1'; Test-ChatProfileLine", pt);
 
@@ -4385,33 +4470,55 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     const lockFile = path.join(ov, 'data', 'overlay.lock');
     check('the overlay lock: missing, or there and opened by nobody, is not held', !ext._lockHeld(lockFile) &&
         (fs.writeFileSync(lockFile, ''), !ext._lockHeld(lockFile)));
-    fs.unlinkSync(lockFile);
-    // the real thing, as the overlay holds it: opened with no sharing
+    // force: a first look that fails skips the write, and the check says so
+    fs.rmSync(lockFile, { force: true });
+    // the real thing, as the overlay holds it: opened with no sharing, and held
+    // till its stdin ends - no set time a starved check could sleep through. One
+    // that never says it holds it is started again, three in all: a machine short
+    // of memory can fail its start - refused to node, or dead as it loads - or
+    // its open. The detail has each exit code, and the last one's first error line
     const winPs = ext._windowsPowerShell();
     if (process.platform === 'win32' && fs.existsSync(winPs)) {
         const heldFile = path.join(ov, 'data', 'held.lock');
-        const child = require('child_process').spawn(winPs, ['-NoProfile', '-NonInteractive', '-Command',
-            '$f = [IO.File]::Open(' + ext._psQuote(heldFile) + ", 'OpenOrCreate', 'ReadWrite', 'None'); [Console]::Out.WriteLine('held'); Start-Sleep -Seconds 2; $f.Close()"],
-            { windowsHide: true });
-        const exited = new Promise(r => child.on('exit', r));
-        let giveUp;
-        const opened = await new Promise(r => {
-            let out = '';
-            child.stdout.on('data', d => { out += d; if (/held/.test(out)) r(true); });
-            exited.then(() => r(false));
-            giveUp = setTimeout(() => r(false), 30000);
-        });
-        clearTimeout(giveUp);
-        const whileHeld = opened && ext._lockHeld(heldFile);
-        await exited;
-        const afterExit = ext._lockHeld(heldFile);
+        const exits = [];
+        let opened = false, whileHeld = false, afterExit = false, err = '';
+        for (let i = 0; i < 3 && !opened; i++) {
+            let child;
+            err = '';
+            try {
+                child = require('child_process').spawn(winPs, ['-NoProfile', '-NonInteractive', '-Command',
+                    "$ErrorActionPreference = 'Stop'; $f = [IO.File]::Open(" + ext._psQuote(heldFile) + ", 'OpenOrCreate', 'ReadWrite', 'None'); [Console]::Out.WriteLine('held'); $null = [Console]::In.ReadLine(); $f.Close()"],
+                    { windowsHide: true });
+            } catch (e) {
+                // a refused start node throws for, most codes; the rest come
+                // as 'error', with 'close' after it
+                exits.push(e.code || 'spawn');
+                err = e.message;
+                continue;
+            }
+            child.on('error', e => { err += e.message; });
+            child.stderr.on('data', d => { err += d; });
+            // on close, not exit: its output is all read by then
+            const exited = new Promise(r => child.on('close', r));
+            let giveUp;
+            opened = await new Promise(r => {
+                let out = '';
+                child.stdout.on('data', d => { out += d; if (/held/.test(out)) r(true); });
+                exited.then(() => r(false));
+                giveUp = setTimeout(() => r(false), 30000);
+            });
+            clearTimeout(giveUp);
+            whileHeld = opened && ext._lockHeld(heldFile);
+            if (opened) child.stdin.end(); else child.kill();
+            exits.push(await exited);
+            afterExit = ext._lockHeld(heldFile);
+        }
         check('the overlay lock, held for real by a PowerShell: held while it is open, free once it lets go', whileHeld && !afterExit,
-            opened + ' ' + whileHeld + ' ' + afterExit);
+            opened + ' ' + whileHeld + ' ' + afterExit + ', exit ' + exits.join(' ') + (err.trim() ? ': ' + err.trim().split(/\r?\n/)[0] : ''));
     } else {
         console.log('  skip  the overlay lock, held for real by a PowerShell: no Windows PowerShell here');
     }
     const realIo = Object.assign({}, ext._overlayIo);
-    const realPs = { hosts: su._hosts, runPs: su._runPs };
     // which PowerShell: Windows PowerShell's own path, with no look on PATH
     const hostsAsked = [];
     su._hosts = () => { hostsAsked.push(1); return ['pwsh']; };
@@ -4675,7 +4782,6 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         acReload === 'chatq continued "Parser rewrite" after the usage limit reset, and this window still has it open. Reload to show it?' &&
         acPlain === 'A queued prompt ran in "Parser rewrite", which this window still has open. Show it?', acFresh + ' | ' + acReload + ' | ' + acPlain);
     su._runPs = ovRunPs;
-    ext._overlayIo.platform = () => 'win32';
     delete cfgVals['chatManager.folder'];
     // the activations below start it through the same stand-ins: never a
     // real PowerShell from a test
@@ -4743,9 +4849,8 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     check('and auto-continue\'s, 0.9.0', registered.includes('chatManager.autoContinue'), registered.join());
     check('and Watch the running queued prompt, and the watch panel\'s serializer, so a reload brings one back',
         registered.includes('chatManager.watchRun') && serialized.includes('chatManager.watch'), registered.join() + ' / ' + serialized.join());
-    const pkgCmds = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'extension', 'package.json'), 'utf8')).contributes.commands.map(c => c.command);
     check('and Show the queue, the queue item\'s click - registered, and in the palette',
-        registered.includes('chatManager.showQueue') && pkgCmds.includes('chatManager.showQueue'), registered.join());
+        registered.includes('chatManager.showQueue') && cmds.includes('chatManager.showQueue'), registered.join());
     await settle();
     check('activation, the loader in place: the overlay started once, from the tool folder\'s loader - however often it runs',
         ovFirst.join() === 'PS:Start-ChatOverlayAuto:' + path.join(tool, su.LOADER) && ovRan.length === 1, ovFirst.join() + ' / ' + ovRan.join());
@@ -4853,8 +4958,8 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     check('setup: an onReady joining a run already going is called once that run\'s loader is ready - at once where it was ready already',
         joinedEarly === 0 && joinedReady === 'waited,at once', joinedEarly + ' ' + joinedReady);
     Object.assign(ext._overlayIo, realIo);
-    su._hosts = realPs.hosts;
-    su._runPs = realPs.runPs;
+    su._hosts = real.hosts;
+    su._runPs = real.runPs;
     fs.watchFile = realWatch;
     delete cfgVals['chatManagerReload.signalFile'];
     fs.rmSync(sbx, { recursive: true, force: true });
@@ -4876,7 +4981,6 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         list('0.8.1', 1000);
         const srCalls = [], srAsked = [], items = [], srWatched = [], srHeard = [];
         const srAnswer = { info: undefined, warn: undefined };
-        const realWatch2 = fs.watchFile;
         fs.watchFile = (f, o, cb) => { srWatched.push([f, cb]); };
         stub.commands.executeCommand = async (c) => { srCalls.push(c); };
         stub.commands.registerCommand = (id) => ({ dispose() { } });
@@ -4903,9 +5007,8 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
             sr._installKey({ version: '0.8.1', stamp: 1 }, { version: '0.8.1', stamp: 1 }) === '' &&
             sr._installKey({ version: '0.8.1', stamp: null }, { version: '0.8.1', stamp: 2 }) === '' &&
             sr._installKey({ version: '0.8.1', stamp: 1 }, null) === '');
-        const mf = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'extension', 'package.json'), 'utf8'));
         check('safe restart: its own ID is the manifest\'s publisher.name',
-            sr.ID === mf.publisher + '.' + mf.name, sr.ID + ' / ' + mf.publisher + '.' + mf.name);
+            sr.ID === pkg.publisher + '.' + pkg.name, sr.ID + ' / ' + pkg.publisher + '.' + pkg.name);
         check('safe restart: this extension\'s entry in VS Code\'s list, by its id in any case, the newest where two',
             sr._entryOf([{ identifier: { id: 'x.y' }, version: '1' }, { identifier: { id: 'Redaechan.Claude-Codex-Chat-Manager' }, version: '2', metadata: { installedTimestamp: 1 } },
                 { identifier: { id: 'redaechan.charlie-and-the-chat-factory' }, version: '3', metadata: { installedTimestamp: 9 } }], 'redaechan.charlie-and-the-chat-factory').version === '3' &&
@@ -5196,7 +5299,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         cfgVals['chatManager.autoReload'] = true;
         verdict = as([chat(SB, 'background')]);
         srAnswer.warn = 'Not now';
-        fs.writeFileSync(file, JSON.stringify({ id: 'sr-d1', kind: 'deleted', title: 'T', busy: false, cwd: path.resolve('/work/projA'), at: new Date().toISOString() }));
+        fs.writeFileSync(file, JSON.stringify(del('sr-d1', 'T')));
         await ext._check(context, file, false);
         await settle();
         const e1 = reloads(), e1Said = srAsked.slice();
@@ -5213,7 +5316,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         // a plain Reload clicked on a delete the script found quiet
         srAnswer.info = 'Reload';
         srAnswer.warn = 'Not now';
-        fs.writeFileSync(file, JSON.stringify({ id: 'sr-d2', kind: 'deleted', title: 'T', busy: false, cwd: path.resolve('/work/projA'), at: new Date().toISOString() }));
+        fs.writeFileSync(file, JSON.stringify(del('sr-d2', 'T')));
         await ext._check(context, file, false);
         await settle();
         const e3 = reloads(), e3Said = srAsked.slice();
@@ -5329,6 +5432,10 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
             fs.mkdirSync(ad, { recursive: true });
             for (const n of ['424242.json', '515151.json', '424242.json.tmp', process.pid + '.json', 'notes.txt']) fs.writeFileSync(path.join(pd, n), '{}');
             fs.writeFileSync(path.join(ad, '424242.json'), '{}');
+            // and the open tabs of each (writeTabs)
+            const td = path.dirname(ext._tabsFile());
+            fs.mkdirSync(td, { recursive: true });
+            for (const n of ['424242.json', '515151.json', '424242.json.tmp', process.pid + '.json']) fs.writeFileSync(path.join(td, n), '{}');
             const aliveWas = ext._alive;
             ext._alive = (p) => p === 515151;
             ext._sweepPending();
@@ -5336,6 +5443,8 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
             const left = fs.readdirSync(pd).sort().join(), leftA = fs.readdirSync(ad).join();
             check('reload on the overlay: activation sweeps the files of hosts gone, and this host\'s own - a live window\'s stay',
                 left === '515151.json,notes.txt' && leftA === '', left + ' / ' + leftA);
+            const leftT = fs.readdirSync(td).sort().join();
+            check('open tabs: activation sweeps those of hosts gone too, and this host\'s own - a live window\'s stay', leftT === '515151.json', leftT);
             check('reload on the overlay: the line each request gets there',
                 ext._askSay({ kind: 'archived', title: 'A' }) === '"A" archived - the chat list still shows it' &&
                 ext._askSay({ kind: 'ran', title: 'R' }) === 'a queued prompt ran in "R" - a reload shows it' &&
@@ -5349,7 +5458,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         sr._now = () => Date.now();
         sr.timing.poll = 25000;
         sr._hostWork = noWork;
-        fs.watchFile = realWatch2;
+        fs.watchFile = realWatch;
         delete stub.extensions.onDidChange;
         fs.rmSync(srDir, { recursive: true, force: true });
     }
