@@ -42,7 +42,7 @@ jobs:
       PUBLISHER: redaechan
       TAG: ${{ github.ref_name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # build.js checks the script's version against package.json; this checks
       # the tag against both, and that the release has notes, before anything

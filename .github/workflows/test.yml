@@ -19,7 +19,7 @@ jobs:
       matrix:
         host: [powershell, pwsh]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # 5.1 reads a BOM-less .ps1 in the ANSI code page. The runner is en-US,
       # where that never shows, so the rule the code depends on is checked here.
