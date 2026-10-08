@@ -364,12 +364,22 @@ function movedSince(v, since) {
     return '';
 }
 
-// When a transcript was last written by a chat at work, in ms: its newest
-// record's timestamp, as Get-ChatLastWritten (src/chatrm.ps1) reads it - a
-// tab a reload brought back touches its file with records that carry none,
-// and read as written it held the reload for nothing. The last 64 KB only;
-// no timestamp there, the file's own time. Never later than that. Throws
-// when the file cannot be read.
+// When a chat was last at work, in ms: the last "timestamp" in text, as
+// Get-ChatLastStamp (src/core.ps1) reads it - opening a chat writes records
+// that carry none. Never later than cap; NaN when text holds none. Pure.
+function lastStamp(text, cap) {
+    const re = /"timestamp"\s*:\s*"([^"]+)"/g;
+    let m, last = null;
+    while ((m = re.exec(text))) last = m[1];
+    const at = last ? Date.parse(last) : NaN;
+    return Number.isFinite(at) && cap !== undefined ? Math.min(at, cap) : at;
+}
+
+// When a transcript was last written by a chat at work, in ms (lastStamp),
+// as Get-ChatLastWritten (src/chatrm.ps1) reads it - a tab a reload brought
+// back touches its file, and read as written it held the reload for
+// nothing. The last 64 KB only; no timestamp there, the file's own time.
+// Never later than that. Throws when the file cannot be read.
 function lastWritten(file, size = 65536) {
     const st = fs.statSync(file);
     const n = Math.min(size, st.size);
@@ -377,12 +387,8 @@ function lastWritten(file, size = 65536) {
     const fd = fs.openSync(file, 'r');
     let got = 0;
     try { got = fs.readSync(fd, buf, 0, n, st.size - n); } finally { fs.closeSync(fd); }
-    const re = /"timestamp"\s*:\s*"([^"]+)"/g;
-    const text = buf.toString('utf8', 0, got);
-    let m, last = null;
-    while ((m = re.exec(text))) last = m[1];
-    const at = last ? Date.parse(last) : NaN;
-    return Number.isFinite(at) ? Math.min(at, st.mtimeMs) : st.mtimeMs;
+    const at = lastStamp(buf.toString('utf8', 0, got), st.mtimeMs);
+    return Number.isFinite(at) ? at : st.mtimeMs;
 }
 
 // One look while waiting. Every chat idle - no turn, no prompt, no
@@ -485,7 +491,7 @@ function activate(context) {
 }
 
 module.exports = {
-    activate, texts, timing, ID, WAIT, NOW, GO, LATER, AGAIN, CANCEL, RESTART, TOO_OLD,
+    activate, texts, timing, ID, WAIT, NOW, GO, LATER, AGAIN, CANCEL, RESTART, TOO_OLD, lastStamp,
     _readInstalled: readInstalled, _entryOf: entryOf, _installKey: installKey, _noteRunning: noteRunning,
     _parseHostWork: parseHostWork, _hostWorkCommand: hostWorkCommand, _hostStart: hostStart, _lookFailure: lookFailure, _workingOf: workingOf, _namesOf: namesOf,
     _checkInstall: checkInstall, _notice: notice, _startWait: startWait, _stopWait: stopWait, _poll: poll, _cancel: cancel,

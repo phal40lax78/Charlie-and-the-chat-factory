@@ -689,7 +689,8 @@ function Get-ChatArchive {
             $id = if ($f.BaseName -match '([0-9a-fA-F-]{36})$') { $Matches[1] } else { continue }
             if ($seen[$id]) { continue }
             $t = if ($names[$id]) { $names[$id] } else { $id }
-            $rows.Add([pscustomobject]@{ Provider = 'codex'; Id = $id; Title = $t; Group = $null; When = $f.LastWriteTime; Dir = $null; Manifest = $null; CodexHome = $CodexHome })
+            # when it was last at work, as the index has a chat's When
+            $rows.Add([pscustomobject]@{ Provider = 'codex'; Id = $id; Title = $t; Group = $null; When = (Get-ChatLastWritten $f.FullName $f.LastWriteTime); Dir = $null; Manifest = $null; CodexHome = $CodexHome })
         }
     }
     return @($rows | Sort-Object When -Descending)
@@ -823,31 +824,22 @@ function Get-ChatProjectFiles {
 
 function Get-ChatLastWritten {
     <#
-    When a transcript was last written by a chat at work: its newest record's
-    timestamp, not the file's LastWriteTime. Claude writes an idle chat's file
-    with no turn in it - cost-state, mode and last-prompt records, which
-    carry no timestamp, as its process starts or ends - so every tab a
-    reload brought back read as written for a minute, and the reload a
-    delete asked for next said those idle chats would be stopped. A record
-    with a turn in it carries its timestamp last, so the tail's last
-    "timestamp" is the newest even when the tail begins mid-line; one in a
-    record's text is escaped, and never read as one. Only the last -Size
-    bytes are read. -Wrote: the file's LastWriteTime, when the caller has it
-    - also the answer when the tail holds no timestamp (Codex, an old
-    format, a file that could not be read), and never exceeded: a clock set
-    back makes no record newer than the file.
+    When a transcript was last written by a chat at work: its tail's newest
+    record's timestamp (Get-ChatLastStamp), not the file's LastWriteTime.
+    Claude writes an idle chat's file with no turn in it as its process
+    starts or ends, so every tab a reload brought back read as written for a
+    minute, and the reload a delete asked for next said those idle chats
+    would be stopped. Only the last -Size bytes are read. -Wrote: the file's
+    LastWriteTime, when the caller has it - also the answer when the tail
+    holds no timestamp (an old format, a file that could not be read), and
+    never exceeded.
     #>
     param([string]$Path, $Wrote = $null, [int]$Size = 65536)
     if ($null -eq $Wrote) { try { $Wrote = (Get-Item -LiteralPath $Path -EA Stop).LastWriteTime } catch { return $null } }
     $text = try { Read-ChatqTail $Path $Size } catch { return $Wrote }
-    if ($null -eq $text) { return $Wrote }
-    $m = [regex]::Matches($text, '"timestamp"\s*:\s*"([^"]+)"')
-    if (-not $m.Count) { return $Wrote }
-    $at = [DateTimeOffset]::MinValue
-    if (-not [DateTimeOffset]::TryParse($m[$m.Count - 1].Groups[1].Value, [cultureinfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AssumeUniversal, [ref]$at)) { return $Wrote }
-    $t = $at.LocalDateTime
-    if ($t -gt $Wrote) { return $Wrote }
-    return $t
+    $at = Get-ChatLastStamp $text $Wrote
+    if ($at) { return $at }
+    return $Wrote
 }
 
 function Test-ChatTranscriptBusy {

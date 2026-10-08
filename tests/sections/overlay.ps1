@@ -141,6 +141,23 @@ $cutHalf = $cx12.Text[$idO12].Prompt
 [System.IO.File]::AppendAllText($pO12, $cutLine.Substring(20) + "`n", $utf8)
 Update-ChatOverlayText $cx12 $s12
 Check 'a line still being written as one read comes is taken whole by the next' ($cutHalf -eq 'first ask' -and $cx12.Text[$idO12].Prompt -eq 'second ask') "$cutHalf / $($cx12.Text[$idO12].Prompt)"
+# when the chat was last at work: its newest timestamped record's time -
+# not the records with none that opening it writes after
+$idO14 = '0a0a0a0a-0a0a-40a0-80a0-0a0a0a0a0a14'
+$tSaid = (Get-Date).AddMinutes(-70)
+$pO14 = New-OverlayChat $idO14 @((OvUserAt 'old ask' $tSaid.AddSeconds(-30)),
+    ('{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"done"}]}' + (OvStamp $tSaid) + '}'),
+    (OvLast 'old ask'), (OvTitle 'Old chat'), (OvTail))
+$saidMs = [DateTimeOffset]::new($tSaid).ToUnixTimeMilliseconds()
+$r = Find-ChatTailRecords $pO14
+Check 'ActiveAt is the newest timestamped record''s time' ($r.ActiveAt -and [Math]::Abs($r.ActiveAt - $saidMs) -lt 1000) "$($r.ActiveAt) vs $saidMs"
+$cx14 = New-ChatOverlayContext
+$s14 = [pscustomobject]@{ SessionId = $idO14; Cwd = $projO }
+Update-ChatOverlayText $cx14 $s14
+[System.IO.File]::AppendAllText($pO14, (((OvLast 'old ask'), '{"type":"cost-state","sessionId":"x"}', '{"type":"mode","mode":"normal","sessionId":"x"}') -join "`n") + "`n", $utf8)
+Update-ChatOverlayText $cx14 $s14
+Check 'and stays so as reopening the chat writes records with no time' (
+    $cx14.Text[$idO14].ActiveAt -and [Math]::Abs($cx14.Text[$idO14].ActiveAt - $saidMs) -lt 1000) "$($cx14.Text[$idO14].ActiveAt) vs $saidMs"
 $pO10 = New-OverlayChat '0a0a0a0a-0a0a-40a0-80a0-0a0a0a0a0a10' @((OvUser 'first'), (OvCommand 'model' 'opus[1m]'), (OvUser 'after the switch'), (OvReply), (OvLast 'after the switch'), (OvTitle 'Switched'), (OvTail))
 $r = Find-ChatTailRecords $pO10
 Check 'a prompt after a command wins, arguments read with the command' ($r.Prompt -eq 'after the switch' -and $r.After -and (Read-ClaudeSlashCommand (OvCommand 'model' 'opus[1m]')) -eq '/model opus[1m]') "$($r.Prompt) / $($r.After)"
@@ -431,6 +448,16 @@ Check 'a prompt queued for an open chat rides on its row' ($ri1.job.seq -eq 1 -a
 $ri2 = @($R | Where-Object { $_.key -eq 's:i-2' })[0]
 Check 'the second window''s state wins when it is the more urgent' ($ri2.status -eq 'busy' -and (@($ri2.pids) -join ',') -eq '6,7') "$($ri2.status) $(@($ri2.pids) -join ',')"
 Check 'a job row says what it is and carries its first line' ((@($R | Where-Object { $_.key -eq 'j:j2' })[0].stateText -eq '#2 after #1') -and (@($R | Where-Object { $_.key -eq 'j:j2' })[0].prompt -eq 'for a closed one'))
+# an old chat just opened: its new process's entry says a minute ago, its
+# transcript last said anything 70 minutes ago - an idle row's time is that;
+# a working one keeps the entry's
+$ROp = @(Get-ChatOverlayRows -Now $tnow -Texts @{ 'o-1' = @{ Path = 'x'; AiTitle = 'Old'; ActiveAt = (& $ago 70) }; 'o-2' = @{ Path = 'x'; AiTitle = 'Busy'; ActiveAt = (& $ago 70) } } -Sessions @(
+        [pscustomobject]@{ SessionId = 'o-1'; Pid = 11; Status = 'idle'; Cwd = 'C:\p\old'; StatusUpdatedAt = (& $ago 1) }
+        [pscustomobject]@{ SessionId = 'o-2'; Pid = 12; Status = 'busy'; Cwd = 'C:\p\old'; StatusUpdatedAt = (& $ago 1) }))
+$ro1 = @($ROp | Where-Object { $_.key -eq 's:o-1' })[0]
+$ro2 = @($ROp | Where-Object { $_.key -eq 's:o-2' })[0]
+Check 'an old chat just opened is idle since it last said anything, not since its process started' (
+    $ro1.since -eq (& $ago 70) -and $ro2.since -eq (& $ago 1)) "$($ro1.since) / $($ro2.since) vs $(& $ago 70)"
 # cut off by the limit or a 529: an open idle chat takes the state, one not
 # open gets a row, one a job is queued for leaves it to the job
 $resetAt = $tnow.AddMinutes(90)
@@ -463,7 +490,7 @@ Check 'and when the limit is over it says so' ((Format-ChatOverlayCutOff ([pscus
 # chat, or with no transcript - and taking a cut-off and a job as that would
 $tbT = $T.Clone()
 $tbAt = $tnow.AddMinutes(-7)
-$tbT['t-1'] = @{ Path = 'x'; AiTitle = 'title t-1'; Prompt = 'prompt t-1'; PromptKind = 'last'; Mode = 'plan'; Mtime = $tbAt }
+$tbT['t-1'] = @{ Path = 'x'; AiTitle = 'title t-1'; Prompt = 'prompt t-1'; PromptKind = 'last'; Mode = 'plan'; Mtime = $tnow.AddMinutes(-1); ActiveAt = (ConvertTo-ChatOverlayMs $tbAt) }
 $tbT['t-2'] = @{ Path = $null; Mtime = $null }
 $tbT['t-3'] = @{ Path = 'x'; AiTitle = 'title t-3'; Mtime = $tnow.AddMinutes(-90) }
 $tbT['closed-1'] = @{ Path = 'x'; AiTitle = 'Closed chat'; Mtime = $tnow.AddMinutes(-40) }
@@ -473,7 +500,7 @@ $tbTabs = @((& $tbTab 't-1' 'C:\p\tabbed'), (& $tbTab 't-2' 'C:\p\tabbed'), (& $
 $tbC = @([pscustomobject]@{ Id = 't-3'; Title = 'title t-3'; Why = 'limit'; ResetsAt = $resetAt; At = $tnow.AddMinutes(-90); Cwd = 'C:\p\cut' })
 $TR = @(Get-ChatOverlayRows -Sessions $S -Texts $tbT -Jobs $J -Eta @{ j1 = '17:10'; j2 = 'after #1'; j3 = 'next' } -Now $tnow -CutOff $tbC -Tabs $tbTabs)
 $tr1 = @($TR | Where-Object { $_.key -eq 's:t-1' })[0]
-Check 'a VS Code tab with no process: a row as an idle open chat''s - no pids, where vscode, its time the transcript''s, its text, and tab' (
+Check 'a VS Code tab with no process: a row as an idle open chat''s - no pids, where vscode, its time when the transcript last said anything (not its write time), its text, and tab' (
     $tr1 -and $tr1.kind -eq 'session' -and $tr1.status -eq 'idle' -and $tr1.chat -eq 'idle' -and $tr1.rank -eq 3 -and @($tr1.pids).Count -eq 0 -and $tr1.where -eq 'vscode' -and
     $tr1.tab -eq $true -and $tr1.since -eq (ConvertTo-ChatOverlayMs $tbAt) -and $tr1.title -eq 'title t-1' -and $tr1.prompt -eq 'prompt t-1' -and $tr1.mode -eq 'plan' -and
     $tr1.project -eq 'tabbed' -and $tr1.cwd -eq 'C:\p\tabbed' -and -not $tr1.unread -and $tr1.stateText -like 'idle*' -and
@@ -1530,6 +1557,24 @@ Check 'recent: titled as an open row is - a rename, Claude''s own title, else th
     $r1r.cwd -eq $rcProj -and $r1r.project -eq 'projR' -and $r1r.key -eq "recent:$idR1" -and $r1r.kind -eq 'recent' -and $r1r.provider -eq 'claude' -and
     $r1r.status -eq 'recent' -and [Math]::Abs([int64]$r1r.since - [DateTimeOffset]::new((Get-Item -LiteralPath $pR1).LastWriteTime).ToUnixTimeMilliseconds()) -lt 1000) (
     ($rcL | ForEach-Object { "$($_.title) @ $($_.cwd)" }) -join ' | ')
+# a chat opened and closed again: written a minute ago, by records with no
+# time, but it last said anything 30 minutes ago - its time that, and below
+# one that said something 5 minutes ago
+$rsHome = Join-Path $sb 'recent-said-home'
+$rsDir = Join-Path (Join-Path $rsHome 'projects') (Get-Slug $rcProj)
+$idRS1 = '0b0b0b0b-0b0b-40b0-80b0-0b0b0b0b0b11'
+$idRS2 = '0b0b0b0b-0b0b-40b0-80b0-0b0b0b0b0b12'
+$tRS = (Get-Date).AddMinutes(-30)
+$null = New-RecentChat $idRS1 @((RcUser 'reopened ask' (OvStamp $tRS)), ('{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"done"}]}' + (OvStamp $tRS) + '}'),
+    (OvLast 'reopened ask'), '{"type":"cost-state","sessionId":"x"}') 1 $rsDir
+$null = New-RecentChat $idRS2 @((RcUser 'recent ask' (OvStamp (Get-Date).AddMinutes(-5))), (OvReply)) 5 $rsDir
+$rs = New-ChatOverlayContext $rsHome
+Update-ChatOverlayRecent $rs @()
+$rsL = @($rs.Recent)
+$rs1 = & $rcOf $rsL $idRS1
+Check 'recent: a chat only opened since is as old as what it last said, and listed by that' (
+    (@($rsL | ForEach-Object { $_.sessionId }) -join ',') -eq "$idRS2,$idRS1" -and [Math]::Abs([int64]$rs1.since - [DateTimeOffset]::new($tRS).ToUnixTimeMilliseconds()) -lt 1000) (
+    "$(@($rsL | ForEach-Object { $_.sessionId }) -join ',') / $($rs1.since)")
 $reads1 = $script:ChatOverlayRecentReads
 $rcAt1 = $rc.RecentAt
 Update-ChatOverlayRecent $rc @($idRLive)

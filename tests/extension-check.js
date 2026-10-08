@@ -1619,6 +1619,26 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         escItem.label === '$(window) use \\$(terminal) here' && escItem.detail === 'f\\$(x)', escItem.label + ' ' + escItem.detail);
     check('pick: the age, as Get-ChatAge gives it', ext._ageText(30000) === 'now' && ext._ageText(4 * MIN) === '4m' && ext._ageText(3 * HOUR) === '3h' &&
         ext._ageText(2 * DAY) === '2d' && ext._ageText(40 * DAY) === '1mo');
+    // a chat only opened since its last turn: written now, by records with
+    // no time - its age is the turn's, read with its title
+    {
+        const opened = path.join(__dirname, '.sandbox', 'ext-pick-opened', G(9) + '.jsonl');
+        fs.mkdirSync(path.dirname(opened), { recursive: true });
+        const turnAt = pnow - 3 * HOUR;
+        fs.writeFileSync(opened, '{"type":"user","message":{"role":"user","content":"old ask"},"timestamp":"' + new Date(turnAt - 1000).toISOString() + '"}\n' +
+            '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"done"}]},"timestamp":"' + new Date(turnAt).toISOString() + '"}\n' +
+            '{"type":"last-prompt","lastPrompt":"old ask"}\n{"type":"cost-state"}\n');
+        const st = fs.statSync(opened);
+        const oc = { file: opened, dir: path.dirname(opened), sid: G(9), size: st.size, mtimeMs: st.mtimeMs, folder: 'f' };
+        const od = await ext._readChat(oc);
+        const oi = ext._pickItem(oc, od, 'closed', false, st.mtimeMs);
+        const unread = ext._pickItem(oc, undefined, 'closed', false, st.mtimeMs);
+        check('pick: a chat only opened since is as old as its last turn, not its write time; until read, by its write time',
+            od && Math.abs(od.activeMs - turnAt) < 2 && oi.description === '3h' && unread.description === 'now', [od && od.activeMs, turnAt, oi.description, unread.description].join(' | '));
+        check('pick: the time is the shared reader\'s - the last timestamp, never later than the cap, NaN for none',
+            safe.lastStamp('{"timestamp":"2020-01-01T00:00:00Z"}\n{"timestamp":"2020-01-02T00:00:00Z"}\n{"type":"mode"}') === Date.parse('2020-01-02T00:00:00Z') &&
+            safe.lastStamp('{"timestamp":"2099-01-01T00:00:00Z"}', 5) === 5 && Number.isNaN(safe.lastStamp('{"type":"mode"}')));
+    }
     // the QuickPick, each assignment of its items recorded
     const qps = [];
     // called as each list is put in, for what a test wants to know just then

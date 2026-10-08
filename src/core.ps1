@@ -462,20 +462,65 @@ function Get-ChatJsonLines {
     return , $out.ToArray()
 }
 
+#region transcript fields: one reader each, for Claude and Codex alike
+# Both write one JSON record a line; these take text already read, so each
+# caller keeps the read its cost allows. A value quoted inside a record's
+# text is escaped, and never matches.
+
+function Get-ChatLastStamp {
+    <#
+    When a chat last did anything: the last "timestamp" in -Text, as local
+    time, $null when it holds none or that one does not parse. Claude writes
+    records with no timestamp - cost-state, mode, last-prompt - as a chat is
+    merely opened or its process ends, so this, not the file's write time, is
+    when it was last at work; every Codex record carries one. A record with a
+    turn in it carries its timestamp last, so the last match is the newest
+    even in a tail that begins mid-line. -Cap: never later than this - the
+    file's write time, since a clock set back makes no record newer than it.
+    #>
+    param([string]$Text, $Cap = $null)
+    if (-not $Text) { return $null }
+    $m = [regex]::Match($Text, '"timestamp"\s*:\s*"([^"]+)"', [System.Text.RegularExpressions.RegexOptions]::RightToLeft)
+    if (-not $m.Success) { return $null }
+    $at = [DateTimeOffset]::MinValue
+    if (-not [DateTimeOffset]::TryParse($m.Groups[1].Value, [cultureinfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AssumeUniversal, [ref]$at)) { return $null }
+    $t = $at.LocalDateTime
+    if ($null -ne $Cap -and $t -gt $Cap) { return $Cap }
+    return $t
+}
+
+function Get-ChatCwds {
+    # Every "cwd" in -Text, unescaped, in file order - the caller picks the
+    # first, the last, or the one that fits. Claude names it on every record
+    # (d:\ and D:\ both turn up for one folder); Codex in session_meta and in
+    # each turn_context, with a space after the colon. Written out one by
+    # one, so take it in @() for a count.
+    param([string]$Text)
+    if (-not $Text) { return }
+    foreach ($m in [regex]::Matches($Text, '"cwd"\s*:\s*"((?:[^"\\]|\\.)*)"')) {
+        $v = Convert-ChatJsonEscaped $m.Groups[1].Value
+        if ($v) { $v }
+    }
+}
+
+function Get-ChatLastMode {
+    # The last permissionMode in -Text - the mode a Claude chat runs in,
+    # which a typed prompt's record carries - or $null
+    param([string]$Text)
+    if (-not $Text) { return $null }
+    $m = [regex]::Match($Text, '"permissionMode"\s*:\s*"([A-Za-z]+)"', [System.Text.RegularExpressions.RegexOptions]::RightToLeft)
+    if ($m.Success) { return $m.Groups[1].Value }
+    return $null
+}
+
+#endregion
+
 function Get-ChatTimestampFromText {
     # the head/tail chunks are already in hand - no second read of the file
     param($Prompts, [System.IO.FileInfo]$File)
     foreach ($t in @($Prompts.Tail, $Prompts.Head)) {
-        if (-not $t) { continue }
-        $m = [regex]::Matches($t, '"timestamp":\s*"([^"]+)"')
-        if ($m.Count) {
-            try {
-                return [datetime]::Parse($m[$m.Count - 1].Groups[1].Value,
-                    [System.Globalization.CultureInfo]::InvariantCulture,
-                    [System.Globalization.DateTimeStyles]::RoundtripKind).ToLocalTime()
-            }
-            catch {}
-        }
+        $at = Get-ChatLastStamp $t $File.LastWriteTime
+        if ($at) { return $at }
     }
     return $File.LastWriteTime
 }

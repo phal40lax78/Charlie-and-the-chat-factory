@@ -1269,10 +1269,8 @@ function Get-ChatqPhoneChatMeta {
             $c = Read-ChatChunk $Row.Path 262144
             if ($c) {
                 $text = $c.Head + "`n" + $c.Tail
-                $cm = [regex]::Matches($text, '"cwd":"((?:[^"\\]|\\.)*)"')
-                if ($cm.Count) { $cwd = Convert-ChatJsonEscaped $cm[$cm.Count - 1].Groups[1].Value }
-                $mm = [regex]::Matches($(if ($c.Tail) { $c.Tail } else { $c.Head }), '"permissionMode":"([A-Za-z]+)"')
-                if ($mm.Count) { $mode = $mm[$mm.Count - 1].Groups[1].Value }
+                $cwd = Get-ChatCwds $text | Select-Object -Last 1
+                $mode = Get-ChatLastMode $(if ($c.Tail) { $c.Tail } else { $c.Head })
             }
         }
     }
@@ -1296,7 +1294,10 @@ function Get-ChatqPhoneList {
     if (-not $Quick) { try { $null = Sync-ChatIndex -Provider claude, codex } catch {} }
     $cap = if ($Rc.MaxMode) { $Rc.MaxMode } else { $script:ChatqKeepMode }
     $all = @(Get-ChatIndex | Where-Object { $_.Id -and -not ($_.Hidden -eq $true -or [string]$_.Hidden -eq 'True') -and $_.Provider -in 'claude', 'codex' })
-    $rows = @($all | Sort-Object { [int64]$_.Mtime } -Descending | Select-Object -First 30)
+    # newest by when each was last at work (the index's When), not by its
+    # file's write time: opening a chat writes to it with nothing said
+    $whenOf = { param($r) $w = ConvertTo-ChatqDate (Get-ChatField $r 'When'); if ($w) { $w } else { [datetime]::new([int64]$r.Mtime, [System.DateTimeKind]::Utc).ToLocalTime() } }
+    $rows = @($all | Sort-Object { & $whenOf $_ } -Descending | Select-Object -First 30)
     $live = @(try { Get-ChatqLiveSessions $script:ChatClaudeHome -RegistryOnly | Where-Object { -not $_.Kind -or $_.Kind -eq 'interactive' } } catch { @() })
     $state = @{}
     foreach ($e in $live) { if ($e.SessionId) { $state[[string]$e.SessionId] = if ($e.Status -in 'waiting', 'busy') { [string]$e.Status } else { 'idle' } } }
@@ -1327,7 +1328,7 @@ function Get-ChatqPhoneList {
         $items.Add(@{ Key = $k; Pick = $pick })
         $mine = @($jobs | Where-Object { $_.sessionId -eq $sid })
         $ni = @($mine | Where-Object { $_.state -eq 'needs-input' })[0]
-        $when = try { [datetime]::new([int64]$r.Mtime, [System.DateTimeKind]::Utc).ToString('o') } catch { $null }
+        $when = try { (& $whenOf $r).ToUniversalTime().ToString('o') } catch { $null }
         $chats.Add([ordered]@{
                 h = $k; id = $sid.Substring(0, [Math]::Min(8, $sid.Length)); p = [string]$r.Provider; t = (Format-ChatTitle ([string]$r.Title) 60)
                 f = $(if ($meta.Cwd) { Split-Path ([string]$meta.Cwd).TrimEnd('\', '/') -Leaf } else { '' }); w = $(if ($meta.Cwd) { Split-Path ([string]$meta.Cwd).TrimEnd('\', '/') -Parent } else { '' })

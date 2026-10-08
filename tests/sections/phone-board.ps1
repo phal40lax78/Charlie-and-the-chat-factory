@@ -799,6 +799,29 @@ Save-ChatqJson $script:ChatConsoleStatePath ([pscustomobject]@{ folders = @('\\n
 try { $lsNet = Get-ChatqPhoneList $bdRc -Quick }
 finally { Restore-TestFile $script:ChatConsoleStatePath $csWas }
 Check 'the list: a folder on another machine is offered without a look at it (Test-ChatOverlayFolder)' (@($lsNet.Body.folders | Where-Object { $_.n -eq 'farproj' }).Count -eq 1) "$(@($lsNet.Body.folders | ForEach-Object { $_.n }) -join ',')"
+# the list's order and times: when each chat was last at work, the index's
+# When - not its file's write time, which opening a chat moves with nothing
+# said in it
+$lsDir = Join-Path (Join-Path $claudeHome 'projects') (Get-Slug $bdProj)
+$lsLine = { param($id, $min) '{"type":"user","cwd":' + (ConvertTo-Json $bdProj) + ',"message":{"role":"user","content":"ask ' + $id.Substring(0, 4) + '"},"sessionId":"' + $id + '","timestamp":"' + (Get-Date).AddMinutes(-$min).ToUniversalTime().ToString('o') + '"}' }
+# the list names a chat by its first 8 characters: the two apart there
+$idLsOpened = '5c5c5c5c-5c5c-45c5-85c5-5c5c5c5c5c01'
+$idLsSaid = '6c6c6c6c-6c6c-46c6-86c6-6c6c6c6c6c02'
+$pLsOpened = Join-Path $lsDir "$idLsOpened.jsonl"
+$pLsSaid = Join-Path $lsDir "$idLsSaid.jsonl"
+[System.IO.File]::WriteAllText($pLsSaid, (& $lsLine $idLsSaid 0.5) + "`n", $utf8)
+[System.IO.File]::SetLastWriteTime($pLsSaid, (Get-Date).AddMinutes(-0.5))
+# last at work a minute ago, opened just now
+[System.IO.File]::WriteAllText($pLsOpened, (& $lsLine $idLsOpened 1) + "`n" + '{"type":"cost-state"}' + "`n", $utf8)
+$lsW = Get-ChatqPhoneList $bdRc
+$lsIds = @($lsW.Body.chats | ForEach-Object { [string]$_.id })
+$lsOpenedRow = @($lsW.Body.chats | Where-Object { $_.id -eq $idLsOpened.Substring(0, 8) })[0]
+$lsOpenedAt = if ($lsOpenedRow) { ConvertTo-ChatqDate $lsOpenedRow.a } else { $null }
+Check 'the list: by when each chat was last at work - one only opened since sits below one at work after it, its time its last turn''s' (
+    $lsOpenedRow -and [array]::IndexOf($lsIds, $idLsSaid.Substring(0, 8)) -ge 0 -and
+    [array]::IndexOf($lsIds, $idLsSaid.Substring(0, 8)) -lt [array]::IndexOf($lsIds, $idLsOpened.Substring(0, 8)) -and
+    [Math]::Abs(((Get-Date).AddMinutes(-1) - $lsOpenedAt).TotalSeconds) -lt 10) "$($lsIds -join ',') / $lsOpenedAt"
+Remove-Item -LiteralPath $pLsOpened, $pLsSaid -Force -EA SilentlyContinue
 
 # --- listening all the time, the poll's pace, the state's pruning --------------------------
 $null = Use-ChatqReplyState { param($st) $st.openUntil = $null; $st.hotUntil = $null }

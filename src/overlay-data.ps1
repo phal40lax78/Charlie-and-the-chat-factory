@@ -1015,10 +1015,8 @@ function Get-ChatLineStamp {
     # timestamp quoted inside a message is escaped, so only the record's own
     # matches.
     param([string]$Text, [int]$At)
-    $e = $Text.IndexOf([char]10, $At)
-    if ($e -lt 0) { $e = $Text.Length }
-    $m = [regex]::Match($Text.Substring($At, $e - $At), '"timestamp":"([^"]+)"')
-    if ($m.Success) { return ConvertTo-ChatOverlayMs (ConvertTo-ChatqDate $m.Groups[1].Value) }
+    $t = Get-ChatqRecordTime $Text $At
+    if ($t) { return ConvertTo-ChatOverlayMs $t }
     return $null
 }
 
@@ -1054,8 +1052,10 @@ function Find-ChatTailRecords {
     sent; Pending, when something was taken off the chat's queue that has
     left no record yet, and Settled, that a user or assistant record came
     after anything taken off it - a read finding neither says nothing
-    either way; Mode, the newest permissionMode in what was read - the mode
-    the chat runs in, which a typed prompt's record carries - or $null when
+    either way; ActiveAt, the newest block's last timestamp as epoch ms
+    (Get-ChatLastStamp), $null when it holds none; Mode, the newest
+    permissionMode in what was read (Get-ChatLastMode) - the mode the chat
+    runs in, which a typed prompt's record carries - or $null when
     none was (the phone board's m, Get-ChatqPhoneChatMeta's read); LineEnd,
     where the file's last whole line ends: a grown transcript is read on
     from there (Update-ChatOverlayText), so a line still being written as
@@ -1068,7 +1068,7 @@ function Find-ChatTailRecords {
     #>
     param([string]$Path, [int64]$From = 0, [int64]$Budget = $script:ChatOverlayScanBudget, [switch]$Mode)
     $out = [pscustomobject]@{ Prompt = $null; PromptKind = $null; Last = $null; After = $false; UserAt = $null; CommandAt = $null; Pending = $null
-        Settled = $false; AiTitle = $null; CustomTitle = $null; Mode = $null; Length = 0; LineEnd = 0; Scanned = 0 }
+        Settled = $false; ActiveAt = $null; AiTitle = $null; CustomTitle = $null; Mode = $null; Length = 0; LineEnd = 0; Scanned = 0 }
     try { $fs = Open-ChatRead $Path } catch { return $out }
     $lastPrompt = {
         param($l)
@@ -1152,6 +1152,10 @@ function Find-ChatTailRecords {
                 $said = [Math]::Max($text.LastIndexOf('"type":"user"', [StringComparison]::Ordinal), $text.LastIndexOf('"type":"assistant"', [StringComparison]::Ordinal))
                 if ($dq -gt $said) { $out.Pending = Get-ChatLineStamp $text ($text.LastIndexOf([char]10, $dq) + 1) }
                 $out.Settled = $said -gt $dq
+                # when the chat was last at work: opening it writes records of
+                # its own after, but none with a timestamp
+                $active = Get-ChatLastStamp $text
+                if ($active) { $out.ActiveAt = ConvertTo-ChatOverlayMs $active }
             }
             if (-not $out.Prompt) {
                 $lp = Find-ChatRecordBack $text '"type":"last-prompt"' $lastPrompt
@@ -1173,8 +1177,7 @@ function Find-ChatTailRecords {
                 if ($cr -and $out.PromptKind -ne 'command') { $out.After = $true }
             }
             if (-not $out.Mode) {
-                $mm = [regex]::Match($text, '"permissionMode":"([A-Za-z]+)"', [System.Text.RegularExpressions.RegexOptions]::RightToLeft)
-                if ($mm.Success) { $out.Mode = $mm.Groups[1].Value }
+                $out.Mode = Get-ChatLastMode $text
             }
             if (-not $out.AiTitle) {
                 $t = Find-ChatRecordBack $text '"type":"ai-title"' { param($l) & $field $l 'aiTitle' } 2
@@ -1227,7 +1230,7 @@ function Update-ChatOverlayText {
     $st = $Ctx.Text[$sid]
     if (-not $st) {
         $st = @{ Path = $null; Len = -1; Prompt = $null; PromptKind = $null; Last = $null; CommandAt = $null; Pending = $null; AiTitle = $null; CustomTitle = $null; Sidecar = $null; First = $null; Mtime = $null
-            TypedAt = $null; Mode = $null; LineEnd = 0 }
+            TypedAt = $null; Mode = $null; LineEnd = 0; ActiveAt = $null }
         $Ctx.Text[$sid] = $st
     }
     if (-not $st.Path -or -not (Test-Path -LiteralPath $st.Path)) {
@@ -1242,7 +1245,7 @@ function Update-ChatOverlayText {
     if (-not $fi.Exists -or $fi.Length -eq $st.Len) { return }
     $from = 0
     if ($st.Len -gt 0 -and $fi.Length -gt $st.Len) { $from = [Math]::Max($st.LineEnd, $fi.Length - 8MB) }
-    else { $st.Prompt = $null; $st.PromptKind = $null; $st.Last = $null; $st.CommandAt = $null; $st.Pending = $null; $st.AiTitle = $null; $st.CustomTitle = $null; $st.First = $null; $st.TypedAt = $null; $st.Mode = $null }
+    else { $st.Prompt = $null; $st.PromptKind = $null; $st.Last = $null; $st.CommandAt = $null; $st.Pending = $null; $st.AiTitle = $null; $st.CustomTitle = $null; $st.First = $null; $st.TypedAt = $null; $st.Mode = $null; $st.ActiveAt = $null }
     # the mode it runs in: the newest the new part names, else the one before
     # (the phone board's chat view says it, ConvertTo-ChatqPhoneBoard) -
     # looked for past the prompt while none is known yet
@@ -1267,6 +1270,8 @@ function Update-ChatOverlayText {
     if ($r.Last) { $st.Last = $r.Last }
     # taken off the queue in a part read before, with nothing since to end it
     if ($r.Pending -or $r.Settled) { $st.Pending = $r.Pending }
+    # a part holding only what opening the chat wrote keeps the time before
+    if ($r.ActiveAt) { $st.ActiveAt = $r.ActiveAt }
     $st.Len = $r.Length
     $st.LineEnd = $r.LineEnd
     $st.Mtime = $fi.LastWriteTime
@@ -1828,7 +1833,8 @@ function Read-ChatOverlayRecentItem {
     come back meanwhile, so the build asks apart (Update-ChatOverlayRecent). The
     title as an open row has it: a rename (the record, or the sidecar a
     rename in the panel writes), Claude's own title - both from one block of
-    the tail - then the first real prompt.
+    the tail - then the first real prompt. ActiveAt: when it was last at
+    work (Find-ChatTailRecords), as an open row's time is.
     #>
     param([System.IO.FileInfo]$File)
     $script:ChatOverlayRecentReads++
@@ -1839,8 +1845,7 @@ function Read-ChatOverlayRecentItem {
     if ($first -like '*"isSidechain":true*') { return $null }
     # 128 KB or less is read whole, so the head is all of a 64 KB one
     if ($File.Length -le 65536 -and $c.Head -notlike '*"type":"user"*' -and $c.Head -notlike '*"type":"assistant"*') { return $null }
-    $m = [regex]::Match($c.Head, '"cwd":"((?:[^"\\]|\\.)*)"')
-    $cwd = if ($m.Success) { Convert-ChatJsonEscaped $m.Groups[1].Value } else { $null }
+    $cwd = Get-ChatCwds $c.Head | Select-Object -First 1
     if (-not $cwd) { return $null }
     $r = Find-ChatTailRecords $File.FullName -Budget 262144
     $title = $r.CustomTitle
@@ -1858,7 +1863,7 @@ function Read-ChatOverlayRecentItem {
             if ($t) { $title = $t; break }
         }
     }
-    return [pscustomobject]@{ Id = $File.BaseName; Cwd = $cwd; Title = $title; Mtime = $File.LastWriteTime }
+    return [pscustomobject]@{ Id = $File.BaseName; Cwd = $cwd; Title = $title; Mtime = $File.LastWriteTime; ActiveAt = $r.ActiveAt }
 }
 
 function Test-ChatOverlayNetworkPath {
@@ -2011,9 +2016,13 @@ function Update-ChatOverlayRecent {
             [pscustomobject]@{
                 key = "recent:$($i.Id)"; kind = 'recent'; provider = 'claude'; status = 'recent'
                 project = (Split-Path ([string]$i.Cwd).TrimEnd('\', '/') -Leaf); title = (Format-ChatTitle ([string]$i.Title) 80)
-                sessionId = [string]$i.Id; cwd = [string]$i.Cwd; since = (ConvertTo-ChatOverlayMs $i.Mtime); stateText = ''
+                sessionId = [string]$i.Id; cwd = [string]$i.Cwd; stateText = ''
+                since = $(if ($i.ActiveAt) { [int64]$i.ActiveAt } else { ConvertTo-ChatOverlayMs $i.Mtime })
             }
         })
+    # Listed by write time, which opening a chat moves without a word said
+    # in it: newest first again by what each last said.
+    $built = @($built | Sort-Object { [int64]$_.since } -Descending)
     Split-ChatOverlayRecent $Ctx $built $n
     # rounded as the listing's is; the folders asked are in it too. A build
     # that spends its slice is past it by the time it stops - every start's
@@ -2196,6 +2205,9 @@ function Get-ChatOverlayRows {
       rank 2    a job running                              newest first
       rank 3    idle                                       newest first
       rank 4    queued                                     in queue order
+    An idle session row's time is when its transcript was last at work
+    (-Texts' ActiveAt), else the registry's: opening an old chat starts a
+    process whose entry says now.
     -CutOff: Get-ChatqCutOffChats' rows. An open, idle chat among them takes
     the cut-off state; one not open gets a row of its own; one a job is
     queued or running for leaves it to the job.
@@ -2222,7 +2234,8 @@ function Get-ChatOverlayRows {
     -Tabs: Read-ChatOpenTabs' answer, VS Code's Claude tabs with no process.
     One whose chat has no row from -Sessions and whose transcript -Texts
     found is a row as an idle session's is, with no pids, where vscode, its
-    time the transcript's, and tab: cut-offs, jobs and -Background take it
+    time the transcript's (its ActiveAt, else its write time), and tab:
+    cut-offs, jobs and -Background take it
     as they take that one, and Recent leaves it out by its row.
     #>
     param([object[]]$Sessions, [hashtable]$Texts, [object[]]$Jobs, [hashtable]$Eta, [datetime]$Now = (Get-Date), [object[]]$CutOff, [hashtable]$Unread,
@@ -2255,6 +2268,9 @@ function Get-ChatOverlayRows {
         # A panel keeps a process for a new chat tab before anything is sent
         # in it: no transcript, nothing to show, and one for every window.
         if ($st -eq 'idle' -and $t -and -not $t.Path) { continue }
+        # Idle since its last record, not since the registry last moved:
+        # opening an old chat starts a process, which stamps it now.
+        if ($st -eq 'idle' -and $t -and $t.ActiveAt) { $since = [int64]$t.ActiveAt }
         $title = $null
         if ($t) { foreach ($c in @($t.CustomTitle, $t.Sidecar, $t.AiTitle, $t.First)) { if ($c) { $title = $c; break } } }
         if (-not $title) { $title = $s.Name }
@@ -2292,7 +2308,7 @@ function Get-ChatOverlayRows {
             key = "s:$sid"; kind = 'session'; provider = 'claude'; status = 'idle'; chat = 'idle'; rank = $rankOf['idle']
             project = $(if ($tb.Cwd) { Split-Path ([string]$tb.Cwd).TrimEnd('\', '/') -Leaf } else { '' })
             title = (Format-ChatTitle ([string]$title) 80); prompt = $prompt; promptKind = $t.PromptKind
-            detail = $null; since = $(if ($t.Mtime) { & $ms $t.Mtime } else { $null }); sessionId = $sid; pids = @(); cwd = [string]$tb.Cwd; job = $null; order = 0; stateText = ''
+            detail = $null; since = $(if ($t.ActiveAt) { [int64]$t.ActiveAt } elseif ($t.Mtime) { & $ms $t.Mtime } else { $null }); sessionId = $sid; pids = @(); cwd = [string]$tb.Cwd; job = $null; order = 0; stateText = ''
             where = 'vscode'; unread = $false
             mode = $(if ($t.Mode) { [string]$t.Mode } else { $null })
             tab = $true

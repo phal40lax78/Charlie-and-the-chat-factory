@@ -175,6 +175,19 @@ $lw2 = Get-ChatLastWritten $hwNone2
 Check 'when a transcript was last written: its newest record''s timestamp from a tail that begins mid-line; none there, the file''s own time; never later than the file' (
     [Math]::Abs(($lw1 - $hwOld).TotalSeconds) -lt 1 -and $lw2 -eq (Get-Item -LiteralPath $hwNone2).LastWriteTime -and
     (Get-ChatLastWritten $hwLw $hwOld.AddHours(-1)) -eq $hwOld.AddHours(-1) -and $null -eq (Get-ChatLastWritten (Join-Path $sb 'no-such.jsonl'))) "$lw1 / $lw2"
+# the one reader of each transcript field every copy now calls, Claude's
+# records and Codex's alike: a Codex rollout spaces its colons, Claude's not
+$csClaude = '{"type":"user","cwd":"C:\\p\\one","permissionMode":"plan","message":{"role":"user","content":"say \"timestamp\":\"2099-01-01T00:00:00Z\" and \"cwd\":\"C:\\\\fake\""},"timestamp":"2026-01-02T03:04:05.000Z"}' + "`n" +
+    '{"type":"user","cwd":"c:\\p\\one","permissionMode":"acceptEdits","timestamp":"2026-01-02T03:05:00.000Z"}' + "`n" + '{"type":"cost-state"}' + "`n" + '{"type":"mode","mode":"normal"}'
+$csCodex = '{"timestamp":"2026-02-01T00:00:00.000Z","type":"session_meta","payload":{"cwd": "D:\\work\\x"}}' + "`n" + '{"timestamp":"2026-02-01T00:10:00.000Z","type":"turn_context","payload":{"cwd": "D:\\work\\y"}}'
+$csAt = Get-ChatLastStamp $csClaude
+$csCwds = @(Get-ChatCwds $csClaude)
+Check 'the shared readers: the last timestamp, as local time, never later than a cap; every cwd in order, unescaped; the last mode - none read from a message''s text' (
+    $csAt -eq [datetime]::Parse('2026-01-02T03:05:00Z').ToLocalTime() -and (Get-ChatLastStamp $csClaude ([datetime]'2000-01-01')) -eq [datetime]'2000-01-01' -and
+    $null -eq (Get-ChatLastStamp '{"type":"mode"}') -and ($csCwds -join '|') -eq 'C:\p\one|c:\p\one' -and (Get-ChatLastMode $csClaude) -eq 'acceptEdits' -and
+    $null -eq (Get-ChatLastMode '{"type":"mode"}') -and @(Get-ChatCwds '{"type":"mode"}').Count -eq 0) "$csAt / $($csCwds -join '|') / $(Get-ChatLastMode $csClaude)"
+Check 'and a Codex rollout''s, its colons spaced' (
+    (Get-ChatLastStamp $csCodex) -eq [datetime]::Parse('2026-02-01T00:10:00Z').ToLocalTime() -and (@(Get-ChatCwds $csCodex) -join '|') -eq 'D:\work\x|D:\work\y') (@(Get-ChatCwds $csCodex) -join '|')
 
 # no parents to read, as off Windows: every VS Code chat may be this window's
 $script:ChatProcessTableSeam = { $null }

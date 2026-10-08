@@ -3551,7 +3551,8 @@ async function readChat(c) {
             (size > SPAN ? lastRecord(await headText(), type, field) : '');
         const title = await either('custom-title', 'customTitle') || await readSidecar(c.dir, c.sid) ||
             await either('ai-title', 'aiTitle') || firstPrompt(await headText());
-        return { title };
+        // when it was last at work: opening it writes to it with no turn
+        return { title, activeMs: safe.lastStamp(tail, c.mtimeMs) };
     } catch (e) {
         log('pick: reading ' + c.file + ' failed: ' + (e && e.message));
         return null;
@@ -3870,6 +3871,10 @@ const STATE_WORD = { running: 'a queued prompt running', terminal: 'in a termina
 const ICON = /(\\)?\$\([A-Za-z0-9-]+(?:~[A-Za-z]+)?\)/g;
 function noIcons(s) { return String(s).replace(ICON, (m, escaped) => (escaped ? m : '\\' + m)); }
 
+// When a chat was last at work: its read's activeMs, else - not read yet, or
+// no timestamp in its tail - its write time. Pure.
+function chatAt(c, d) { return d && Number.isFinite(d.activeMs) ? d.activeMs : c.mtimeMs; }
+
 // One chat's line in the picker; d undefined while its title is being read
 // shows its id. place: placeOf its entries, said of a chat open or working
 // where it is known. Pure.
@@ -3878,7 +3883,7 @@ function pickItem(c, d, state, multi, now, place) {
     const word = (STATE_WORD[state] || '') + (held && place === 'here' ? ' in this window' : held && place === 'window' ? ' in another window' : '');
     const item = {
         label: (STATE_ICON[state] || '') + (d ? noIcons(formatTitle(d.title)) : c.sid),
-        description: ageText(now - c.mtimeMs) + (word ? ' \u00b7 ' + word : ''),
+        description: ageText(now - chatAt(c, d)) + (word ? ' \u00b7 ' + word : ''),
         chat: c, state
     };
     if (multi) item.detail = noIcons(c.folder);
@@ -3917,8 +3922,10 @@ async function openChat() {
         if (over) return;
         const was = (qp.activeItems || [])[0];
         const items = [];
-        for (const c of chats) {
-            const d = known.get(c.file);
+        // listed by write time, put by when each was last at work - a chat
+        // only opened since goes back where its turns put it
+        const order = chats.map(c => [c, known.get(c.file)]).sort((a, b) => chatAt(b[0], b[1]) - chatAt(a[0], a[1]));
+        for (const [c, d] of order) {
             if (d && d.skip) continue;
             const es = states.get(c.sid);
             items.push(pickItem(c, d, chatState(es), multi, now, placeOf(es)));

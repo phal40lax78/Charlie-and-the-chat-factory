@@ -299,8 +299,7 @@ $script:ChatProviders = [ordered]@{
             $id = if ($File.BaseName -match '([0-9a-fA-F-]{36})$') { $Matches[1] } else { $File.BaseName }
             # the whole folder goes on the row, not only its leaf: two sibling
             # repos named alike (D:\a\app, D:\b\app) are told apart by it
-            $cwd = Get-ChatJsonString $p.Head 'cwd'
-            if ($cwd) { $cwd = Convert-ChatJsonEscaped $cwd }
+            $cwd = Get-ChatCwds $p.Head | Select-Object -Last 1
             $group = if ($cwd) { Split-Path $cwd -Leaf } else { 'codex' }
             $named = (Get-CodexThreadNames)[$id]
             $title = if ($named) { $named } else { @($p.First)[0] }

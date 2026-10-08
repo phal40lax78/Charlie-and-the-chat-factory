@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.10.7 — A chat only opened keeps its age
+
+- **Opening an old chat no longer makes it read as just used.** Opening
+  a chat in VS Code starts a process for it, whose registry entry says
+  now, and Claude Code writes a few records to its transcript that carry
+  no time. So a chat last used an hour ago read `idle 1m` on the overlay
+  and jumped to the top of its idle chats. The same went for the
+  picker's ages, the phone's chat list and the overlay's Recent list once
+  the chat was closed again. Each now takes when the chat was last at
+  work: its transcript's newest timestamped record, which opening it
+  never writes. The open chat's own row keeps its busy or waiting time
+  from the registry as before.
+- **Codex chats too.** The phone's chat list sorted and dated Claude and
+  Codex chats by file write time; it now uses the time `chatfind` and the
+  pickers already showed, for both. `chatrestore` dated an archived Codex
+  chat by its file's write time; it now dates it by its rollout's newest
+  record. The overlay lists no open Codex chats, so it had nothing to
+  fix there.
+- **One reader for each transcript field.** A chat's last time at work,
+  its folder and its mode each had copies of their own - six of the
+  folder alone - in the index, the overlay, the phone, the queue and the
+  cut-off scan, some for Claude and some for Codex. Each is now read once, by `Get-ChatLastStamp`,
+  `Get-ChatCwds` and `Get-ChatLastMode` in `src/core.ps1`, for both;
+  the extension's picker and its reload check share `lastStamp` in
+  `extension/safe-restart.js`. How much of a file each caller reads is
+  still its own, since what that costs differs from one to the next.
+
 ## 0.10.6 — Two self-test checks that wait out a slow machine
 
 - **Two checks in the self-test no longer fail on a slow machine.**

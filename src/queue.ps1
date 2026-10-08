@@ -476,9 +476,9 @@ function Get-ChatqLastTurn {
             # looked for as far back as 256 KB, the first read's size once
             $cwd = if ($o.PSObject.Properties['cwd'] -and $o.cwd) { [string]$o.cwd }
             else {
-                $cm = [regex]::Matches($t, '"cwd":"((?:[^"\\]|\\.)*)"')
-                if (-not $cm.Count -and $cut -and $size -lt 262144) { $cm = [regex]::Matches([string](Read-ChatqTail $Path 262144), '"cwd":"((?:[^"\\]|\\.)*)"') }
-                if ($cm.Count) { Convert-ChatJsonEscaped $cm[$cm.Count - 1].Groups[1].Value } else { $null }
+                $cm = @(Get-ChatCwds $t)
+                if (-not $cm.Count -and $cut -and $size -lt 262144) { $cm = @(Get-ChatCwds ([string](Read-ChatqTail $Path 262144))) }
+                if ($cm.Count) { $cm[$cm.Count - 1] } else { $null }
             }
             return [pscustomobject]@{
                 Uuid = $o.uuid; Type = $o.type; Limit = [bool]$limit; Overloaded = [bool]$over; ResetsAt = $resets
@@ -499,11 +499,7 @@ function Get-ChatqClaudeMeta {
     if ($chunk) {
         # Both d:\ and D:\ turn up for the same folder. The one whose slug is
         # this project's folder name is the one Claude filed the chat under.
-        $seen = [System.Collections.Generic.List[string]]::new()
-        foreach ($m in [regex]::Matches($chunk.Head + "`n" + $chunk.Tail, '"cwd":"((?:[^"\\]|\\.)*)"')) {
-            $v = Convert-ChatJsonEscaped $m.Groups[1].Value
-            if ($v -and -not $seen.Contains($v)) { $seen.Add($v) }
-        }
+        $seen = @(Get-ChatCwds ($chunk.Head + "`n" + $chunk.Tail) | Select-Object -Unique)
         $meta.Cwd = @($seen | Where-Object { (Get-ChatSlug $_) -eq $Group -and (Test-Path -LiteralPath $_) }) |
             Select-Object -First 1
         if (-not $meta.Cwd) { $meta.Cwd = @($seen | Where-Object { Test-Path -LiteralPath $_ }) | Select-Object -First 1 }
@@ -580,7 +576,7 @@ function Get-ChatqCodexMeta {
     if (-not $Path -or -not (Test-Path -LiteralPath $Path)) { return $meta }
     $meta.Exists = $true
     $chunk = Read-ChatChunk $Path 262144
-    if ($chunk -and $chunk.Head -match '"cwd":\s*"((?:[^"\\]|\\.)*)"') { $meta.Cwd = Convert-ChatJsonEscaped $Matches[1] }
+    if ($chunk) { $meta.Cwd = Get-ChatCwds $chunk.Head | Select-Object -First 1 }
     $text = if ($chunk.Split) { $chunk.Tail } else { $chunk.Head }
     $lines = Get-ChatJsonLines $text @('"type":"turn_context"', '"type": "turn_context"') 1 -FromEnd -Skip @()
     if ($lines.Count) {
