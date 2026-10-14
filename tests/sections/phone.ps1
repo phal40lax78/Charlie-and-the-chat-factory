@@ -1346,6 +1346,47 @@ Check 'busy to idle for 5 s: one done alert, priority 1, the reply''s end as the
 $r3 = & $lvRun $c @(@(20, 'busy'), @(22, 'idle'), @(30, 'idle'), @(100, 'idle'))
 $r4 = & $lvRun $c @(, @(200, 'idle'))
 Check 'once per chat and event every 3 minutes: the next turn''s done waits, and goes once the 3 minutes are up' ($r3.Count -eq 0 -and $r4.Count -eq 1 -and $r4[0].event -eq 'done') "$($r3.Count)/$($r4.Count)"
+# a turn you stopped yourself - Stop or Esc, its marker last - is no news:
+# no done, then or later; the turn after it that finishes is
+$idLvS = 'cccccccc-cccc-4ccc-8ccc-c5c5c5c5c5c5'
+$pLvS = New-FakeChat $projA $idLvS 'Stopped chat' 0.05 @('rename every module')
+$lvRec = {
+    param([string]$Type, $Content, [string]$Stop)
+    $msg = [ordered]@{ role = $Type; content = $Content }
+    if ($Stop) { $msg.stop_reason = $Stop }
+    ([ordered]@{ parentUuid = $null; isSidechain = $false; type = $Type; uuid = [guid]::NewGuid().ToString(); timestamp = (Get-Date).ToUniversalTime().ToString('o'); cwd = $projA; sessionId = $idLvS
+        message = $msg } | ConvertTo-Json -Compress -Depth 8) + "`n"
+}
+[System.IO.File]::AppendAllText($pLvS, (& $lvRec 'user' @([ordered]@{ type = 'text'; text = '[Request interrupted by user]' })), $utf8)
+$lvStopped = {
+    param([object[]]$Steps, $Cx)
+    $cx = if ($Cx) { $Cx } else { & $lvCtx }
+    $cx.Text[$idLvS] = @{ Path = $pLvS }
+    $n0 = $script:LvSent.Count
+    foreach ($s in $Steps) {
+        Update-ChatqLiveAlerts $cx @([pscustomobject]@{ SessionId = $idLvS; Pid = 4244; Status = $s[1]; Kind = 'interactive'; WaitingFor = $null
+                Cwd = $projA; Name = 'registry-name'; ProcStart = $null; StartedAt = $null; Entrypoint = 'claude-vscode' }) $script:LvBase.AddSeconds([double]$s[0])
+    }
+    , @($script:LvSent | Select-Object -Skip $n0)
+}
+$rS0 = & $lvStopped ($lvBusyIdle + @(@(60, 'idle'), @(300, 'idle')))
+$rS0Log = & $lvOvLog
+[System.IO.File]::AppendAllText($pLvS, (& $lvRec 'assistant' @([ordered]@{ type = 'text'; text = 'Renamed them all.' }) 'end_turn'), $utf8)
+$rS1 = & $lvStopped $lvBusyIdle
+Check 'a turn you stopped yourself: no done alert, then or later, and the overlay''s log says why; one that finishes after it does' (
+    $rS0.Count -eq 0 -and $rS0Log -like "*no done alert for $idLvS - you stopped it*" -and $rS1.Count -eq 1 -and $rS1[0].event -eq 'done') "$($rS0.Count) / $($rS1.Count) $(& $lvOvLog)"
+# stopped at the PC, a /cost typed after it, and only then away: the Stop
+# was read as the done came due, and the command after it changes nothing
+[System.IO.File]::AppendAllText($pLvS, (& $lvRec 'user' @([ordered]@{ type = 'text'; text = '[Request interrupted by user for tool use]' })), $utf8)
+$script:ChatqIdleSeam = 0
+$cxS = & $lvCtx
+$rS2 = & $lvStopped $lvBusyIdle $cxS
+[System.IO.File]::AppendAllText($pLvS, (& $lvRec 'user' "<command-name>/cost</command-name>`n<command-message>cost</command-message>`n<command-args></command-args>") +
+    (& $lvRec 'user' '<local-command-stdout>Total cost: $0.42</local-command-stdout>'), $utf8)
+$script:ChatqIdleSeam = 99999
+$rS3 = & $lvStopped @(@(60, 'idle'), @(300, 'idle')) $cxS
+Check 'a turn you stopped at the PC, then a /cost, then away: still no done alert - the Stop was read as it came due' ($rS2.Count -eq 0 -and $rS3.Count -eq 0) "$($rS2.Count) / $($rS3.Count) $(& $lvOvLog)"
+Remove-Item -LiteralPath $pLvS -Force
 # a phone-made chat Claude has not titled yet, run on at the PC: its live
 # alert goes by the neutral title its job holds, not the prompt the pass
 # read as the chat's first line - until Claude's own title is there

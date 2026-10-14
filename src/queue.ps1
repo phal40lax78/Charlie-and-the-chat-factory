@@ -490,6 +490,17 @@ function Get-ChatqLastTurn {
     return $null
 }
 
+function Test-ChatStoppedByHand {
+    # Whether a chat's last message (Get-ChatqLastTurn) is you stopping it:
+    # Stop or Esc writes a user record "[Request interrupted by user]", or
+    # "... for tool use]" after a prompt or a tool call it cut short. What
+    # that turn was doing ended because you said so - no alert says it
+    # finished, and no crash after it offers it again. Pure.
+    param($Last)
+    if (-not $Last -or [string]$Last.Type -ne 'user') { return $false }
+    return (([string]$Last.Text).TrimStart() -like '`[Request interrupted*')
+}
+
 function Get-ChatqClaudeMeta {
     param([string]$Path, [string]$Group)
     $meta = [pscustomobject]@{ Exists = $false; Cwd = $null; Mode = $null; Model = $null; LastTurn = $null }

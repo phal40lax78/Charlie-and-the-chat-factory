@@ -141,7 +141,7 @@ scripts there are another version than itself.
 | `chatq <n>` | open queued prompt *n* in the editor — edits count until it is sent |
 | `chatqlist [-Board] [-All]` | what is queued, when it sends, what ran, the usage |
 | `chatqrm <n> [-Force]` | drop a job; `-Force` cancels a running one |
-| `chatqrun [<n>] [-Now] [-First] [-Stop]` | requeue *n*, move it up, stop waiting and try now, stop the watcher |
+| `chatqrun [<n>] [-Now] [-First] [-Stop]` | requeue *n*, move it up, stop waiting and try now, stop the watcher (a run under way ends cancelled, with no alert) |
 | `chatqlog <n> [-Raw]` | what a run did |
 | `chatnotify [-Setup] [-Pair] [-Test]` | desktop, phone and command alerts, and replies from the phone; `-Setup` has all of it in a window (Windows) |
 | `chatoverlay [-Stop] [-Collapse] [-Refresh] [-Console] [-Theme dark\|light\|system] [-Print]` | every open chat, the queue and live usage in a panel that stays on top; `-Console` opens the console |
@@ -283,7 +283,8 @@ What counts as a chat still working, in this project:
   `<task-notification>` after it. Not every end sends one, so three more
   count as ends: a `TaskStop` of that task; for a workflow, its run record
   in `workflows/` beside the transcript, which Claude Code writes as the run
-  ends - an interrupt of the turn that started it kills it silently; for an
+  ends - through Claude Code 2.1.283 an interrupt of the turn that started
+  it killed it silently, while 2.1.291 lets it run on to its report; for an
   agent, its own transcript ending its turn. Only starts since the chat's
   process began count, because anything older died with an earlier process.
   A background shell does not count: it may be a server that never stops.
@@ -648,7 +649,9 @@ rows (config `cutOff`, on by default), to continue from the console's
 A chat is offered when its last message still owed an answer - a tool
 running, a prompt or a tool's result with no reply - or when a workflow or
 background agent it started never reported back. Not one that had
-finished its turn, one working again, one you wrote to since, one with a
+finished its turn, one you had stopped yourself with Stop or Esc - even
+with a workflow it started still running, which Claude Code 2.1.291 lets
+go on past a Stop - one working again, one you wrote to since, one with a
 job queued, or one whose process another window held all along. A tab the
 reload brought back counts as long as it sits idle. A window you closed
 yourself while its chats worked is offered too, as restarted: chatq
@@ -1443,7 +1446,8 @@ which reads every open chat's state on each pass anyway:
   page and [the board](#the-board-any-chat-from-the-phone) show the
   question with its choices; you answer it at the PC, or from the phone with
   [`-Ask on`](#answer-claudes-questions-from-the-phone);
-- `done` (priority 1) when a chat finishes a turn, with the end of its reply;
+- `done` (priority 1) when a chat finishes a turn, with the end of its reply,
+  and never for a turn you stopped yourself with Stop or Esc;
   one the limit cut off says so, and - with [auto-continue](#auto-continue)
   on - what it does about it (`· never auto`); when it queued a continue,
   the alert is `limited` (priority 0) about that job instead: `stopped by

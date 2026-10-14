@@ -892,8 +892,9 @@ function Get-ChatBackgroundTasks {
     # stopped agent is a resumedAgentId. An end is a <task-notification>
     # naming the same task id - completed, failed, stopped - or TaskStop's
     # result naming it, which leaves no notification. A workflow can end with
-    # neither: an interrupt of the turn that started it kills it, silently,
-    # and only its run record says so (Step-ChatBackgroundLine).
+    # neither: through Claude Code 2.1.283 an interrupt of the turn that
+    # started it killed it, silently, and only its run record says so
+    # (Step-ChatBackgroundLine). 2.1.291 lets it run on past the interrupt.
     #
     # Only starts after $Since count: the work dies with the process that ran
     # it, so one from before the chat was last opened is gone whether or not
@@ -1628,10 +1629,11 @@ function Select-ChatBackgroundOpen {
       workflow  workflows/<run id>.json, which Claude Code writes as a run
                 ends - completed, failed or killed - and not before; only
                 one written since the start counts, as a resumed run keeps
-                its run id. An interrupt of the turn that started one kills
-                it and writes no notification; a run that ended during that
-                turn can go unannounced too. Fifteen here, every one with
-                its record.
+                its run id. Through Claude Code 2.1.283 an interrupt of the
+                turn that started one killed it and wrote no notification;
+                2.1.291 lets it run on. A run that ended during that turn
+                can go unannounced too. Fifteen here, every one with its
+                record.
       agent     subagents/agent-<id>.jsonl, finished (Test-ChatAgentDone).
     Oldest first.
     #>

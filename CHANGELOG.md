@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.10.9 — A chat you stopped stays stopped
+
+- **A turn you stop yourself no longer sends `done` to the phone.** Stop
+  or Esc in a chat took it from busy to idle like any finished turn, so
+  the phone and the toast said `<chat> · finished` for a turn you had cut
+  short - right away with `phoneWhilePresent` on, otherwise once you were
+  away. A chat whose last message is your Stop sends nothing now, and the
+  overlay's log says why. That is read as the turn ends, so a `/cost`
+  typed after the Stop changes nothing; its next turn that finishes
+  alerts as before.
+- **A VS Code crash no longer offers a chat you had stopped.** The chats a
+  window's crash cut off left out one you stopped, but not when a workflow
+  it started was still out: Claude Code 2.1.291 lets a workflow run on
+  past a Stop, where earlier versions ended it. That chat came back as an
+  orange row and the ask, and with `autoContinueCrash` on it was continued
+  with no ask - *Continue from where you left off*, the turn you stopped.
+  A chat whose last message is your Stop is never offered now. A workflow
+  a turn before it started, which you never stopped, is left out too
+  (DEFERRED.md).
+- **`chatqrun -Stop` mid-run no longer alerts `failed`.** The run it
+  ended counted as one that broke: a `failed · cancelled` alert, and for
+  an auto-continue a try toward the two that turn it off for the chat.
+  It ends as a cancel does now - failed, cancelled, nothing said - as
+  `chatqcancel`, the console's and the phone's Stop always did. A chat
+  open in VS Code is still shown fresh, with what the run wrote.
+
 ## 0.10.8 — The chats a VS Code crash stops, found and named
 
 - **A VS Code window that runs out of memory or crashes no longer loses

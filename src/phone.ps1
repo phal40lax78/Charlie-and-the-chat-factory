@@ -2491,7 +2491,7 @@ function Update-ChatqLiveAlerts {
       needs input  a chat waiting on you for 20 s - a prompt answered at
                    once never alerts - priority 2
       done         a chat that went from busy to idle and stayed 5 s,
-                   priority 1
+                   priority 1 - not one you stopped (Test-ChatStoppedByHand)
     Only while you are known to be away (Test-ChatqUserAway): nothing at all
     otherwise, not the toast nor alerts.log - the overlay shows it. A done
     waits for that as long as it can still be news: away is known
@@ -2579,6 +2579,22 @@ function Update-ChatqLiveAlerts {
             $autoJob = if ($ev -eq 'done') { Get-ChatqLiveAutoJob $Ctx $sid } else { $null }
             if ($autoJob) { $ev = 'limited' }
             if (-not (Test-ChatqPhoneEvent $cfg $ev)) { $m.Settled = $true; continue }
+            # a turn you stopped yourself did not finish, and you know it -
+            # read once, as its done comes due, at the PC or not: by the time
+            # you leave, a /cost or /model typed after the Stop is the last
+            # message, and the Stop no longer shows
+            if ($ev -eq 'done' -and $m.HandRead -ne $m.Since) {
+                $m.HandRead = $m.Since
+                $texts = Get-ChatField $Ctx 'Text'
+                $tx = if ($texts) { $texts[$sid] } else { $null }
+                $hp = if ($tx -and $tx.Path) { [string]$tx.Path } else {
+                    $hd = [string](Get-ChatField $Ctx 'ClaudeHome'); if (-not $hd) { $hd = $script:ChatClaudeHome }
+                    Find-ChatOverlayTranscript $hd ([string](Get-ChatField $mine[$sid][0] 'Cwd')) $sid
+                }
+                if ($hp -and (Test-ChatStoppedByHand (Get-ChatqLastTurn $hp))) {
+                    $m.Settled = $true; Write-ChatOverlayLog "phone: no done alert for $sid - you stopped it"; continue
+                }
+            }
             if ($null -eq $away) { $away = Test-ChatqPhoneAway $cfg }
             # at the PC: nothing goes and nothing is settled - you see it there
             # or you do not, and away later can still send it while it is news

@@ -690,7 +690,7 @@ function Test-ChatRestartMid {
     # as Test-ChatTranscriptBusy reads a transcript parked mid-turn: an
     # assistant tool_use - a tool running, or a prompt waiting on you - or a
     # user message, a prompt or a tool's result, with nothing after it. Not
-    # a turn you stopped yourself ([Request interrupted), nor a slash
+    # a turn you stopped yourself (Test-ChatStoppedByHand), nor a slash
     # command's own records (<command-name>, <local-command-stdout>), which
     # no turn follows. An assistant message with no stop reason is not
     # taken for one cut part way: a finished answer can carry none too, and
@@ -700,7 +700,7 @@ function Test-ChatRestartMid {
     $t = ([string]$Last.Text).TrimStart()
     if ([string]$Last.Type -eq 'assistant') { return ([string]$Last.StopReason -eq 'tool_use') }
     if ([string]$Last.Type -ne 'user') { return $false }
-    if ($t -like '`[Request interrupted*' -or $t -match '^<(command-name|command-message|local-command-stdout|local-command-stderr)>') { return $false }
+    if ((Test-ChatStoppedByHand $Last) -or $t -match '^<(command-name|command-message|local-command-stdout|local-command-stderr)>') { return $false }
     return $true
 }
 
@@ -724,6 +724,8 @@ function Get-ChatRestartCutOffs {
         first time a look finds the host gone, or the start of a process
         that holds the chat again, if earlier: past that the chat moved on;
       - it was not the limit or a 529, which the cut-off look has;
+      - it was not you who stopped it last (Test-ChatStoppedByHand) - not
+        even with a workflow it started still out;
       - and something was lost: its last message owes an answer
         (Test-ChatRestartMid) - or a workflow or background agent it
         started, since its processes did, never reported back
@@ -856,6 +858,11 @@ function Get-ChatRestartCutOffs {
                 if (-not $last) { $keep.Add($c); continue }
                 if ($last.Limit -or $last.Overloaded) { continue }
                 if ($last.At -and $last.At -gt $bound) { continue }
+                # You stopped it last: whatever that turn left running - a
+                # workflow, which Claude Code 2.1.291 lets go on past a Stop -
+                # you stopped too, as far as anything here can tell. Work a
+                # later turn started would have left a record after it.
+                if (Test-ChatStoppedByHand $last) { continue }
                 $mid = Test-ChatRestartMid $last
                 # A finished answer last, and no background work in the note:
                 # its turn ended before the window went - a close or a quit

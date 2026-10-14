@@ -915,6 +915,10 @@ function Invoke-ChatqJob {
         try { if ((Test-ChatqPermitReady $null $Job).Ok) { $permitRun = New-ChatqPermitRun $Job } }
         catch { Write-ChatqWatchLog "#$($Job.seq) permit: $($_.Exception.Message) - the run denies prompts as before" }
         $beat = @{ At = Get-Date; Poll = Get-Date; Every = 30 }
+        # chatqrun -Stop (data/stop) ending the run: a cancel of yours, as
+        # chatqcancel's is - noted as it ends the run, since a stop written
+        # just after a run ended by itself stops nothing of it
+        $byStop = @{ Hit = $false }
         $onTick = {
             if (((Get-Date) - $beat.At).TotalSeconds -ge 60) { $beat.At = Get-Date; Save-ChatqWatchState $W }
             # a request the bridge wrote goes to the phone first; while one is
@@ -934,7 +938,8 @@ function Invoke-ChatqJob {
             }
             # an answer from the phone to a chat's question: did it land (src/ask.ps1)
             if ($script:ChatqAskSent.Count) { $null = Test-ChatqAskLanded -Quick }
-            (Test-Path -LiteralPath $cancel) -or (Test-Path -LiteralPath $script:ChatqStopPath)
+            if (Test-Path -LiteralPath $script:ChatqStopPath) { $byStop.Hit = $true }
+            (Test-Path -LiteralPath $cancel) -or $byStop.Hit
         }
         $onStart = {
             param($st)
@@ -949,8 +954,8 @@ function Invoke-ChatqJob {
         if ($carry.Ultracode -or $carry.Effort) { try { $runLen = [int64][System.IO.FileInfo]::new([string]$Job.path).Length } catch { $runLen = $null } }
         $out = Invoke-ChatqRun $Job $prompt $onTick $onStart -Files $files -Permit $permitRun -Carry $carry
         $W.current = $null
-        $wasCancelled = Test-Path -LiteralPath $cancel
-        if ($wasCancelled) { Remove-Item -LiteralPath $cancel -Force -EA SilentlyContinue }
+        $wasCancelled = (Test-Path -LiteralPath $cancel) -or $byStop.Hit
+        if (Test-Path -LiteralPath $cancel) { Remove-Item -LiteralPath $cancel -Force -EA SilentlyContinue }
         Set-ChatqProp $Job 'runnerPid' $null
         # the bridge's folder and open requests, however the run ended - a run
         # that never started leaves them too (Close-ChatqPermitRun is safe twice)
@@ -1018,8 +1023,10 @@ function Invoke-ChatqJob {
         # and then ends what is left (its Show it). After a handover the process
         # is gone and the request names the windows it asked all the same, with
         # the job - so only the window that closed its tab acts on it.
+        # A chatqrun -Stop, a cancel otherwise, still shows it: what the run
+        # wrote before it stopped is in the chat all the same.
         $shown = $null
-        if ($wasLive -and -not $wasCancelled -and $out.kind -notin 'limited', 'overloaded') {
+        if ($wasLive -and ($byStop.Hit -or -not $wasCancelled) -and $out.kind -notin 'limited', 'overloaded') {
             $cfg = Get-ChatqConfig
             $recent = [int][Math]::Max(60, (Get-ChatqQuietMinutes $cfg) * 60)
             $asked = if ($run.HandoverId) { [int[]]@($run.HostPids) } else { [int[]]@() }

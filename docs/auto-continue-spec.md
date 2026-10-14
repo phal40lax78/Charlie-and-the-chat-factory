@@ -232,7 +232,10 @@ not two.
   not a `-Peek` one or `chatoverlay -Print` - writes `goneAt` the first time.
   A chat counts when nothing of it works now, no job is queued for it, no
   process of it outlived the host, nothing was written to it since the host
-  went, and something was lost: its last message owes an answer
+  went, its last message is not your Stop
+  ([Test-ChatStoppedByHand](../src/queue.ps1) - not even with a workflow
+  still out, which Claude Code 2.1.291 lets run on past one), and
+  something was lost: its last message owes an answer
   ([Test-ChatRestartMid](../src/host-work.ps1) - a `tool_use`, a prompt, a
   tool's result; not an answer, a turn you stopped, a slash command) or a
   workflow or agent it started never reported. A tab the reload brought
@@ -371,7 +374,8 @@ Claude`, and nothing is queued; switched on, the scan queues a continue
 for it as for a limit (see [After a 529](#after-a-529)).
 
 **Chats you run yourself, on the phone.** [Update-ChatqLiveAlerts](../src/phone.ps1)
-sends `done` when a chat goes from busy to idle while you are away.
+sends `done` when a chat goes from busy to idle while you are away -
+not when you stopped it yourself ([Test-ChatStoppedByHand](../src/queue.ps1)).
 [Get-ChatqLiveAlertText](../src/phone.ps1) words a turn the limit cut off
 as `<title> · stopped by the usage limit until 13:00`. Its link is
 `j=live`, and the page offers only **Send** and **Status**.

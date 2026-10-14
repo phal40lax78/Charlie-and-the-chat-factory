@@ -504,6 +504,21 @@ finally { ${function:Update-ChatBackgroundScan} = $rsScanWas; Remove-Item -Liter
 Check 'a finished answer last, the note naming no background work: its transcript not read for work left out, nothing offered; a note that says background reads it once, and offers the workflow out' (
     $rsE1.Count -eq 0 -and $rsE1n -eq 0 -and $rsE2.Count -eq 1 -and $rsE2[0].Id -eq $idR5 -and -not $rsE2[0].Mid -and @($rsE2[0].Tasks).Count -eq 1 -and
     $rsE2[0].Tasks[0].Note -eq 'weekly-review' -and $rsE2n -eq 1) "$($rsE1.Count) $rsE1n $($rsE2.Count) $rsE2n"
+# Stopped by hand with its workflow still out - Claude Code 2.1.291 lets one
+# run on past a Stop - and the note saying background: your Stop is last, so
+# the window going offers nothing of it
+$idR6 = 'e6e6e6e6-e6e6-4e6e-8e6e-e6e6e6e6e6e6'
+$rsFile[$idR6] = New-FakeChat $projH $idR6 'Restart e6' 0.5 @('go') -HomeDir $hwHome
+$rsWf6 = & $rsRec $idR6 'user' 10 ([ordered]@{ role = 'user'; content = @([ordered]@{ type = 'tool_result'; tool_use_id = 'toolu_wf6'; content = 'launched' }) }) @{
+    toolUseResult = [ordered]@{ status = 'async_launched'; taskId = 'wrs0006'; taskType = 'local_workflow'; workflowName = 'stopped-review' } }
+$rsStop6 = & $rsRec $idR6 'user' 9 ([ordered]@{ role = 'user'; content = @([ordered]@{ type = 'text'; text = '[Request interrupted by user]' }) })
+[System.IO.File]::AppendAllText($rsFile[$idR6], ($rsWf6 | ConvertTo-Json -Compress -Depth 8) + "`n" + ($rsStop6 | ConvertTo-Json -Compress -Depth 8) + "`n", $utf8)
+Save-ChatHostWorkNote ([pscustomobject]@{ HostPid = $rsHost; Known = $true; Chats = @([pscustomobject]@{ SessionId = $idR6; Pids = @(5007); Cwd = $projH; Transcript = $rsFile[$idR6]; Why = 'background'; Written = $false; Since = $rsSince }) }) -HostStart $rsStartMs -Now $rsNow.AddMinutes(-2)
+$rsS6 = @(Get-ChatRestartCutOffs -Live @() -Asked @{} -Jobs @() -Now $rsNow)
+$rsS6Open = @(Get-ChatBackgroundTasks $rsFile[$idR6])
+Remove-Item -LiteralPath $rsNote -Force -EA SilentlyContinue
+Check 'a chat you stopped last, its workflow still out and the note saying background: nothing offered' (
+    $rsS6.Count -eq 0 -and $rsS6Open.Count -eq 1) "$($rsS6.Count) offered / $($rsS6Open.Count) open"
 # A process from before the note, seen once, may be the old host's own:
 # killed, its registry file reads as alive for up to 10 s of the overlay's
 # cache. So it is kept, marked heldAt, and offered once it is gone; only a
@@ -565,6 +580,10 @@ Check 'a last message owes an answer: a tool_use, a prompt, a tool''s result - n
     -not (Test-ChatRestartMid (& $rsT 'assistant' 'done' 'end_turn')) -and -not (Test-ChatRestartMid (& $rsT 'assistant' 'done' $null)) -and
     -not (Test-ChatRestartMid (& $rsT 'user' '[Request interrupted by user]' $null)) -and -not (Test-ChatRestartMid (& $rsT 'user' '<command-name>/cost</command-name>' $null)) -and
     -not (Test-ChatRestartMid (& $rsT 'user' '<local-command-stdout>ok</local-command-stdout>' $null)) -and -not (Test-ChatRestartMid $null))
+Check 'stopped by hand: your Stop or Esc mid-answer or mid-tool - not a prompt, nor an answer that quotes it' (
+    (Test-ChatStoppedByHand (& $rsT 'user' '[Request interrupted by user]' $null)) -and (Test-ChatStoppedByHand (& $rsT 'user' ' [Request interrupted by user for tool use]' $null)) -and
+    -not (Test-ChatStoppedByHand (& $rsT 'user' 'do it' $null)) -and -not (Test-ChatStoppedByHand (& $rsT 'assistant' '[Request interrupted by user]' 'end_turn')) -and
+    -not (Test-ChatStoppedByHand $null))
 
 Section 'what took a window down'
 # A window that runs out of memory or crashes goes with no look of the

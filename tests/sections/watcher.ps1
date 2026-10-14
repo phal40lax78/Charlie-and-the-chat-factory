@@ -32,6 +32,22 @@ Check 'resumed with the chat''s own mode, prompts denied' ($argv -match '--resum
 $alerts = [System.IO.File]::ReadAllText((Join-Path $script:ChatqLogDir 'alerts.log'), $utf8)
 Check 'started and done alerts logged' ($alerts -match "`tstarted`t" -and $alerts -match "`tdone`t")
 
+# chatqrun -Stop mid-run (data/stop): the run ends as chatqcancel's does -
+# failed, cancelled, and no failed alert - not as a run that broke
+$j = New-TestJob 'card redesign' 'stop me midway'
+$alertsLog = Join-Path $script:ChatqLogDir 'alerts.log'
+$alertsAt = $alerts.Length
+$env:FAKE_SLEEP = '20'
+Save-ChatqText $script:ChatqStopPath 'stop'
+$stopSw = [System.Diagnostics.Stopwatch]::StartNew()
+try { Invoke-ChatqJob $W (Find-ChatqJob $j.id) }
+finally { Remove-Item env:FAKE_SLEEP; Remove-Item -LiteralPath $script:ChatqStopPath -Force -EA SilentlyContinue }
+$stopSw.Stop()
+$j = Find-ChatqJob $j.id
+$stopAlerts = ([System.IO.File]::ReadAllText($alertsLog, $utf8)).Substring($alertsAt)
+Check 'chatqrun -Stop mid-run: the run cut short, the job failed as cancelled, and no failed alert - as chatqcancel''s' (
+    $j.state -eq 'failed' -and $j.result.reason -eq 'cancelled' -and $stopSw.Elapsed.TotalSeconds -lt 15 -and $stopAlerts -notmatch "`tfailed`t") "$($j.state) $($j.result.reason) $([int]$stopSw.Elapsed.TotalSeconds) s | $stopAlerts"
+
 # a limit mid-run, after the prompt reached the chat: back in the queue, as a
 # "continue", and the provider blocked until the reset the run reported
 $j = New-TestJob 'Parser rewrite and plugin unification' 'second half please'

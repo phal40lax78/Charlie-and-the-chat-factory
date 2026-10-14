@@ -554,6 +554,14 @@ default ([Invoke-ChatqCrashContinue](src/overlay-data.ps1)).
   much longer, and a wider window would take more reloads just after
   another window's crash as that window's. Closing it takes a longer
   wait or a wider window, once a log is seen slower than that.
+- **Work an earlier turn left running, when you stop a later one,** is
+  not offered: a chat whose last message is your Stop offers nothing
+  ([Test-ChatStoppedByHand](src/queue.ps1)), whatever is still out. That
+  keeps out the workflow of the turn you stopped, which Claude Code
+  2.1.291 lets run on past a Stop, at the cost of one a turn before it
+  started and you never stopped. Closing it takes the time the stopped
+  turn began - its prompt's record - so only work started since is left
+  out.
 - **A log that never names the host's exit** - VS Code's own process
   ended from Task Manager - holds that window's chats the full 30 s too,
   counted from the `goneAt` the overlay's own pass writes. Closing it
