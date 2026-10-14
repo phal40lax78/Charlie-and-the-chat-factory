@@ -287,4 +287,10 @@ $script:ChatShowHoldSeconds = 0
 # no extension here gives: every chat's parent is a window (above), so every
 # run into a live chat would. The 'handover' section turns it on.
 $script:ChatHandoverOff = $true
+# nor is VS Code's real log read for why a window went (Get-ChatHostEndCause),
+# nor Windows' real memory looked at (Get-ChatMemoryCommit, Get-ChatMemoryTop):
+# no log, and plenty free. 'host-work' sets its own.
+$script:ChatHostLogRootsSeam = { @() }
+$script:ChatMemorySeam = { @{ Limit = 32GB; Free = 16GB } }
+$script:ChatMemoryTopSeam = { @() }
 $script:SeamsAtStart = @{ Stop = $script:ChatStopSeam; Parent = $script:ChatParentSeam; Code = $script:ChatCodeSeam; Titles = $script:ChatWindowTitlesSeam }

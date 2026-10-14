@@ -12,7 +12,7 @@ PowerShell.
 [![test](https://github.com/phal40lax78/Charlie-and-the-chat-factory/actions/workflows/test.yml/badge.svg)](https://github.com/phal40lax78/Charlie-and-the-chat-factory/actions/workflows/test.yml)
 [![licence](https://img.shields.io/github/license/phal40lax78/Charlie-and-the-chat-factory)](LICENSE)
 [![PowerShell 5.1 | 7](https://img.shields.io/badge/PowerShell-5.1%20%7C%207-5391FE?logo=powershell&logoColor=white)](#requirements)
-[![sponsor: coming soon](https://img.shields.io/badge/sponsor-coming%20soon-lightgrey?logo=githubsponsors)](FUTURE_WORK.md#sponsorship)
+[![sponsor: coming soon](https://img.shields.io/badge/sponsor-coming%20soon-lightgrey?logo=githubsponsors)](DEFERRED.md#sponsorship)
 
 ![chatq queueing a prompt for a chat picked by its title, to be sent a minute after the five-hour limit resets](docs/demo-queue.svg)
 
@@ -608,45 +608,87 @@ answer (`ask: continued 3 - #12 #13 #14`).
 
 A VS Code window that reloads while its chats work ends their `claude`
 processes: an answer half written, a permission prompt gone, a workflow's
-agents dead. When chatq looked at the window first - the update notice and
-its **Reload now**, a reload after its **Later**, **Reload anyway** on
-chatq's own reload - it left a note of the chats at work in
-`data/host-work/<window's host pid>.json`. Within a minute of the reload
-the overlay reads it and asks, as it asks when the limit is over:
+agents dead. So does one that runs out of memory or crashes, and once it
+is open again nothing says which chats were stopped. Two looks leave a
+note of the chats at work in `data/host-work/<window's host pid>.json`:
+chatq's, right before a reload it offers - the update notice and its
+**Reload now**, a reload after its **Later**, **Reload anyway** on
+chatq's own reload - and the overlay's, which keeps one for every window
+whose chats work, from what each pass reads anyway, so a window that goes
+with no warning leaves one too. Within a minute of the window going the
+overlay reads it and asks, as it asks when the limit is over:
 `VS Code restarted · 2 chats it cut off can continue` - the same toast,
 banner, tray items, console header and phone alert, and
 `limit over at 13:00, and VS Code restarted` when there are both.
 
+**Why it went** is read from VS Code's own log - `main.log` in its log
+folders under `%APPDATA%\Code\logs`, and `Code - Insiders`' - and every
+wording says it: the ask's `VS Code ran out of memory` or
+`VS Code crashed`, the row's `cut off - VS Code ran out of memory`, and
+the prompt that continues it. `VS Code restarted` is a reload, a window
+closed, or a log that says neither. VS Code's line for a window out of
+memory names no window and comes a few seconds before that window's
+extension host goes, so chatq waits until 10 s after it, to see every
+window that went then - and 5 s more, as VS Code writes its log later
+still when it is short of memory itself. So a window's chats wait for
+the log to be sure, 30 s at most, before they are offered: a window out
+of memory is asked about some 15 s after it goes, a reload as soon as
+the log has its exit. Two windows that go together may swap causes, and
+a window closed within 10 s after another ran out of memory says
+restarted for both: the log does not say which window's memory ran out.
+
 Windows only: a window's chats are told apart by walking each `claude`
 process up to the window's extension host, and off Windows chatq cannot
-read a process's parent, so no note is written there. The ask needs the
-overlay running and `autoContinue` not `off`. With it off, the chats show
-only as orange rows (config `cutOff`, on by default), to continue from the
-console's **Continue**. With no overlay running, nothing is offered.
+read a process's parent, so no note is written there. The overlay's notes
+need it running before the window goes. The ask needs the overlay running
+and `autoContinue` not `off`. With it off, the chats show only as orange
+rows (config `cutOff`, on by default), to continue from the console's
+**Continue**. With no overlay running, nothing is offered.
 
 A chat is offered when its last message still owed an answer - a tool
 running, a prompt or a tool's result with no reply - or when a workflow or
 background agent it started never reported back. Not one that had
 finished its turn, one working again, one you wrote to since, one with a
 job queued, or one whose process another window held all along. A tab the
-reload brought back counts as long as it sits idle.
+reload brought back counts as long as it sits idle. A window you closed
+yourself while its chats worked is offered too, as restarted: chatq
+cannot tell that close from a reload. A workflow started by a turn that
+ended only seconds before the window went may be missed: a chat whose
+last message is a finished answer is read for background work only once
+the overlay has noted it has some out.
 
-**Continue** queues a prompt that says what happened - *the VS Code
-window this chat ran in restarted while it worked, which ended its process
-mid-turn*, naming any workflow or agent that did not finish, since
-`claude --resume` does not bring background work back - and then Claude
-Code's own *Continue from where you left off*. It goes in the chat's own
-mode, ahead of the prompts waiting, and is dropped if the chat went on
-first. **Leave them** leaves them, and their rows go - unlike a chat the
-limit cut off, which stays orange. Either way the chat is not asked about
-again. [Auto-continue](#auto-continue) never continues these by itself,
-even switched on: the ask still comes for them, since a reload may have
-stopped something you meant to stop. A note over 12 hours old is dropped,
-by the overlay or by the extension's next look.
+**Continue** queues a prompt that says what happened - *VS Code ran out
+of memory while this chat worked, which ended its process mid-turn*; for
+a crash, *VS Code crashed*; for a reload, *the VS Code window this chat
+ran in restarted while it worked* - naming any workflow or agent that did
+not finish, since `claude --resume` does not bring background work back -
+and then Claude Code's own *Continue from where you left off*. It goes in
+the chat's own mode, ahead of the prompts waiting, and is dropped if the
+chat went on first. **Leave them** leaves them, and their rows go - unlike
+a chat the limit cut off, which stays orange. Either way the chat is not
+asked about again. [Auto-continue](#auto-continue) never continues these
+by itself, even switched on: the ask still comes for them, since a reload
+may have stopped something you meant to stop. A note over 12 hours old is
+dropped, by the overlay or by the extension's next look.
 
-Not found: a reload chatq never looked before - **Developer: Reload
-Window**, the Extensions view's **Restart Extensions**, another
-extension's update, VS Code updating itself. Those leave no note.
+**Out of memory or crashed, continued by itself:** the tray's **Continue
+chats a VS Code crash cut off** - config `autoContinueCrash`, at the top
+of `data/config.json`, off unless you turn it on - sends those chats
+their prompt at once, with no ask, whatever the auto-continue switch says.
+Only where VS Code's log said out of memory or crashed - never a reload's
+or a window closed, which you may have meant - and only within 10 minutes
+of the window going, to a chat with no job waiting that is not set to
+never and not open in a terminal meanwhile: a run beside that `claude`
+would make two writers, so it is left to you there. A chat it continued
+in the last 2 hours is asked about instead: work that brings VS Code
+down again would be sent back into it each time.
+Each one is marked answered in `data/auto/`, given by `crash`, and
+`overlay.log` says `crash: continued 2 - #12 #13`.
+
+Not found: a window that went while no overlay ran, unless chatq looked
+just before - **Developer: Reload Window**, the Extensions view's
+**Restart Extensions**, another extension's update, VS Code updating
+itself, VS Code running out of memory. Those leave no note.
 
 ### Auto-continue
 
@@ -685,6 +727,7 @@ stop work.
 | open in a terminal's `claude`, or held by any other process (a background session, a `claude -p`) | **no** while that holds it - Claude Code's own wait is there. Once that exits, the next look queues it |
 | a side chat, a chat under another `CLAUDE_CONFIG_DIR`, a Codex or Copilot chat | no |
 | cut off by a 529 | **yes**, once Claude is back - status.claude.com says Claude Code is operational, or 15 minutes after the 529 |
+| cut off by its VS Code window's reload, crash or running out of memory | no - the overlay asks ([When a reload cut chats off](#when-a-reload-cut-chats-off)); a crash's or out of memory's at once with `autoContinueCrash` on |
 
 **What it checks,** in order: the switch (or the chat's always or never);
 that nothing but a VS Code panel holds it; that nothing is queued for it
@@ -1331,7 +1374,8 @@ transcript after each answer it relayed, and says when it did not work:
 question or the answer.
 
 **What it costs.** Each held question is one hidden Windows PowerShell of
-about 130 MB, since the hook loads all of chatq: 4-8 seconds to start, which
+up to about 130 MB, loading only the parts of chatq the hook uses (15 of
+22): 4-8 seconds to start, which
 delays nothing at the PC. At most 5 are open at once (`ask.maxOpen`), so up
 to about 0.65 GB. The hook does no network: the watcher alone polls the
 reply topic and sends pushes, as for permits. `data/logs/ask.log` is the
@@ -1736,6 +1780,19 @@ notifications back for - the panel hides, and comes back once it ends.
 Nothing is saved, and the tray's **Show**, the hotkey or `chatoverlay`
 bring it back during it, until the next one.
 
+**It says when memory runs short,** on Windows. A VS Code window that
+runs out of memory dies, and takes every chat it ran with it
+([When a reload cut chats off](#when-a-reload-cut-chats-off)). So once
+95% of what Windows can hand out - memory and page file together, its
+commit limit - is in use, the panel's first note says so in amber,
+naming the programs that hold the most:
+`memory low: 96% used, 3.5 GB left - most: Code 9.8 GB, claude 3.1 GB`.
+The tray says it once in a balloon, and not again within 15 minutes;
+`overlay.log` gets a line as it goes low and as it comes back. It stays
+low until 3 points under, so a figure on the line does not come and go,
+and is looked at 10 seconds apart at most. `overlay.memoryWarn` sets the
+percent; 0 turns it off.
+
 **It stays out of the way.** As a panel it never takes focus, and clicks go
 through it - all but its top strip; only while it is the console (below)
 does it take the keyboard. Along that top strip runs a bar, always there
@@ -1923,7 +1980,9 @@ percent, with its reset when that is the window you wait on
 Left-click it to
 hide or show the panel; right-click it for Open console, Phone alerts...,
 **Auto-continue cut-off chats** (checked while [it](#auto-continue) is on;
-unchecked goes back to Ask), Lock, Hide, Collapse,
+unchecked goes back to Ask), **Continue chats a VS Code crash cut off**
+(checked while `autoContinueCrash` is on - [what it
+does](#when-a-reload-cut-chats-off)), Lock, Hide, Collapse,
 Refresh usage, Move to top right and Quit - and, at the top while the
 overlay asks about the chats the limit cut off, **Continue 3 cut-off
 chats** and **Leave them**. Collapsed, the one line says how many cut-off
@@ -2005,7 +2064,12 @@ chatq continues each by itself ([Auto-continue](#auto-continue)), or they
 are only marked. The settings box's **Cut off** row or
 `chatq -AutoContinue ask|on|off` sets it and tells a running overlay.
 `false` reads as `"off"`; anything else, `true` included, as `"ask"`: only
-the word `"on"` turns the automatic mode on.
+the word `"on"` turns the automatic mode on. Beside it, `autoContinueCrash`:
+`true` (or `"on"`) continues the chats VS Code's running out of memory or
+crashing cut off, with no ask ([When a reload cut chats
+off](#when-a-reload-cut-chats-off)); anything else, and no key at all,
+leaves them to `autoContinue`, as a reload's. The tray's **Continue chats
+a VS Code crash cut off** sets it.
 
 ```powershell
 chatoverlay -Width 460 -Rows 12   # wider, and up to 12 chats before "+N more"
@@ -2032,6 +2096,7 @@ chatoverlay -Recent 10            # ten chats not open under the rest; 0 for non
 | `copilotUsage` | `true` | `chatoverlay -CopilotUsage off`: no Copilot line, and `gh` never run for it |
 | `codexUsage` | `true` | `chatoverlay -CodexUsage off`: Codex's line only from its rollouts, and `codex app-server` never started for it |
 | `usageSeconds` | 300 | how often usage is asked while a chat works - Codex's while Codex works (three times that while idle, and for Copilot); 60 at least |
+| `memoryWarn` | 95 | 0–99; the percent of Windows' commit limit in use at which the panel and the tray say memory runs short ([it says so](#the-overlay)); 0 for never |
 
 - **Only Claude chats get live rows.** Codex and Copilot write nothing that says a
   chat is open or working, so theirs show only as queued prompts.
@@ -2755,6 +2820,7 @@ chat a run has gone into.
 | the CLIs | `claude` / `codex` on PATH, else the copy bundled in the VS Code extension; `CHATQ_CLAUDE` / `CHATQ_CODEX` override. PATH wins even when the copy there is older than the extension's - an npm install left behind, say - so `chatinstall` and `chatproviders` name the one picked, its version and where it came from, and warn when a PATH one is older than the extension's |
 | running chats (overlay) | `~/.claude/sessions/<pid>.json`, the list Claude Code keeps of what runs; the `<pid>.<hash>.key` beside each is never opened |
 | usage (overlay) | Claude's usage endpoint, with the login in `~/.claude/.credentials.json` (the keychain on macOS); the `cachedUsageUtilization` block of `~/.claude.json` as the fallback. Copilot's through `gh api copilot_internal/user` - `gh` with its own login (`CHATQ_GH` names another `gh`) |
+| why a VS Code window went (overlay, Windows) | VS Code's own `main.log` in `%APPDATA%/Code/logs/<session>/` and `Code - Insiders`', read only - out of memory, a crash, or neither |
 
 `<Code user>` is `%APPDATA%/Code/User` on Windows, `~/Library/Application
 Support/Code/User` on macOS, `~/.config/Code/User` on Linux.
@@ -2769,7 +2835,8 @@ and the reset ask share, the
 overlay's `overlay.json` and `overlay-state.json`, and the console's
 `console-state.json` and the files waiting to go in `console/draft/`, and
 the extension's `reload-request` and `open-request` (and `signal.lock`,
-held while either is written), the running job's
+held while either is written), the notes of each VS Code window's chats
+at work in `host-work/`, the running job's
 `run-state` and the windows' answers to it in `run-ack/`, the reloads a
 window asks about in `reload-pending/` and the overlay's answers in
 `reload-answer/`, the Claude tabs each window has open in `open-tabs/`,
@@ -2841,7 +2908,7 @@ Claude settings first; it stops until you have.
 ## Sponsorship
 
 Not set up yet — the badge above is a placeholder. The options being weighed
-are in [FUTURE_WORK.md](FUTURE_WORK.md#sponsorship).
+are in [DEFERRED.md](DEFERRED.md#sponsorship).
 
 ## Licence
 

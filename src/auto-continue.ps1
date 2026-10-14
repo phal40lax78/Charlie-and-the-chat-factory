@@ -269,6 +269,7 @@ function Test-ChatqAutoHeldElsewhere {
         }).Count
 }
 
+# Deferred: DEFERRED.md "Auto-continue and a registry entry that names no entrypoint"
 function Get-ChatqAutoState {
     <#
     What auto-continue does with one cut-off (a Get-ChatqCutOffChats row),
@@ -281,7 +282,9 @@ function Get-ChatqAutoState {
     has no reset, so its continue is due at once and waits in the watcher
     for Claude to be back (Enter-ChatqAutoOutage), not for a time. The
     checks, in order:
-      restart     a VS Code window's restart cut it off - only ever asked about
+      restart     a VS Code window's restart - or its running out of memory,
+                  or a crash - cut it off: never queued here; the reset ask
+                  offers it, or Invoke-ChatqCrashContinue continues it
       running / armed / due   a continue auto-continue queued: running, the
                   reset still ahead, or past it and waiting its turn - a
                   529's is due
@@ -321,9 +324,17 @@ function Get-ChatqAutoState {
     }
     $cutAt = if ($CutOff.At) { " at $(Format-ChatqAutoTime $CutOff.At $Now)" } else { '' }
     # a VS Code window's restart (Get-ChatRestartCutOffs): never continued by
-    # itself, whatever the switch or the chat says - the reset ask offers it
+    # itself, whatever the switch or the chat says - the reset ask offers it.
+    # Worded as VS Code's log has it: out of memory, a crash, or a restart.
     if ($CutOff.Why -eq 'restart') {
-        return (& $make 'restart' 'cut off - VS Code restarted' '' 'a VS Code window restarted under it - auto-continue never continues one by itself; the reset ask offers it' $null 'cut off - VS Code restarted')
+        $cause = [string](Get-ChatField $CutOff 'Cause')
+        $went = "cut off - $(Format-ChatRestartCause $cause)"
+        $how = switch ($cause) {
+            'oom' { 'VS Code ran out of memory while it worked' }
+            'crash' { 'VS Code crashed while it worked' }
+            default { 'a VS Code window restarted under it' }
+        }
+        return (& $make 'restart' $went '' "$how - auto-continue never continues one by itself; the reset ask offers it" $null $went)
     }
     # a continue auto-continue queued for it: running, or waiting
     $job = @($Jobs | Where-Object { $_ -and [string]$_.sessionId -eq $sid -and [string]$_.state -in 'queued', 'running' -and (Get-ChatField $_ 'auto') }) | Select-Object -First 1

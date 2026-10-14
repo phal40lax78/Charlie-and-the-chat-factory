@@ -8,6 +8,8 @@
 # any failure must leave the dialog exactly as it was.
 $ProgressPreference = 'SilentlyContinue'
 $env:CHATQ_OVERLAY = '1'
+# only the parts the hook reaches (the loader's CHATQ_ROLE)
+$env:CHATQ_ROLE = 'ask'
 # Windows PowerShell under a claude started from pwsh 7 inherits pwsh 7's
 # module path, and fails to autoload its own Security module - the secrets'
 # DPAPI, so no request is ever written. Its own path again, as phone.ps1 and

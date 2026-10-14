@@ -211,6 +211,7 @@ function Remove-ChatIndexRow {
     catch {}
 }
 
+# Deferred: DEFERRED.md "Copilot chats scoped by the folder's leaf name"
 function Test-ChatIndexRowCurrent {
     # Whether an unchanged file's row can be kept as it is. A Codex row from
     # before the index kept the chat's folder has only the leaf name, which

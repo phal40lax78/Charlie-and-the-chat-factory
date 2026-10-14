@@ -127,6 +127,24 @@ $jtc = Get-ChatqJobTurnText $jc
 Check 'a job''s last run from its own log: after its last init only; Codex''s lines as well' ((@($jt.Parts | ForEach-Object { "$($_.t):$($_.s)" }) -join '|') -eq 'text:run two|tool:Read C:\x.txt' -and
     (@($jtc.Parts | ForEach-Object { "$($_.t):$($_.s)" }) -join '|') -eq 'text:codex says|tool:ls -la') "$(@($jt.Parts | ForEach-Object { $_.s }) -join '|') / $(@($jtc.Parts | ForEach-Object { $_.s }) -join '|')"
 Remove-Item -LiteralPath (Join-Path $script:ChatqLogDir 'bdlogjob1.jsonl'), (Join-Path $script:ChatqLogDir 'bdlogjob2.jsonl') -Force -EA SilentlyContinue
+# a long run: its start 9 MB of tool output back, a reply longer than the
+# reader's 40 KB piece, a line over 1 MB, one ended \r\n
+$jb = [pscustomobject]@{ id = 'bdlogjob3'; provider = 'claude'; path = $null; sessionId = 'b16b16'; endedAt = $now.ToString('o') }
+$bdOut = 'x' * 900000
+$bdWide = 'w' * 50000
+& $bdJobLog $jb @(
+    '{"type":"system","subtype":"init","session_id":"s","model":"m","permissionMode":"default"}'
+    '{"type":"assistant","message":{"content":[{"type":"text","text":"begun"}]}}'
+    foreach ($i in 1..10) { '{"type":"user","message":{"content":[{"type":"tool_result","content":"' + $bdOut + '"}]}}' }
+    '{"type":"assistant","message":{"content":[{"type":"text","text":"' + ('y' * 1100000) + '"}]}}'
+    '{"type":"assistant","message":{"content":[{"type":"text","text":"' + $bdWide + '"}]}}' + "`r"
+    '{"type":"assistant","message":{"content":[{"type":"text","text":"ended"}]}}'
+)
+$jbt = Get-ChatqJobTurnText $jb -Max 100000
+$jbLen = (Get-Item -LiteralPath (Join-Path $script:ChatqLogDir 'bdlogjob3.jsonl')).Length
+Check 'a long run''s last turn from its start, past its log''s last 8 MB: the tool output and a line over 1 MB passed over, a reply longer than a piece kept whole' (
+    $jbLen -gt 9MB -and (@($jbt.Parts | ForEach-Object { $_.s }) -join '|') -eq "begun|$bdWide|ended" -and $jbt.Cut -eq 0) "$([math]::Round($jbLen / 1MB, 1)) MB: $(@($jbt.Parts | ForEach-Object { if ($_.s.Length -gt 20) { "$($_.s.Length) chars" } else { $_.s } }) -join '|')"
+Remove-Item -LiteralPath (Join-Path $script:ChatqLogDir 'bdlogjob3.jsonl') -Force -EA SilentlyContinue
 
 # --- a phone, paired by its key ------------------------------------------------------
 $bdD = New-ChatqRandomBytes 32

@@ -428,6 +428,7 @@ function Show-ChatOverlayMacNotice {
     catch { Write-ChatOverlayLog "notice: $($_.Exception.Message)" }
 }
 
+# Deferred: DEFERRED.md "A click on the macOS notification for the reset ask"
 function Update-ChatOverlayMacAsk {
     # After each pass: the ask the collector just found news of, and what an
     # answer from the menu did, as notifications - then both are cleared,
@@ -455,6 +456,8 @@ function Update-ChatOverlayMacAsk {
     }
 }
 
+# Deferred: DEFERRED.md "A close on macOS does not hold"
+# Deferred: DEFERRED.md "Recent on macOS"
 function Start-ChatOverlayMacHost {
     <#
     UNTESTED. The macOS overlay: this pwsh collects every 2 s and a JXA child

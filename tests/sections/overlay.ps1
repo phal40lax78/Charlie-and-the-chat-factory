@@ -158,6 +158,23 @@ Update-ChatOverlayText $cx14 $s14
 Update-ChatOverlayText $cx14 $s14
 Check 'and stays so as reopening the chat writes records with no time' (
     $cx14.Text[$idO14].ActiveAt -and [Math]::Abs($cx14.Text[$idO14].ActiveAt - $saidMs) -lt 1000) "$($cx14.Text[$idO14].ActiveAt) vs $saidMs"
+# a chat opened with nothing sent has no transcript yet: looked for again
+# every 30 s - and every 2 s once at work, as its first prompt writes one,
+# which the window's note of it waits on
+$idO15 = '0a0a0a0a-0a0a-40a0-80a0-0a0a0a0a0a15'
+$cx15 = New-ChatOverlayContext
+$s15 = [pscustomobject]@{ SessionId = $idO15; Cwd = $projO; Status = 'idle' }
+Update-ChatOverlayText $cx15 $s15
+$miss15 = $cx15.Missing.ContainsKey($idO15) -and -not $cx15.Text[$idO15].Path
+$null = New-OverlayChat $idO15 @((OvUser 'first prompt'), (OvLast 'first prompt'))
+$cx15.Missing[$idO15] = (Get-Date).AddSeconds(-3)
+Update-ChatOverlayText $cx15 $s15
+$idle15 = $cx15.Text[$idO15].Path
+$s15.Status = 'busy'
+Update-ChatOverlayText $cx15 $s15
+Check 'a chat with no transcript yet: looked for again every 30 s, and every 2 s once at work' (
+    $miss15 -and -not $idle15 -and $cx15.Text[$idO15].Path -and $cx15.Text[$idO15].Prompt -eq 'first prompt' -and -not $cx15.Missing.ContainsKey($idO15)) (
+    "$miss15 / $idle15 / $($cx15.Text[$idO15].Path) / $($cx15.Text[$idO15].Prompt)")
 $pO10 = New-OverlayChat '0a0a0a0a-0a0a-40a0-80a0-0a0a0a0a0a10' @((OvUser 'first'), (OvCommand 'model' 'opus[1m]'), (OvUser 'after the switch'), (OvReply), (OvLast 'after the switch'), (OvTitle 'Switched'), (OvTail))
 $r = Find-ChatTailRecords $pO10
 Check 'a prompt after a command wins, arguments read with the command' ($r.Prompt -eq 'after the switch' -and $r.After -and (Read-ClaudeSlashCommand (OvCommand 'model' 'opus[1m]')) -eq '/model opus[1m]') "$($r.Prompt) / $($r.After)"
@@ -3165,10 +3182,13 @@ Invoke-ChatConsoleSend `$H
 `$files = (@(Get-ChatqAttachments `$j | ForEach-Object Name | Sort-Object) -join ',')
 `$sent = [bool](`$j -and `$j.sendNow -and `$j.first -and `$j.sessionId -eq '$idCard' -and `$files -eq 'clip.png,console-drop.txt' -and `$C.Prompt.Text -eq '' -and -not `$C.Staged.Count -and
     -not @(Get-ChildItem -LiteralPath `$script:ChatConsoleDraftDir -EA SilentlyContinue).Count -and `$C.Status.Text -like 'queued #*')
-# an edit to the queued prompt outlives a redraw of the queue
+# an edit to the queued prompt outlives a redraw of the queue; and the log
+# of the job shown is the one kept, a job shown before dropped
 `$C.Sel = `$j.id
+`$C.LogCache = @{ 'shown-before' = @{ Len = 1; Entries = @() } }
 `$C.Sigs.Queue = `$null
 Update-ChatConsoleQueue `$H
+`$logKept = (@(`$C.LogCache.Keys) -join ',') -eq [string]`$j.id
 if (`$C.EditBox) { `$C.EditBox.Text = 'edited in place' }
 `$C.Sigs.Queue = `$null
 Update-ChatConsoleQueue `$H
@@ -3404,6 +3424,8 @@ foreach (`$v in 'collapse', 'lock', 'hide', 'unlock') {
 Enter-ChatOverlayConsoleMode `$H
 `$shownHidden = `$H.Mode -eq 'console' -and `$H.Win.IsVisible
 Exit-ChatOverlayConsoleMode `$H
+# what the next showing reads and draws again, let go as it closes
+`$dropOk = `$null -eq `$H.Con.Jobs -and -not @(`$H.Con.ChatItems).Count -and -not `$H.Con.Chats.Children.Count -and -not `$H.Con.Queue.Children.Count
 if ((& `$panelSays) -ne `$base) { `$script:roundBad += "hidden unlocked [`$base] [`$(& `$panelSays)]" }
 Invoke-ChatOverlayVerb 'show'
 & `$round 'unlocked'
@@ -3416,6 +3438,7 @@ Invoke-ChatOverlayVerb 'show'
 `$H.PendingWidth = [int]`$H.Ctx.Config.width
 `$H.PendingAt = Get-Date
 Enter-ChatOverlayConsoleMode `$H
+`$dropOk = `$dropOk -and `$null -ne `$H.Con.Jobs -and `$H.Con.Chats.Children.Count -and `$H.Con.Queue.Children.Count
 `$placeOk = `$null -eq `$H.PendingWidth -and `$H.State.x -eq `$pr[0] -and `$H.State.y -eq `$pr[1]
 `$H.PendingWidth = [int]`$H.Ctx.Config.width
 `$null = Get-ChatOverlayPending `$H
@@ -3455,10 +3478,10 @@ Invoke-ChatOverlayVerb 'stop'
 `$verbSay = "`$(`$verbSay -join ' ') `$shownHidden `$(`$H.Mode)"
 if (`$j -and (Find-ChatqJob `$j.id)) { `$null = Remove-ChatqJob `$j 'test' }
 `$modeSay = "was [`$was] esc [`$afterEsc] back [`$afterBack] close [`$afterClose] console ex `$ex rect `$(`$cr -join ',') again `$(`$again -join ',') panel `$(`$p0 -join ',') m11 `$m11 saved `$(`$st.w)x`$(`$st.h) view `$viewOk"
-'{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}|{9}|{10}|{11}|{12}|{13}|{14}|{15}|{16}|{17}|{18}|{19}|{20}|{21}|{22}|{23}|{24}|{25}|{26}|{27}|{28}|{29}|{30}|{31}|{32}|{33}|{34}|{35}|{36}|{37}|{38}|{39}|{40}|{41}' -f `$modeOk, `$kinds, `$searched, `$to, `$staged, `$sent, `$kept, `$saved, `$folderSaid, `$files, `$editKept, `$askHeld, `$removed, `$contOnce, `$codexOpts, `$codexSent, `$contSay, `$idxRead, `$idxSay,
+'{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}|{9}|{10}|{11}|{12}|{13}|{14}|{15}|{16}|{17}|{18}|{19}|{20}|{21}|{22}|{23}|{24}|{25}|{26}|{27}|{28}|{29}|{30}|{31}|{32}|{33}|{34}|{35}|{36}|{37}|{38}|{39}|{40}|{41}|{42}|{43}' -f `$modeOk, `$kinds, `$searched, `$to, `$staged, `$sent, `$kept, `$saved, `$folderSaid, `$files, `$editKept, `$askHeld, `$removed, `$contOnce, `$codexOpts, `$codexSent, `$contSay, `$idxRead, `$idxSay,
     `$viewOk, `$escOk, `$backOk, `$closeOk, `$verbsOk, `$sizeOk, `$verbSay, `$modeSay, `$rowsOk, `$pickOk, (`$rowSay -replace '\|', '/'), `$roundOk, `$placeOk, `$minOk,
     ("round [`$(`$script:roundBad -join ' / ')] place [`$placeSay] min [`$minSay]" -replace '\|', '/'), `$watchOk, `$watchSay, (`$dragOk -and `$lookOk), (`$lookSay -replace '\|', '/'),
-    `$runAsOk, `$openOk, `$maxOk, ("runAs [`$runAsSay] open [`$openSay] `$maxSay" -replace '\|', '/')
+    `$runAsOk, `$openOk, `$maxOk, ("runAs [`$runAsSay] open [`$openSay] `$maxSay" -replace '\|', '/'), `$logKept, `$dropOk
 "@
 $conOut = Invoke-Sta 'console-test' $con
 $cp = "$conOut" -split '\|'
@@ -3483,6 +3506,8 @@ Check 'Send makes the job chatq would - first, sent now, files moved in - and cl
 Check 'the console''s header moves the window from anywhere but its controls; its opacity is the panel''s, set from either and kept' ($cp.Count -gt 37 -and $cp[36] -eq 'True') "$($cp[37])"
 Check 'a theme switch keeps what is typed, in the console''s mode still; going back keeps the draft for next time' ($cp[6] -eq 'True' -and $cp[7] -eq 'True') "$conOut"
 Check 'a queued prompt being edited outlives a redraw of the queue' ($cp[10] -eq 'True') "$conOut"
+Check 'the console keeps the read log of the job it shows, and drops the one shown before' ($cp.Count -gt 42 -and $cp[42] -eq 'True') "$conOut"
+Check 'closed, the console lets go of its jobs, its chats'' and jobs'' rows - read and drawn again as it shows' ($cp.Count -gt 43 -and $cp[43] -eq 'True') "$conOut"
 Check 'Remove clicked: asks with sure? in red and says so, a double-click does not answer and says so, an ask 5 s old goes back to Remove, a second click 1.5 s on removes - timed by the clicks themselves' ($cp[11] -eq 'True' -and $cp[12] -eq 'True') "$conOut"
 Check 'a running Claude job: Watch in VS Code beside Cancel, through the chip''s own Show-ChatFresh child, one at a time' ($cp.Count -gt 35 -and $cp[34] -eq 'True') "$($cp[35])"
 Check 'Continue clicked twice queues one continue' ($cp[13] -eq 'True') "$($cp[16])"
@@ -3678,7 +3703,7 @@ Invoke-ChatOverlayVerb 'close'
 `$under = -not (Test-ChatOverlayUnderWay `$H)
 `$H.SizeDrag = @{ Edge = 'n' }
 `$under = `$under -and (Test-ChatOverlayUnderWay `$H)
-# and the heap compacted on the first pass past its time, then never again
+# and the heap collected on the first pass past its time, then 5 minutes on
 `$hcFn = `${function:Invoke-ChatOverlayHeapCompact}
 `$script:HcCalls = 0
 `${function:Invoke-ChatOverlayHeapCompact} = { `$script:HcCalls++ }
@@ -3702,7 +3727,19 @@ Invoke-ChatOverlayTick
 `$H.Tick = 1
 Invoke-ChatOverlayTick
 `$restarted = `$under -and `$H.Restart -and `$script:SdCalls -eq 4
-`$compact = `$compact -and `$script:HcCalls -eq 1 -and `$null -eq `$H.CompactAt
+`$next = `$H.CompactAt
+`$compact = `$compact -and `$script:HcCalls -eq 1 -and `$next -and (`$next - (Get-Date)).TotalMinutes -gt 4.9 -and (`$next - (Get-Date)).TotalMinutes -le 5
+# two passes more, a drag held so the changed code restarts nothing: not
+# before its time, then again once due
+`$H.SizeDrag = @{ Edge = 'n' }
+`$H.Tick = 1
+Invoke-ChatOverlayTick
+`$compact = `$compact -and `$script:HcCalls -eq 1
+`$H.CompactAt = (Get-Date).AddSeconds(-1)
+`$H.Tick = 1
+Invoke-ChatOverlayTick
+`$compact = `$compact -and `$script:HcCalls -eq 2 -and `$script:SdCalls -eq 4
+`$H.SizeDrag = `$null
 `${function:Invoke-ChatOverlayHeapCompact} = `$hcFn
 `${function:Get-ChatOverlayCodeStamp} = `$csFn
 `$H.Restart = `$false
@@ -3783,7 +3820,7 @@ Check 'the x: kept against this sign-in, said in a balloon, the panel gone at on
 Check 'full screen: the native call compiles and answers 0 to 7; busy, full screen and presentation hold the screen, nothing else does' ($lf.Count -gt 5 -and $lf[5] -eq 'True') "$lifeOut"
 Check 'the x''s 4 s: the panel''s verbs and other balloons dropped; the hotkey takes the close back, unkept; a restart is the stop, the close kept' ($lf.Count -gt 6 -and $lf[6] -eq 'True') "$lifeOut"
 Check 'the x''s 4 s: a chatoverlay typed after the last pass is read as they end, and takes the close back' ($lf.Count -gt 7 -and $lf[7] -eq 'True') "$lifeOut"
-Check 'the heap compacted by the first pass past its time, not before, and never again' ($lf.Count -gt 8 -and $lf[8] -eq 'True') "$lifeOut"
+Check 'the heap collected by the first pass past its time, not before, then by the first pass 5 minutes on and not before that' ($lf.Count -gt 8 -and $lf[8] -eq 'True') "$lifeOut"
 
 # The compaction itself, on a heap like the one a start leaves: big buffers
 # freed between ones still held, which a collection never moves. What was

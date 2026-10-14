@@ -629,8 +629,8 @@ async function openWith(sessionId, viewColumn, prompt) {
 // though: a lost tab is replaced only once it is the selected tab of its
 // group, 5 s (10 s on a first start) after that, and one whose chat is
 // still held elsewhere is tried again, while the window is focused, up to
-// every 60 s for as long as it is held. A reopen past restartHold is left
-// (FUTURE_WORK.md: "A tab Claude Code reopens late").
+// every 60 s for as long as it is held. A reopen past restartHold is left.
+// Deferred: DEFERRED.md "A tab Claude Code reopens late"
 function tabGrew(before) {
     const now = allTabs().filter(isClaudeTab);
     return now.length > before.length || now.some(t => !before.includes(t));
@@ -673,6 +673,7 @@ function noteHostStart(context) {
 // then, a lost tab in front being replaced 5-10 s after the start; one
 // behind others, or held elsewhere, can come later, and is not covered
 // (tabGrew).
+// Deferred: DEFERRED.md "A tab Claude Code reopens late"
 function restartHeld(now) {
     return (runClock.hostStart === 'restart' || runClock.hostStart === 'unknown') && runClock.activatedAt > 0 &&
         (now === undefined ? Date.now() : now) - runClock.activatedAt < timing.restartHold;
@@ -755,6 +756,7 @@ async function unlockClaudeGroup(title, before, how) {
 // same shortened label, so a tab with a twin among the Claude tabs is never
 // taken as sure: closing the wrong one would cut off the other chat, maybe
 // mid-answer.
+// Deferred: DEFERRED.md "Two chats whose titles share 24 characters"
 async function showTab(req) {
     // listed first, as any open is; one never listed is offered a terminal,
     // and one out of the list while it works is left for later
@@ -862,6 +864,7 @@ function entrypointIn(text, last) {
 // tail's last is an SDK's, which one line more mends; '' - it is listed.
 // Claude Code's other test, a daemon's sessionKind, is none of chatq's
 // doing and left out. Pure.
+// Deferred: DEFERRED.md "New chats Claude Code never lists"
 function unlistedWhy(head, tail) {
     const h = entrypointIn(head, false);
     if (h !== undefined) return SDK_ENTRYPOINTS.has(h) ? 'head' : '';
@@ -920,6 +923,7 @@ async function transcriptOf(req) {
 // opened: each would only make a blank tab. Where the transcript is not
 // found or not read, the open goes ahead as it would have. 'listed',
 // 'relisted', 'unlistable', 'held', 'unmended' or 'unknown'. Never throws.
+// Deferred: DEFERRED.md "New chats Claude Code never lists"
 async function ensureListed(req) {
     const sid = String(req.sessionId || '');
     let file, ht, why;
@@ -1210,6 +1214,7 @@ async function ultracodeIn(file) { return (await sessionSettingsIn(file)).ultrac
 // lost, or nothing is known. Only what the process the reopen replaces had
 // counts: start, where it is known better than processStart knows it - a
 // handover's, taken as it closed the tab. Never throws.
+// Deferred: DEFERRED.md "Ultracode and a session-only effort on a tab chatq opens again"
 async function lostByReopen(req, start) {
     let s = null;
     try {
@@ -1322,6 +1327,7 @@ function carryReaches() {
 // The hook in mod (carryIo.mod when none is named). True where it is in:
 // the module's spawn is the wrapper once set - a frozen module refuses
 // it. Never throws.
+// Deferred: DEFERRED.md "Ultracode and a session-only effort on a tab chatq opens again"
 function installSpawnHook(mod) {
     const m = mod || carryIo.mod;
     if (spawnHook) return spawnHook.mod === m;
@@ -1366,6 +1372,7 @@ function removeSpawnHook() {
 // is not looked at, so a claudeProcessWrapper in front of claude gets the
 // flags too. Added before a -- where there is one, which ends the flags.
 // Every launch of a chat is noted in launches, with what went in.
+// Deferred: DEFERRED.md "Ultracode and a session-only effort on a tab chatq opens again"
 function carryArgs(a) {
     const argv = a[1];
     if (!Array.isArray(argv)) return null;
@@ -1426,6 +1433,8 @@ function disarm(key, got) {
 // it's after a handover's, say - owns the word, and a nothing here would
 // say the carry missed while the newer launch takes it. wait: how long the
 // arm waits, timing.carryWait where none is given.
+// Deferred: DEFERRED.md "Ultracode and a session-only effort on a tab chatq opens again"
+// Deferred: DEFERRED.md "The self-test on a slow machine: what is left"
 function armCarry(sessionId, what, wait) {
     const none = { ultracode: false, effort: null };
     const key = String(sessionId || '').toLowerCase();
@@ -1521,6 +1530,7 @@ function claudeExe() {
 // a VS Code panel, a queued prompt - and a second process would fork it,
 // so none is started. 'terminal', 'not now', 'asked' or 'running'.
 const terminalOffers = new Set();
+// Deferred: DEFERRED.md "New chats Claude Code never lists"
 async function offerTerminal(req) {
     const sid = String(req.sessionId || '');
     if (terminalOffers.has(sid)) return 'asked';
@@ -1584,6 +1594,9 @@ async function openCore(req, before, why, viewColumn, prompt) {
 // held there gets a second panel and a second process. Held idle, that is said
 // once; held working, it is not opened at all, since the second process
 // would start mid-turn.
+// Deferred: DEFERRED.md "A chat in the side bar gets a second process as a tab"
+// Deferred: DEFERRED.md "Tabs opened before 0.8.1 stay without their header"
+// Deferred: DEFERRED.md "A chat whose label another chat has is refused until renamed"
 async function openTab(req) {
     const hp = hostPidsOf(req);
     const sid = (req.sessionId || '').slice(0, 8);
@@ -1713,6 +1726,7 @@ function askSay(req) {
 // now, and the same ask on the overlay (say: its line there, anyway: go
 // is Reload anyway). Resolves as the notice does, to what was picked; the
 // overlay's reload resolves it to go, its later leaves it to the notice.
+// Deferred: DEFERRED.md "A reload on the overlay: what it leaves out"
 function askReload(warn, msg, go, say) {
     const seq = ++askSeq;
     const id = process.pid + '-' + seq + '-' + Date.now().toString(36);
@@ -1836,6 +1850,7 @@ async function folderChats(home, dirs, over) {
 // read as labelShared reads them - PICK_READS at a time, newest first,
 // kept in titleCache - within timing.labelBudget: null when not all were
 // read by then. home: the Claude home, else this window's.
+// Deferred: DEFERRED.md "Tabs with no process: the ones a label cannot name"
 async function openTabChats(home) {
     const count = new Map();
     for (const t of allTabs()) {
@@ -1985,11 +2000,13 @@ function markShown(req) {
 
 // Every show goes through one chain per window, so two never interleave.
 let queue = Promise.resolve();
+// Deferred: DEFERRED.md "A chat whose label another chat has is refused until renamed"
 function enqueue(fn) {
     queue = queue.then(fn).catch(e => log('show failed: ' + (e && e.message)));
     return queue;
 }
 
+// Deferred: DEFERRED.md "A chat in the side bar gets a second process as a tab"
 async function perform(how, req) {
     log(req.kind + ' ' + (req.sessionId || '').slice(0, 8) + ': ' + how);
     switch (how) {
@@ -2198,6 +2215,8 @@ function workingNow(req) {
 // extension-host restart (restartHeld). 'reopened', 'watch' (a queued
 // prompt went into it meanwhile: its live view instead), 'new', 'stale',
 // 'working', 'running', or what ensureListed refused.
+// Deferred: DEFERRED.md "Tabs opened before 0.8.1 stay without their header"
+// Deferred: DEFERRED.md "Two chats whose titles share 24 characters"
 async function showLive(req, file) {
     const sid = (req.sessionId || '').slice(0, 8);
     const step = (s) => log('Show it ' + sid + ': ' + s);
@@ -2615,6 +2634,7 @@ function stillHandover(rs) {
 // then, a liveIdle stop may have ended its process first; said to wait, you
 // would type into a chat the run writes to. Late: nothing done, nothing
 // said - the run's own 'running' says the old view is stale (onBeside).
+// Deferred: DEFERRED.md "Two chats whose titles share 24 characters"
 async function onHandover(context, rs) {
     const say = s => log('handover ' + String(rs.sessionId || '').slice(0, 8) + ' (' + seqOf(rs) + '): ' + s);
     const answer = (a) => {
@@ -3411,6 +3431,7 @@ async function projectDir(home, folder) {
 
 // Every folder's transcripts - <GUID>.jsonl in its project folder, nothing
 // deeper - newest first by write time, the newest cap of them.
+// Deferred: DEFERRED.md "Recent and the picker read the transcripts, not the index"
 async function listChats(home, folders, cap) {
     const out = [], dirs = new Set();
     for (const f of folders || []) {
@@ -3521,6 +3542,7 @@ async function readSidecar(dir, sid) {
 // for what the Claude extension lists not: a side transcript, flagged on its
 // first line, and one of 64 KB or less that holds no message at all. null
 // when it cannot be read.
+// Deferred: DEFERRED.md "Recent and the picker read the transcripts, not the index"
 async function readChat(c) {
     let fh;
     try { fh = await fsp.open(c.file, 'r'); } catch (e) { return null; }
@@ -3589,6 +3611,9 @@ async function describeChat(c) {
 // a tab left, or a chat not opened, and said - and is logged. A chat of no
 // title shares nothing: no tab is taken for it anyway. home, the request's
 // Claude home, else this window's.
+// Deferred: DEFERRED.md "A chat in the side bar gets a second process as a tab"
+// Deferred: DEFERRED.md "Two chats whose titles share 24 characters"
+// Deferred: DEFERRED.md "A chat whose label another chat has is refused until renamed"
 async function labelShared(title, cwd, sid, home) {
     if (!title) return false;
     const want = claudeTabLabel(title);
@@ -3617,6 +3642,7 @@ async function labelShared(title, cwd, sid, home) {
 // catches most files a crash left behind for a pid handed on since. A pid
 // handed on since boot answers too: liveRegistry looks at the process
 // itself where it can (procFacts).
+// Deferred: DEFERRED.md "The picker's window, off Windows and by label"
 function entryLive(o, now) {
     const at = Number(o.startedAt);
     if (Number.isFinite(at) && at > 0) {
@@ -3695,6 +3721,7 @@ function parseProcs(text) {
 // waits for that one rather than start a second PowerShell.
 const procSeen = new Map();
 let procAsking = null;
+// Deferred: DEFERRED.md "The picker's window, off Windows and by label"
 async function procFacts(pids, now) {
     const out = new Map();
     const io = module.exports._procIo;
@@ -3758,6 +3785,7 @@ function startFits(o, f) {
 // there, '' where it cannot be told: not a VS Code panel, a start not read,
 // a parent of another name, or one that started after the process did -
 // its pid handed on since. Pure but for alive.
+// Deferred: DEFERRED.md "The picker's window, off Windows and by label"
 function whereOf(o, f) {
     if (o.entrypoint !== 'claude-vscode' || !(f.ppid > 0)) return '';
     if (!/^\d{17,}$/.test(f.start) || !/^\d{17,}$/.test(f.parentStart) || BigInt(f.parentStart) > BigInt(f.start)) return '';
@@ -3978,6 +4006,8 @@ async function openChat() {
 // after the question, which may sit unanswered for minutes, and again right
 // before the open, which may wait behind another show: what began to work
 // meanwhile is refused as it would have been at once.
+// Deferred: DEFERRED.md "A chat whose label another chat has is refused until renamed"
+// Deferred: DEFERRED.md "The picker's window, off Windows and by label"
 async function acceptChat(c) {
     const home = claudeHome();
     const d = await describeChat(c);

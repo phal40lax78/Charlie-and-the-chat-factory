@@ -1,5 +1,104 @@
 # Changelog
 
+## 0.10.8 — The chats a VS Code crash stops, found and named
+
+- **A VS Code window that runs out of memory or crashes no longer loses
+  its chats without a word.** Once it was open again nothing said which
+  chats had been at work, and they were gone from the overlay's list.
+  chatq knew what a window's chats were doing only when it looked right
+  before a reload it offered, so a window that went with no warning left
+  nothing to find. The Windows overlay now keeps that note itself, for
+  every window whose chats work, from what each pass reads anyway: each
+  chat at work, by its window's extension host, in `data/host-work/` -
+  written when what works there changes and every 10 minutes besides,
+  and only while that host runs. Once the window goes, the chats it cut
+  off mid-turn come back as orange rows and the ask, as a reload's did.
+  **Developer: Reload Window**, **Restart Extensions** and VS Code
+  updating itself are found the same way now.
+- **Every wording says why the window went:**
+  `VS Code ran out of memory`, `VS Code crashed`, or `VS Code restarted`,
+  from VS Code's own `main.log` - read, never written. The row
+  (`cut off - VS Code ran out of memory`), the ask, its balloon and the
+  phone say it, and so does the prompt that continues the chat. VS Code's
+  line for a window out of memory names no window and comes a few
+  seconds before that window's extension host goes, so chatq waits until
+  10 s after it, to see every window that went then - and 5 s more, as
+  VS Code writes its log later still when it is short of memory itself.
+  So a window's chats wait for the log to be sure - some 15 s for a
+  window out of memory, 30 s at most - and the balloon and the phone,
+  said once, say it right. A reload is sure as soon as the log has its
+  window's exit, a moment after it goes.
+- **The chats a crash cut off can be continued by themselves.** The
+  tray's new **Continue chats a VS Code crash cut off** - config
+  `autoContinueCrash`, off unless you turn it on - sends each its prompt
+  at once, with no ask. Only where the log said out of memory or crashed,
+  within 10 minutes of the window going, not to a chat you opened in a
+  terminal meanwhile - a run beside its `claude` would make two writers -
+  and not to one it continued in the last 2 hours: work that brings
+  VS Code down again would be sent back into it each time. A reload's,
+  and a window you closed, are still asked about.
+- **The overlay says when memory runs short,** on Windows. At 95% of
+  Windows' commit limit - memory and page file together - its first note
+  turns amber with the figures and the programs holding the most, and
+  the tray says it once in a balloon, not again within 15 minutes.
+  `overlay.memoryWarn` sets the percent; 0 turns it off.
+- **What it cannot tell:** a window you close yourself while its chats
+  work is offered too, as restarted - chatq cannot tell that close from
+  a reload. Two windows that go together may swap causes, and a window
+  closed within 10 s after another ran out of memory leaves both as
+  restarted: either may be the one that did. Should VS Code write one of
+  their exits more than 5 s late, one may read as out of memory - the
+  closed one, at worst. A log more than 30 s behind reads as restarted
+  too, as does a host that outlives its window's renderer by more than
+  10 s - 1.3 to 6 s in the three times seen. A portable VS Code's log is
+  not read: its windows read as restarted, after the full 30 s where an
+  installed VS Code's logs are there too. A window whose VS Code process
+  was ended waits the 30 s as well. A turn begun a few seconds before
+  its window went may not be noted, nor a workflow started by a turn
+  that ended a few seconds before it. The notes are Windows only, as the
+  extension's always were.
+- **The overlay cleans up its memory every 5 minutes.** .NET left the
+  overlay's garbage for 17 to 21 minutes at a time, and its memory rose
+  from about 250 MB to 290 before each clean-up brought it back. The
+  overlay now does it itself every 5 minutes after the first, 3 minutes
+  in: a pause of about 0.1 s each time, which its log notes.
+- **The console no longer keeps the log of every job you look at.** Each
+  job picked in its queue kept its read log, up to half a megabyte, for
+  as long as the overlay ran. Only the job on show keeps it now; going
+  back to one read before reads it again. Closed, the console also lets
+  go of its list of jobs and the rows it drew - under 1 MB here - and
+  reads them again as it opens.
+- **A queued run no longer reads up to 64 MB of its chat before it
+  starts.** To check the chat is still there and was not continued
+  meanwhile, the watcher also read the chat's permission mode and model,
+  looking back up to 64 MB in a long chat - a string of up to 128 MB at
+  once, on a PC that may be short of memory. It reads the last turn
+  alone now, which is all that check uses.
+- **The permission bridge and the ask hook load only what they use.**
+  Each loaded all 22 parts a shell does, and the bridge lives as long as
+  a queued run, up to 4 hours. The bridge now loads 9 and the hook 15: 87
+  and 90 MB where 102 were, ready in 0.25 and 0.3 s rather than 0.4. A
+  self-test check walks every command each one reaches, so a part one
+  needs is never left out.
+- **A question waiting on the phone no longer rereads its chat every 5
+  seconds.** The ask hook emptied what it had read before each look,
+  so each look read the last megabyte of the chat again - some 5 MB of
+  garbage every 5 seconds, for a file that does not change while the
+  question is up. A look now reads it again only once it has changed.
+- **The phone's whole answer starts where the run did.** It read the
+  last 8 MB of a run's log, and a run longer than that lost its start:
+  one of 10 MB here sent 52 of its 70 parts. The whole log is read now,
+  a piece at a time, and only the lines that make the answer become
+  text - the tool output fed back, most of a long run's bytes, is passed
+  over. Reading that 10 MB log took 19 MB at its peak, where the 8 MB
+  read took 23 and a whole read 57. The console's log view reads the
+  same way.
+- **A cut-off chat's title no longer loads the whole chat list.** To
+  name a chat the limit, a 529 or a VS Code restart cut off, the overlay
+  loaded the index of every chat - about 2 MB here, kept for as long as
+  it ran. It reads the title from that chat's own transcript now, as the
+  index does, once per chat.
+
 ## 0.10.7 — A chat only opened keeps its age
 
 - **Opening an old chat no longer makes it read as just used.** Opening

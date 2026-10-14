@@ -665,6 +665,7 @@ function Add-ChatqJobFiles {
     return [pscustomobject]@{ Error = $null; Files = $new }
 }
 
+# Deferred: DEFERRED.md "Run reply streamed into the console"
 function Get-ChatqLogEntries {
     <#
     What a run did, from data/logs/<id>.jsonl, as @{ Type; Text } in order:
@@ -672,24 +673,69 @@ function Get-ChatqLogEntries {
     the log's tail - a long run's stream runs to megabytes, and the console
     reads it on the window's thread. The user's own lines are skipped: they
     are the prompt, and tool output fed back.
+    The log is read in 40 KB pieces, and a line is made a string only when
+    it is kept: the user's lines - most of a long run's bytes - and lines
+    over 1 MB are passed over as bytes. Read whole, a 10 MB log was a 20 MB
+    string and its lines besides, on the large object heap.
     #>
     param($Job, [int]$MaxBytes = 0)
     $log = Join-Path $script:ChatqLogDir "$($Job.id).jsonl"
     if (-not (Test-Path -LiteralPath $log)) { return @() }
-    $lines = if ($MaxBytes -gt 0 -and (Get-Item -LiteralPath $log).Length -gt $MaxBytes) {
-        # the first line of a tail is cut in two
-        @((Read-ChatqTail $log $MaxBytes) -split "`n" | Select-Object -Skip 1)
-    }
+    $user = '{"type":"user"'
+    $utf8 = [System.Text.Encoding]::UTF8
+    $lines = [System.Collections.Generic.List[string]]::new()
     # not File.ReadLines: it shares only Read, and a running job's log is held
     # open for writing
-    else { try { @((Read-ChatAllText $log) -split '\r?\n') } catch { @() } }
+    $fs = try { Open-ChatRead $log } catch { return @() }
+    try {
+        $len = $fs.Length
+        $start = if ($MaxBytes -gt 0 -and $len -gt $MaxBytes) { $len - $MaxBytes } else { [int64]0 }
+        $cutFirst = $start -gt 0   # the first line of a tail is cut in two
+        $buf = [byte[]]::new(40KB)
+        $at = $start       # where in the file $buf starts
+        $lineAt = $start   # where the line being read starts
+        $take = {
+            # the line from $lineAt to -End, kept as a string or passed over
+            param([int64]$End)
+            $n = $End - $lineAt
+            if ($cutFirst -or $n -le 0 -or $n -gt 1MB) { return }
+            if ($lineAt -ge $at) {
+                $off = [int]($lineAt - $at)
+                if ($n -ge $user.Length -and $utf8.GetString($buf, $off, $user.Length) -eq $user) { return }
+                $lines.Add($utf8.GetString($buf, $off, [int]$n))
+                return
+            }
+            # begun in an earlier piece: read again from its start
+            $back = $fs.Position
+            try {
+                if ($n -ge $user.Length -and (Read-ChatTextAt $fs $lineAt $user.Length) -eq $user) { return }
+                $lines.Add((Read-ChatTextAt $fs $lineAt ([int]$n)))
+            }
+            finally { $null = $fs.Seek($back, [System.IO.SeekOrigin]::Begin) }
+        }
+        $null = $fs.Seek($start, [System.IO.SeekOrigin]::Begin)
+        while (($got = $fs.Read($buf, 0, $buf.Length)) -gt 0) {
+            # a byte order mark, as Read-ChatAllText's StreamReader dropped it
+            if ($at -eq 0 -and $got -ge 3 -and $buf[0] -eq 0xEF -and $buf[1] -eq 0xBB -and $buf[2] -eq 0xBF) { $lineAt = 3 }
+            $i = 0
+            while ($i -lt $got -and ($nl = [Array]::IndexOf($buf, [byte]10, $i, $got - $i)) -ge 0) {
+                . $take ($at + $nl)
+                $cutFirst = $false
+                $lineAt = $at + $nl + 1
+                $i = $nl + 1
+            }
+            $at += $got
+        }
+        # the last line, its newline not yet written
+        if ($lineAt -lt $at) { . $take $at }
+    }
+    catch { }
+    finally { $fs.Dispose() }
     $d = $script:ChatqDot
     $out = [System.Collections.Generic.List[object]]::new()
     $add = { param($t, $x) $out.Add([pscustomobject]@{ Type = $t; Text = [string]$x }) }
     foreach ($line in $lines) {
-        if (-not $line -or $line.Length -gt 1048576) { continue }
-        if ($line.StartsWith('{"type":"user"')) { continue }
-        $o = try { $line | ConvertFrom-Json } catch { continue }
+        $o = try { $line.TrimEnd([char]13) | ConvertFrom-Json } catch { continue }
         switch ($o.type) {
             'system' {
                 if ($o.subtype -eq 'init') { & $add 'init' "session $($o.session_id) $d $($o.model) $d $($o.permissionMode) $d Claude Code $($o.claude_code_version)" }

@@ -541,6 +541,7 @@ function Test-ChatqHandoverOn {
     return ((Get-ChatField $Cfg 'handover') -ne $false)
 }
 
+# Deferred: DEFERRED.md "A `claude -p` that is not chatq's"
 function Invoke-ChatqHandover {
     <#
     The run takes the tab's place. A VS Code window's tab shows the chat on
@@ -678,7 +679,11 @@ function Invoke-ChatqJob {
     # deleted since: starting it afresh would make a chat that says only
     # "continue".
     if ($Job.provider -eq 'claude' -and (-not $fresh -or $sendsContinue)) {
-        $meta = if ($fresh) { [pscustomobject]@{ Exists = $false } } else { Get-ChatqClaudeMeta $Job.path $Job.group }
+        # Whether it is there and its last turn, nothing more: the mode and
+        # model Get-ChatqClaudeMeta also reads walk back up to 64 MB of a
+        # long chat, a 128 MB string at the worst, for nothing used here.
+        $exists = -not $fresh -and $Job.path -and (Test-Path -LiteralPath $Job.path)
+        $meta = [pscustomobject]@{ Exists = [bool]$exists; LastTurn = $(if ($exists) { Get-ChatqLastTurn $Job.path }) }
         # a chat deleted or archived since auto-continue queued it: never
         # your job, so no failed alert - only the log says so
         if (-not $meta.Exists -and (Get-ChatField $Job 'auto')) {

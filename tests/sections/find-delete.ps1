@@ -226,6 +226,99 @@ $gtOverlay = & $gtLoad "`$env:CHATQ_OVERLAY = '1'"
 $gtAll = & $gtLoad "`$env:CHATQ_ALLPARTS = '1'"
 Check 'a shell''s load: the panel''s, the console''s and the Mac''s parts left out, chatoverlay, chatconsole and the console''s folders kept - with CHATQ_OVERLAY too, but for stand-ins of the two hosts; CHATQ_ALLPARTS loads them all' (
     $gtPlain -eq '00001111|True' -and $gtOverlay -eq '10101111|True' -and $gtAll -eq '11111111|True') "$gtPlain $gtOverlay $gtAll"
+# A role's load - the permission bridge's, the question hook's - is the
+# parts its entry reaches: every function it calls, on through theirs, and
+# every part whose top level sets a variable one of them reads but never
+# sets itself, and what those parts' own top levels call and read. A list
+# in the loader that misses one fails here; the bridge and the hook the
+# other sections start load by these lists for real.
+$grRoles = @{}
+foreach ($kv in $gtRoot.Find({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -eq '$chatRoles' }, $true).Right.Find(
+        { param($n) $n -is [System.Management.Automation.Language.HashtableAst] }, $true).KeyValuePairs) {
+    $grRoles[$kv.Item1.Value] = @($kv.Item2.FindAll({ param($n) $n -is [System.Management.Automation.Language.StringConstantExpressionAst] }, $true) | ForEach-Object { $_.Value })
+}
+$grFn = @{}; $grFnPart = @{}; $grVarPart = @{}; $grTop = @{}
+foreach ($p in $gtParts) {
+    foreach ($f in $gtAst[$p].FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)) { if (-not $grFn.ContainsKey($f.Name)) { $grFn[$f.Name] = $f; $grFnPart[$f.Name] = $p } }
+    $grTop[$p] = @($gtAst[$p].EndBlock.Statements | Where-Object { $_ -isnot [System.Management.Automation.Language.FunctionDefinitionAst] })
+    foreach ($a in @($grTop[$p] | ForEach-Object { $_.FindAll({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] }, $true) })) {
+        $l = $a.Left; if ($l -is [System.Management.Automation.Language.ConvertExpressionAst]) { $l = $l.Child }
+        if ($l -is [System.Management.Automation.Language.VariableExpressionAst]) { $n = $l.VariablePath.UserPath -replace '^script:', ''; if (-not $grVarPart.ContainsKey($n)) { $grVarPart[$n] = $p } }
+    }
+}
+# what a piece of code calls and reads: commands by name, ${function:...},
+# a function's name in a string, and variables it does not set itself
+$grRefs = {
+    param($asts)
+    $cmds = @{}; $vars = @{}
+    foreach ($x in $asts) {
+        $own = @{}
+        foreach ($a in $x.FindAll({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] }, $true)) {
+            $l = $a.Left; if ($l -is [System.Management.Automation.Language.ConvertExpressionAst]) { $l = $l.Child }
+            if ($l -is [System.Management.Automation.Language.VariableExpressionAst] -and $l.VariablePath.UserPath -notlike '*:*') { $own[$l.VariablePath.UserPath] = 1 }
+        }
+        foreach ($a in $x.FindAll({ param($n) $n -is [System.Management.Automation.Language.ForEachStatementAst] }, $true)) { $own[$a.Variable.VariablePath.UserPath] = 1 }
+        foreach ($a in $x.FindAll({ param($n) $n -is [System.Management.Automation.Language.ParameterAst] }, $true)) { $own[$a.Name.VariablePath.UserPath] = 1 }
+        foreach ($c in $x.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true)) { $n = $c.GetCommandName(); if ($n) { $cmds[$n] = 1 } }
+        foreach ($v in $x.FindAll({ param($n) $n -is [System.Management.Automation.Language.VariableExpressionAst] }, $true)) {
+            $up = $v.VariablePath.UserPath
+            if ($up -like 'function:*') { $cmds[$up.Substring(9)] = 1 }
+            elseif ($up -like 'script:*' -or $up -like 'global:*') { $vars[$up.Substring($up.IndexOf(':') + 1)] = 1 }
+            elseif ($up -notlike '*:*' -and -not $own.ContainsKey($up)) { $vars[$up] = 1 }
+        }
+        foreach ($t in $x.FindAll({ param($n) $n -is [System.Management.Automation.Language.StringConstantExpressionAst] }, $true)) {
+            foreach ($m in [regex]::Matches($t.Value, '\b[A-Z][a-z]+-Chat[A-Za-z]+\b')) { $cmds[$m.Value] = 1 }
+        }
+    }
+    @{ Cmds = @($cmds.Keys); Vars = @($vars.Keys) }
+}
+$grReach = {
+    param([string]$Entry)
+    $fns = @{}; $parts = @{ core = 1 }; $done = @{}; $todo = [System.Collections.Generic.Queue[string]]::new(); $todo.Enqueue($Entry)
+    while ($true) {
+        while ($todo.Count) {
+            $n = $todo.Dequeue()
+            if ($fns.ContainsKey($n) -or -not $grFn.ContainsKey($n)) { continue }
+            $fns[$n] = 1; $parts[$grFnPart[$n]] = 1
+            $r = & $grRefs @($grFn[$n])
+            foreach ($c in $r.Cmds) { $todo.Enqueue($c) }
+            foreach ($v in $r.Vars) { if ($grVarPart.ContainsKey($v)) { $parts[$grVarPart[$v]] = 1 } }
+        }
+        $new = @($parts.Keys | Where-Object { -not $done.ContainsKey($_) })
+        if (-not $new) { break }
+        foreach ($p in $new) {
+            $done[$p] = 1
+            $r = & $grRefs $grTop[$p]
+            foreach ($c in $r.Cmds) { $todo.Enqueue($c) }
+            foreach ($v in $r.Vars) { if ($grVarPart.ContainsKey($v)) { $parts[$grVarPart[$v]] = 1 } }
+        }
+    }
+    @($gtParts | Where-Object { $parts.ContainsKey($_) })
+}
+$grPermit = & $grReach 'Start-ChatqPermitBridge'
+$grAsk = & $grReach 'Start-ChatqAskHook'
+$grMiss = @(@($grPermit | Where-Object { $_ -notin $grRoles['permit'] } | ForEach-Object { "permit:$_" }) + @($grAsk | Where-Object { $_ -notin $grRoles['ask'] } | ForEach-Object { "ask:$_" }))
+Check 'the bridge''s and the hook''s parts: each list in the loader holds every part its entry reaches, by the functions it calls and the top-level variables it reads' (
+    -not $grMiss.Count -and $grPermit.Count -ge 5 -and $grAsk.Count -ge 5 -and $grRoles['permit'] -contains 'permit' -and $grRoles['ask'] -contains 'ask') "missing $($grMiss -join ',') / reached permit $($grPermit -join ',') / ask $($grAsk -join ',')"
+# and a load by a role, in a process of its own: its parts and no others,
+# CHATQ_ROLE gone once read - even with CHATQ_ALLPARTS set, as the tests
+# have it - and a role it does not know loads as a shell does
+$grLoad = {
+    param([string]$Set)
+    Invoke-Sta 'role-load' @"
+Remove-Item env:CHATQ_OVERLAY, env:CHATQ_ALLPARTS, env:CHATQ_ROLE -EA SilentlyContinue
+`$env:CHATQ_OVERLAY = '1'
+$Set
+. '$(Join-Path $sb 'tool\Charlie-and-the-chat-factory.ps1')'
+((@('Start-ChatqPermitBridge', 'Start-ChatqAskHook', 'Get-ChatqDownSettings', 'Invoke-ChatqJob', 'chatq', 'Get-ChatHostWork') | ForEach-Object { [int][bool](Get-Command `$_ -CommandType Function -EA SilentlyContinue) }) -join '') + '|' + [bool]`$env:CHATQ_ROLE
+"@
+}
+$grP = & $grLoad "`$env:CHATQ_ALLPARTS = '1'; `$env:CHATQ_ROLE = 'permit'"
+$grA = & $grLoad "`$env:CHATQ_ROLE = 'ask'"
+$grX = & $grLoad "`$env:CHATQ_ROLE = 'nosuch'"
+Check 'a role''s load: the bridge''s parts alone, CHATQ_ALLPARTS or not, the hook''s alone, CHATQ_ROLE dropped once read, and a role not known loads as a shell' (
+    $grP -eq '101000|False' -and $grA -eq '111100|False' -and $grX -eq '111111|False') "$grP $grA $grX"
+
 # A copy from before the gate - an overlay restarting itself onto this one,
 # a terminal opened before it - starts the overlay, and the phone setup's
 # window, with CHATQ_OVERLAY alone and calls them by name: each is started

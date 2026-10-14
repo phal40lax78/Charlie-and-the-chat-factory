@@ -561,6 +561,7 @@ function Get-ChatqAskClaudeHome {
     return (Join-Path $HOME '.claude')
 }
 
+# Deferred: DEFERRED.md "A mode switched at the PC while a question waits"
 function Test-ChatqAskGates {
     <#
     Whether the phone may answer this question (spec 5.1), in order, the
@@ -592,6 +593,7 @@ function Test-ChatqAskGates {
     return $r
 }
 
+# Deferred: DEFERRED.md "A lighter launcher for the ask hook"
 function Start-ChatqAskHook {
     <#
     The PermissionRequest hook, matcher AskUserQuestion (src/ask-hook.ps1
@@ -652,11 +654,15 @@ function Start-ChatqAskHook {
         if (-not $tp) { $tp = $given }
         $mine = @{ Rid = $rid; Digest = $digest; Questions = $questions; At = $now; Until = $until; Session = $sid; Raw = $qRaw }
         $step = ($env:CHATQ_ASK_STEP_MS -as [int]); if (-not $step -or $step -lt 20) { $step = 1000 }
-        # its own call in the transcript: it may land just after the hook starts
+        # its own call in the transcript: it may land just after the hook
+        # starts. Get-ChatqPendingAsk's cache reads the file again once it
+        # grows - a call, an answer and a prompt are each appended - so a
+        # look at a file that did not change reads nothing: emptied before
+        # each look, every one read the last megabyte again and split it
+        # into lines, every 5 s for as long as the question waited.
         $toolUseId = $null
         $findUntil = (Get-Date).AddSeconds(10)
         while ($true) {
-            $script:ChatqAskCache = @{}
             $p = Get-ChatqPendingAsk $tp
             if ($p -and (Test-ChatqAskSame $p.Questions $questions)) { $toolUseId = [string]$p.ToolUseId; break }
             if ((Get-Date) -ge $findUntil) { break }
@@ -683,7 +689,7 @@ function Start-ChatqAskHook {
                         # the mode is the one stdin gave as the question came:
                         # nothing written while it waits says the mode (the
                         # transcript has it on typed prompts only), so a change
-                        # at the PC meanwhile is not seen (FUTURE_WORK)
+                        # at the PC meanwhile is not seen (DEFERRED.md)
                         Write-ChatqAskStdout (New-ChatqAskDecision $qRaw $chk.Answers)
                         Set-ChatqAskState $req 'answered' @{ answeredAt = (Get-ChatqStamp) }
                         Write-ChatqAskLog "hook $rid - answered from the phone"
@@ -699,7 +705,6 @@ function Start-ChatqAskHook {
                 $lastLook = $t
                 $alive = Get-Process -Id ([int]$entry.Pid) -EA SilentlyContinue
                 if (-not $alive -or -not (Test-ChatqClaudeProcess $alive $entry.ProcStart)) { Set-ChatqAskState $req 'gone'; Write-ChatqAskLog "hook $rid - claude is gone"; return 'gone' }
-                $script:ChatqAskCache = @{}
                 $p = Get-ChatqPendingAsk $tp
                 $still = if ($toolUseId) { [bool]($p -and [string]$p.ToolUseId -eq $toolUseId) } else { [bool]($p -and (Test-ChatqAskSame $p.Questions $questions)) }
                 if (-not $still) { Set-ChatqAskState $req 'pc'; Write-ChatqAskLog "hook $rid - answered at the PC"; return 'pc' }
@@ -868,6 +873,7 @@ function Test-ChatqAskLanded {
 
 function Get-ChatqAskPluginDir { Join-Path $script:ChatqData 'claude-plugin' }
 
+# Deferred: DEFERRED.md "The Windows PowerShell path built in eight places"
 function Get-ChatqAskHookCommand {
     # the command the plugin runs: Windows PowerShell and the launcher,
     # absolute, forward slashes, double quotes

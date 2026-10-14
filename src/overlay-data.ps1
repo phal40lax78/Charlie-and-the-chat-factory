@@ -78,6 +78,11 @@ $script:ChatOverlayFullScreenSeam = $null
 # test run sets - refuses the real calls, and keeps their type uncompiled.
 $script:ChatOverlayRaiseSeam = $null
 $script:ChatOverlayGrantSeam = $null
+# tests: stand-ins for Windows' commit figures, @{ Limit; Free } in bytes
+# or $null (Get-ChatMemoryCommit), and for the programs holding the most
+# memory (Get-ChatMemoryTop)
+$script:ChatMemorySeam = $null
+$script:ChatMemoryTopSeam = $null
 
 function Get-ChatOverlayConfig {
     # config.json -> overlay, with the defaults filled in and every number
@@ -128,6 +133,14 @@ function Get-ChatOverlayConfig {
         # automatic mode exists. Set-ChatOverlayConfig never writes it;
         # Set-ChatqAutoContinue does.
         autoContinue = (Get-ChatqAutoContinue $Cfg)
+        # the chats VS Code's running out of memory or crashing cut off,
+        # continued by themselves (Invoke-ChatqCrashContinue): off unless
+        # chosen. Top level too; Set-ChatqAutoContinueCrash writes it.
+        autoContinueCrash = (Get-ChatqAutoContinueCrash $Cfg)
+        # Windows' memory - RAM and the page file - this much used, in
+        # percent, says so on the panel and in the tray; 0 is never
+        # (Update-ChatOverlayMemory)
+        memoryWarn   = [int](& $clamp ([int](& $get 'memoryWarn' 95)) 0 99)
     }
 }
 
@@ -177,6 +190,7 @@ function Save-ChatOverlayState {
     try { Save-ChatqJson $script:ChatOverlayStatePath $State } catch {}
 }
 
+# Deferred: DEFERRED.md "A close on macOS does not hold"
 function Get-ChatqSignInAt {
     <#
     When this sign-in to Windows began, in epoch milliseconds: the start of
@@ -227,6 +241,7 @@ function Clear-ChatOverlayClosed {
     Save-ChatOverlayState $State
 }
 
+# Deferred: DEFERRED.md "A close on macOS does not hold"
 function Test-ChatOverlayClosedByHand {
     # closed by hand during this sign-in: one from a sign-in before, or where
     # this one cannot be told, holds nothing
@@ -610,6 +625,7 @@ function Complete-ChatqUsageFetch {
     return $res
 }
 
+# Deferred: DEFERRED.md "Usage heads-ups without the overlay"
 function Read-ChatqClaudeUsageCache {
     # what Claude Code last cached of the usage endpoint's answer, and when
     # (Read-ChatqCachedUtilization: only that block of .claude.json is read)
@@ -631,6 +647,7 @@ function Read-ChatqCodexUsage {
     return [pscustomobject]@{ Windows = $s.Limits; At = $(if ($s.At) { $s.At } else { $s.File.LastWriteTime }) }
 }
 
+# Deferred: DEFERRED.md "Codex's plan on the panel"
 function ConvertTo-ChatOverlayUsage {
     # one provider's usage as the snapshot carries it: epoch ms, whole
     # percents, the server's colour for a row or a local one where there is
@@ -1212,6 +1229,7 @@ function Find-ChatOverlayTranscript {
     return $null
 }
 
+# Deferred: DEFERRED.md "A pass allocates some 20 MB a second"
 function Update-ChatOverlayText {
     <#
     The title, newest prompt and mode of one open chat, kept in $Ctx.Text by
@@ -1223,7 +1241,9 @@ function Update-ChatOverlayText {
     until a user or assistant record comes after it, and a command is
     matched against the newest last-prompt seen. One that shrank was
     rewritten, and is read afresh. A chat with no transcript yet (opened,
-    nothing sent) is looked for again every 30 s.
+    nothing sent) is looked for again every 30 s - every 2 s once it is at
+    work, as its first prompt writes one: the window's note of it
+    (Update-ChatHostWorkNotes) needs the path.
     #>
     param($Ctx, $Session)
     $sid = $Session.SessionId
@@ -1235,7 +1255,8 @@ function Update-ChatOverlayText {
     }
     if (-not $st.Path -or -not (Test-Path -LiteralPath $st.Path)) {
         $miss = $Ctx.Missing[$sid]
-        if ($miss -and ((Get-Date) - $miss).TotalSeconds -lt 30) { return }
+        $every = if ($Session.Status -in 'busy', 'waiting') { 2 } else { 30 }
+        if ($miss -and ((Get-Date) - $miss).TotalSeconds -lt $every) { return }
         $st.Path = Find-ChatOverlayTranscript $Ctx.ClaudeHome $Session.Cwd $sid
         $st.Len = -1
         if (-not $st.Path) { $Ctx.Missing[$sid] = Get-Date; return }
@@ -1294,6 +1315,7 @@ function Update-ChatOverlayText {
     }
 }
 
+# Deferred: DEFERRED.md "Background work on the overlay: what it leaves out"
 function Update-ChatOverlayBackground {
     <#
     The workflows, background agents and background shells each open chat
@@ -1445,6 +1467,8 @@ $script:ChatShellChildTtlSeconds = 3
 # under it, or $null
 $script:ChatShellChildSeam = $null
 
+# Deferred: DEFERRED.md "Background shells and "safe to reload""
+# Deferred: DEFERRED.md "The self-test on a slow machine: what is left"
 function Get-ChatShellChildCount {
     <#
     How many shells run straight under these chat processes (-Pids): Claude
@@ -1683,6 +1707,7 @@ function Get-ChatProcessTable {
     return $t
 }
 
+# Deferred: DEFERRED.md "The unread dot lives in the overlay's memory"
 function Get-ChatOverlayProcessChain {
     <#
     A chat process's pid, then its parents' - up to five - as far as they
@@ -1748,6 +1773,7 @@ function Get-ChatOverlayProcessChain {
     return $Ctx.Chains[$key]
 }
 
+# Deferred: DEFERRED.md "The unread dot lives in the overlay's memory"
 function Test-ChatOverlayInFront {
     <#
     Whether one of a chat's processes (-Entries, its registry entries) sits
@@ -1766,6 +1792,7 @@ function Test-ChatOverlayInFront {
     return $false
 }
 
+# Deferred: DEFERRED.md "The unread dot lives in the overlay's memory"
 function Update-ChatOverlayUnread {
     <#
     Which chats finished a turn while you were elsewhere, since you last
@@ -1821,6 +1848,7 @@ function Update-ChatOverlayUnread {
 $script:ChatOverlayRecentReads = 0
 $script:ChatOverlayRecentLists = 0
 
+# Deferred: DEFERRED.md "Recent and the picker read the transcripts, not the index"
 function Read-ChatOverlayRecentItem {
     <#
     What the Recent list needs of one transcript, or $null for one it leaves
@@ -1900,6 +1928,8 @@ function Split-ChatOverlayRecent {
     $Ctx.RecentMore = @($all | Select-Object -Skip ([Math]::Max(0, $Count)))
 }
 
+# Deferred: DEFERRED.md "Recent and the picker read the transcripts, not the index"
+# Deferred: DEFERRED.md "Codex chats on the phone board"
 function Update-ChatOverlayRecent {
     <#
     The Recent list in $Ctx.Recent: the newest Claude chats not open, for
@@ -2035,12 +2065,14 @@ function Update-ChatOverlayRecent {
 
 function Format-ChatOverlayCutOff {
     # what a chat the limit, a 529 or a VS Code window's restart stopped is
-    # waiting on. -Auto: its auto-continue state (Get-ChatqAutoState), whose
-    # short words say it
+    # waiting on - the restart said as what it was, running out of memory
+    # or a crash where VS Code's log said so (Format-ChatRestartCause).
+    # -Auto: its auto-continue state (Get-ChatqAutoState), whose short
+    # words say it
     param($CutOff, [datetime]$Now = (Get-Date), $Auto)
     if ($Auto -and $Auto.Words) { return [string]$Auto.Words }
     if ($CutOff.Why -eq 'overloaded') { return '529 - waits for Claude' }
-    if ($CutOff.Why -eq 'restart') { return 'cut off - VS Code restarted' }
+    if ($CutOff.Why -eq 'restart') { return "cut off - $(Format-ChatRestartCause ([string](Get-ChatField $CutOff 'Cause')))" }
     $at = Format-ChatOverlayResetAt (ConvertTo-ChatOverlayMs $CutOff.ResetsAt) $Now
     if ($at) { return "cut off - resets $at" }
     return 'cut off - limit over'
@@ -2429,6 +2461,9 @@ function Get-ChatOverlayNotes {
     # once. Only a Claude figure with no line at all to carry it is said here.
     param($Header)
     $out = [System.Collections.Generic.List[object]]::new()
+    # memory running out, first: VS Code's windows die of it (Update-ChatOverlayMemory)
+    $mem = Get-ChatField $Header 'memory'
+    if ($mem) { $out.Add([pscustomobject]@{ text = (Format-ChatOverlayMemoryText $mem); tone = 'warn'; kind = 'memory' }) }
     $cl = @($Header.usage | Where-Object { $_ -and $_.provider -eq 'Claude' })[0]
     if (-not $cl -and $Header.usageWhy) { $out.Add([pscustomobject]@{ text = "usage: $($Header.usageWhy)"; tone = 'dim' }) }
     if ($Header.watcher -eq 'stopped') { $out.Add([pscustomobject]@{ text = 'prompts queued, watcher stopped - chatqrun starts it'; tone = 'warn' }) }
@@ -2483,7 +2518,8 @@ function New-ChatOverlayContext {
         # answer, why the last one failed, how many in a row, and the wait
         CodexFetch = $null; CodexLive = $null; CodexWhy = $null; CodexFails = 0; CodexTriedAt = $null; CodexHoldUntil = $never
         Commands = [System.Collections.Generic.List[object]]::new(); CommandId = 0
-        CutOff = @(); CutCache = @{}; CutAt = $never; CutSig = $null
+        # CutAgain: a cut-off look due before CutAt's minute is up
+        CutOff = @(); CutCache = @{}; CutAt = $never; CutAgain = $null; CutSig = $null
         # The reset ask: CutScan is the whole cut-off look, which CutOff (the
         # orange rows) is a part of; Ask what Get-ChatqResetAsk found this
         # pass; AskState the answered cut-offs and AskShown the announced
@@ -2494,8 +2530,15 @@ function New-ChatOverlayContext {
         # in the snapshot last saved, which the macOS menu showed.
         CutScan = @(); Ask = $null; AskState = $null; AskShown = $null; WantAsk = $false
         # the chats a VS Code window's restart cut off (Get-ChatRestartCutOffs),
-        # looked for with the cut-off look, and what their transcripts said
-        RestartScan = @(); RestartCache = @{}
+        # looked for with the cut-off look, and what their transcripts said;
+        # and the notes of what each window's chats are doing that the
+        # Windows host's passes keep for it (Update-ChatHostWorkNotes)
+        RestartScan = @(); RestartCache = @{}; HostWork = $null
+        # Windows' memory (Update-ChatOverlayMemory): what it was while low
+        # ($null while not), when it was last looked at, when the programs
+        # holding the most were; going low for the host to say, whether
+        # this time low was said, and when it last was
+        MemLow = $null; MemAt = $null; MemTopAt = $null; MemNews = $null; MemSaid = $false; MemToldAt = $null
         AskNews = $null; AskSaid = $null; AskPhone = @{}; AskSavedKeys = @()
         # the Recent list (Update-ChatOverlayRecent) - built only for a reader
         # that draws it (WantRecent) - and which chats finished a turn unseen,
@@ -2529,6 +2572,7 @@ function New-ChatOverlayContext {
     }
 }
 
+# Deferred: DEFERRED.md "A `claude -p` that is not chatq's"
 function Invoke-ChatOverlayCycle {
     <#
     One pass of the collector: what runs, what each chat said last, the queue
@@ -2604,7 +2648,7 @@ function Invoke-ChatOverlayCycle {
     # interactive only: a print-mode run of another kind is left out. One
     # Claude Code 2.1.283 registers as interactive, stamped sdk-*, is kept -
     # its row says run (Get-ChatOverlayWhere) - so a queued run may show
-    # beside its job's row (FUTURE_WORK.md, A claude -p that is not chatq's)
+    # beside its job's row (DEFERRED.md, A claude -p that is not chatq's)
     $live = @($alive | Where-Object { -not $_.Kind -or $_.Kind -eq 'interactive' })
 
     # what each said last - the ones working first, then the newest
@@ -2684,6 +2728,12 @@ function Invoke-ChatOverlayCycle {
     $jobs = @($Ctx.Jobs | ForEach-Object { $_.Job })
     $eta = if ($jobs) { Get-ChatqEta $jobs $Ctx.Blocks } else { @{} }
 
+    # what each VS Code window's chats are doing, noted by the window's
+    # extension host, so a window that goes down with no look before it
+    # still leaves its cut-offs (src/host-work.ps1) - the Windows host's
+    # own passes alone: the hosts come from Windows' process list
+    if ($script:ChatqIsWindows -and $Ctx.WantAsk -and -not $Peek) { Update-ChatHostWorkNotes $Ctx $live $alive $bg $jobs $now }
+
     # usage
     $busy = [bool](@($live | Where-Object { $_.Status -in 'busy', 'waiting' }).Count -or @($jobs | Where-Object { $_.state -eq 'running' }).Count)
     # the live chats above are Claude's alone: Codex's own at work is a job
@@ -2693,6 +2743,20 @@ function Invoke-ChatOverlayCycle {
     try { $usage = @(Update-ChatOverlayUsage $Ctx $busy -WaitMs $(if ($Sync) { 15000 } else { 0 }) -Blocks $Ctx.Blocks -CodexBusy $cxBusy) }
     catch { $err = "usage: $($_.Exception.Message)" }
 
+    # The chats open where their own claude will continue them - a
+    # terminal's, or chatq's own runs: the reset ask names them and leaves
+    # them be, and the crash continue does not go into them. An empty
+    # entrypoint may be VS Code (Test-ChatVsCodeOwned reads it so), which
+    # does not continue by itself.
+    $held = @{}
+    foreach ($e in $entries) {
+        $sid = [string](Get-ChatField $e 'SessionId')
+        if (-not $sid -or -not $Ctx.Alive[(& $pk $e)]) { continue }
+        $kind = [string](Get-ChatField $e 'Kind')
+        $ep = [string](Get-ChatField $e 'Entrypoint')
+        if (($kind -and $kind -ne 'interactive') -or ($ep -and $ep -ne 'claude-vscode')) { $held[$sid] = $true }
+    }
+
     # Chats the limit or a 529 cut off, a minute apart, reading only the
     # transcripts that moved since - and at once when a job came or went or
     # a chat started or stopped working: a continue that ran in under a
@@ -2700,11 +2764,19 @@ function Invoke-ChatOverlayCycle {
     $cutSig = (@($live | ForEach-Object { "$($_.SessionId)=$($_.Status)" } | Sort-Object) -join ',') + "|$($Ctx.JobsSig)"
     if ($cutSig -ne $Ctx.CutSig) { $Ctx.CutSig = $cutSig; $Ctx.CutAt = [datetime]::MinValue }
     # The look serves the orange rows (cutOff), the reset ask and - on a
-    # host that queues - the automatic mode alike, so it runs while any is on.
+    # host that queues - the automatic mode and the crash continue alike,
+    # so it runs while any is on.
     $autoWant = $Ctx.WantAuto -and (Test-ChatqAutoWanted)
-    if (-not $Ctx.Config.cutOff -and -not $askAny -and -not $autoWant) { $Ctx.CutScan = @(); $Ctx.RestartScan = @() }
-    elseif (($now - $Ctx.CutAt).TotalSeconds -ge 60) {
+    # config autoContinueCrash, on a host that queues: what VS Code's running
+    # out of memory or crashing cut off, continued by itself - by the host's
+    # own pass, so while it is on no -Peek pass takes the look: one would
+    # leave those chats to be asked about, then continued a look later
+    $crashOn = $Ctx.WantAuto -and [bool]$Ctx.Config.autoContinueCrash
+    $crashWant = $crashOn -and -not $Peek
+    if (-not $Ctx.Config.cutOff -and -not $askAny -and -not $autoWant -and -not $crashOn) { $Ctx.CutScan = @(); $Ctx.RestartScan = @() }
+    elseif ((($now - $Ctx.CutAt).TotalSeconds -ge 60 -or ($Ctx.CutAgain -and $now -ge $Ctx.CutAgain)) -and -not ($Peek -and $crashOn)) {
         $Ctx.CutAt = $now
+        $Ctx.CutAgain = $null
         $t0 = $sw.ElapsedMilliseconds
         # a chat at work is not cut off, and its transcript moves all the time
         $working = @($live | Where-Object { $_.Status -in 'busy', 'waiting' } | ForEach-Object { [string]$_.SessionId })
@@ -2716,13 +2788,26 @@ function Invoke-ChatOverlayCycle {
         # the chats a window's restart cut off, from the notes its looks left
         # (src/host-work.ps1): for the ask and the orange rows. A reload
         # changes the chats' states, so this look runs at once after one.
-        # Only a host's own pass keeps the notes in step (-Prune).
-        if ($askAny -or $Ctx.Config.cutOff) {
+        # Only a host's own pass keeps the notes in step (-Prune);
+        # chatoverlay -Print keeps none (-Once).
+        if ($askAny -or $Ctx.Config.cutOff -or $crashWant) {
+            $pending = @{}
             try {
-                $Ctx.RestartScan = @(Get-ChatRestartCutOffs -Live $alive -Asked $Ctx.AskState `
-                        -Jobs $jobs -Cache $Ctx.RestartCache -Prune:($Ctx.WantAsk -and -not $Peek) -Now $now)
+                $Ctx.RestartScan = @(Get-ChatRestartCutOffs -Live $alive -Asked $Ctx.AskState -Jobs $jobs -Cache $Ctx.RestartCache `
+                        -Pending $pending -Prune:($Ctx.WantAsk -and -not $Peek) -Once:(-not $Ctx.WantAsk) -Now $now)
             }
             catch { $err = "restart: $($_.Exception.Message)" }
+            # a window whose chats wait for VS Code's log to say why it went -
+            # its host's exit not in it yet, or a renderer's line under 15 s
+            # old: looked at again in 2 s. CutAt stays this look's time: the
+            # automatic mode takes it for a list just read.
+            if ($pending.Count) { $Ctx.CutAgain = $now.AddSeconds(2) }
+            # those continued by themselves are no row and no ask: their
+            # jobs show from the next pass, which reads the queue again
+            if ($crashWant) {
+                $sent = @(Invoke-ChatqCrashContinue $Ctx $Ctx.RestartScan $jobs $now -Held $held)
+                if ($sent.Count) { $Ctx.RestartScan = @($Ctx.RestartScan | Where-Object { (Get-ChatqCutKey $_) -notin $sent }) }
+            }
         }
         else { $Ctx.RestartScan = @() }
         $took = $sw.ElapsedMilliseconds - $t0
@@ -2755,20 +2840,11 @@ function Invoke-ChatOverlayCycle {
     catch { $err = "auto-continue: $($_.Exception.Message)" }
 
     # The reset ask: the chats the limit cut off that can go on now it is
-    # over. Not about a chat whose own claude is still open to continue it:
-    # a terminal's, or chatq's own runs. An empty entrypoint may be VS Code
-    # (Test-ChatVsCodeOwned reads it so), which does not continue by itself.
+    # over. Not about a chat whose own claude is still open to continue it
+    # ($held, above).
     $Ctx.Ask = $null
     if ($askAny) {
         if ($null -eq $Ctx.AskState) { $Ctx.AskState = Read-ChatqAskState }
-        $held = @{}
-        foreach ($e in $entries) {
-            $sid = [string](Get-ChatField $e 'SessionId')
-            if (-not $sid -or -not $Ctx.Alive[(& $pk $e)]) { continue }
-            $kind = [string](Get-ChatField $e 'Kind')
-            $ep = [string](Get-ChatField $e 'Entrypoint')
-            if (($kind -and $kind -ne 'interactive') -or ($ep -and $ep -ne 'claude-vscode')) { $held[$sid] = $true }
-        }
         # at the limit again, with its reset ahead: nothing could go yet
         $limited = $false
         $nowMs = ConvertTo-ChatOverlayMs $now
@@ -2872,6 +2948,13 @@ function Invoke-ChatOverlayCycle {
     }
     foreach ($k in @($Ctx.ReloadAnswered.Keys)) { if (($now - $Ctx.ReloadAnswered[$k]).TotalSeconds -ge 30) { $Ctx.ReloadAnswered.Remove($k) } }
     $reloads = @($Ctx.Reloads | Where-Object { $_ -and -not $Ctx.ReloadAnswered.ContainsKey("$($_.pid):$($_.id)") })
+    # Windows' memory running short: a note here, news for the host's tray -
+    # the hosts' passes alone, so -Print compiles no type for it
+    $memory = $null
+    if ($Ctx.WantAsk) {
+        try { $memory = Update-ChatOverlayMemory $Ctx $now -Act:(-not $Peek) }
+        catch { Write-ChatOverlayLog "memory: $($_.Exception.Message)" }
+    }
     $header = [pscustomobject]@{
         usage = @($usage); usageText = $usageText; usageWhy = $(if ($Ctx.Config.liveUsage) { $Ctx.LiveWhy } else { $null })
         reload = @($reloads | ForEach-Object {
@@ -2880,13 +2963,14 @@ function Invoke-ChatOverlayCycle {
             })
         # a wait the endpoint named, so a restart keeps to it (Restore-ChatOverlayUsage)
         liveHold = $(if ($Ctx.HoldKind -eq 'server' -and $Ctx.HoldUntil -gt $now) { ConvertTo-ChatOverlayMs $Ctx.HoldUntil } else { $null })
-        next = $next; watcher = $watch; error = $err; notes = @()
+        next = $next; watcher = $watch; error = $err; notes = @(); memory = $memory
         # the reset ask for a renderer to draw: its banner, tray items, menu
         ask = $(if ($Ctx.Ask) {
                 [pscustomobject]@{
                     count = [int]$Ctx.Ask.Count; resetsAt = (ConvertTo-ChatOverlayMs $Ctx.Ask.ResetsAt); keys = @($Ctx.Ask.Keys)
-                    # of them, how many a VS Code window's restart cut off
-                    restart = [int]$Ctx.Ask.Restart
+                    # of them, how many a VS Code window's restart cut off,
+                    # and what it was when all of them say so: oom or crash
+                    restart = [int]$Ctx.Ask.Restart; cause = [string]$Ctx.Ask.Cause
                     titles = @($Ctx.Ask.Items | Select-Object -First 5 | ForEach-Object { Format-ChatTitle ([string]$_.Title) 60 })
                     left = @($Ctx.Ask.Left | ForEach-Object { "$(Format-ChatTitle ([string]$_.Title) 60) - open in a terminal; its own claude continues it" })
                 }
@@ -2922,6 +3006,7 @@ function Invoke-ChatOverlayCycle {
     return $snap
 }
 
+# Deferred: DEFERRED.md "A VS Code notification for the reset ask"
 function Complete-ChatqResetAsk {
     <#
     Your answer to the reset ask - from the panel's chip or tray, the
@@ -3012,6 +3097,87 @@ function Complete-ChatqResetAsk {
         Write-ChatOverlayLog "ask: $($_.Exception.Message)" -Always
     }
     return $res
+}
+
+# Deferred: DEFERRED.md "Continue the chats a reload stopped"
+function Invoke-ChatqCrashContinue {
+    <#
+    config autoContinueCrash, off unless chosen (Get-ChatqAutoContinueCrash):
+    each chat VS Code's running out of memory or crashing cut off - a
+    Get-ChatRestartCutOffs row whose Cause is oom or crash - continued
+    there and then, as the reset ask's Continue would continue it
+    (Invoke-ChatqContinueChats), and marked answered with source crash. A
+    reload's, or a window closed - no cause - is never continued here: a
+    window closed may have been closed on purpose. Only a cut-off found
+    under 10 minutes ago, of a chat with no job waiting or running, not
+    answered and not set to never. A chat a crash continue went to in the
+    last 2 hours is asked about instead (Test-ChatqCrashContinued): work
+    that brings VS Code down again would be sent back into it each time.
+    So is one open where its own claude continues it (-Held, the reset
+    ask's: a terminal's), which the ask names and leaves be - a continue
+    queued into it would be a second writer.
+    The hosts' own passes alone (Invoke-ChatOverlayCycle). Returns the keys
+    continued, which are no row and no ask; one that failed stays both.
+    Never throws.
+    #>
+    param($Ctx, [object[]]$Rows, [object[]]$Jobs, [datetime]$Now = (Get-Date), [hashtable]$Held)
+    $out = [System.Collections.Generic.List[string]]::new()
+    try {
+        $busy = @{}
+        foreach ($j in @($Jobs)) { if ($j -and $j.state -in 'queued', 'running' -and $j.sessionId) { $busy[[string]$j.sessionId] = $true } }
+        $items = [System.Collections.Generic.List[object]]::new()
+        $keys = [System.Collections.Generic.List[string]]::new()
+        $cfg = $null
+        foreach ($r in @($Rows)) {
+            if (-not $r -or [string](Get-ChatField $r 'Why') -ne 'restart' -or [string](Get-ChatField $r 'Cause') -notin 'oom', 'crash') { continue }
+            $at = Get-ChatField $r 'At'
+            if ($at -isnot [datetime]) { $at = ConvertTo-ChatqDate $at }
+            if (-not $at -or $at -lt $Now.AddMinutes(-10)) { continue }
+            $sid = [string](Get-ChatField $r 'Id')
+            $key = Get-ChatqCutKey $r
+            if (-not $sid -or -not $key -or $busy[$sid] -or ($Ctx.AskState -and $Ctx.AskState[$key]) -or ($Held -and $Held[$sid])) { continue }
+            if (-not $cfg) { $cfg = Get-ChatqAutoConfig }
+            if ($cfg.Chats[$sid] -and $cfg.Chats[$sid].auto -eq 'never') { continue }
+            if (Test-ChatqCrashContinued $sid $Now) { continue }
+            $items.Add($r); $keys.Add($key)
+        }
+        if (-not $items.Count) { return @() }
+        $res = Invoke-ChatqContinueChats -Items $items.ToArray()
+        $seqs = @{}
+        for ($i = 0; $i -lt $items.Count; $i++) {
+            $sid = [string](Get-ChatField $items[$i] 'Id')
+            $j = @($res.Queued | Where-Object { [string]$_.sessionId -eq $sid }) | Select-Object -First 1
+            if ($j) { $out.Add($keys[$i]); $seqs[$keys[$i]] = @([int]$j.seq) }
+        }
+        if ($out.Count) {
+            try { $null = Request-ChatqWatcher -Wake poke } catch { Write-ChatOverlayLog "crash: the watcher: $($_.Exception.Message)" }
+            $saved = @(Save-ChatqAskAnswer -Keys $out.ToArray() -Answer continue -Source crash -Seqs $seqs -Extra (Get-ChatqAskExtra $items.ToArray() $keys.ToArray()))
+            if ($null -eq $Ctx.AskState) { $Ctx.AskState = @{} }
+            foreach ($k in $saved) { $Ctx.AskState[$k] = $true }
+            # the queue read again on the next pass
+            $Ctx.JobsSig = $null
+            Write-ChatOverlayLog "crash: continued $($out.Count) - $(@($res.Queued | ForEach-Object { "#$($_.seq)" }) -join ' ')" -Always
+        }
+        if (@($res.Fails).Count) { Write-ChatOverlayLog "crash: could not continue: $(@($res.Fails) -join '; ')" }
+    }
+    catch { Write-ChatOverlayLog "crash: $($_.Exception.Message)" -Always }
+    return $out.ToArray()
+}
+
+function Test-ChatqCrashContinued {
+    # Whether a crash continue (Invoke-ChatqCrashContinue) went to this chat
+    # in the last -Hours: a marker of its, data/auto/<session id>_*.json,
+    # written since then that says source crash. Never throws.
+    param([string]$SessionId, [datetime]$Now = (Get-Date), [int]$Hours = 2)
+    try {
+        if ($SessionId -cnotmatch '^[0-9A-Za-z-]+$' -or -not (Test-Path -LiteralPath $script:ChatqAutoDir)) { return $false }
+        $from = $Now.ToUniversalTime().AddHours(-$Hours)
+        foreach ($f in @(Get-ChildItem -LiteralPath $script:ChatqAutoDir -Filter "${SessionId}_*.json" -File -EA SilentlyContinue)) {
+            if ($f.LastWriteTimeUtc -ge $from -and [string](Get-ChatField (Read-ChatqJson $f.FullName) 'source') -eq 'crash') { return $true }
+        }
+    }
+    catch {}
+    return $false
 }
 
 function Send-ChatOverlayCommand {
@@ -3238,6 +3404,117 @@ function Write-ChatOverlayPrint {
         }
     }
     Write-Host ''
+}
+
+#endregion
+
+#region overlay: memory --------------------------------------------------------
+# A VS Code window dies when Windows has no memory left to give it - RAM and
+# the page file together, the commit limit - and every chat it ran goes with
+# it: "renderer process gone (reason: oom)" in its log, as on 2026-10-14. So
+# the panel says when that runs short, while there is time to close
+# something.
+
+# Windows' commit figures in one call: what GlobalMemoryStatusEx names
+# ullTotalPageFile - the commit limit - and ullAvailPageFile, what is left of
+# it. Compiled with the panel's other types (Initialize-ChatOverlayNative).
+$script:ChatMemStatusCode = @'
+using System;
+using System.Runtime.InteropServices;
+
+public static class ChatMemStatus {
+    [StructLayout(LayoutKind.Sequential)]
+    class Status {
+        public uint dwLength = (uint)Marshal.SizeOf(typeof(Status));
+        public uint dwMemoryLoad;
+        public ulong ullTotalPhys, ullAvailPhys, ullTotalPageFile, ullAvailPageFile, ullTotalVirtual, ullAvailVirtual, ullAvailExtendedVirtual;
+    }
+    [DllImport("kernel32.dll")] [return: MarshalAs(UnmanagedType.Bool)] static extern bool GlobalMemoryStatusEx([In, Out] Status s);
+    // the commit limit and what is left of it, in bytes; null when Windows will not say
+    public static ulong[] Commit() {
+        Status s = new Status();
+        if (!GlobalMemoryStatusEx(s)) { return null; }
+        return new ulong[] { s.ullTotalPageFile, s.ullAvailPageFile };
+    }
+}
+'@
+
+function Get-ChatMemoryCommit {
+    # @{ Limit; Free } in bytes - the commit limit and what is left of it
+    # (ChatMemStatus) - or $null: off Windows, or Windows would not say
+    if ($script:ChatMemorySeam) { return (& $script:ChatMemorySeam) }   # tests
+    if (-not $script:ChatqIsWindows) { return $null }
+    try {
+        if (-not ('ChatMemStatus' -as [type])) { Invoke-ChatCompile { Add-Type -TypeDefinition $script:ChatMemStatusCode } }
+        $v = [ChatMemStatus]::Commit()
+        if ($null -eq $v -or $v.Count -lt 2) { return $null }
+        return @{ Limit = [double]$v[0]; Free = [double]$v[1] }
+    }
+    catch { return $null }
+}
+
+function Get-ChatMemoryTop {
+    # The programs holding the most memory, the most first: each process's
+    # own bytes, summed by its name, as "Code 9.8 GB". -Count of them.
+    param([int]$Count = 3)
+    if ($script:ChatMemoryTopSeam) { return @(& $script:ChatMemoryTopSeam) }   # tests
+    $sum = @{}
+    foreach ($p in @([System.Diagnostics.Process]::GetProcesses())) {
+        try { $sum[$p.ProcessName] = [double]$sum[$p.ProcessName] + $p.PrivateMemorySize64 } catch {}
+        finally { $p.Dispose() }
+    }
+    return @($sum.GetEnumerator() | Sort-Object Value -Descending | Select-Object -First $Count | ForEach-Object { "$($_.Key) $([Math]::Round($_.Value / 1GB, 1)) GB" })
+}
+
+function Update-ChatOverlayMemory {
+    <#
+    Whether Windows' memory runs short, looked at 10 s apart at most: the
+    share of the commit limit in use (Get-ChatMemoryCommit). At config
+    overlay.memoryWarn percent it is low, and it stays low until under 3
+    less, so a figure on the line does not come and go; 0 is never. While
+    low, the programs holding the most are named (Get-ChatMemoryTop), a
+    minute apart. -Act, a pass not -Peek: going low is said once - a line
+    in the log, and $Ctx.MemNews for the host's tray (Show-ChatOverlayMemory),
+    which is not said again within 15 minutes - and going back, a line.
+    Returns @{ percent; freeGB; top } while low, else $null.
+    #>
+    param($Ctx, [datetime]$Now = (Get-Date), [switch]$Act)
+    $warn = [int]$Ctx.Config.memoryWarn
+    if ($warn -le 0) { $Ctx.MemLow = $null; return $null }
+    if ($Ctx.MemAt -is [datetime] -and $Ctx.MemAt -le $Now -and ($Now - $Ctx.MemAt).TotalSeconds -lt 10) { return $Ctx.MemLow }
+    $Ctx.MemAt = $Now
+    $was = $Ctx.MemLow
+    $m = Get-ChatMemoryCommit
+    if (-not $m -or [double]$m.Limit -le 0) { $Ctx.MemLow = $null; return $null }
+    $pct = [int][Math]::Floor(100 * ([double]$m.Limit - [double]$m.Free) / [double]$m.Limit)
+    if ($pct -lt $(if ($was) { $warn - 3 } else { $warn })) {
+        if ($Act -and $Ctx.MemSaid) { $Ctx.MemSaid = $false; Write-ChatOverlayLog "memory: back to $pct% used" -Always }
+        $Ctx.MemLow = $null
+        return $null
+    }
+    $top = if ($was -and $Ctx.MemTopAt -is [datetime] -and $Ctx.MemTopAt -le $Now -and ($Now - $Ctx.MemTopAt).TotalSeconds -lt 60) { @($was.top) }
+    else { $Ctx.MemTopAt = $Now; @(try { Get-ChatMemoryTop } catch { }) }
+    $Ctx.MemLow = [pscustomobject]@{ percent = $pct; freeGB = [Math]::Round([double]$m.Free / 1GB, 1); top = @($top) }
+    if ($Act -and -not $Ctx.MemSaid) {
+        $Ctx.MemSaid = $true
+        Write-ChatOverlayLog (Format-ChatOverlayMemoryText $Ctx.MemLow) -Always
+        if (-not ($Ctx.MemToldAt -is [datetime] -and $Ctx.MemToldAt -le $Now -and ($Now - $Ctx.MemToldAt).TotalMinutes -lt 15)) {
+            $Ctx.MemNews = $Ctx.MemLow
+            $Ctx.MemToldAt = $Now
+        }
+    }
+    return $Ctx.MemLow
+}
+
+function Format-ChatOverlayMemoryText {
+    # Update-ChatOverlayMemory's answer in words, for the panel's note, the
+    # tray's balloon and the log: "memory low: 96% used, 1.2 GB left - most:
+    # Code 9.8 GB, claude 3.1 GB". Pure.
+    param($Memory)
+    $t = "memory low: $([int](Get-ChatField $Memory 'percent'))% used, $(Get-ChatField $Memory 'freeGB') GB left"
+    $top = @(@(Get-ChatField $Memory 'top') | Where-Object { $_ })
+    if ($top.Count) { $t += " - most: $($top -join ', ')" }
+    return $t
 }
 
 #endregion

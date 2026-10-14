@@ -526,6 +526,7 @@ function Get-ChatqQuietMinutes {
     return 5
 }
 
+# Deferred: DEFERRED.md "Live alerts without the Windows overlay"
 function Test-ChatqUserAway {
     # Nobody at the PC for quietMinutes - known, not assumed. The reverse of
     # present for the phone's sake, except where it counts: an idle clock that
@@ -846,6 +847,7 @@ function Get-ChatqUsage {
     return $out.ToArray()
 }
 
+# Deferred: DEFERRED.md "A `claude -p` that is not chatq's"
 function Get-ChatqAlertFooter {
     # The phone alert's last line: how much of each usage window is used
     # (Get-ChatqUsage) and how many chats are at work - "Claude 5h 42%,

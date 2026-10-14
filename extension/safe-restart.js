@@ -259,6 +259,7 @@ async function namesOf(chats) {
 // refused, or no answer within the command's time - is said, with a try
 // again, not only logged: the wait is over by then, and the user would take
 // the new version for loaded. The question is not waited on.
+// Deferred: DEFERRED.md "An update loaded without a reload"
 async function restart(why, v) {
     log('reloading this window to load the new version: ' + why);
     try { await ext()._command(RESTART); return 'restarted'; }
@@ -273,6 +274,7 @@ async function restart(why, v) {
 
 // A new install noticed - by VS Code's event, or its list on disk changing.
 // Said once per install; a wait already going just takes the new version.
+// Deferred: DEFERRED.md "A reload on the overlay: what it leaves out"
 async function checkInstall() {
     if (!running) return 'none';
     const found = installedNow();
@@ -454,6 +456,7 @@ function cancel() {
 // The question is not waited on: it may sit unanswered for hours, and a
 // caller on the show queue would hold every show behind it. Never rejects:
 // 'reloaded', or 'asked' - Reload anyway reloads later.
+// Deferred: DEFERRED.md "A busy judgement per window"
 async function guardReload(auto, except, named) {
     const x = ext();
     const v = await module.exports._hostWork(process.pid);

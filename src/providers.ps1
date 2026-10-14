@@ -93,6 +93,7 @@ function Get-ClaudeLeftovers {
 
 #region provider: copilot -----------------------------------------------------
 
+# Deferred: DEFERRED.md "Copilot chats scoped by the folder's leaf name"
 function Get-CopilotWorkspaceName {
     # workspaceStorage/<hash>/workspace.json points at the folder the chats belong to
     param([string]$StorageDir)

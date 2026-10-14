@@ -503,13 +503,16 @@ function Get-ChatqJobTurnText {
     <#
     The last turn of a job chatq ran, from its own log: the entries after the
     log's last init - one run - its text and tool lines, Claude and Codex
-    alike (Get-ChatqLogEntries reads both). A Claude job with no log falls
-    back on its transcript. The shape of Get-ChatqTurnText, or $null.
+    alike (Get-ChatqLogEntries reads both). The whole log, so the run's
+    start is found however long it ran: the reader keeps only the lines it
+    turns into entries, and a 10 MB run began before its log's last 8 MB.
+    A Claude job with no log falls back on its transcript. The shape of
+    Get-ChatqTurnText, or $null.
     #>
     param($Job, [int]$Max = 30000)
     $log = Join-Path $script:ChatqLogDir "$($Job.id).jsonl"
     if (Test-Path -LiteralPath $log) {
-        $e = @(Get-ChatqLogEntries $Job -MaxBytes 8MB)
+        $e = @(Get-ChatqLogEntries $Job)
         $last = -1
         for ($i = 0; $i -lt $e.Count; $i++) { if ($e[$i].Type -eq 'init') { $last = $i } }
         $parts = [System.Collections.Generic.List[object]]::new()
@@ -619,6 +622,7 @@ function Update-ChatqReplyFull {
     catch {}
 }
 
+# Deferred: DEFERRED.md "The phone board answers in seconds, not at once"
 function Get-ChatqReplyPollSeconds {
     <#
     How long between two looks at the reply topic. ntfy.sh lets an address
@@ -661,6 +665,7 @@ function Get-ChatqReplyListenText {
     return 'until'
 }
 
+# Deferred: DEFERRED.md "Listening all the time off Windows"
 function Start-ChatqReplyStanding {
     <#
     reply.listen always: the watcher listens while a phone is paired, alert

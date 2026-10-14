@@ -598,6 +598,7 @@ function Get-ChatqCodexMeta {
 # tests: how many transcripts the cut-off scan has read
 $script:ChatqCutOffReads = 0
 
+# Deferred: DEFERRED.md "Auto-continue for Codex chats chatq did not run"
 function Get-ChatqCutOffChats {
     # Chats the limit - or a 529 Overloaded - stopped mid-task that nothing is
     # queued for: the ones you would otherwise walk round typing "continue"
@@ -615,7 +616,6 @@ function Get-ChatqCutOffChats {
     # a job with no session - none should have one, but $null is no key
     foreach ($j in $Jobs) { if ($j.state -in 'queued', 'running' -and $j.sessionId) { $busy[[string]$j.sessionId] = $true } }
     foreach ($s in @($Skip)) { if ($s) { $busy[$s] = $true } }
-    $rows = $null
     $seen = @{}
     $dirs = try { @([System.IO.DirectoryInfo]::new($root).EnumerateDirectories()) } catch { @() }
     $out = foreach ($d in $dirs) {
@@ -635,16 +635,15 @@ function Get-ChatqCutOffChats {
             $last = Get-ChatqLastTurn $f.FullName
             $row = $null
             if ($last -and ($last.Limit -or $last.Overloaded)) {
-                # The index is only as fresh as the last search, and a chat the
-                # limit has just cut off is exactly the one that may be missing
-                # from it. Read the title where it lives rather than printing a
-                # uuid, which is not what the -Continue line below asks for.
-                if ($null -eq $rows) { $rows = @{}; foreach ($r in @(Get-ChatIndex)) { $rows[$r.Path] = $r } }
-                $title = if ($rows[$f.FullName]) { $rows[$f.FullName].Title }
-                else {
-                    $rec = try { & $script:ChatProviders['claude'].Describe $f } catch { $null }
-                    if ($rec -and $rec.Title -and $rec.Title -ne '(empty)') { $rec.Title } else { $f.BaseName }
-                }
+                # The title from the transcript, as the index reads it - not
+                # from the index, which is only as fresh as the last search
+                # (a chat the limit has just cut off is exactly the one that
+                # may be missing from it) and which, loaded once, stays parsed
+                # for the overlay's life: 2 to 4 MB here for one title. Not a
+                # uuid either, which is not what the -Continue line below asks
+                # for. The row, title and all, is kept in -Cache.
+                $rec = try { & $script:ChatProviders['claude'].Describe $f } catch { $null }
+                $title = if ($rec -and $rec.Title -and $rec.Title -ne '(empty)') { $rec.Title } else { $f.BaseName }
                 # LimitUuid: the limit record's own uuid, which names this one
                 # cut-off for good (Get-ChatqCutKey); old records have none
                 $row = [pscustomobject]@{
@@ -711,6 +710,32 @@ function Set-ChatqAutoContinue {
     return $Value
 }
 
+function Get-ChatqAutoContinueCrash {
+    # Whether the chats VS Code's running out of memory or crashing cut off
+    # are continued by themselves (Invoke-ChatqCrashContinue): config.json's
+    # top-level autoContinueCrash, $true or "on"/"true". Off - the default,
+    # and anything else - asks about them as about a restart's. -Cfg: as
+    # Get-ChatqAutoContinue's.
+    param($Cfg)
+    if ($null -eq $Cfg) { $Cfg = Get-ChatqConfig }
+    $v = Get-ChatField $Cfg 'autoContinueCrash'
+    if ($v -is [bool]) { return $v }
+    return (([string]$v).Trim().ToLowerInvariant() -in 'on', 'true')
+}
+
+function Set-ChatqAutoContinueCrash {
+    # config.json's top-level autoContinueCrash, under its lock; returns it
+    param([Parameter(Mandatory)][bool]$Value)
+    Lock-ChatqConfig
+    try {
+        $cfg = Get-ChatqConfig
+        Set-ChatqProp $cfg 'autoContinueCrash' $Value
+        Save-ChatqConfig $cfg
+    }
+    finally { Unlock-ChatqConfig }
+    return $Value
+}
+
 function Get-ChatqCutKey {
     # The name of one cut-off: the chat and the limit record that stopped it,
     # so the same chat cut off again later is a new one. Old records have no
@@ -730,6 +755,7 @@ function Get-ChatqCutKey {
     return $k
 }
 
+# Deferred: DEFERRED.md "Answering the reset ask from the phone"
 function Save-ChatqAskAnswer {
     <#
     What you said about cut-offs, one data/auto/<key>.json each: when, the
@@ -818,6 +844,9 @@ function Get-ChatqResetAsk {
     not go either. -RestartOnly: those alone, for the automatic mode, which
     queues the limit's by itself but never a restart's. Restart counts
     them; ResetsAt is the latest reset, $null when only restarts are in.
+    Cause: what VS Code's log says ended the windows, when every restart
+    row says so - oom when it was all memory, crash when all were one of
+    the two and one crashed; '' otherwise (Format-ChatRestartCause).
     #>
     param([object[]]$CutOff, [hashtable]$Held, [hashtable]$Asked, [object[]]$Jobs, [bool]$Limited, [datetime]$Now = (Get-Date), [switch]$RestartOnly)
     if ($Limited) { return $null }
@@ -854,12 +883,18 @@ function Get-ChatqResetAsk {
     $sorted = @($in | Sort-Object @{ Expression = { $a = Get-ChatField $_.Row 'At'; if ($a -isnot [datetime]) { $a = ConvertTo-ChatqDate $a }; if ($a) { $a } else { $zero } }; Descending = $true })
     $latest = $null
     foreach ($x in $sorted) { if ($x.Reset -and (-not $latest -or $x.Reset -gt $latest)) { $latest = $x.Reset } }
+    $causes = @($sorted | Where-Object { [string](Get-ChatField $_.Row 'Why') -eq 'restart' } | ForEach-Object { [string](Get-ChatField $_.Row 'Cause') })
+    $cause = ''
+    if ($causes.Count -and -not @($causes | Where-Object { $_ -notin 'oom', 'crash' }).Count) {
+        $cause = if ($causes -contains 'crash') { 'crash' } else { 'oom' }
+    }
     return [pscustomobject]@{
         ResetsAt = $latest
         Items = @($sorted | ForEach-Object { $_.Row })
         Keys = @($sorted | ForEach-Object { $_.Key })
         Count = $sorted.Count
-        Restart = @($sorted | Where-Object { [string](Get-ChatField $_.Row 'Why') -eq 'restart' }).Count
+        Restart = $causes.Count
+        Cause = $cause
         Left = $left.ToArray()
     }
 }
@@ -869,9 +904,10 @@ function Format-ChatqAskHead {
     What the reset ask is about, first in its every wording - the banner,
     the tray's balloon, the Mac's notice, the phone, the console: "limit
     over at 13:00" for chats the limit cut off, "VS Code restarted" for
-    those a window's restart did, both joined when it is both. -Ask:
+    those a window's restart did - "VS Code ran out of memory" or "VS Code
+    crashed" when its log said so - both joined when it is both. -Ask:
     Get-ChatqResetAsk's answer or the snapshot's header.ask (count,
-    restart, resetsAt in ms). Pure.
+    restart, cause, resetsAt in ms). Pure.
     #>
     param($Ask, [datetime]$Now = (Get-Date))
     $n = [int](Get-ChatField $Ask 'Count')
@@ -879,8 +915,9 @@ function Format-ChatqAskHead {
     $at = Format-ChatOverlayAskAt (Get-ChatField $Ask 'ResetsAt') $Now
     $limit = "limit over$(if ($at) { " at $at" })"
     if ($r -le 0) { return $limit }
-    if ($r -ge $n) { return 'VS Code restarted' }
-    return "$limit, and VS Code restarted"
+    $went = Format-ChatRestartCause ([string](Get-ChatField $Ask 'Cause'))
+    if ($r -ge $n) { return $went }
+    return "$limit, and $went"
 }
 
 function Format-ChatqAskCount {
@@ -929,11 +966,16 @@ function Get-ChatqRestartPrompt {
     words Claude Code's own continue uses. A background workflow or agent
     is named - claude --resume brings the chat back, not the work it had
     out, so Claude has to be told to start again what is still wanted.
-    Pure.
+    The row's Cause, from VS Code's log, says how the window went. Pure.
     #>
     param($Row)
     $mid = [bool](Get-ChatField $Row 'Mid')
-    $say = "The VS Code window this chat ran in restarted while it worked, which ended its process$(if ($mid) { ' mid-turn' })."
+    $end = "which ended its process$(if ($mid) { ' mid-turn' })."
+    $say = switch ([string](Get-ChatField $Row 'Cause')) {
+        'oom' { "VS Code ran out of memory while this chat worked, $end" }
+        'crash' { "VS Code crashed while this chat worked, $end" }
+        default { "The VS Code window this chat ran in restarted while it worked, $end" }
+    }
     $names = @(@(Get-ChatField $Row 'Tasks') | Where-Object { $_ } | ForEach-Object {
             $k = [string](Get-ChatField $_ 'Kind')
             if ($k -notin 'workflow', 'agent') { $k = 'task' }
@@ -1554,6 +1596,7 @@ else {
 if (-not $got -and $cb::ContainsText()) { [System.IO.File]::WriteAllText((Join-Path $Out 'clip.txt'), $cb::GetText(), $u8) }
 '@
 
+# Deferred: DEFERRED.md "The Windows PowerShell path built in eight places"
 function Get-ChatqClipboard {
     # @{ Image = [byte[]]; Files = [string[]]; Text = [string] }, or $null where
     # it cannot be read
@@ -2658,6 +2701,7 @@ function Get-ChatqClaudeStatus {
     return $null
 }
 
+# Deferred: DEFERRED.md "A Codex all-clear still spends a turn"
 function Invoke-ChatqProbe {
     <#
     Is the limit really over, or the overload? A throwaway "ok" that saves no
@@ -2740,6 +2784,7 @@ function Invoke-ChatqProbe {
     }
 }
 
+# Deferred: DEFERRED.md "A Codex all-clear still spends a turn"
 function Get-ChatqCodexLiveLimit {
     <#
     Whether a Codex account is still limited, asked of codex app-server

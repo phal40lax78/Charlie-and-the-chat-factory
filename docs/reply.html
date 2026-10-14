@@ -741,6 +741,7 @@ var ChatqPage = (function () {
     // wins over a draft, and says so; an alert that takes no text - a test,
     // one about no chat, a usage alert - drops it, and says that. No link
     // text: the draft, as ever. text null: the box stays as it is.
+    // Deferred: DEFERRED.md "A reply with no tap in the browser"
     function prefill(spec, f, draft) {
         var d = draft && typeof draft.text === 'string' ? draft.text : '';
         var t = f && f.text ? f.text : '';
@@ -818,6 +819,7 @@ var ChatqPage = (function () {
     // permit, now: a permission request's opened card and the time - Allow
     // only with a card that opened, and only before its deadline (optional:
     // the box may be left empty)
+    // Deferred: DEFERRED.md "Answering the reset ask from the phone"
     function buttonsFor(event, provider, jobless, job, wake, permit, now) {
         var e = normEvent(event);
         var status = { act: 'status', label: 'Status' };

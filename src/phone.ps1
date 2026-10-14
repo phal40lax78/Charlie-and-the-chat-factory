@@ -400,6 +400,7 @@ function ConvertFrom-ChatqOnOff {
     switch (([string]$Value).Trim().ToLower()) { 'on' { $true } 'off' { $false } default { $null } }
 }
 
+# Deferred: DEFERRED.md "The reply page on an origin of its own by default"
 function Set-ChatqNotifyConfig {
     <#
     The one way alert settings change - chatnotify and the setup dialog both
@@ -771,6 +772,7 @@ function Get-ChatqPairLink {
     return $Rc.Page + '#' + (($q.GetEnumerator() | ForEach-Object { $_.Key + '=' + (ConvertTo-ChatqUriPart $_.Value) }) -join '&')
 }
 
+# Deferred: DEFERRED.md "A reply with no tap in the browser"
 function Start-ChatqReplyPairing {
     <#
     Pair a phone, afresh: a new RSA key pair, a new reply topic (so nothing
@@ -1448,6 +1450,7 @@ function Test-ChatqReplyOpen {
     catch { return $false }
 }
 
+# Deferred: DEFERRED.md "The reply page on an origin of its own by default"
 function Get-ChatqPhoneStatusText {
     # One line for chatnotify and the setup dialog: off, not paired, waiting
     # for the phone to answer a pairing, or paired - which phone, since when,
@@ -1550,6 +1553,7 @@ function Test-ChatqReplyMessage {
     return $r
 }
 
+# Deferred: DEFERRED.md "The phone board answers in seconds, not at once"
 function Invoke-ChatqReplyPoll {
     <#
     Fetch what reached the reply topic since last time and act on it. Only
@@ -1978,6 +1982,7 @@ function Get-ChatqTypedAfter {
     return $out
 }
 
+# Deferred: DEFERRED.md "The board's handle moves on with a board the chat view was not drawn from"
 function Get-ChatqMovedOn {
     <#
     Whether a chat, or the job an act from the phone is about, went on at
@@ -2119,6 +2124,8 @@ function Reset-ChatqPhoneJob {
     return [pscustomobject]@{ Error = $null; Say = "#$($Job.seq) queued again ($(if ($r.Landed) { 'continue' } else { 'full prompt' }))$note" }
 }
 
+# Deferred: DEFERRED.md "Answering the reset ask from the phone"
+# Deferred: DEFERRED.md "A reply refused as moved on loses its text"
 function Invoke-ChatqReply {
     <#
     One verified reply, done: what the phone asked for, then a push saying
@@ -2474,6 +2481,7 @@ function Get-ChatqWatchedSessions {
     return $out
 }
 
+# Deferred: DEFERRED.md "Live alerts without the Windows overlay"
 function Update-ChatqLiveAlerts {
     <#
     The phone told about the chats you run yourself, from each pass of the
@@ -2625,6 +2633,7 @@ function Update-ChatqLiveAlerts {
     }
 }
 
+# Deferred: DEFERRED.md "Answering the reset ask from the phone"
 function Send-ChatqResetAskAlert {
     <#
     The reset ask on the phone (Invoke-ChatOverlayCycle, for the cut-offs
@@ -2693,6 +2702,8 @@ function Send-ChatqLiveAlert {
     return $f
 }
 
+# Deferred: DEFERRED.md "Live alerts without the Windows overlay"
+# Deferred: DEFERRED.md "The Windows PowerShell path built in eight places"
 function Get-ChatqOutboxLaunch {
     <#
     How the outbox's sender starts: @{ Exe; Args; Command }. Windows

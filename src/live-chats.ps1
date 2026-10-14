@@ -120,6 +120,7 @@ function Test-ChatqSessionAlive {
 # beside it: a dev server never ends (Resolve-ChatqLiveAction)
 $script:ChatqShellWaitMinutes = 20
 
+# Deferred: DEFERRED.md "Background shells and "safe to reload""
 function Resolve-ChatqLiveAction {
     <#
     run    nothing holds the chat - the next click on it loads the run from disk
@@ -243,6 +244,7 @@ function Get-ChatqStillThere {
         })
 }
 
+# Deferred: DEFERRED.md "Auto-continue and a registry entry that names no entrypoint"
 function Test-ChatVsCodeOwned {
     # Is this claude a VS Code window's? Its registry entry says claude-vscode,
     # and its parent is a Code.exe that started before it - the window's
@@ -517,6 +519,7 @@ function Get-ChatEntrypointIn {
     return $found
 }
 
+# Deferred: DEFERRED.md "New chats Claude Code never lists"
 function Get-ChatUnlistedWhy {
     # Why Claude Code leaves a chat out of its lists, by its first and last
     # 64 KB: 'head' - its head says an SDK started it, which nothing added at
@@ -835,6 +838,7 @@ function ConvertTo-ChatFreshVerdict {
     return ($v | ConvertTo-Json -Compress)
 }
 
+# Deferred: DEFERRED.md "A busy judgement per window"
 function Test-ChatWindowExact {
     <#
     Is a VS Code window open on exactly this folder? Told from the windows'

@@ -53,11 +53,21 @@ $j = Find-ChatqJob $j.id
 Check 'denied -> needs-input' ($j.state -eq 'needs-input') "$($j.state) $($j.result.reason)"
 Remove-Item env:FAKE_SCENARIO
 
-# -Continue on a chat that has moved on is dropped, not sent
+# -Continue on a chat that has moved on is dropped, not sent - judged by
+# its last turn alone: the mode and model reads, up to 64 MB back on a long
+# chat, are not made
 $j = New-TestJob $titleCard -Continue
+$ftsFn = ${function:Find-ChatqTailString}
+$ftmFn = ${function:Find-ChatqTailMatch}
+$tailReads = @{ n = 0 }
+${function:Find-ChatqTailString} = { $tailReads.n++; & $ftsFn @args }
+${function:Find-ChatqTailMatch} = { $tailReads.n++; & $ftmFn @args }
 Invoke-ChatqJob $W (Find-ChatqJob $j.id)
+${function:Find-ChatqTailString} = $ftsFn
+${function:Find-ChatqTailMatch} = $ftmFn
 $j = Find-ChatqJob $j.id
 Check '-Continue on a chat already continued -> skipped' ($j.state -eq 'skipped') "$($j.state)"
+Check 'the job''s chat is read for its last turn only, not its mode or model' ($tailReads.n -eq 0) "$($tailReads.n) reads"
 
 # busy in a live window -> deferred, not run
 $env:FAKE_AGENTS = '[{"pid":1,"sessionId":"' + $idOld + '","kind":"interactive","status":"busy"}]'

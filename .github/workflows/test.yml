@@ -12,7 +12,7 @@ jobs:
   test:
     # Windows-first: Windows PowerShell 5.1 and PowerShell 7 both ship on the
     # runner. macOS and Linux wait until the Unix branches get a fake CLI of
-    # their own (FUTURE_WORK.md).
+    # their own (DEFERRED.md).
     runs-on: windows-latest
     strategy:
       fail-fast: false

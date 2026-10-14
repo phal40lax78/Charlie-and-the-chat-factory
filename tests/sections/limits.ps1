@@ -17,3 +17,8 @@ Remove-ChatIndexRow $pFw
 $row = @(Get-ChatqCutOffChats @() | Where-Object { $_.Id -eq $idFw })[0]
 Check 'one missing from the index still shows its title' ($row -and $row.Title -eq 'Parser rewrite and plugin unification') "$($row.Title)"
 $null = Sync-ChatIndex
+# the title is read from the transcript: the index, loaded for it, would stay
+# parsed for the overlay's life
+$script:ChatIndexCache = $null; $script:ChatIndexStamp = $null
+$row = @(Get-ChatqCutOffChats @() | Where-Object { $_.Id -eq $idFw })[0]
+Check 'and with the chat in the index, the cut-off scan leaves the index unread' ($row.Title -eq 'Parser rewrite and plugin unification' -and $null -eq $script:ChatIndexStamp) "$($row.Title) / $($script:ChatIndexStamp)"

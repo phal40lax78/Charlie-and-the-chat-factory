@@ -486,7 +486,7 @@ cut. If you cannot tell what it does, Deny.* Matches of these become
     run. Nothing that could be written into `data/` without D passes.
     Unauthenticated files can only deny.
   - **The shared page origin is a bigger risk now.** A script on another
-    `phal40lax78.github.io` page can post with the phone's key (FUTURE_WORK,
+    `phal40lax78.github.io` page can post with the phone's key (DEFERRED.md,
     "The reply page on an origin of its own"). It would also need a
     permission alert's aid (Join's logs have it) while that alert is open,
     for at most `waitMinutes`. The README says to use `chatnotify
@@ -633,7 +633,7 @@ new page's `permit` sent to an old watcher is logged `unknown act`.
 
 - **Chats run straight in VS Code or a terminal.** They would need a
   `PermissionRequest` hook in the user's `~/.claude/settings.json`, which
-  chatq has never written. That stays in FUTURE_WORK.
+  chatq has never written. That stays deferred (DEFERRED.md).
 - **Codex: deferred until a spike, not out of scope by design.** As chatq
   runs it today, `codex exec` refuses by policy `never` and never asks
   mid-run. Two ways in exist in codex-cli 0.159.2, neither tried, since

@@ -151,7 +151,7 @@ and `downPerDay` are config-only (the table under "A few settings are only in co
   last record's timestamp. Over `-Max` characters: parts are dropped from the front, the first
   kept one cut at a surrogate-safe point, `Cut` = characters left out.
 - **`Get-ChatqJobTurnText -Job <job> [-Max]`** -> the same shape, for a job the watcher ran:
-  `Get-ChatqLogEntries $Job -MaxBytes 8MB`, only the entries after the log's last `init`
+  `Get-ChatqLogEntries $Job`, the whole log, only the entries after the log's last `init`
   (one run), `text` and `tool` kept - Claude and Codex alike, since the job log has both.
   Falls back to `Get-ChatqTurnText $Job.path` for a Claude job with no log.
 - **`Send-ChatqReplyText -Rc -Aid -Event -Job`** -> `$true` when the down message went.
@@ -530,7 +530,7 @@ VS-code-chat-manager.ps1: the one shell-start line. src/overlay-windows.ps1: the
   `tool_result` user record, skips sidechain records, keeps order, tool lines, `<synthetic>`
   as a note, cut from the front at `-Max` with `Cut` set and no half surrogate.
 - `Get-ChatqJobTurnText` from a synthetic job log with two runs: only the last; Claude and
-  Codex lines.
+  Codex lines. A 9.7 MB log: the run from its start, past the last 8 MB.
 - `Send-ChatqDown` via the seam: <= 3,900 sealed -> POST with `X-Title`, `X-Firebase: no`;
   over -> PUT with `X-Filename`; the seam refusing the PUT -> inline, cut, `cut` > 0.
 - `Send-ChatqAlert 'done'` with replies on (Join seam + down seam): the down message goes

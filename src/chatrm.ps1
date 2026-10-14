@@ -21,6 +21,7 @@ function Get-ChatProjectScope {
     }
 }
 
+# Deferred: DEFERRED.md "Copilot chats scoped by the folder's leaf name"
 function Test-ChatInProject {
     # Exact, never a prefix. Sibling repos nest - the slug for D:\src\app is a
     # prefix of the one for D:\src\app-Mobile - so -like or StartsWith
@@ -878,6 +879,7 @@ function Test-ChatTranscriptBusy {
     return $null
 }
 
+# Deferred: DEFERRED.md "A cheaper look at a window's chats"
 function Get-ChatBackgroundTasks {
     # The workflows and background agents a Claude chat started that have not
     # reported back: their task ids. The turn that starts one ends at once, so
@@ -1655,6 +1657,7 @@ function Select-ChatBackgroundOpen {
     }
 }
 
+# Deferred: DEFERRED.md "A cheaper look at a window's chats"
 function Update-ChatBackgroundScan {
     <#
     Get-ChatBackgroundTasks' reading, kept up to date a piece at a time:
@@ -1782,6 +1785,7 @@ function Test-ChatPrintLive {
     return $false
 }
 
+# Deferred: DEFERRED.md "A cheaper look at a window's chats"
 function Test-ChatIdle {
     # $true idle, $false active, $null when it cannot be told - and $null stays
     # distinct, because "safe to reload" guessed wrong costs someone an answer.

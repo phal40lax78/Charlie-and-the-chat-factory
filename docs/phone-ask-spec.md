@@ -387,8 +387,8 @@ acts on it in its own mode.
   to check it against later: the transcript writes the mode on typed
   prompts only, so while a question waits it holds the last prompt's mode,
   not the chat's. A switch at the PC while a question is held (say to
-  `bypassPermissions`) is not seen. That is FUTURE_WORK, until the registry
-  or a hook carries the live mode.
+  `bypassPermissions`) is not seen. That is deferred (DEFERRED.md), until
+  the registry or a hook carries the live mode.
 
 **There is no size gate.** The hook splices `questionsRaw` as it came, so
 no length stops an answer. Only the display is capped (4.1).
@@ -524,7 +524,7 @@ exit 0
   is written after the load, so there is nothing for the phone to answer
   until then.
 - **A lighter launcher**, one that loads only what the hook needs, is
-  FUTURE_WORK.
+  deferred (DEFERRED.md).
 
 ### 5.3 The watcher's part
 
@@ -701,7 +701,7 @@ as [Test-ChatqPermitAnswer](../src/permit.ps1) is the bridge's.
   - Pushes name the chat, and never the question or the answer.
 - **The page's shared origin.** A script on another `phal40lax78.github.io`
   page could post an answer with the phone's key while a question is held.
-  This is the permits' exposure (FUTURE_WORK, "The reply page on an origin
+  This is the permits' exposure (DEFERRED.md, "The reply page on an origin
   of its own by default"). The setup window's tooltip says to serve the page
   from a site of your own first (`chatnotify -ReplyPage`).
 - **Rate limits.**
@@ -733,8 +733,8 @@ and the board can still answer it if you look.
 ## 6. Install (Part B): a Claude Code plugin of chatq's own
 
 **Why not edit `~/.claude/settings.json`:**
-- chatq has never written the user's Claude settings (FUTURE_WORK, "Approve
-  permission prompts: what 0.9.0 left out").
+- chatq has never written the user's Claude settings (DEFERRED.md,
+  "Permission prompts in chats chatq does not run").
 - The file is often kept by hand.
 - 5.1's `ConvertTo-Json` re-escapes and reformats it.
 - pwsh 7's `ConvertFrom-Json` turns ISO date strings into dates. That is the

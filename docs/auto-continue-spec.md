@@ -92,7 +92,7 @@ unless you say so.
   ([Get-ChatConsoleChatItems](../src/console.ps1)).
 - **The phone.** [Send-ChatqResetAskAlert](../src/phone.ps1): one
   `limited` alert with no session, when you are away. The page offers
-  Status alone; answering there is FUTURE_WORK.
+  Status alone; answering there is deferred (DEFERRED.md).
 - **The CLI.** `chatq -AutoContinue ask|off`, alone, with `-WhatIf`.
 - **The reset time on the overlay**, asked for with it:
   [Get-ChatOverlayResetWindow](../src/overlay-data.ps1) picks the window a
@@ -180,12 +180,56 @@ not two.
   never `Known`, and no note is written. Each save also removes any note
   past its 12 hours, so a host left after **Later** with no overlay asking
   does not leave its note for good.
+- **The overlay's own note.** A window that runs out of memory or crashes
+  gets no look before it, so the Windows overlay keeps the same note
+  itself ([Update-ChatHostWorkNotes](../src/host-work.ps1), each pass of
+  [Invoke-ChatOverlayCycle](../src/overlay-data.ps1)): every live chat of
+  the VS Code extension, by the extension host its `claude` runs under
+  ([Get-ChatEntryHost](../src/host-work.ps1)), judged as the look judges
+  it - busy a turn, waiting a prompt, a workflow or agent out background,
+  a `claude -p` or chatq job going in none. Written with `by: overlay`
+  when its chats or their why change and every 10 minutes, only while its
+  host runs; a chat that stops stays 30 s, since a window going down can
+  take its chats' processes a moment before its host. The extension's
+  note stands a minute before the overlay writes over it, one of an
+  earlier process with the same pid is left alone, and a dead host's note
+  is never touched. An overlay started again - an update - takes up its
+  own notes whose host still runs, so one whose chats stopped meanwhile
+  goes at its first pass, not left for the cut-off look once its host
+  goes.
+- **Why it went.** The first look that finds a host gone asks VS Code's
+  own `main.log` ([Get-ChatHostEndCause](../src/host-work.ps1)): `oom`
+  when the window's renderer went for want of memory within 10 s before
+  the host's exit, `crash` when the host or its renderer crashed, `''`
+  for anything else. The renderer's line names no window, so it is `''`
+  too when more hosts exited in the 10 s after it than such lines were
+  written - a window closed just after another ran out of memory. It is
+  `pending` while the log has yet to say: the host's exit not in it yet
+  (VS Code writes it a moment after, later still when short of memory),
+  where VS Code keeps a log at all - with none to read it is `''` - or
+  the 10 s after a renderer's line before it not all in, nor 5 s more
+  for another host's exit written late. While pending,
+  [Get-ChatRestartCutOffs](../src/host-work.ps1) makes no row of the
+  note's chats, up to 30 s from `goneAt`, and the overlay looks again in
+  2 s, so the ask - said once, in its balloon and on the phone - names
+  the cause; a reload's log is sure as soon as it has the host's exit. A
+  `goneAt` ahead of now - the clock put back since - counts from now.
+  `chatoverlay -Print`, which keeps no notes (`-Once`), waits only on a
+  `goneAt` an overlay's pass kept. The cause is kept in the note as
+  `cause` once found, or as `''` once two minutes have gone with none,
+  and carried on the row as `Cause`.
+  [Format-ChatRestartCause](../src/host-work.ps1) words it -
+  `VS Code ran out of memory`, `VS Code crashed`, `VS Code restarted` -
+  for the row, auto-continue's state, the ask's head (`Cause` there only
+  when every restart row has one: `oom` when all do, else `crash`) and
+  [Get-ChatqRestartPrompt](../src/queue.ps1).
 - **Which chats.** The overlay's cut-off look runs
   [Get-ChatRestartCutOffs](../src/host-work.ps1) with the limit's look -
   once a minute, and at once when the live chats change, as they do after
   a reload ([Invoke-ChatOverlayCycle](../src/overlay-data.ps1)). It reads only notes
   whose host is gone ([Test-ChatHostAlive](../src/host-work.ps1): pid and
-  start, to 5 s) and under 12 hours old, and writes `goneAt` the first time.
+  start, to 5 s) and under 12 hours old, and - on the overlay's own pass,
+  not a `-Peek` one or `chatoverlay -Print` - writes `goneAt` the first time.
   A chat counts when nothing of it works now, no job is queued for it, no
   process of it outlived the host, nothing was written to it since the host
   went, and something was lost: its last message owes an answer
@@ -198,7 +242,12 @@ not two.
   the old host's own process, killed, can read as alive for a moment. A
   last message that cannot be read keeps the chat for a later look. The
   whole transcript is read for background work only once the cheap checks
-  on its tail left the chat in. The row is a cut-off row with `Why` `restart`,
+  on its tail left the chat in, and not when its last message is a
+  finished answer and its note's why is not `background`: its turn ended
+  before the window went. That read is the overlay's background reader
+  ([Update-ChatBackgroundScan](../src/chatrm.ps1)), which parses only the
+  lines that can start or end something - the look runs on the thread
+  the Windows panel draws on. The row is a cut-off row with `Why` `restart`,
   its `LimitUuid` the last message's uuid, plus `Mid` and `Tasks`.
 - **The ask.** [Get-ChatqResetAsk](../src/queue.ps1) takes a restart row at
   once - no reset to wait for, no 5-minute hold - and counts it as
@@ -218,7 +267,21 @@ not two.
   asked too: [Get-ChatqAutoState](../src/auto-continue.ps1) gives it the
   state `restart` (`cut off - VS Code restarted`), which the scan never
   queues. A reload is not a limit: what was cut off may have been a
-  command you meant to stop.
+  command you meant to stop. One exception, a setting of its own:
+  `autoContinueCrash` (top level, off unless chosen;
+  [Get-ChatqAutoContinueCrash](../src/queue.ps1)) has the overlay's pass
+  continue a row whose `Cause` is `oom` or `crash` at once
+  ([Invoke-ChatqCrashContinue](../src/overlay-data.ps1)) - found under 10
+  minutes ago, no job for the chat, not answered, not set to never, not
+  open where its own `claude` continues it (the reset ask's `-Held`: a
+  terminal's, or a run's), and no crash continue to it in the last 2
+  hours ([Test-ChatqCrashContinued](../src/overlay-data.ps1)) - marked
+  answered with source `crash`; those are no row and no ask. Only a
+  queuing host's own pass does it; while the setting is on, a `-Peek`
+  pass leaves the cut-off look to that pass: a look of its own would put
+  those rows to the ask, and hold their continue off a minute. The
+  tray's **Continue chats a VS Code crash cut off** sets it
+  ([Set-ChatOverlayCrashChoice](../src/overlay-windows.ps1)).
 - **The continue.** [Invoke-ChatqContinueChats](../src/commands.ps1) makes
   a `prompt` job, rule `restart`, in the chat's own mode, with
   [Get-ChatqRestartPrompt](../src/queue.ps1)'s text - the window restarted
@@ -227,10 +290,11 @@ not two.
   the cut-off's uuid as `restartUuid`. [Get-ChatqJobs](../src/queue.ps1)
   sorts it with the continues, ahead of other prompts, and
   [Invoke-ChatqJob](../src/watcher.ps1) skips it if the chat went on first.
-- **Not found.** A reload no chatq look came before - Developer: Reload
-  Window, the Extensions view's Restart Extensions, another extension's or
-  VS Code's own update - leaves no note (FUTURE_WORK.md, "Continue the
-  chats a reload stopped").
+- **Not found.** A window that went while no overlay ran, with no chatq
+  look before it - Developer: Reload Window, the Extensions view's Restart
+  Extensions, another extension's or VS Code's own update, running out of
+  memory - leaves no note (DEFERRED.md, "Continue the chats a reload
+  stopped", has what is left).
 
 ## What there is today
 
@@ -1209,7 +1273,7 @@ cut-offs on 2.1.282 and 2.1.283 got nothing after the reset until a typed
 ## Out of scope
 
 - **Codex chats chatq did not run.** There is no cut-off scan for Codex
-  rollouts. Goes to FUTURE_WORK.md.
+  rollouts. Goes to DEFERRED.md.
 - **Other `CLAUDE_CONFIG_DIR` accounts.** The cut-off scan reads only the
   default home.
 - **A chat a terminal holds.** That is Claude Code's own to continue, and

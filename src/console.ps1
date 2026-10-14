@@ -138,6 +138,7 @@ function Get-ChatConsoleJobRow {
     return [pscustomobject]@{ kind = 'session'; provider = [string]$Job.provider; sessionId = [string]$Job.sessionId; cwd = [string]$Job.cwd; title = [string]$Job.title }
 }
 
+# Deferred: DEFERRED.md "A place of its own for the console"
 function Get-ChatConsolePlacement {
     <#
     Where the console goes, all in screen pixels: grown from the panel's
@@ -168,6 +169,7 @@ function Get-ChatConsolePlacement {
     return [pscustomobject]@{ X = [int][Math]::Round($x); Y = [int][Math]::Round($y); W = [int][Math]::Round($w); H = [int][Math]::Round($h) }
 }
 
+# Deferred: DEFERRED.md "A place of its own for the console"
 function Read-ChatConsoleState {
     # console-state.json: its size, whether it was maximized, and the draft
     # - what was being written, to which chat, with which files - so a
@@ -670,6 +672,7 @@ function Get-ChatConsoleMaxLabel {
     return "$([char]0x25A1) Maximize"
 }
 
+# Deferred: DEFERRED.md "Windows' own maximize on the console"
 function Set-ChatConsoleMax {
     <#
     The console maximized - the working area of the screen it is on, the
@@ -1878,12 +1881,14 @@ function Show-ChatConsoleDetails {
     }
     $files = @(Get-ChatqAttachments $j)
     if ($files) { & $add (New-ChatOverlayText (Format-ChatqAttachSummary $files) 'faint' 11 -Trim) }
-    # the log read once per length: a long run's is megabytes of JSON
+    # the log read once per length: a long run's is megabytes of JSON. The
+    # shown job's alone is kept - a table of every job ever picked grew for
+    # as long as the overlay ran, up to half a megabyte a job
     $lp = Join-Path $script:ChatqLogDir "$($j.id).jsonl"
     $ll = try { ([System.IO.FileInfo]::new($lp)).Length } catch { 0 }
     if (-not $C.LogCache) { $C.LogCache = @{} }
     $lc = $C.LogCache[$j.id]
-    if (-not $lc -or $lc.Len -ne $ll) { $lc = @{ Len = $ll; Entries = @(Get-ChatqLogEntries $j -MaxBytes 2MB) }; $C.LogCache[$j.id] = $lc }
+    if (-not $lc -or $lc.Len -ne $ll) { $lc = @{ Len = $ll; Entries = @(Get-ChatqLogEntries $j -MaxBytes 2MB) }; $C.LogCache = @{ $j.id = $lc } }
     if ($C.ShowLog) {
         foreach ($e in @($lc.Entries)) {
             $tone = switch ($e.Type) { 'text' { 'text' } 'denied' { 'warn' } 'error' { 'error' } default { 'faint' } }

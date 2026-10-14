@@ -183,6 +183,7 @@ function Test-ChatqComposeMessage {
     return $r
 }
 
+# Deferred: DEFERRED.md "The board's handle moves on with a board the chat view was not drawn from"
 function Receive-ChatqCompose {
     <#
     One message from the phone about no alert, its MAC checked already
@@ -708,6 +709,7 @@ function Get-ChatqPickKey {
     return $null
 }
 
+# Deferred: DEFERRED.md "The board's handle moves on with a board the chat view was not drawn from"
 function Register-ChatqPicks {
     <#
     Handles for what a board or a list names, in one Use-ChatqReplyState
@@ -802,6 +804,8 @@ function Get-ChatqBoardLine {
     return (Limit-ChatqText $t $Max -Ellipsis)
 }
 
+# Deferred: DEFERRED.md "Background work on the overlay: what it leaves out"
+# Deferred: DEFERRED.md "Codex chats on the phone board"
 function ConvertTo-ChatqPhoneBoard {
     <#
     The board the phone draws, from what the overlay computes: -Snap is
@@ -999,6 +1003,8 @@ function ConvertTo-ChatqPhoneBoard {
     return [pscustomobject]@{ Body = $body; Items = $items.ToArray() }
 }
 
+# Deferred: DEFERRED.md "A `claude -p` that is not chatq's"
+# Deferred: DEFERRED.md "Listening all the time off Windows"
 function Get-ChatqBoardScan {
     <#
     The overlay's rows with no overlay running, or its snapshot older than 2
@@ -1248,6 +1254,7 @@ function Get-ChatqPhoneBoardAnswer {
 
 #region the list (the chats and folders, not as the overlay has them)
 
+# Deferred: DEFERRED.md "Codex chats on the phone board"
 function Get-ChatqPhoneChatMeta {
     # A chat's folder and mode for the list, from a bounded read: the
     # transcript's first and last 256 KB, never the 64 MB walk the queue's

@@ -253,6 +253,7 @@ function Initialize-ChatOverlayNative {
         ChatOverlayNative = $script:ChatOverlayNativeCode; ChatOverlayFullScreen = $script:ChatOverlayFullScreenCode
         ChatProcSnap = $script:ChatProcSnapCode; ChatProcTable = $script:ChatProcTableCode
         ChatCodeWindows = $script:ChatCodeWindowsCode; ChatCodeWindowList = $script:ChatCodeWindowListCode
+        ChatMemStatus = $script:ChatMemStatusCode
     }
     if (-not $env:CHATQ_NOFRONT) { $types.ChatOverlayFront = $script:ChatOverlayFrontCode }
     $src = @(foreach ($n in @($types.Keys)) { if ($types[$n] -and -not ($n -as [type])) { $types[$n] } })
@@ -413,6 +414,7 @@ function New-ChatOverlayWindow {
     New-ChatOverlayChipWindow $H
 }
 
+# Deferred: DEFERRED.md "The panel's buttons on macOS"
 function New-ChatOverlayControlsWindow {
     <#
     The bar of buttons and the settings box live in a small window of their
@@ -456,6 +458,7 @@ $script:ChatOverlayBarInset = 4
 $script:ChatOverlayBarIndent = 8
 $script:ChatOverlayBoxGap = 4
 
+# Deferred: DEFERRED.md "The panel's edges come only after a rest"
 function New-ChatOverlayEdgesWindow {
     <#
     The panel's edges, to size it by as any window is: a window of their
@@ -744,6 +747,7 @@ function New-ChatOverlayControls {
     Set-ChatOverlayControlsSide $H $(if ($H.CtlSide) { $H.CtlSide } else { 'above' })
 }
 
+# Deferred: DEFERRED.md "The settings box on a screen too short for it"
 function New-ChatOverlaySettings {
     <#
     The box beside the row of buttons: opacity, and width and rows side by
@@ -959,6 +963,7 @@ function Show-ChatOverlayControls {
     }
 }
 
+# Deferred: DEFERRED.md "The settings box on a screen too short for it"
 function Get-ChatOverlayControlsPlacement {
     <#
     Where the controls window goes, all in screen pixels (-Panel a rect,
@@ -1122,6 +1127,7 @@ function Stop-ChatOverlayGripDrag {
     Sync-ChatOverlayHeightCap $H
 }
 
+# Deferred: DEFERRED.md "The top edge's cap a little generous"
 function Get-ChatOverlayResize {
     <#
     What a drag of one of the panel's edges comes to, from where it
@@ -1424,6 +1430,7 @@ function Set-ChatOverlayRowsChoice {
     $H.PendingAt = Get-Date
 }
 
+# Deferred: DEFERRED.md "The top edge's cap a little generous"
 function Start-ChatOverlaySizeDrag {
     # A press on an edge of the panel - -Edge by the compass, a corner
     # two letters: the panel's width, rows and Recent lines follow the
@@ -1683,6 +1690,25 @@ function Set-ChatOverlayAutoChoice {
     catch { Write-ChatOverlayLog "settings: $($_.Exception.Message)" }
 }
 
+function Set-ChatOverlayCrashChoice {
+    # The tray's Continue chats a VS Code crash cut off, through
+    # Invoke-ChatOverlayVerb: config.json's top-level autoContinueCrash
+    # (Set-ChatqAutoContinueCrash), read back, and a fresh look at what was
+    # cut off on the next pass
+    param($H, [bool]$On)
+    if (-not $H) { return }
+    if ([bool]$H.Ctx.Config.autoContinueCrash -eq $On) { return }
+    try {
+        [void](Set-ChatqAutoContinueCrash -Value $On)
+        Save-ChatOverlaySetting $H @{}
+        $H.Ctx.CutAt = [datetime]::MinValue
+        Write-ChatOverlayLog "crash continue $(if ($On) { 'on' } else { 'off' }) from the panel" -Always
+        $H.ViewKey = $null
+        if ($H.Menu) { Update-ChatOverlayMenu $H }
+    }
+    catch { Write-ChatOverlayLog "settings: $($_.Exception.Message)" }
+}
+
 function Invoke-ChatOverlayRefresh {
     # the refresh button: a pass now, which sends the ask; the next pass,
     # two seconds on, draws the answer
@@ -1759,6 +1785,21 @@ function Show-ChatOverlayBalloon {
     $H.Tray.ShowBalloonTip($Ms, $Title, $Text, [System.Windows.Forms.ToolTipIcon]$Icon)
 }
 
+function Show-ChatOverlayMemory {
+    # after a pass: Windows' memory gone low (Update-ChatOverlayMemory), said
+    # once in the tray - a VS Code window may be about to die of it
+    param($H)
+    try {
+        $m = $H.Ctx.MemNews
+        if (-not $m) { return }
+        $H.Ctx.MemNews = $null
+        $t = (Format-ChatOverlayMemoryText $m) -replace '^memory low: ', ''
+        Show-ChatOverlayBalloon $H "$t. A VS Code window that runs out of memory takes its chats down with it - close what you can spare." `
+            -Title 'Charlie - memory low' -Icon Warning -Kind memory -Ms 10000
+    }
+    catch { Write-ChatOverlayLog "memory: $($_.Exception.Message)" }
+}
+
 function Get-ChatOverlayControlsShown {
     <#
     Whether the edges show, from where the pointer is - the bar of buttons
@@ -1784,6 +1825,7 @@ function Test-ChatOverlayPointerIn {
     return [bool]($Rect -and $At.X -ge $Rect[0] -and $At.X -lt ($Rect[0] + $Rect[2]) -and $At.Y -ge $Rect[1] -and $At.Y -lt ($Rect[1] + $Rect[3]))
 }
 
+# Deferred: DEFERRED.md "The panel's edges come only after a rest"
 function Update-ChatOverlayHover {
     <#
     Every 120 ms: where the pointer is - read, never moved - against the
@@ -2670,6 +2712,7 @@ function Update-ChatOverlayRaise {
     return 'behind'
 }
 
+# Deferred: DEFERRED.md "The unread dot lives in the overlay's memory"
 function Update-ChatOverlayOpen {
     # every tick while an open runs: when its child is done, say how it went,
     # and put the chip back; after 60 s stop waiting for it. Every end is
@@ -3534,6 +3577,7 @@ function Undo-ChatOverlayClose {
     Update-ChatOverlayMenu $H
 }
 
+# Deferred: DEFERRED.md "A place of its own for the console"
 function Enter-ChatOverlayConsoleMode {
     <#
     The console, in the panel's own window ($H.Mode console): grown from
@@ -3638,6 +3682,7 @@ function Enter-ChatOverlayConsoleMode {
     if ($Activate) { & $front }
 }
 
+# Deferred: DEFERRED.md "The console's index stays after it closes"
 function Exit-ChatOverlayConsoleMode {
     <#
     Back to the panel: the draft and the console's size saved, then the
@@ -3660,6 +3705,16 @@ function Exit-ChatOverlayConsoleMode {
     $H.Con.Max = $false
     $H.Con.Restore = $null
     if ($H.Con.MaxBtn) { $H.Con.MaxBtn.Child.Text = Get-ChatConsoleMaxLabel $false }
+    # What the next showing reads and draws again anyway - Enter forgets
+    # every Sig - let go, not kept for the overlay's life: the jobs, the
+    # chats' and the jobs' rows, the shown job's read log. The pane of the
+    # job picked stays, for a prompt being edited in it.
+    $H.Con.Jobs = $null
+    $H.Con.JobsSig = $null
+    $H.Con.ChatItems = @()
+    $H.Con.LogCache = $null
+    if ($H.Con.Chats) { $H.Con.Chats.Children.Clear() }
+    if ($H.Con.Queue) { $H.Con.Queue.Children.Clear() }
     $H.Mode = 'panel'
     if ($w.WindowState -ne [System.Windows.WindowState]::Normal) { $w.WindowState = [System.Windows.WindowState]::Normal }
     $w.Hide()
@@ -3841,8 +3896,10 @@ function Update-ChatOverlayMenu {
     # auto-continue's item, checked while the switch is on, as the panel
     # has config.json (the settings box and a reload keep that current)
     if ($H.Menu.Auto) { $H.Menu.Auto.Checked = [string]$H.Ctx.Config.autoContinue -eq 'on' }
+    if ($H.Menu.Crash) { $H.Menu.Crash.Checked = [bool]$H.Ctx.Config.autoContinueCrash }
 }
 
+# Deferred: DEFERRED.md "The tray's ask items while the menu is open"
 function Update-ChatOverlayAsk {
     <#
     After each pass, what the collector found about the chats the limit cut
@@ -4027,6 +4084,12 @@ function New-ChatOverlayTrayIcon {
     $H.Menu.Auto = $menu.Items.Add('Auto-continue cut-off chats')
     $H.Menu.Auto.ToolTipText = 'A minute after the limit resets, send "continue" to each chat it cut off - unchecked, the panel asks first'
     $H.Menu.Auto.add_Click({ Invoke-ChatOverlayVerb $(if ($script:ChatOverlayHost.Menu.Auto.Checked) { 'auto-ask' } else { 'auto-on' }) })
+    # the chats VS Code's running out of memory or crashing cut off,
+    # continued by themselves while checked (Invoke-ChatqCrashContinue) -
+    # through the verbs too
+    $H.Menu.Crash = $menu.Items.Add('Continue chats a VS Code crash cut off')
+    $H.Menu.Crash.ToolTipText = 'When VS Code runs out of memory or crashes, send each chat it cut off a prompt that says so - unchecked, the panel asks first'
+    $H.Menu.Crash.add_Click({ Invoke-ChatOverlayVerb $(if ($script:ChatOverlayHost.Menu.Crash.Checked) { 'crash-off' } else { 'crash-on' }) })
     $menu.add_Opening({ Update-ChatOverlayMenu $script:ChatOverlayHost })
     [void]$menu.Items.Add([System.Windows.Forms.ToolStripSeparator]::new())
     $head = $menu.Items.Add("Charlie-and-the-chat-factory $script:ChatVersion")
@@ -4217,6 +4280,11 @@ function Invoke-ChatOverlayVerb {
             if ($busy -and $H.Mode -eq 'console') { $H.Held += @($Verb); return }
             Set-ChatOverlayAutoChoice $H $(switch ($Verb) { 'auto-on' { 'continue' } 'auto-off' { 'leave' } default { 'ask' } })
         }
+        # The tray's Continue chats a VS Code crash cut off, held the same way
+        { $_ -in 'crash-on', 'crash-off' } {
+            if ($busy -and $H.Mode -eq 'console') { $H.Held += @($Verb); return }
+            Set-ChatOverlayCrashChoice $H ($Verb -eq 'crash-on')
+        }
     }
 }
 
@@ -4318,13 +4386,16 @@ function Invoke-ChatOverlayTick {
             # would drop it. Left unread, it is said once the close is taken
             # back (Undo-ChatOverlayClose).
             if (-not $H.Closing) {
+                # memory gone low first: an ask's balloon after it is the newer
+                Show-ChatOverlayMemory $H
                 Update-ChatOverlayAsk $H
                 # the first continue auto-continue queued, said in the tray
                 Show-ChatOverlayAutoQueued $H
             }
             if ($C -and $H.Mode -eq 'console') { Update-ChatConsole $H }
-            # once, a few minutes in: what the start read is garbage by then
-            if ($H.CompactAt -and (Get-Date) -ge $H.CompactAt) { $H.CompactAt = $null; Invoke-ChatOverlayHeapCompact }
+            # a few minutes in, what the start read is garbage by then; and
+            # every 5 minutes after, before the passes' garbage piles up
+            if ($H.CompactAt -and (Get-Date) -ge $H.CompactAt) { $H.CompactAt = (Get-Date).AddMinutes(5); Invoke-ChatOverlayHeapCompact }
             # The code on disk is no longer what this loaded - a git pull, a
             # copy made by hand: the restart chatinstall sends after an
             # update, once nothing is under way that it would lose.
@@ -4378,13 +4449,16 @@ function Invoke-ChatOverlayTick {
 
 function Invoke-ChatOverlayHeapCompact {
     <#
-    The large object heap compacted, once. A start reads the tail of every
-    transcript of the last week and the open chats whole, and the buffers
-    are freed after by a collection that never moves what is left, so the
-    heap keeps its size. Live, this gave back 22 to 82 MB in about 0.1 s.
-    Once is enough: the passes after put little on that heap, which held
-    12 to 15 MB an hour on, so a second would have little to give back.
-    Private bytes before and after go in the log.
+    A full collection, the large object heap compacted with it. A start
+    reads the tail of every transcript of the last week and the open chats
+    whole, and the buffers are freed after by a collection that never moves
+    what is left, so the heap keeps its size. Live, the first gave back 22
+    to 82 MB in about 0.1 s. The passes after put little on that heap,
+    which held 12 to 15 MB an hour on, so compacting it again costs little.
+    The tick calls this every 5 minutes after the first: left to itself the
+    CLR let generation 2 grow from 89-95 MB to 146-159 between full
+    collections 17 to 21 minutes apart, and the private bytes from 250 up
+    to 290 with it. Private bytes before and after go in the log.
     #>
     $p = [System.Diagnostics.Process]::GetCurrentProcess()
     try {
@@ -4457,7 +4531,7 @@ function New-ChatOverlayHostState {
         FullHidden = $false; FullKept = $false; Closing = $false; CloseTimer = $null
         # a faint line's height, measured once (Get-ChatOverlayLineHeight)
         LineHeight = $null
-        # when the heap is compacted, once (Invoke-ChatOverlayHeapCompact)
+        # when the heap is next collected (Invoke-ChatOverlayHeapCompact)
         CompactAt = $null
         Con = $null; ConHotkey = $null; ConHotkeyText = $null
         # panel, or console while the window shows the console

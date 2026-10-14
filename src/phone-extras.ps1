@@ -206,6 +206,7 @@ function Use-ChatqUsageAlertState {
         })
 }
 
+# Deferred: DEFERRED.md "Usage heads-ups without the overlay"
 function Update-ChatqUsageAlerts {
     <#
     Threshold heads-ups, from the overlay's pass (Invoke-ChatOverlayCycle,
@@ -424,6 +425,7 @@ function ConvertTo-ChatqClock {
     return [TimeSpan]::new([int]$Matches[1], [int]$Matches[2], 0)
 }
 
+# Deferred: DEFERRED.md "Quiet hours: one window, this PC's clock"
 function Get-ChatqQuietHours {
     <#
     config quietHours as @{ From; To; Urgent; Text }, or $null when off. A
@@ -441,6 +443,7 @@ function Get-ChatqQuietHours {
     [pscustomobject]@{ From = $from; To = $to; Urgent = [string[]]@($urgent); Text = "$($from.ToString('hh\:mm'))-$($to.ToString('hh\:mm'))" }
 }
 
+# Deferred: DEFERRED.md "Quiet hours: one window, this PC's clock"
 function Test-ChatqQuietNow {
     <#
     Is $Now inside the window? @{ In; Until }: Until the next end of the

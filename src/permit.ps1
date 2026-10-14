@@ -114,13 +114,15 @@ function Get-ChatqPermitDataRule {
     return $p + '/**'
 }
 
+# Deferred: DEFERRED.md "The Windows PowerShell path built in eight places"
 function Get-ChatqPermitLaunch {
     <#
     The bridge's launch as mcp.json holds it: @{ Exe; Args; Env; Command }.
     Windows PowerShell on Windows, the PowerShell this runs in elsewhere, no
     profile, -ExecutionPolicy Bypass for that process alone. It dot-sources
     the script with CHATQ_OVERLAY set - no key bindings, no watcher started
-    on load - with everything the load says sent to nothing: stdout is the
+    on load - and CHATQ_ROLE, so only the parts the bridge reaches load,
+    with everything the load says sent to nothing: stdout is the
     MCP channel, and one stray line there breaks it. A failure to load lands
     in data/logs/permit.log. Env names what a stdio server may not otherwise
     be handed; from pwsh 7 the module path is Windows PowerShell's own again.
@@ -134,7 +136,7 @@ function Get-ChatqPermitLaunch {
     else { (Get-Process -Id $PID).Path }
     $log = Join-Path $script:ChatqLogDir 'permit.log'
     $wait = if ($WaitSeconds -gt 0) { " -WaitSeconds $WaitSeconds" } else { '' }
-    $cmd = "`$ProgressPreference = 'SilentlyContinue'; `$env:CHATQ_OVERLAY = '1'; " +
+    $cmd = "`$ProgressPreference = 'SilentlyContinue'; `$env:CHATQ_OVERLAY = '1'; `$env:CHATQ_ROLE = 'permit'; " +
     "try { . $(& $q $Path) *> `$null } catch { try { [void][IO.Directory]::CreateDirectory($(& $q $script:ChatqLogDir)); " +
     "[IO.File]::AppendAllText($(& $q $log), (Get-Date).ToString('o') + '  bridge: the script did not load: ' + `$_.Exception.Message + [char]10) } catch {}; exit 1 }; " +
     "Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference', 'env:CHATQ_OVERLAY' -EA SilentlyContinue; " +
@@ -439,6 +441,7 @@ function Get-ChatqPermitPathForms {
     return $out
 }
 
+# Deferred: DEFERRED.md "chatq's data folder named in a command, every way"
 function ConvertTo-ChatqPermitPath {
     <#
     A path as the file system would open it, for comparing, lower case: on
@@ -513,6 +516,7 @@ function Test-ChatqPermitUnder {
     return $false
 }
 
+# Deferred: DEFERRED.md "chatq's data folder named in a command, every way"
 function Test-ChatqPermitCommandDir {
     <#
     Does a command name the folder $Dir? Best effort - a command can reach

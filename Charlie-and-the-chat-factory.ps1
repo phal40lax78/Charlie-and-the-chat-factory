@@ -20,7 +20,7 @@ Then type chat for the cheat sheet. Everything else is in README.md.
 # handing back what you already had. extension/package.json carries the same
 # version: the extension installs this copy by it, and extension/build.js
 # refuses to pack the two apart.
-$script:ChatVersion = '0.10.7'
+$script:ChatVersion = '0.10.8'
 
 # The tool's folder and this file, read here once and never inside a function:
 # data/ sits in that folder, and the profile line, the watcher and the overlay
@@ -59,9 +59,28 @@ if ($chatMissing) {
 # Each is lighter for it, a shell and the watcher too: 8 MB less .NET heap,
 # 10 to 44 MB less memory by how much the PC has free, and 0.1 to 0.2 s less
 # to load. All 25 are looked for above, so a broken copy still shows.
-if (-not $env:CHATQ_ALLPARTS) { $chatParts = @($chatParts | Where-Object { $_ -notin 'overlay-windows', 'console', 'overlay-mac' }) }
+# A process that runs one thing loads only the parts that thing reaches:
+# the permission bridge, alive as long as a queued run, and the question
+# hook, one for each question held. CHATQ_ROLE names it, ahead of
+# CHATQ_ALLPARTS, which the tests set for the whole run, so the bridge and
+# the hook they start load as they do for real. It is dropped once read, so
+# nothing they start inherits it. Each list is what its entry reaches, by
+# the functions it calls and the top-level variables of every part; the
+# self-test works that out again and fails on a list that misses a part
+# (tests/sections/find-delete.ps1). A fresh load, after a full collection,
+# median of 5: 87 MB private for the bridge's 9 parts and 90 for the hook's
+# 15, against 102 for all 22; 245 and 307 ms to load against 384.
+$chatRoles = @{
+    permit = 'core', 'queue', 'live-chats', 'alerts', 'phone', 'phone-extras', 'permit', 'phone-down', 'overlay-data'
+    ask    = 'core', 'providers', 'chatrm', 'discoverability', 'queue', 'live-chats', 'alerts', 'phone', 'phone-extras', 'permit', 'ask', 'phone-down', 'phone-board', 'watcher', 'overlay-data'
+}
+$chatRole = [string]$env:CHATQ_ROLE
+Remove-Item -LiteralPath 'env:CHATQ_ROLE' -EA SilentlyContinue
+if (-not $chatRoles.ContainsKey($chatRole)) { $chatRole = '' }
+if ($chatRole) { $chatParts = @($chatParts | Where-Object { $_ -in $chatRoles[$chatRole] }) }
+elseif (-not $env:CHATQ_ALLPARTS) { $chatParts = @($chatParts | Where-Object { $_ -notin 'overlay-windows', 'console', 'overlay-mac' }) }
 foreach ($chatPart in $chatParts) { . (Join-Path (Join-Path $PSScriptRoot 'src') "$chatPart.ps1") }
-Remove-Variable chatParts, chatMissing, chatPart -EA SilentlyContinue
+Remove-Variable chatParts, chatMissing, chatPart, chatRoles -EA SilentlyContinue
 # A copy from before that - an overlay restarting itself onto this one, a
 # terminal opened before it - starts the overlay with CHATQ_OVERLAY alone
 # and calls its host by name, which a load like that leaves out: started
@@ -89,8 +108,11 @@ $script:ChatqJobCompleter = {
 Register-ArgumentCompleter -CommandName chatqrm, chatqrun, chatqlog -ParameterName Ref -ScriptBlock $script:ChatqJobCompleter
 
 
-# a shell opened after the delete picks the watch back up
-if (Test-Path -LiteralPath $script:ChatTombPath) { Start-ChatGhostWatch }
+# a shell opened after the delete picks the watch back up - not a role's
+# process: it sets CHATQ_OVERLAY, so Start-ChatGhostWatch would return at
+# once, and the bridge loads no chatrm.ps1 to define it
+if (-not $chatRole -and (Test-Path -LiteralPath $script:ChatTombPath)) { Start-ChatGhostWatch }
+Remove-Variable chatRole -EA SilentlyContinue
 
 # Run instead of dot-sourced - & file.ps1, powershell -File, a double-click.
 # Everything above was defined in a scope about to be thrown away, leaving a

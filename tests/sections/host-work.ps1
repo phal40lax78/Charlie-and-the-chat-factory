@@ -304,6 +304,8 @@ Check 'the host gone: the chat cut off mid tool_use and the one whose workflow n
     -not $rsR3.Mid -and @($rsR3.Tasks).Count -eq 1 -and $rsR3.Tasks[0].Kind -eq 'workflow' -and $rsR3.Tasks[0].Note -eq 'nightly-review') "$(@($rsCut | ForEach-Object { "$($_.Id.Substring(0, 2)) mid=$($_.Mid) tasks=$(@($_.Tasks).Count)" }) -join '; ')"
 Check 'and the note keeps only those two, with when the host was first found gone' (
     (@($rsN2.chats | ForEach-Object { $_.sessionId.Substring(0, 2) }) -join ',') -eq 'e1,e3' -and (ConvertTo-ChatqDate $rsN2.goneAt)) (Get-Content -LiteralPath $rsNote -Raw)
+Check 'the title read from the transcript, once: kept with the look, not taken from the index' (
+    $rsCache["4242|$idR1"].Look.Title -eq 'Restart e1') "$($rsCache["4242|$idR1"].Look.Title)"
 
 # The overlay's own pass (Invoke-ChatOverlayCycle) over that note: the
 # restart's chats merged into its ask and its orange rows, under
@@ -476,6 +478,32 @@ Check 'a chat that went on after the host went is no cut-off, and the note goes 
 Save-ChatHostWorkNote $rsLook -HostStart $rsStartMs -Now $rsNow.AddHours(-13)
 $rsCut7 = @(Get-ChatRestartCutOffs -Live @() -Asked @{} -Jobs @() -Prune -Now $rsNow)
 Check 'a note over 12 hours old offers nothing, and is removed' ($rsCut7.Count -eq 0 -and -not (Test-Path -LiteralPath $rsNote)) "$($rsCut7.Count)"
+# A finished answer last, and a note that names no background work: its turn
+# ended before the window went, so the whole transcript is not read for work
+# left out - a workflow it started is found where the note says background.
+# The background reader (Update-ChatBackgroundScan) counted.
+$idR5 = 'e5e5e5e5-e5e5-4e5e-8e5e-e5e5e5e5e5e5'
+$rsFile[$idR5] = New-FakeChat $projH $idR5 'Restart e5' 0.5 @('go') -HomeDir $hwHome
+$rsWf5 = & $rsRec $idR5 'user' 10 ([ordered]@{ role = 'user'; content = @([ordered]@{ type = 'tool_result'; tool_use_id = 'toolu_wf5'; content = 'launched' }) }) @{
+    toolUseResult = [ordered]@{ status = 'async_launched'; taskId = 'wrs0005'; taskType = 'local_workflow'; workflowName = 'weekly-review' } }
+$rsWf5Said = & $rsRec $idR5 'assistant' 10 ([ordered]@{ role = 'assistant'; content = @([ordered]@{ type = 'text'; text = 'started it' }); stop_reason = 'end_turn' })
+[System.IO.File]::AppendAllText($rsFile[$idR5], ($rsWf5 | ConvertTo-Json -Compress -Depth 8) + "`n" + ($rsWf5Said | ConvertTo-Json -Compress -Depth 8) + "`n", $utf8)
+$rsLook5 = { param([string]$Why) [pscustomobject]@{ HostPid = $rsHost; Known = $true; Chats = @([pscustomobject]@{ SessionId = $idR5; Pids = @(5006); Cwd = $projH; Transcript = $rsFile[$idR5]; Why = $Why; Written = $false; Since = $rsSince }) } }
+$rsScanWas = ${function:Update-ChatBackgroundScan}
+$script:RsScans = 0
+${function:Update-ChatBackgroundScan} = { param([hashtable]$State, [string]$Path, [int64]$MaxBytes = 8MB) $script:RsScans++; & $rsScanWas $State $Path $MaxBytes }
+try {
+    Save-ChatHostWorkNote (& $rsLook5 'turn') -HostStart $rsStartMs -Now $rsNow.AddMinutes(-2)
+    $rsE1 = @(Get-ChatRestartCutOffs -Live @() -Asked @{} -Jobs @() -Now $rsNow)
+    $rsE1n = $script:RsScans
+    Save-ChatHostWorkNote (& $rsLook5 'background') -HostStart $rsStartMs -Now $rsNow.AddMinutes(-2)
+    $rsE2 = @(Get-ChatRestartCutOffs -Live @() -Asked @{} -Jobs @() -Now $rsNow)
+    $rsE2n = $script:RsScans
+}
+finally { ${function:Update-ChatBackgroundScan} = $rsScanWas; Remove-Item -LiteralPath $rsNote -Force -EA SilentlyContinue }
+Check 'a finished answer last, the note naming no background work: its transcript not read for work left out, nothing offered; a note that says background reads it once, and offers the workflow out' (
+    $rsE1.Count -eq 0 -and $rsE1n -eq 0 -and $rsE2.Count -eq 1 -and $rsE2[0].Id -eq $idR5 -and -not $rsE2[0].Mid -and @($rsE2[0].Tasks).Count -eq 1 -and
+    $rsE2[0].Tasks[0].Note -eq 'weekly-review' -and $rsE2n -eq 1) "$($rsE1.Count) $rsE1n $($rsE2.Count) $rsE2n"
 # A process from before the note, seen once, may be the old host's own:
 # killed, its registry file reads as alive for up to 10 s of the overlay's
 # cache. So it is kept, marked heldAt, and offered once it is gone; only a
@@ -537,3 +565,575 @@ Check 'a last message owes an answer: a tool_use, a prompt, a tool''s result - n
     -not (Test-ChatRestartMid (& $rsT 'assistant' 'done' 'end_turn')) -and -not (Test-ChatRestartMid (& $rsT 'assistant' 'done' $null)) -and
     -not (Test-ChatRestartMid (& $rsT 'user' '[Request interrupted by user]' $null)) -and -not (Test-ChatRestartMid (& $rsT 'user' '<command-name>/cost</command-name>' $null)) -and
     -not (Test-ChatRestartMid (& $rsT 'user' '<local-command-stdout>ok</local-command-stdout>' $null)) -and -not (Test-ChatRestartMid $null))
+
+Section 'what took a window down'
+# A window that runs out of memory or crashes goes with no look of the
+# extension's before it. So the Windows overlay's own passes keep the note of
+# what each window's chats are doing (Update-ChatHostWorkNotes), VS Code's own
+# log says what took the window down (Get-ChatHostEndCause), and every wording
+# of its cut-offs says so; config autoContinueCrash, off unless chosen,
+# continues them by itself (Invoke-ChatqCrashContinue). And the panel says
+# when Windows' memory runs short (Update-ChatOverlayMemory), while there is
+# time to close something. VS Code's logs are the sandbox's own; seams,
+# config, jobs, markers and notes are put back.
+$ecWas = @{ Alive = $script:ChatHostAliveSeam; Logs = $script:ChatHostLogRootsSeam; Table = $script:ChatProcessTableSeam; Mem = $script:ChatMemorySeam
+    Top = $script:ChatMemoryTopSeam; Usage = $script:ChatOverlayUsageSeam; Spawn = $script:ChatqSpawn; Balloon = $script:ChatOverlayBalloonSeam
+}
+$ecCfgWas = Read-TestFile $script:ChatqConfigPath
+$ecStateWas = Read-TestFile $script:ChatqAutoPath
+$ecNow = Get-Date
+
+# VS Code's main.log: a session folder each for Code and Code - Insiders, its
+# lines that many seconds before now
+$ecRoot = Join-Path $sb 'code-logs'
+$ecCode = Join-Path $ecRoot 'Code\logs'
+$ecIns = Join-Path $ecRoot 'Code - Insiders\logs'
+$ecLine = { param([double]$Sec, [string]$Level, [string]$Text) "$($ecNow.AddSeconds($Sec).ToString('yyyy-MM-dd HH:mm:ss.fff', [System.Globalization.CultureInfo]::InvariantCulture)) [$Level] $Text" }
+$ecLog = {
+    param([string]$Root, [string]$Session, [string[]]$Lines)
+    $d = Join-Path $Root $Session
+    $null = New-Item -ItemType Directory -Path $d -Force
+    $p = Join-Path $d 'main.log'
+    [System.IO.File]::WriteAllText($p, (($Lines -join "`n") + "`n"), $utf8)
+    $p
+}
+$null = & $ecLog $ecCode '20261014T080000' @(
+    (& $ecLine -330 'info' 'Extension host with pid 7003 exited with code: 0, signal: unknown.')
+    (& $ecLine -250 'error' 'CodeWindow: renderer process gone (reason: oom, code: -536870904)')
+    (& $ecLine -235 'info' 'Extension host with pid 7005 exited with code: 0, signal: unknown.')
+    # a file watcher's crash, its pid the host's here: only its type tells it apart
+    (& $ecLine -200 'error' "[UtilityProcess id: 3, type: fileWatcher, pid: 7004]: crashed with code -36861 and reason 'crashed'")
+    (& $ecLine -199 'info' 'Extension host with pid 7004 exited with code: 0, signal: unknown.')
+    (& $ecLine -120 'error' "[UtilityProcess id: 10, type: extensionHost, pid: 7002]: crashed with code -36861 and reason 'crashed'")
+    (& $ecLine -120 'info' 'Extension host with pid 7002 exited with code: 18446744073709515000, signal: unknown.')
+    (& $ecLine -30 'error' 'CodeWindow: renderer process gone (reason: oom, code: -536870904)')
+    (& $ecLine -27 'info' 'Extension host with pid 7001 exited with code: 0, signal: unknown.'))
+$ecMainI = & $ecLog $ecIns '20261014T090000' @(
+    (& $ecLine -60 'error' 'CodeWindow: renderer process gone (reason: crashed, code: -1073741819)')
+    (& $ecLine -58 'info' 'Extension host with pid 7006 exited with code: 0, signal: unknown.'))
+$script:EcRoots = @($ecCode, $ecIns)
+$script:ChatHostLogRootsSeam = { $script:EcRoots }
+$ecOf = { param([int]$HostPid, [datetime]$From = $ecNow.AddMinutes(-10), [datetime]$To = $ecNow) Get-ChatHostEndCause $HostPid $From $To }
+Check 'VS Code''s log says why a host went: out of memory, its window''s renderer gone just before a plain exit; a crash, by its exit code and crash line, or its renderer crashed - Code - Insiders'' log read too' (
+    (& $ecOf 7001) -eq 'oom' -and (& $ecOf 7002) -eq 'crash' -and (& $ecOf 7006) -eq 'crash') "$(& $ecOf 7001) $(& $ecOf 7002) $(& $ecOf 7006)"
+Check 'and nothing for a reload, a file watcher''s crash, a renderer gone 15 s before, or no host' (
+    (& $ecOf 7003) -eq '' -and (& $ecOf 7004) -eq '' -and (& $ecOf 7005) -eq '' -and (& $ecOf 0) -eq '') "$(& $ecOf 7003) $(& $ecOf 7004) $(& $ecOf 7005)"
+# A host gone whose exit the log has yet to name - a pid another starts
+# with, one never named, its exit before the time asked or after it - waits
+# for the line, which a VS Code short of memory writes seconds late; with
+# no log to read, nothing.
+$script:EcRoots = @()
+$ecNoLog = & $ecOf 7009
+$script:EcRoots = @($ecCode, $ecIns)
+Check 'not known yet while the log has yet to name the host''s exit - a pid another starts with, one never named, its exit before the time asked or after it; nothing with no log to read' (
+    (& $ecOf 700) -eq 'pending' -and (& $ecOf 7009) -eq 'pending' -and (& $ecOf 7001 $ecNow.AddSeconds(-20)) -eq 'pending' -and
+    (& $ecOf 7001 $ecNow.AddMinutes(-10) $ecNow.AddSeconds(-29)) -eq 'pending' -and $ecNoLog -eq '') "$(& $ecOf 700) $(& $ecOf 7009) $(& $ecOf 7001 $ecNow.AddSeconds(-20)) '$ecNoLog'"
+(Get-Item -LiteralPath $ecMainI).LastWriteTime = $ecNow.AddHours(-1)
+$ecOldI = & $ecOf 7006
+(Get-Item -LiteralPath $ecMainI).LastWriteTime = $ecNow
+Check 'a log session not written since a minute before the time asked is not read' ($ecOldI -eq 'pending' -and (& $ecOf 7006) -eq 'crash') $ecOldI
+# A window closed just after another ran out of memory: two plain exits in
+# the 10 s after one renderer's line, and neither window is known. A
+# renderer gone just before the time asked still counts - a note can be
+# written between it and its host's exit - and it is not known yet while
+# the 10 s after it are not all in the log, nor for 5 s after them.
+$null = & $ecLog $ecCode '20261014T100000' @(
+    (& $ecLine -500 'error' 'CodeWindow: renderer process gone (reason: oom, code: -536870904)')
+    (& $ecLine -498 'info' 'Extension host with pid 7011 exited with code: 0, signal: unknown.')
+    (& $ecLine -495 'info' 'Extension host with pid 7012 exited with code: 0, signal: unknown.')
+    (& $ecLine -450 'error' 'CodeWindow: renderer process gone (reason: oom, code: -536870904)')
+    (& $ecLine -443 'info' 'Extension host with pid 7013 exited with code: 0, signal: unknown.'))
+Check 'a window closed just after another ran out of memory: neither is known; a renderer gone just before the time asked still counts; not known yet until the 10 s after it are in the log, and 5 s more' (
+    (& $ecOf 7011) -eq '' -and (& $ecOf 7012) -eq '' -and (& $ecOf 7013 $ecNow.AddSeconds(-447)) -eq 'oom' -and
+    (& $ecOf 7001 $ecNow.AddMinutes(-10) $ecNow.AddSeconds(-16)) -eq 'pending' -and (& $ecOf 7001 $ecNow.AddMinutes(-10) $ecNow.AddSeconds(-15)) -eq 'oom') (
+    "$(& $ecOf 7011) $(& $ecOf 7012) $(& $ecOf 7013 $ecNow.AddSeconds(-447)) $(& $ecOf 7001 $ecNow.AddMinutes(-10) $ecNow.AddSeconds(-16))")
+# The same, the closed window's exit written late by a VS Code short of
+# memory: in the 5 s after the 10 s, the log not yet holding it, the window
+# that ran out of memory is no surer - taken for the only one, it would
+# say so for a window closed by hand; once the line is in, neither is known.
+$ecLag = { param([switch]$Late) & $ecLog $ecCode '20261014T110000' @(
+        (& $ecLine -590 'error' 'CodeWindow: renderer process gone (reason: oom, code: -536870904)')
+        (& $ecLine -587 'info' 'Extension host with pid 7041 exited with code: 0, signal: unknown.')
+        if ($Late) { (& $ecLine -582 'info' 'Extension host with pid 7042 exited with code: 0, signal: unknown.') }) }
+$null = & $ecLag
+$ecLag0 = & $ecOf 7041 $ecNow.AddMinutes(-10) $ecNow.AddSeconds(-579)
+$null = & $ecLag -Late
+$ecLag1 = & $ecOf 7041 $ecNow.AddMinutes(-10) $ecNow.AddSeconds(-575)
+$ecLag2 = & $ecOf 7042 $ecNow.AddMinutes(-10) $ecNow.AddSeconds(-575)
+Check 'the closed window''s exit written late: not known yet 1 s past the 10 s, where the log still lacks it; once in, neither window known' (
+    $ecLag0 -eq 'pending' -and $ecLag1 -eq '' -and $ecLag2 -eq '') "'$ecLag0' '$ecLag1' '$ecLag2'"
+
+# A note of a window that ran out of memory, its chat the one cut off mid
+# tool_use: with no VS Code log to read, offered as a restart's and the cause
+# looked for again; kept once the log says
+$script:EcDead = @(7001, 7002, 7003)
+$script:ChatHostAliveSeam = { param($p, $s) [int]$p -notin $script:EcDead }
+$ecNote = { param([int]$HostPid) Join-Path $script:ChatHostWorkDir "$HostPid.json" }
+$ecSave = { param([int]$HostPid, [datetime]$At) Save-ChatHostWorkNote ([pscustomobject]@{ HostPid = $HostPid; Known = $true; Chats = @($rsLook.Chats[0]) }) -HostStart $rsStartMs -Now $At -By overlay }
+& $ecSave 7001 $ecNow.AddMinutes(-2)
+$script:EcRoots = @()
+$ecCut0 = @(Get-ChatRestartCutOffs -Live @() -Asked @{} -Jobs @() -Prune -Now $ecNow)
+$ecN0 = Read-ChatqJson (& $ecNote 7001)
+$script:EcRoots = @($ecCode, $ecIns)
+$ecCut1 = @(Get-ChatRestartCutOffs -Live @() -Asked @{} -Jobs @() -Prune -Now $ecNow.AddSeconds(30))
+$ecN1 = Read-ChatqJson (& $ecNote 7001)
+$ecRow = $ecCut1[0]
+Check 'with no VS Code log to read: a window''s chat a restart''s at once, and nothing kept; once the log says out of memory, the row says so and the note keeps it' (
+    $ecCut0.Count -eq 1 -and $ecCut0[0].Cause -eq '' -and $ecN0 -and -not $ecN0.PSObject.Properties['cause'] -and
+    $ecCut1.Count -eq 1 -and $ecRow.Id -eq $idR1 -and $ecRow.Cause -eq 'oom' -and $ecN1 -and $ecN1.cause -eq 'oom') "$(@($ecCut1 | ForEach-Object { "$($_.Id.Substring(0, 2))=$($_.Cause)" }) -join ' ') // $(Read-TestFile (& $ecNote 7001))"
+$ecSt = Get-ChatqAutoState $ecRow @() @() ([pscustomobject]@{ Mode = 'on'; On = $true; Chats = @{}; Streak = @{}; Since = $ecNow.AddDays(-1) }) @{} $ecNow
+$ecAsk = Get-ChatqResetAsk -CutOff $ecCut1 -Held @{} -Asked @{} -Jobs @() -Now $ecNow
+$ecAskMix = Get-ChatqResetAsk -CutOff (@($ecCut1) + @($rsLim)) -Held @{} -Asked @{} -Jobs @() -Now $ecNow
+$ecP = [string](Get-ChatqRestartPrompt $ecRow)
+Check 'every wording of it says VS Code ran out of memory: the row, auto-continue''s state, the reset ask''s head - a limit''s beside it too - and the prompt that continues it' (
+    (Format-ChatOverlayCutOff $ecRow $ecNow) -eq 'cut off - VS Code ran out of memory' -and $ecSt.State -eq 'restart' -and
+    $ecSt.Words -eq 'cut off - VS Code ran out of memory' -and $ecSt.Why -like 'VS Code ran out of memory while it worked - *' -and
+    $ecAsk.Cause -eq 'oom' -and (Format-ChatqAskHead $ecAsk $ecNow) -eq 'VS Code ran out of memory' -and
+    (Format-ChatqAskHead $ecAskMix $ecNow) -eq "limit over at $(Format-ChatOverlayAskAt $rsLim.ResetsAt $ecNow), and VS Code ran out of memory" -and
+    $ecP.StartsWith('VS Code ran out of memory while this chat worked, which ended its process mid-turn.') -and $ecP.EndsWith($script:ChatqContinueText)) "$($ecSt.Words) // $(Format-ChatqAskHead $ecAskMix $ecNow) // $ecP"
+$ecMk = { param([string]$Id, [string]$Cause) [pscustomobject]@{ Id = $Id; Title = 'T'; Why = 'restart'; At = $ecNow; LimitUuid = "u$Id"; Cause = $Cause } }
+$ecCauseOf = { param([object[]]$Rows) [string](Get-ChatqResetAsk -CutOff $Rows -Held @{} -Asked @{} -Jobs @() -Now $ecNow).Cause }
+$ecCr = [pscustomobject]@{ Id = $idR2; Why = 'restart'; Cause = 'crash'; Mid = $false; Tasks = @() }
+Check 'for many windows the ask says out of memory when every one did, crashed when each did one of the two, a restart when any restarted; a crash said as one' (
+    (& $ecCauseOf @((& $ecMk 'a1' 'oom'), (& $ecMk 'a2' 'oom'))) -eq 'oom' -and (& $ecCauseOf @((& $ecMk 'a1' 'oom'), (& $ecMk 'a2' 'crash'))) -eq 'crash' -and
+    (& $ecCauseOf @((& $ecMk 'a1' 'crash'), (& $ecMk 'a2' ''))) -eq '' -and
+    (Format-ChatqAskHead ([pscustomobject]@{ count = 2; restart = 2; cause = 'crash'; resetsAt = $null })) -eq 'VS Code crashed' -and
+    (Format-ChatOverlayCutOff $ecCr) -eq 'cut off - VS Code crashed' -and
+    (Get-ChatqRestartPrompt $ecCr) -eq "VS Code crashed while this chat worked, which ended its process. $($script:ChatqContinueText)") (Get-ChatqRestartPrompt $ecCr)
+# a reload's note: the log names nothing - looked for again for two minutes,
+# in case its lines come late, then kept as none
+Remove-Item -LiteralPath (& $ecNote 7001) -Force -EA SilentlyContinue
+& $ecSave 7003 $ecNow.AddMinutes(-10)
+$ecRl0 = @(Get-ChatRestartCutOffs -Live @() -Asked @{} -Jobs @() -Prune -Now $ecNow)
+$ecRn0 = Read-ChatqJson (& $ecNote 7003)
+$ecRl1 = @(Get-ChatRestartCutOffs -Live @() -Asked @{} -Jobs @() -Prune -Now $ecNow.AddSeconds(125))
+$ecRn1 = Read-ChatqJson (& $ecNote 7003)
+Check 'a reload: no cause in VS Code''s log - offered at once, no wait; looked for again for two minutes, then kept as none; the row says VS Code restarted' (
+    $ecRl0.Count -eq 1 -and $ecRl0[0].Cause -eq '' -and $ecRn0 -and -not $ecRn0.PSObject.Properties['cause'] -and $ecRl1.Count -eq 1 -and
+    $ecRn1 -and $ecRn1.PSObject.Properties['cause'] -and $ecRn1.cause -eq '' -and (Format-ChatOverlayCutOff $ecRl1[0]) -eq 'cut off - VS Code restarted') "$(Read-TestFile (& $ecNote 7003))"
+Remove-Item -LiteralPath (& $ecNote 7003) -Force -EA SilentlyContinue
+# While the log has yet to say - the 10 s after the renderer's line and 5 s
+# more not all in, or the host's exit not logged yet - the note's chat is no
+# row: its host goes into -Pending, the note keeps goneAt and no cause, and
+# a pass without -Prune - a host's -Peek - waits too, before goneAt is kept
+# or after, and keeps nothing. Once the log is sure, the row says why; 30 s
+# on from goneAt it waits no more, and says a restart.
+& $ecSave 7001 $ecNow.AddMinutes(-2)
+$ecPdP = @{}
+$ecHdP = @(Get-ChatRestartCutOffs -Live @() -Asked @{} -Jobs @() -Pending $ecPdP -Now $ecNow.AddSeconds(-26))
+$ecHnP = Read-ChatqJson (& $ecNote 7001)
+$ecPd0 = @{}
+$ecHd0 = @(Get-ChatRestartCutOffs -Live @() -Asked @{} -Jobs @() -Pending $ecPd0 -Prune -Now $ecNow.AddSeconds(-25))
+$ecHn0 = Read-ChatqJson (& $ecNote 7001)
+$ecPd1 = @{}
+$ecHd1 = @(Get-ChatRestartCutOffs -Live @() -Asked @{} -Jobs @() -Pending $ecPd1 -Now $ecNow.AddSeconds(-17))
+$ecHd2 = @(Get-ChatRestartCutOffs -Live @() -Asked @{} -Jobs @() -Prune -Now $ecNow.AddSeconds(-14))
+$ecHn2 = Read-ChatqJson (& $ecNote 7001)
+Remove-Item -LiteralPath (& $ecNote 7001) -Force -EA SilentlyContinue
+Check 'the log not sure yet: no row, its host pending, the note keeping goneAt and no cause - a pass without -Prune waits too, before goneAt is kept and 3 s past the 10 s, keeping nothing; once sure, the row says out of memory' (
+    $ecHdP.Count -eq 0 -and $ecPdP[7001] -and $ecHnP -and -not $ecHnP.PSObject.Properties['goneAt'] -and
+    $ecHd0.Count -eq 0 -and $ecPd0[7001] -and $ecHn0 -and (ConvertTo-ChatqDate $ecHn0.goneAt) -and -not $ecHn0.PSObject.Properties['cause'] -and @($ecHn0.chats).Count -eq 1 -and
+    $ecHd1.Count -eq 0 -and $ecPd1[7001] -and $ecHd2.Count -eq 1 -and $ecHd2[0].Cause -eq 'oom' -and $ecHn2 -and $ecHn2.cause -eq 'oom') (
+    "$($ecHdP.Count) $($ecHd0.Count) $($ecHd1.Count) $($ecHd2.Count) // $(Read-TestFile (& $ecNote 7001))")
+$script:EcDead = @(7001, 7002, 7003, 7009)
+& $ecSave 7009 $ecNow.AddMinutes(-2)
+# chatoverlay -Print keeps no notes (-Once): before a host's pass keeps
+# goneAt it waits for nothing, after it as the host does
+$ecOn0 = @(Get-ChatRestartCutOffs -Live @() -Asked @{} -Jobs @() -Once -Now $ecNow)
+$ecOnN = Read-ChatqJson (& $ecNote 7009)
+$ecPd3 = @{}
+$ecHd3 = @(Get-ChatRestartCutOffs -Live @() -Asked @{} -Jobs @() -Pending $ecPd3 -Prune -Now $ecNow)
+$ecOn1 = @(Get-ChatRestartCutOffs -Live @() -Asked @{} -Jobs @() -Once -Now $ecNow.AddSeconds(5))
+$ecPd5 = @{}
+$ecHd5 = @(Get-ChatRestartCutOffs -Live @() -Asked @{} -Jobs @() -Pending $ecPd5 -Prune -Now $ecNow.AddSeconds(29))
+$ecPd4 = @{}
+$ecHd4 = @(Get-ChatRestartCutOffs -Live @() -Asked @{} -Jobs @() -Pending $ecPd4 -Prune -Now $ecNow.AddSeconds(31))
+$ecHn4 = Read-ChatqJson (& $ecNote 7009)
+Remove-Item -LiteralPath (& $ecNote 7009) -Force -EA SilentlyContinue
+Check 'a host whose exit the log never names - its VS Code''s own process ended: waited for 30 s from goneAt - still at 29 s - then a restart''s row, the cause still looked for' (
+    $ecHd3.Count -eq 0 -and $ecPd3[7009] -and $ecHd5.Count -eq 0 -and $ecPd5[7009] -and $ecHd4.Count -eq 1 -and $ecHd4[0].Cause -eq '' -and -not $ecPd4.Count -and
+    $ecHn4 -and -not $ecHn4.PSObject.Properties['cause']) "$($ecHd3.Count) $($ecHd5.Count) $($ecHd4.Count) // $(Read-TestFile (& $ecNote 7009))"
+Check 'chatoverlay -Print, which keeps no notes: a host no pass has found gone offered at once as a restart, the note as it was; one a host''s pass found gone waits as the host does' (
+    $ecOn0.Count -eq 1 -and $ecOn0[0].Cause -eq '' -and $ecOnN -and -not $ecOnN.PSObject.Properties['goneAt'] -and $ecOn1.Count -eq 0) "$($ecOn0.Count) $($ecOn1.Count) // $($ecOnN | ConvertTo-Json -Compress -Depth 4)"
+# the clock put back since a host's pass kept goneAt: the wait counts from
+# now, not from a goneAt still ahead, which would hold the chat until the
+# clock caught up - for an hour, the clocks put back for the winter
+& $ecSave 7009 $ecNow.AddMinutes(-2)
+$ecFn = Read-ChatqJson (& $ecNote 7009)
+Set-ChatqProp $ecFn 'goneAt' $ecNow.AddHours(1).ToUniversalTime().ToString('o')
+Save-ChatqText (& $ecNote 7009) ($ecFn | ConvertTo-Json -Depth 5)
+$ecPf0 = @{}
+$ecHf0 = @(Get-ChatRestartCutOffs -Live @() -Asked @{} -Jobs @() -Pending $ecPf0 -Prune -Now $ecNow)
+$ecFn0 = Read-ChatqJson (& $ecNote 7009)
+$ecHf1 = @(Get-ChatRestartCutOffs -Live @() -Asked @{} -Jobs @() -Prune -Now $ecNow.AddSeconds(31))
+Remove-Item -LiteralPath (& $ecNote 7009) -Force -EA SilentlyContinue
+$script:EcDead = @(7001, 7002, 7003)
+Check 'a goneAt ahead of now - the clock put back since: kept as now, so the wait ends 30 s on, not once the clock catches up' (
+    $ecHf0.Count -eq 0 -and $ecPf0[7009] -and $ecFn0 -and [Math]::Abs(((ConvertTo-ChatqDate $ecFn0.goneAt) - $ecNow).TotalSeconds) -lt 1 -and
+    $ecHf1.Count -eq 1 -and $ecHf1[0].Cause -eq '') "$($ecHf0.Count) $($ecHf1.Count) // $(if ($ecFn0) { $ecFn0.goneAt })"
+
+# The overlay's own notes (Update-ChatHostWorkNotes), in the first section's
+# process table: claude 1002, 1003 and 1004 under the extension host Code 200,
+# started at 08:02; 1005 under Code 300. Each pass hands in what the overlay's
+# pass holds - the live entries, the background work, the jobs - at a time
+# that many seconds on.
+$script:ChatProcessTableSeam = $hwTable
+$script:EcDead = @()
+$wnE = {
+    param([string]$Id, [int]$ProcId, [string]$Status, [string]$Ep = 'claude-vscode', [string]$Kind = 'interactive')
+    [pscustomobject]@{ SessionId = $Id; Pid = $ProcId; Status = $Status; Kind = $Kind; Entrypoint = $Ep; Cwd = $projH
+        StartedAt = [DateTimeOffset]::new($hwT0.AddMinutes(5)).ToUnixTimeMilliseconds() }
+}
+$wnNew = { @{ HostWork = $null; Chains = @{}; Text = @{ $idR1 = @{ Path = $rsFile[$idR1] }; $idR2 = @{ Path = $rsFile[$idR2] }; $idR3 = @{ Path = $rsFile[$idR3] } } } }
+$wnCtx = & $wnNew
+$wnRun = {
+    param([object[]]$Live, [double]$Sec, [hashtable]$Bg = @{}, [object[]]$Jobs = @(), [object[]]$Extra = @())
+    $null = Update-ChatHostWorkNotes $wnCtx $Live (@($Live) + @($Extra)) $Bg $Jobs $ecNow.AddSeconds($Sec)
+}
+$wnNote = & $ecNote 200
+$wnSaid = { $n = Read-ChatqJson $wnNote; if ($n) { (@($n.chats | ForEach-Object { "$($_.sessionId.Substring(0, 2))=$($_.why)" }) -join ' ') } else { 'none' } }
+$wnAt = { param([double]$Sec) $n = Read-ChatqJson $wnNote; [bool]($n -and [Math]::Abs(((ConvertTo-ChatqDate $n.at) - $ecNow.AddSeconds($Sec)).TotalSeconds) -lt 1) }
+$wnL = @((& $wnE $idR1 1002 'busy'), (& $wnE $idR2 1003 'idle'), (& $wnE $idR3 1004 'busy' 'cli'))
+& $wnRun $wnL 0
+$wnN = Read-ChatqJson $wnNote
+Check 'the overlay''s pass notes a window''s chat at work by its extension host - by overlay, with the host''s start; not an idle chat, nor a terminal''s claude under it' (
+    (& $wnSaid) -eq 'e1=turn' -and $wnN.by -eq 'overlay' -and [int]$wnN.hostPid -eq 200 -and (& $wnAt 0) -and
+    [Math]::Abs(((ConvertTo-ChatqDate $wnN.hostStart) - $hwT0.AddMinutes(2)).TotalSeconds) -lt 1 -and
+    [Math]::Abs(((ConvertTo-ChatqDate $wnN.chats[0].since) - $hwT0.AddMinutes(5)).TotalSeconds) -lt 1) "$(Read-TestFile $wnNote)"
+& $wnRun $wnL 60
+$wn2 = & $wnAt 0
+$wnL[1] = & $wnE $idR2 1003 'waiting'
+& $wnRun $wnL 90
+$wn3 = (& $wnSaid) -eq 'e1=turn e2=prompt' -and (& $wnAt 90)
+$wnL[1] = & $wnE $idR2 1003 'idle'
+& $wnRun $wnL 100
+$wn4 = (& $wnSaid) -eq 'e1=turn e2=prompt' -and (& $wnAt 90)
+& $wnRun $wnL 125
+$wn5 = (& $wnSaid) -eq 'e1=turn' -and (& $wnAt 125)
+& $wnRun $wnL 665
+$wn6 = & $wnAt 125
+& $wnRun $wnL 785
+$wn7 = & $wnAt 785
+Check 'written again when its chats change - one waiting joins at once, one stopped stays 30 s - and every 10 minutes besides, never in between' (
+    $wn2 -and $wn3 -and $wn4 -and $wn5 -and $wn6 -and $wn7) "$wn2 $wn3 $wn4 $wn5 $wn6 $wn7"
+$wnBg = @{ $idR2 = [pscustomobject]@{ Workflows = 1; Agents = 0; Shells = 0 } }
+& $wnRun $wnL 800 $wnBg
+$wn8 = (& $wnSaid) -eq 'e1=turn e2=background'
+& $wnRun $wnL 840 $wnBg @([pscustomobject]@{ sessionId = $idR2; state = 'running' })
+$wn9 = (& $wnSaid) -eq 'e1=turn'
+& $wnRun $wnL 845 $wnBg @() @([pscustomobject]@{ SessionId = $idR2; Pid = 1099; Status = 'busy'; Kind = 'print'; Entrypoint = 'sdk-cli' })
+$wn10 = -not $wnCtx.HostWork.Seen.ContainsKey("200|$idR2")
+& $wnRun $wnL 850 @{ $idR2 = [pscustomobject]@{ Workflows = 0; Agents = 0; Shells = 2 } }
+$wn11 = -not $wnCtx.HostWork.Seen.ContainsKey("200|$idR2")
+Check 'a workflow out is work; not while a chatq job or a print-mode claude goes into the chat, nor a shell' ($wn8 -and $wn9 -and $wn10 -and $wn11) "$wn8 $wn9 $wn10 $wn11 / $(& $wnSaid)"
+$wnL[0] = & $wnE $idR1 1002 'idle'
+& $wnRun $wnL 890
+$wn12 = -not (Test-Path -LiteralPath $wnNote)
+$wnL[0] = & $wnE $idR1 1002 'busy'
+& $wnRun $wnL 900
+$wn13 = (& $wnSaid) -eq 'e1=turn'
+# the window goes down: its host dead a moment before its chats' processes
+$script:EcDead = @(200)
+$wnL[1] = & $wnE $idR2 1003 'waiting'
+& $wnRun $wnL 910
+$wn14 = (& $wnSaid) -eq 'e1=turn' -and (& $wnAt 900)
+& $wnRun @() 950
+$wn15 = (Test-Path -LiteralPath $wnNote) -and (& $wnAt 900) -and -not $wnCtx.HostWork.Notes.ContainsKey(200)
+Check 'nothing at work: the overlay''s note goes while its host runs; once the host is gone, never written over nor removed' (
+    $wn12 -and $wn13 -and $wn14 -and $wn15) "$wn12 $wn13 $wn14 $wn15"
+# no VS Code log here: one would hold the chat back until it named host
+# 200's exit, which the section's first part proves
+$script:EcRoots = @()
+$wnCut = @(Get-ChatRestartCutOffs -Live @() -Asked @{} -Jobs @() -Now $ecNow.AddSeconds(960))
+$script:EcRoots = @($ecCode, $ecIns)
+Check 'and the cut-off look offers its chat: a window gone with no look of the extension''s before it still leaves its cut-off' (
+    $wnCut.Count -eq 1 -and $wnCut[0].Id -eq $idR1 -and $wnCut[0].HostPid -eq 200 -and $wnCut[0].Mid) "$($wnCut.Count)"
+Remove-Item -LiteralPath $wnNote -Force -EA SilentlyContinue
+# the extension's own note, its wait looking every 25 s: a fresh overlay, the
+# host alive, leaves it a minute before writing over it
+$script:EcDead = @()
+$wnCtx = & $wnNew
+Save-ChatHostWorkNote ([pscustomobject]@{ HostPid = 200; Known = $true; Chats = @($rsLook.Chats[0]) }) -HostStart ([int64](ConvertTo-ChatOverlayMs $hwT0.AddMinutes(2))) -Now $ecNow.AddSeconds(1190)
+$wnL = @((& $wnE $idR1 1002 'busy'), (& $wnE $idR2 1003 'waiting'))
+& $wnRun $wnL 1200
+$wnX1 = Read-ChatqJson $wnNote
+& $wnRun $wnL 1230
+$wnX2 = Read-ChatqJson $wnNote
+& $wnRun $wnL 1255
+$wnX3 = Read-ChatqJson $wnNote
+Check 'the extension''s own note - its wait looks every 25 s - stands a minute before the overlay writes over it' (
+    $wnX1 -and -not $wnX1.PSObject.Properties['by'] -and $wnX2 -and -not $wnX2.PSObject.Properties['by'] -and @($wnX2.chats).Count -eq 1 -and
+    $wnX3 -and $wnX3.by -eq 'overlay' -and (& $wnSaid) -eq 'e1=turn e2=prompt') "$(& $wnSaid)"
+# a note of an earlier process that had pid 300 is the cut-off look's
+$wnNote3 = & $ecNote 300
+Save-ChatHostWorkNote ([pscustomobject]@{ HostPid = 300; Known = $true; Chats = @($rsLook.Chats[0]) }) -HostStart ([int64](ConvertTo-ChatOverlayMs $hwT0.AddMinutes(-60))) -Now $ecNow.AddSeconds(1250) -By overlay
+$wnOld = Read-TestFile $wnNote3
+& $wnRun @((& $wnE $idR3 1005 'busy')) 1260
+Check 'a note of an earlier process that had the same pid is the cut-off look''s, and left as it is' ($null -ne $wnOld -and (Read-TestFile $wnNote3) -eq $wnOld) "$(Read-TestFile $wnNote3)"
+# the overlay started again - an update - with its own notes from before: one
+# whose host runs, its chats stopped meanwhile, goes at the first pass; not
+# the extension's, nor one whose host is gone
+foreach ($p in $wnNote, $wnNote3) { Remove-Item -LiteralPath $p -Force -EA SilentlyContinue }
+$wnNote7 = & $ecNote 7021
+$wnStart = [int64](ConvertTo-ChatOverlayMs $hwT0.AddMinutes(2))
+foreach ($n in @(@{ P = 200; By = 'overlay' }, @{ P = 300; By = '' }, @{ P = 7021; By = 'overlay' })) {
+    Save-ChatHostWorkNote ([pscustomobject]@{ HostPid = $n.P; Known = $true; Chats = @($rsLook.Chats[0]) }) -HostStart $wnStart -Now $ecNow.AddSeconds(1270) -By $n.By
+}
+$script:EcDead = @(7021)
+$wnCtx = & $wnNew
+& $wnRun @((& $wnE $idR1 1002 'idle')) 1280
+Check 'the overlay started again: its own note from before, its host running and its chats stopped meanwhile, goes at the first pass - not the extension''s, nor one whose host is gone' (
+    -not (Test-Path -LiteralPath $wnNote) -and (Test-Path -LiteralPath $wnNote3) -and (Test-Path -LiteralPath $wnNote7) -and -not $wnCtx.HostWork.Notes.Count) (
+    "$(Test-Path -LiteralPath $wnNote) $(Test-Path -LiteralPath $wnNote3) $(Test-Path -LiteralPath $wnNote7) $($wnCtx.HostWork.Notes.Count)")
+$script:EcDead = @()
+foreach ($p in $wnNote, $wnNote3, $wnNote7) { Remove-Item -LiteralPath $p -Force -EA SilentlyContinue }
+$script:ChatProcessTableSeam = $ecWas.Table
+
+# config autoContinueCrash, off unless chosen, and the memory warning's percent
+$ecC0 = Get-ChatOverlayConfig ([pscustomobject]@{ x = 1 })
+$ecCrash = { param($v) Get-ChatqAutoContinueCrash ([pscustomobject]@{ autoContinueCrash = $v }) }
+Check 'config: the crash continue off and the memory warning at 95% unless chosen, the warning held to 0..99; the crash continue on for true, "on" or "true" alone' (
+    $ecC0.autoContinueCrash -eq $false -and $ecC0.memoryWarn -eq 95 -and
+    (Get-ChatOverlayConfig ([pscustomobject]@{ overlay = [pscustomobject]@{ memoryWarn = 150 } })).memoryWarn -eq 99 -and
+    (Get-ChatOverlayConfig ([pscustomobject]@{ overlay = [pscustomobject]@{ memoryWarn = -5 } })).memoryWarn -eq 0 -and
+    (& $ecCrash $true) -and (& $ecCrash 'on') -and (& $ecCrash ' TRUE ') -and -not (& $ecCrash 'yes') -and -not (& $ecCrash $false) -and
+    -not (& $ecCrash 'off') -and -not (Get-ChatqAutoContinueCrash ([pscustomobject]@{ x = 1 }))) "$($ecC0.autoContinueCrash) $($ecC0.memoryWarn)"
+$null = Set-ChatqAutoContinueCrash -Value $true
+$ecSetOn = (Get-ChatqConfig).autoContinueCrash -eq $true -and (Get-ChatqAutoContinueCrash)
+$null = Set-ChatqAutoContinueCrash -Value $false
+Check 'Set-ChatqAutoContinueCrash writes config.json''s top level, on and off' ($ecSetOn -and (Get-ChatqConfig).autoContinueCrash -eq $false -and -not (Get-ChatqAutoContinueCrash)) "$ecSetOn"
+
+# Through the overlay's pass (Invoke-ChatOverlayCycle), a host's that queues:
+# a window that ran out of memory, its note left by the overlay. Crash
+# continue off, the chat it cut off is asked about; on, the next look
+# continues it. A usage stand-in well under the limit.
+$ecAutoBefore = @(if (Test-Path -LiteralPath $script:ChatqAutoDir) { Get-ChildItem -LiteralPath $script:ChatqAutoDir -File | ForEach-Object Name })
+$ecJobsBefore = @(Get-ChatqJobs | ForEach-Object { [string]$_.id })
+$ecSnapWas = Test-Path -LiteralPath $script:ChatOverlayPath
+$script:ChatOverlayUsageSeam = { @{ Ok = $true; Status = 200; Windows = @([pscustomobject]@{ Label = '5h'; Percent = 10; ResetsAt = (Get-Date).AddHours(3); Severity = 'normal' }) } }
+$script:ChatqSpawn = { $true }
+$ecJobsOf = { param([string]$Id) @(Get-ChatqJobs | Where-Object { $_.sessionId -eq $Id -and $_.state -eq 'queued' }) }
+try {
+    $null = Set-ChatqAutoContinue -Value ask
+    # a window gone a moment ago whose exit VS Code's log has yet to name:
+    # the look holds its chat back - no row, no ask - and comes again in 2 s
+    $script:EcDead = @(7031)
+    & $ecSave 7031 $ecNow.AddMinutes(-2)
+    $ecKc = New-ChatOverlayContext
+    $ecKc.WantAsk = $true
+    $ecKc.WantAuto = $true
+    $ecKt0 = Get-Date
+    $ecKs0 = Invoke-ChatOverlayCycle $ecKc
+    $ecKt1 = Get-Date
+    $ecKn0 = Read-ChatqJson (& $ecNote 7031)
+    $ecKa0 = $ecKc.CutAt
+    $ecKg0 = $ecKc.CutAgain
+    # its 2 s up, the look comes again inside CutAt's minute, and holds the
+    # chat again; once nothing is held, none comes until the minute is up
+    $ecKc.CutAgain = (Get-Date).AddSeconds(-1)
+    $ecKt2 = Get-Date
+    $null = Invoke-ChatOverlayCycle $ecKc
+    $ecKa1 = $ecKc.CutAt
+    $ecKg1 = $ecKc.CutAgain
+    Remove-Item -LiteralPath (& $ecNote 7031) -Force -EA SilentlyContinue
+    $ecKc.CutAgain = (Get-Date).AddSeconds(-1)
+    $null = Invoke-ChatOverlayCycle $ecKc
+    $ecKa2 = $ecKc.CutAt
+    $ecKg2 = $ecKc.CutAgain
+    $null = Invoke-ChatOverlayCycle $ecKc
+    $ecKa3 = $ecKc.CutAt
+    Check 'through the overlay''s pass: a window whose exit VS Code''s log has yet to name - no row, no ask, its note kept; looked at again 2 s on, not a minute, the look''s own time kept for the automatic mode' (
+        -not @($ecKc.RestartScan).Count -and -not @($ecKc.Ask.Items | Where-Object { $_.Id -eq $idR1 }).Count -and
+        -not @($ecKs0.rows | Where-Object { $_.key -eq "c:$idR1" }).Count -and $ecKn0 -and (ConvertTo-ChatqDate $ecKn0.goneAt) -and @($ecKn0.chats).Count -eq 1 -and
+        $ecKa0 -ge $ecKt0 -and $ecKa0 -le $ecKt1 -and $ecKg0 -ge $ecKt0.AddSeconds(2) -and $ecKg0 -le $ecKt1.AddSeconds(2)) (
+        "$($ecKa0.ToString('HH:mm:ss.fff')) again $(if ($ecKg0) { $ecKg0.ToString('HH:mm:ss.fff') }) from $($ecKt0.ToString('HH:mm:ss.fff'))")
+    Check 'its 2 s up: the look comes again before the minute and holds the chat again; once nothing is held, no look again until the minute' (
+        $ecKa1 -ge $ecKt2 -and $ecKg1 -and $ecKg1 -ge $ecKt2.AddSeconds(2) -and $ecKa2 -gt $ecKa1 -and $null -eq $ecKg2 -and $ecKa3 -eq $ecKa2) (
+        "$($ecKa1.ToString('HH:mm:ss.fff')) $($ecKa2.ToString('HH:mm:ss.fff')) $($ecKa3.ToString('HH:mm:ss.fff')) from $($ecKt2.ToString('HH:mm:ss.fff')) again '$ecKg1' '$ecKg2'")
+    $script:EcDead = @(7001)
+    & $ecSave 7001 $ecNow.AddMinutes(-2)
+    $ecKc.CutAt = [datetime]::MinValue
+    $ecKs = Invoke-ChatOverlayCycle $ecKc
+    $ecKr = @($ecKc.Ask.Items | Where-Object { $_.Id -eq $idR1 })
+    $ecKd = @($ecKs.rows | Where-Object { $_.key -eq "c:$idR1" })
+    Check 'crash continue off: the chat a window''s running out of memory cut off is asked about, said so on its row and the ask - nothing queued' (
+        $ecKr.Count -eq 1 -and $ecKr[0].Cause -eq 'oom' -and $ecKs.header.ask.restart -eq 1 -and $ecKs.header.ask.cause -eq 'oom' -and
+        $ecKd.Count -eq 1 -and $ecKd[0].detail -eq 'cut off - VS Code ran out of memory' -and -not @(& $ecJobsOf $idR1).Count) "$($ecKs.header.ask | ConvertTo-Json -Compress) / $($ecKd.detail)"
+    $null = Set-ChatqAutoContinueCrash -Value $true
+    $ecKc.Config = Get-ChatOverlayConfig
+    # open in a terminal meanwhile: its own claude continues it, so the crash
+    # continue leaves it be, as the reset ask does
+    $ecReg = Join-Path (Join-Path $ecKc.ClaudeHome 'sessions') '4848.json'
+    $null = New-Item -ItemType Directory -Path (Split-Path -Parent $ecReg) -Force
+    [System.IO.File]::WriteAllText($ecReg, ([ordered]@{ pid = 4848; sessionId = $idR1; cwd = $projH; status = 'idle'; kind = 'interactive'; entrypoint = 'cli'
+                startedAt = [DateTimeOffset]::new($ecNow.AddMinutes(-1)).ToUnixTimeMilliseconds() } | ConvertTo-Json -Compress), $utf8)
+    $ecAliveWas = $script:ChatqAliveSeam
+    $script:ChatqAliveSeam = { param($e) $e.Pid -eq 4848 }
+    try {
+        $ecKc.CutAt = [datetime]::MinValue
+        $null = Invoke-ChatOverlayCycle $ecKc
+    }
+    finally { $script:ChatqAliveSeam = $ecAliveWas; Remove-Item -LiteralPath $ecReg -Force -EA SilentlyContinue }
+    $ecHk = Get-ChatqCutKey $ecKr[0]
+    Check 'crash continue on, the chat open in a terminal meanwhile: left to its own claude - nothing queued, no marker, its row kept' (
+        -not @(& $ecJobsOf $idR1).Count -and -not (Test-ChatqCrashContinued $idR1 (Get-Date)) -and
+        @($ecKc.RestartScan | Where-Object { $_.Id -eq $idR1 }).Count -eq 1 -and -not ($ecKc.AskState -and $ecKc.AskState[$ecHk])) (
+        "$(@(& $ecJobsOf $idR1).Count) $(@($ecKc.RestartScan | ForEach-Object { $_.Id.Substring(0, 2) }) -join ',')")
+    # a -Peek pass - a click's, the console's - leaves the look to the host's
+    # own while the crash continue is on: it would leave the chat to be asked
+    # about, then continued a look later
+    $ecKc.CutAt = [datetime]::MinValue
+    $null = Invoke-ChatOverlayCycle $ecKc -Peek
+    Check 'crash continue on: a -Peek pass leaves the cut-off look to the host''s own pass' ($ecKc.CutAt -eq [datetime]::MinValue -and -not @(& $ecJobsOf $idR1).Count) "$($ecKc.CutAt)"
+    $ecKs2 = Invoke-ChatOverlayCycle $ecKc
+    $ecKj = @(& $ecJobsOf $idR1)
+    $ecKk = Get-ChatqCutKey $ecKr[0]
+    $ecKm = Read-ChatqJson (Join-Path $script:ChatqAutoDir "$ecKk.json")
+    $ecKt = if ($ecKj.Count) { [string](Read-ChatqPrompt $ecKj[0]) } else { '' }
+    $ecKl = [System.IO.File]::ReadAllText((Join-Path $script:ChatqLogDir 'overlay.log'), $utf8)
+    Check 'crash continue on: the next look continues it - a restart prompt that says VS Code ran out of memory, marked answered by crash; no ask, no orange row, a line in the log' (
+        $ecKj.Count -eq 1 -and $ecKj[0].kind -eq 'prompt' -and [string]$ecKj[0].rule -eq 'restart' -and $ecKj[0].restartUuid -eq $rsUse -and
+        $ecKt.StartsWith('VS Code ran out of memory while this chat worked, which ended its process mid-turn.') -and
+        $ecKm -and $ecKm.source -eq 'crash' -and $ecKm.answer -eq 'continue' -and $ecKm.why -eq 'restart' -and (@($ecKm.seq) -join ',') -eq "$($ecKj[0].seq)" -and
+        $ecKk -and $ecKc.AskState -and $ecKc.AskState[$ecKk] -and -not @($ecKc.Ask.Items | Where-Object { $_.Id -eq $idR1 }).Count -and
+        -not @($ecKs2.rows | Where-Object { $_.key -eq "c:$idR1" }).Count -and $ecKl -like "*crash: continued 1 - #$($ecKj[0].seq)*") "$($ecKj.Count) $(Read-TestFile (Join-Path $script:ChatqAutoDir "$ecKk.json")) // $ecKt"
+
+    # Never past its guards, each on a row that is continued but for it:
+    # answered; continued here in the last 2 hours; no cause - a reload, or a
+    # window closed; 11 minutes old; a job waiting; a chat set to never; open
+    # where its own claude continues it (-Held)
+    foreach ($j in $ecKj) { $null = Remove-ChatqJob $j -By test }
+    $ecR2 = {
+        param([string]$Cut, [string]$Cause = 'crash', [double]$MinAgo = 0)
+        [pscustomobject]@{ Id = $idR2; Title = 'Restart e2'; Group = 'g'; At = (Get-Date).AddMinutes(-$MinAgo); ResetsAt = $null; Why = 'restart'; Path = $rsFile[$idR2]
+            Cwd = $projH; LimitUuid = $Cut; Mid = $false; HostPid = 7002; Cause = $Cause; Tasks = @() }
+    }
+    $ecCx = @{ AskState = @{} }
+    $ecG1 = @(Invoke-ChatqCrashContinue @{ AskState = @{ "${idR2}_cut-z" = $true } } @(& $ecR2 'cut-z') @() (Get-Date))
+    $ecLater = $ecKr[0].PSObject.Copy()
+    $ecLater.LimitUuid = 'a-later-cut'
+    $ecLater.At = Get-Date
+    $ecG2 = @(Invoke-ChatqCrashContinue $ecCx @($ecLater) @() (Get-Date))
+    $ecG2Jobs = @(& $ecJobsOf $idR1).Count
+    $ecG3 = @(Invoke-ChatqCrashContinue $ecCx @(& $ecR2 'cut-a' '') @() (Get-Date))
+    $ecG4 = @(Invoke-ChatqCrashContinue $ecCx @(& $ecR2 'cut-b' 'crash' 11) @() (Get-Date))
+    $ecG5 = @(Invoke-ChatqCrashContinue $ecCx @(& $ecR2 'cut-c') @([pscustomobject]@{ sessionId = $idR2; state = 'queued' }) (Get-Date))
+    $null = Set-ChatqAutoChat -Id $idR2 -Title 'Restart e2' -Value never
+    $ecG6 = @(Invoke-ChatqCrashContinue $ecCx @(& $ecR2 'cut-d') @() (Get-Date))
+    $null = Set-ChatqAutoChat -Id $idR2 -Title 'Restart e2' -Value default
+    $ecGh = @(Invoke-ChatqCrashContinue $ecCx @(& $ecR2 'cut-f') @() (Get-Date) -Held @{ $idR2 = $true })
+    # an answer of the ask's own is no crash continue
+    $null = Save-ChatqAskAnswer -Keys @("${idR2}_asked-before") -Answer continue -Source overlay
+    $ecWasR2 = Test-ChatqCrashContinued $idR2 (Get-Date)
+    $ecG7 = @(Invoke-ChatqCrashContinue $ecCx @(& $ecR2 'cut-e') @() (Get-Date))
+    $ecG7j = @(& $ecJobsOf $idR2)
+    $ecG7t = if ($ecG7j.Count) { [string](Read-ChatqPrompt $ecG7j[0]) } else { '' }
+    Check 'never past its guards: answered, continued here in the last 2 hours, no cause, 11 minutes old, a job waiting, a chat set to never, open in a terminal - and the same row with none of them is continued' (
+        -not $ecG1.Count -and -not $ecG2.Count -and -not $ecG2Jobs -and -not $ecG3.Count -and -not $ecG4.Count -and -not $ecG5.Count -and -not $ecG6.Count -and -not $ecGh.Count -and
+        -not $ecWasR2 -and $ecG7.Count -eq 1 -and $ecG7j.Count -eq 1 -and $ecG7t -eq "VS Code crashed while this chat worked, which ended its process. $($script:ChatqContinueText)") "$($ecG1.Count) $($ecG2.Count) $ecG2Jobs $($ecG3.Count) $($ecG4.Count) $($ecG5.Count) $($ecG6.Count) $($ecGh.Count) $ecWasR2 $($ecG7.Count) // $ecG7t"
+    $ecNowG = Get-Date
+    Check 'a crash continue keeps another from its chat for 2 hours, by its marker''s source' (
+        (Test-ChatqCrashContinued $idR1 $ecNowG) -and (Test-ChatqCrashContinued $idR2 $ecNowG) -and -not (Test-ChatqCrashContinued $idR1 $ecNowG.AddHours(3)) -and
+        -not (Test-ChatqCrashContinued $idH1 $ecNowG)) ''
+}
+finally {
+    $script:ChatOverlayUsageSeam = $ecWas.Usage
+    $script:ChatqSpawn = $ecWas.Spawn
+    Restore-TestFile $script:ChatqConfigPath $ecCfgWas
+    Restore-TestFile $script:ChatqAutoPath $ecStateWas
+    $script:ChatqAutoCache = $null
+    if (-not $ecSnapWas) { Remove-Item -LiteralPath $script:ChatOverlayPath -Force -EA SilentlyContinue }
+    foreach ($j in @(Get-ChatqJobs | Where-Object { [string]$_.id -notin $ecJobsBefore })) { $null = Remove-ChatqJob $j -By test }
+    foreach ($f in @(if (Test-Path -LiteralPath $script:ChatqAutoDir) { Get-ChildItem -LiteralPath $script:ChatqAutoDir -File })) {
+        if ($f.Name -notin $ecAutoBefore) { Remove-Item -LiteralPath $f.FullName -Force -EA SilentlyContinue }
+    }
+    Remove-Item -LiteralPath (& $ecNote 7001) -Force -EA SilentlyContinue
+}
+
+# Windows' memory (Update-ChatOverlayMemory): a stand-in for its commit
+# figures, out of 100 GB, and for the programs holding the most, counting its
+# asks; each look that many seconds on
+$script:EcMem = @{ Limit = 100GB; Free = 50GB }
+$script:EcTops = 0
+$script:ChatMemorySeam = { $script:EcMem }
+$script:ChatMemoryTopSeam = { $script:EcTops++; @('Code 9.8 GB', 'claude 3.1 GB') }
+$emC = New-ChatOverlayContext
+$emT = Get-Date
+$emAt = { param([double]$FreeGB, [double]$Sec, $Ctx = $emC, [switch]$Act) $script:EcMem = @{ Limit = 100GB; Free = $FreeGB * 1GB }; Update-ChatOverlayMemory $Ctx $emT.AddSeconds($Sec) -Act:$Act }
+$em1 = & $emAt 50 0 -Act
+$em2 = & $emAt 3.5 10 -Act
+$emNews2 = $emC.MemNews
+$em3 = & $emAt 50 15 -Act
+$em4 = & $emAt 7 21 -Act
+$emTops4 = $script:EcTops
+$em5 = & $emAt 9 32 -Act
+$emSaid5 = $emC.MemSaid
+$emC.MemNews = $null
+$em6 = & $emAt 3.5 43 -Act
+$emNews6 = $emC.MemNews
+$null = & $emAt 9 960 -Act
+$null = & $emAt 3.5 971 -Act
+$emNews8 = $emC.MemNews
+$emLog = [System.IO.File]::ReadAllText((Join-Path $script:ChatqLogDir 'overlay.log'), $utf8)
+$emText = 'memory low: 96% used, 3.5 GB left - most: Code 9.8 GB, claude 3.1 GB'
+Check 'memory: nothing at half used; at 96% low - its figures and the programs holding the most, said in the log and kept for the tray' (
+    $null -eq $em1 -and $em2 -and $em2.percent -eq 96 -and $em2.freeGB -eq 3.5 -and (@($em2.top) -join ', ') -eq 'Code 9.8 GB, claude 3.1 GB' -and
+    $emNews2 -and $emNews2.percent -eq 96 -and (Format-ChatOverlayMemoryText $em2) -eq $emText -and $emLog.Contains($emText)) "$($em2 | ConvertTo-Json -Compress)"
+Check 'looked at 10 s apart at most, the programs a minute apart; low until under 92%, then said back in the log' (
+    $em3 -and $em3.percent -eq 96 -and $em4 -and $em4.percent -eq 93 -and $emTops4 -eq 1 -and $null -eq $em5 -and -not $emSaid5 -and
+    $emLog.Contains('memory: back to 91% used')) "$($em3.percent) $($em4.percent) $emTops4 $emSaid5"
+Check 'low again: in the log again, the tray not within 15 minutes of the last time; past them, the tray too' (
+    $em6 -and $em6.percent -eq 96 -and $null -eq $emNews6 -and $emNews8 -and $emNews8.percent -eq 96 -and
+    [regex]::Matches($emLog, [regex]::Escape($emText)).Count -eq 3) "$([regex]::Matches($emLog, [regex]::Escape($emText)).Count)"
+$emOffC = New-ChatOverlayContext
+$emOffC.Config = [pscustomobject]@{ memoryWarn = 0 }
+$emOff = & $emAt 0.5 0 $emOffC -Act
+$emPeekC = New-ChatOverlayContext
+$emPeek = & $emAt 3.5 0 $emPeekC
+Check 'memoryWarn 0 is never; a pass that only looks (-Peek) says nothing' (
+    $null -eq $emOff -and $null -eq $emOffC.MemLow -and $emPeek -and $emPeek.percent -eq 96 -and -not $emPeekC.MemSaid -and $null -eq $emPeekC.MemNews) ''
+$emHdr = { param($Mem) [pscustomobject]@{ usage = @(); usageWhy = $null; watcher = 'none'; next = $null; error = 'boom'; memory = $Mem; ask = $null; reload = @() } }
+$emNotes = @(Get-ChatOverlayNotes (& $emHdr $em2))
+$emNone = @(Get-ChatOverlayNotes (& $emHdr $null))
+$script:EcBalloons = [System.Collections.Generic.List[object]]::new()
+$script:ChatOverlayBalloonSeam = { param($b) $script:EcBalloons.Add($b) }
+$emH = @{ Ctx = $emC; Closing = $false; BalloonKind = $null; BalloonKeys = @() }
+$emC.MemNews = $em2
+Show-ChatOverlayMemory $emH
+Show-ChatOverlayMemory $emH
+$emB = @($script:EcBalloons)
+Check 'the panel''s note for it comes first, as a warning; the tray''s balloon once, titled memory low - the figures, and what to do' (
+    $emNotes[0].kind -eq 'memory' -and $emNotes[0].tone -eq 'warn' -and $emNotes[0].text -eq $emText -and $emNotes[1].tone -eq 'error' -and
+    -not @($emNone | Where-Object { $_.PSObject.Properties['kind'] -and $_.kind -eq 'memory' }).Count -and
+    $emB.Count -eq 1 -and $emB[0].Title -eq 'Charlie - memory low' -and $emB[0].Kind -eq 'memory' -and
+    $emB[0].Text -eq '96% used, 3.5 GB left - most: Code 9.8 GB, claude 3.1 GB. A VS Code window that runs out of memory takes its chats down with it - close what you can spare.' -and
+    $null -eq $emC.MemNews) "$($emB | ConvertTo-Json -Compress)"
+$emCx = New-ChatOverlayContext
+$emCx.WantAsk = $true
+$script:EcMem = @{ Limit = 100GB; Free = 3.5GB }
+$emSn = Invoke-ChatOverlayCycle $emCx -Peek
+$emSnN = Invoke-ChatOverlayCycle (New-ChatOverlayContext) -Peek
+Check 'the overlay''s pass: a host''s carries it in the header and its first note; chatoverlay -Print''s looks at nothing' (
+    $emSn.header.memory -and $emSn.header.memory.percent -eq 96 -and @($emSn.header.notes)[0].kind -eq 'memory' -and -not $emCx.MemSaid -and
+    $null -eq $emSnN.header.memory) "$($emSn.header.memory | ConvertTo-Json -Compress)"
+
+# the tray's item (Set-ChatOverlayCrashChoice), on a host of its own
+$efH = @{ Ctx = (New-ChatOverlayContext); Menu = $null; ViewKey = 'k' }
+$efH.Ctx.CutAt = Get-Date
+Set-ChatOverlayCrashChoice $efH $true
+$ef1 = (Get-ChatqConfig).autoContinueCrash -eq $true -and $efH.Ctx.Config.autoContinueCrash -and $efH.Ctx.CutAt -eq [datetime]::MinValue -and $null -eq $efH.ViewKey
+$efH.ViewKey = 'k'
+Set-ChatOverlayCrashChoice $efH $true
+$ef2 = $efH.ViewKey -eq 'k'
+Set-ChatOverlayCrashChoice $efH $false
+$ef3 = (Get-ChatqConfig).autoContinueCrash -eq $false -and -not $efH.Ctx.Config.autoContinueCrash
+$efLog = [System.IO.File]::ReadAllText((Join-Path $script:ChatqLogDir 'overlay.log'), $utf8)
+Check 'the tray''s item sets config.json''s autoContinueCrash and reads it back, a fresh look on the next pass; the same choice again does nothing' (
+    $ef1 -and $ef2 -and $ef3 -and $efLog -like '*crash continue on from the panel*' -and $efLog -like '*crash continue off from the panel*') "$ef1 $ef2 $ef3"
+Restore-TestFile $script:ChatqConfigPath $ecCfgWas
+$script:ChatHostAliveSeam = $ecWas.Alive
+$script:ChatHostLogRootsSeam = $ecWas.Logs
+$script:ChatMemorySeam = $ecWas.Mem
+$script:ChatMemoryTopSeam = $ecWas.Top
+$script:ChatOverlayBalloonSeam = $ecWas.Balloon
+Remove-Item -LiteralPath $ecRoot -Recurse -Force -EA SilentlyContinue
