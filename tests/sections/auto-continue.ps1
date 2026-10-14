@@ -978,7 +978,8 @@ Set-ChatOverlayControlsPlacement `$H
 `$boxH = `$H.Settings.DesiredSize.Height
 `$top = `$t.Side -eq 'below' -and `$t.Y -gt `$p[1] -and `$t.Y -lt (`$p[1] + `$p[3]) -and (`$t.Y + `$t.Height) -le 1020 -and `$boxH -gt 0 -and `$boxH -le 28 * 7
 Show-ChatOverlayControls `$H `$false
-# the chip window over an auto row: don't continue and open, left of the state
+# the chip window over an auto row: don't continue and open, clear of the
+# state - on a full row on the title's line under it, flush right
 `$sid = '11111111-1111-4111-8111-111111111111'
 `$ar = [pscustomobject]@{ key = "c:`$sid"; kind = 'cutoff'; provider = 'claude'; status = 'cutoff'; chat = 'cutoff'; rank = 0.5; project = 'p'; title = 'an auto chat'; prompt = `$null
     stateText = '#12 auto 13:01'; job = `$null; sessionId = `$sid; cwd = 'C:\p'; where = ''; unread = `$false
@@ -991,10 +992,25 @@ Show-ChatOverlayChip `$H `$rects[0] ([System.Drawing.Point]::new(-9000, -9000))
 `$kids = @(`$H.ChipWin.Content.Children)
 `$cr = [ChatOverlayNative]::GetRect(`$H.ChipHwnd)
 `$sr = `$rects[0].State
+`$tr = `$rects[0].Title
 `$two = `$kids.Count -eq 3 -and (@(`$kids | ForEach-Object { `$_.Tag }) -join ',') -eq 'dont,open,delete' -and `$kids[0].Child.Text -eq "don't continue" -and
-    `$kids[0].ToolTip -like '#12 auto-continues 13:01. Don''t send*' -and `$H.ChipText -eq `$kids[1].Child -and `$sr -and (`$cr[0] + `$cr[2]) -le `$sr[0]
-# a row with no mark keeps its title in the column: an empty slot where the mark goes
-`$slot = @(@(`$H.Stack.Children | Where-Object { `$_.Tag -and `$_.Tag -isnot [string] })[0].Children[0].Children | Where-Object { `$_.Tag -eq 'slot' }).Count -eq 1
+    `$kids[0].ToolTip -like '#12 auto-continues 13:01. Don''t send*' -and `$H.ChipText -eq `$kids[1].Child -and `$sr -and `$tr -and `$tr[1] -ge (`$sr[1] + `$sr[3]) -and
+    [Math]::Abs((`$cr[0] + `$cr[2]) - (`$tr[0] + `$tr[2])) -le 1 -and [Math]::Abs((2 * `$cr[1] + `$cr[3]) - (2 * `$tr[1] + `$tr[3])) -le 2
+# every tile as wide whatever its mark, so every title starts in one
+# column: this cut-off's ring, and below a VS Code chat's window
+`$tileW = { @(@(`$H.Stack.Children | Where-Object { `$_.Tag -and `$_.Tag -isnot [string] })[0].Children)[0].ActualWidth }
+`$w1 = & `$tileW
+# compact, the one line: left of the state and a gap
+`$H.Ctx.Config.prompts = `$false
+`$H.Ctx.ViewSig = 'chip compact'
+Update-ChatOverlayView `$H ([pscustomobject]@{ header = [pscustomobject]@{ usage = @(); notes = @() }; rows = @(`$ar) })
+`$H.Win.UpdateLayout()
+`$rc = @(Get-ChatOverlayRowRects `$H)
+Show-ChatOverlayChip `$H `$rc[0] ([System.Drawing.Point]::new(-9000, -9000))
+`$cc = [ChatOverlayNative]::GetRect(`$H.ChipHwnd)
+`$sc = `$rc[0].State
+`$two = `$two -and `$sc -and `$null -eq `$rc[0].Title -and (`$cc[0] + `$cc[2]) -le `$sc[0]
+`$H.Ctx.Config.prompts = `$true
 # a press on don't continue released on open does nothing; the same chip acts
 `$script:Opened = 0; `$script:AutoActs = @()
 `${function:Invoke-ChatOverlayOpen} = { param(`$H, `$Row) `$script:Opened++ }
@@ -1030,6 +1046,8 @@ Show-ChatOverlayChip `$H `$rects[0] ([System.Drawing.Point]::new(-9000, -9000))
 `$cr2 = [ChatOverlayNative]::GetRect(`$H.ChipHwnd)
 `$ln = `$rects[0].Line
 `$plain = (@(`$H.ChipWin.Content.Children | ForEach-Object { `$_.Tag }) -join ',') -eq 'open,delete' -and [Math]::Abs((`$cr2[0] + `$cr2[2]) - (`$ln[0] + `$ln[2])) -le 1
+`$w2 = & `$tileW
+`$slot = `$w1 -gt 0 -and `$w2 -eq `$w1
 # the collapsed line counts the auto ones
 `$H.Ctx.ViewSig = 'fold'
 `$H.Collapsed = `$true
@@ -1039,7 +1057,7 @@ Update-ChatOverlayView `$H ([pscustomobject]@{ header = [pscustomobject]@{ usage
 Set-ChatOverlayHidden `$H `$true
 [IO.File]::WriteAllText(`$script:ChatqConfigPath, `$cfgWas)
 if (`$null -ne `$stateWas) { [IO.File]::WriteAllText(`$script:ChatqAutoPath, `$stateWas) }
-'{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}|{9}|{10}|{11}|{12}|{13}' -f `$row7, `$left, (`$trayOff -and `$trayOn -and `$trayItem), `$heldOk, `$top, `$two, `$dragged, `$same, `$unarmed, `$plain, `$folded, `$noticed, `$slot, "side `$(`$t.Side) y `$(`$t.Y) h `$(`$t.Height) p `$(`$p -join ',') box `$boxH chip `$(`$cr -join ',') state `$(`$sr -join ',') fold '`$fold' kids `$(@(`$kids | ForEach-Object { `$_.Tag }) -join ',') opened `$(`$script:Opened) acts `$(`$script:AutoActs -join ',') balloons `$(@(`$script:AcBalloons | ForEach-Object { `$_.Text }) -join ' // ')"
+'{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}|{9}|{10}|{11}|{12}|{13}' -f `$row7, `$left, (`$trayOff -and `$trayOn -and `$trayItem), `$heldOk, `$top, `$two, `$dragged, `$same, `$unarmed, `$plain, `$folded, `$noticed, `$slot, "side `$(`$t.Side) y `$(`$t.Y) h `$(`$t.Height) p `$(`$p -join ',') box `$boxH chip `$(`$cr -join ',') state `$(`$sr -join ',') title `$(`$tr -join ',') compact `$(`$cc -join ',')/`$(`$sc -join ',') tiles `$w1/`$w2 fold '`$fold' kids `$(@(`$kids | ForEach-Object { `$_.Tag }) -join ',') opened `$(`$script:Opened) acts `$(`$script:AutoActs -join ',') balloons `$(@(`$script:AcBalloons | ForEach-Object { `$_.Text }) -join ' // ')"
 "@
     $acOut = Invoke-Sta 'auto-continue-test' $acWpf
     $aw = "$acOut" -split '\|'
@@ -1048,12 +1066,12 @@ if (`$null -ne `$stateWas) { [IO.File]::WriteAllText(`$script:ChatqAutoPath, `$s
     Check 'the tray''s item is checked as config.json has it, and toggles on and ask through Invoke-ChatOverlayVerb' ($aw[2] -eq 'True') "$acOut"
     Check 'the tray''s toggle is held while the console runs a loop of its own' ($aw[3] -eq 'True') "$acOut"
     Check 'seven rows fit: with the panel at the screen''s top, the settings box goes under the bar, over the rows, on the screen' ($aw[4] -eq 'True') "$acOut"
-    Check 'the chip window over an auto row: don''t continue and open, left of the row''s state, the state in the tooltip' ($aw[5] -eq 'True') "$acOut"
+    Check 'the chip window over an auto row: don''t continue and open, the state in the tooltip; on a full row on the title''s line under the state, flush right, compact left of the state' ($aw[5] -eq 'True') "$acOut"
     Check 'a press on one chip released on the other does nothing; on the same chip it acts; an unarmed chip takes no click' ($aw[6] -eq 'True' -and $aw[7] -eq 'True' -and $aw[8] -eq 'True') "$acOut"
     Check 'a plain row gets open and delete, flush with its right end' ($aw[9] -eq 'True') "$acOut"
     Check 'collapsed, the one line counts the cut-off chats auto-continue will continue' ($aw[10] -eq 'True') "$acOut"
     Check 'Continue chosen in the settings box: on, and the notice said once' ($aw[11] -eq 'True') "$acOut"
-    Check 'a row with no mark gets an empty slot, so every title starts in one column' ($aw[12] -eq 'True') "$acOut"
+    Check 'every tile is as wide whatever its mark, so every title starts in one column' ($aw[12] -eq 'True') "$acOut"
 }
 
 # --- put it all back ------------------------------------------------------------------------

@@ -635,8 +635,12 @@ function Get-ChatqEta {
     # that is itself waiting, which the watcher skips. The watcher runs one
     # job at a time, so of the jobs whose waits end in the same minute - the
     # chats one limit cut off, all free at its reset - only the first sends
-    # then, and each of the rest after the one before it
-    param([object[]]$Jobs, [hashtable]$Blocks)
+    # then, and each of the rest after the one before it.
+    # -SendAt: filled with the [datetime] each job sends at, for the jobs
+    # whose words are that clock time - none tied behind another, none
+    # waiting on words. The overlay's row clocks count down to it. Never -At:
+    # names are case-blind, and a typed $At would be the loop's $at.
+    param([object[]]$Jobs, [hashtable]$Blocks, [hashtable]$SendAt)
     $eta = @{}
     $now = Get-Date
     $running = @($Jobs | Where-Object { $_.state -eq 'running' }) | Select-Object -First 1
@@ -672,6 +676,7 @@ function Get-ChatqEta {
             $before = $tied[$s]
             $tied[$s] = $j
             if ($before) { $s = "after #$($before.seq)" }
+            elseif ($null -ne $SendAt) { $SendAt[$j.id] = $at }
             if ($why) { "$s ($why)" } else { $s }
         }
         elseif ($ahead) { "after #$($ahead.seq)" }

@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.10.10 — Each chat's state on a tile, with a big clock
+
+- **On Windows a row starts on a tile in its state's colour, a big clock
+  on it.** A chat's state was a small dot and its age a few words at the
+  row's end, hard to read from across the desk. Each row now starts on a
+  tile, its border drawn in the state's colour - amber waiting on you,
+  green at work, blue a job running, purple queued and dashed, orange cut
+  off, grey idle - and its ground washed in for a chat that needs you
+  (amber, or cut off), a little for one at work. A seven-segment clock lit
+  in that colour, over the faint ghost of every segment, says for how
+  long. Where a chat runs is marked at the tile's left, in its colour: a
+  window with a title bar for VS Code, `>_` for a terminal, a play
+  triangle while a queued prompt runs in it, a bare window when that is
+  not known, and a ring for a job or a cut-off chat open nowhere, the
+  triangle in it while the job runs. The unread dot sits on the tile's
+  top right corner.
+- **The clocks:** minutes and seconds while a chat works or waits on you
+  (`5:03`), hours and minutes past the hour (`2h05`) and while it sits
+  idle, moving on the minute; days and hours past 99 hours (`4d07`). A
+  cut-off chat counts down to its reset (`-1h30`), then up from the
+  cut-off; a 529 or a restart, with no reset, counts up at once. A queued
+  prompt counts down to its send (`-0h12`), shows `--:--` when its words
+  name no time (`after #2`) or the time has passed, and counts up once it
+  runs. Every clock moves together, just after each whole second. The
+  row's words say what the chat does with no age now: `workflow`, not
+  `workflow 12m`.
+- **A cut-off chat still open counts from the cut-off.** One with
+  background work still out had kept the time that work began, on the
+  panel and in the phone board's age.
+- **What you typed is off the rows,** on Windows: each showed your newest
+  prompt under its title, to anyone who could see your screen. The title
+  has that line to itself now, under the project and the state's words;
+  a full row is 42 units tall, from 36, to hold its tile. A cut-off
+  row's chip - **don't continue** or **continue**, and open - goes on
+  the title's line, under the words it is about, as the tile leaves the
+  first line no room for it; compact rows keep it left of the words. A
+  card with a chat's recent turns when you rest on its row is in
+  DEFERRED.md ("A chat's prompt and recent turns on hover"). A row on
+  macOS, in `chatoverlay -Print` and on the phone's board looks as it did:
+  DEFERRED.md, "Row tiles on macOS, in -Print and on the phone's board".
+- **Compact rows** (**Style**, or `chatoverlay -Compact on`) draw a
+  smaller tile, with its clock, and the words at the line's end - one line
+  a chat. The console's list draws the same tiles, compact, its clocks
+  moving as the panel's do.
+
 ## 0.10.9 — A chat you stopped stays stopped
 
 - **A turn you stop yourself no longer sends `done` to the phone.** Stop

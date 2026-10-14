@@ -752,3 +752,19 @@ been run.
   Test-ChatIdle call Get-ChatqEntryStart.
 
 Its items left on purpose are in [DEFERRED.md](DEFERRED.md).
+
+## The pointer check near the panel
+
+[Update-ChatOverlayHover](src/overlay-windows.ps1) runs every 120 ms and
+takes its long way whenever the pointer is within 64 px of the panel or
+anything is under way. On a panel of nine chats' rows off every screen
+(TESTING.md, "The overlay's own cost", 2026-10-15) the checks took 12 to
+13 ms of every second with the pointer away, 51 with it 37 px over the
+panel and 79 with it on a row, and the whole process 32 to 38, 81 to 88
+and 125 to 130 - the same before the tiles and after. So a pointer
+resting by the panel costs some 5% of a core, on a row some 9%; the live
+panel read 10.3% with it resting 37 px over the panel, against 5.6%
+before. **Why it waits:** found while measuring the tiles; what in the
+long way costs is not timed yet. **To close:** time its parts - the
+edges' zone, the bar's target and placing, the chip - as the 2026-10-06
+pass timed the short way, and keep only what each check needs.

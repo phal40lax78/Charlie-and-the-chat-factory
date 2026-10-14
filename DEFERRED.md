@@ -1508,6 +1508,58 @@ line, and Grow subtract it when the hidden rows reach none.
 
 **Revisit when:** If the extra height is ever seen on the panel.
 
+## A chat's prompt and recent turns on hover
+
+**Scope:** A row on the Windows panel no longer shows its chat's newest
+prompt, and a rest on it brings up only the open chip
+([Add-ChatOverlayRow](src/overlay-windows.ps1),
+[Show-ChatOverlayChip](src/overlay-windows.ps1)): nothing shows the
+prompt, or what the chat did last, short of opening it.
+
+**Why deferred:** a card on hover with the prompt and the chat's latest
+turns was asked for first, then put aside for the rows' state at a
+glance - the tile and its clock - which took the prompt line off the
+rows, as a prompt always on the screen showed too much. The card is a
+change of its own: the panel lets clicks through, so it would be a
+window of its own as the chip is, and the turns' text is not read now -
+[Update-ChatOverlayText](src/overlay-data.ps1) keeps a chat's title,
+newest prompt and mode, not what was said.
+
+**Revisit when:** If the card on hover is asked for again, or the prompt
+is missed on the rows.
+
+**To close:** a card window by the row, after the chip's rest and under
+its rules - one per visit, none while a full screen, the console or a
+drag holds the panel; its text the row's `prompt`, still collected for
+macOS, `-Print` and the phone's board, and the last few turns read from
+the transcript's tail as [Find-ChatTailRecords](src/overlay-data.ps1)
+reads it, in the collector's pass rather than on the panel's thread.
+
+## Row tiles on macOS, in -Print and on the phone's board
+
+**Scope:** Only the Windows panel and the console draw a row's tile and
+clock. The Mac panel ([Start-ChatOverlayMacHost](src/overlay-mac.ps1)),
+`chatoverlay -Print` ([Write-ChatOverlayPrint](src/overlay-data.ps1)) and
+the phone's board ([ConvertTo-ChatqPhoneBoard](src/phone-board.ps1)) keep
+the dot, the age in the state's words, and the newest prompt.
+
+**Why deferred:** the ask was the Windows panel's state at a glance. The
+Mac panel has never run (S24 in TESTING.md), and new drawing in untested
+JXA would only add to that; `-Print` is a console's text, where the
+words carry the age as they always have; the board is a page of its own
+on a phone, private to its owner, where the prompt helps to pick a chat.
+
+**Revisit when:** When the Mac panel has run (S24), or if the tiles are
+wanted on the board.
+
+**To close:** each reads the clock from the rows as they are -
+[Get-ChatOverlayRowClock](src/overlay-data.ps1) and
+[Format-ChatOverlayRowClock](src/overlay-data.ps1) are pure, and every
+row carries `stateWords`, `resetsAt` and `sendAt` - and draws it in its
+own way: Cocoa paths from the same segments on macOS, the five
+characters as text in `-Print`, and a clock of its own on the board's
+page, counting between the board's answers.
+
 ## Copilot usage without the GitHub CLI
 
 **Scope:** Copilot's usage line works only with `gh` installed and signed in.

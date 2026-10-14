@@ -1,13 +1,14 @@
 # Charlie and the Chat Factory - Claude Code & Codex
 
 Mission control for your AI chats. Every Claude Code chat sits on one
-always-on-top board - and on your phone - with its project, title and newest
-prompt, and your usage live at the top. Prompts you queue while the usage
-limit is hit run at the reset, even with VS Code closed, and your phone says
-how they went. Find or delete any Claude Code, Codex or Copilot chat from
-PowerShell; this extension installs those commands and keeps them up to date.
+always-on-top board - and on your phone - with its project, title and how
+long it has worked, waited or sat idle, and your usage live at the top.
+Prompts you queue while the usage limit is hit run at the reset, even with
+VS Code closed, and your phone says how they went. Find or delete any
+Claude Code, Codex or Copilot chat from PowerShell; this extension installs
+those commands and keeps them up to date.
 
-![The overlay: every open chat with its project, title and newest prompt, and usage live at the top](https://raw.githubusercontent.com/phal40lax78/Charlie-and-the-chat-factory/main/docs/demo-overlay.png)
+![The overlay: every open chat with its project and title beside a tile whose seven-segment clock, in its state's colour, says how long it has worked, waited or sat idle, and usage live at the top](https://raw.githubusercontent.com/phal40lax78/Charlie-and-the-chat-factory/main/docs/demo-overlay.png)
 
 - **Find any chat by part of its title** and Tab-complete it: `chatfind`, `chatrm`, `chatq`.
 - **Delete one chat** and everything it leaves on disk, or **archive** it and bring it back later.

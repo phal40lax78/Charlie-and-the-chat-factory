@@ -502,6 +502,55 @@ Check 'one not open gets a row of its own - a 529 says what it waits on - and a 
     $rg1.kind -eq 'cutoff' -and $rg1.project -eq 'eleven' -and $rg2.stateText -eq '529 - waits for Claude' -and -not @($RC | Where-Object { $_.key -eq 'c:closed-1' }) -and
     $firstCut -gt [array]::IndexOf(@($RC.key), 's:w-new') -and $firstCut -lt [array]::IndexOf(@($RC.key), 's:b-new')) ($RC.key -join ',')
 Check 'and when the limit is over it says so' ((Format-ChatOverlayCutOff ([pscustomobject]@{ Why = 'limit'; ResetsAt = $tnow.AddMinutes(-5) }) $tnow) -eq 'cut off - limit over')
+# the row clocks: what each counts (Get-ChatOverlayRowClock) - up from its
+# since, live while it works or waits on you; down to a cut-off's reset, a
+# 529's none; down to a queued job's send time (Get-ChatqEta -SendAt)
+$sendAt = $tnow.AddMinutes(12)
+$RS = @(Get-ChatOverlayRows -Sessions $S2 -Texts $T -Jobs $J -Eta @{ j1 = '17:10'; j2 = 'after #1'; j3 = '17:22' } -Now $tnow -CutOff $C -SendAt @{ j3 = $sendAt })
+$rsOf = { param($k) @($RS | Where-Object { $_.key -eq $k })[0] }
+$clockSays = { param($r) $c = Get-ChatOverlayRowClock $r; "$($c.From)/$($c.To)/$([int]$c.Live)$([int]$c.Hold)" }
+$resetMs = ConvertTo-ChatOverlayMs $resetAt
+$rcWant = [ordered]@{
+    's:i-3' = "$(& $ago 60)/$resetMs/00"; 'c:gone-1' = "$(ConvertTo-ChatOverlayMs $tnow.AddMinutes(-30))/$resetMs/00"; 'c:gone-2' = "$(ConvertTo-ChatOverlayMs $tnow.AddMinutes(-20))//00"
+    'j:j3' = "/$(ConvertTo-ChatOverlayMs $sendAt)/01"; 'j:j2' = '//01'; 's:b-new' = "$(& $ago 2)//10"; 's:w-old' = "$(& $ago 30)//10"
+    'j:j5' = "$(ConvertTo-ChatOverlayMs $tnow.AddMinutes(-3))//10"
+}
+$rcBad = @(foreach ($k in $rcWant.Keys) { $got = & $clockSays (& $rsOf $k); if ($got -ne $rcWant[$k]) { "$k $got not $($rcWant[$k])" } })
+$rcIdle = & $clockSays $ri1
+Check 'a row clock counts up from its since - live at work or waiting - down to a cut-off''s reset (a 529 has none) or a queued job''s send time' (
+    -not $rcBad.Count -and $rcIdle -eq "$(& $ago 60)//00") (($rcBad + "i-1 $rcIdle") -join '; ')
+# and the words beside it: the state text with no age
+$wB = & $rsOf 's:b-new'
+$wJ = & $rsOf 'j:j2'
+$wC = & $rsOf 's:i-3'
+Check 'every row carries its state words: its state text with no age, a queued prompt it carries in them' (
+    $wB.stateWords -eq 'working' -and $wB.stateText -like 'working ?*' -and $wJ.stateWords -eq '#2 after #1' -and $wJ.stateText -eq '#2 after #1' -and
+    $wC.stateWords -eq "cut off - resets $resetSays" -and $wC.stateText -eq $wC.stateWords -and $ri1.stateWords -like '#1 sends 17:10 * idle' -and
+    $ri1.stateText.StartsWith("$($ri1.stateWords) ") -and $ri1.stateText.Length -gt $ri1.stateWords.Length + 1) "'$($wB.stateWords)' '$($wJ.stateWords)' '$($wC.stateWords)' '$($ri1.stateWords)' / '$($ri1.stateText)'"
+Check 'a cut-off''s reset for its clock: the limit''s, none for a 529 or a restart' (
+    (Get-ChatOverlayCutOffReset $C[2]) -eq $resetMs -and $null -eq (Get-ChatOverlayCutOffReset $C[3]) -and
+    $null -eq (Get-ChatOverlayCutOffReset ([pscustomobject]@{ Why = 'restart'; ResetsAt = $resetAt })))
+# its five characters: minutes:seconds under an hour while live, else hours
+# h minutes, past 99 hours days d hours (99 at most); down, the minutes
+# rounded up and a minus where the first digit is blank; dashes for none
+$n0 = [int64]1790000000000
+$fc = { param($From, $To, [bool]$Live = $false, [bool]$Hold = $false) Format-ChatOverlayRowClock ([pscustomobject]@{ From = $From; To = $To; Live = $Live; Hold = $Hold }) $n0 }
+$fcGot = @(
+    (& $fc ($n0 - 307000) $null $true), (& $fc $n0 $null $true), (& $fc ($n0 - 3599000) $null $true), (& $fc ($n0 - 3600000) $null $true),
+    (& $fc ($n0 - 307000) $null), (& $fc ($n0 - 45240000) $null), (& $fc ($n0 - 359940000) $null), (& $fc ($n0 - 360000000) $null), (& $fc ($n0 - 86400000000) $null),
+    (& $fc $null ($n0 + 5370000)), (& $fc $null ($n0 + 43200000)), (& $fc $null ($n0 + 30000)), (& $fc $null ($n0 + 500)), (& $fc $null ($n0 + 363600000)),
+    (& $fc ($n0 - 600000) ($n0 - 1000)), (& $fc $null ($n0 - 1000) -Hold $true), (& $fc $null $null -Hold $true), (& $fc $null ($n0 + 720000) -Hold $true),
+    (& $fc $null $null), (Format-ChatOverlayRowClock $null $n0)) -join ','
+Check 'a row clock''s five characters: live under an hour m:ss, else h and minutes, then d and hours to 99; counting down, minutes up and a minus; dashes for none' (
+    $fcGot -eq ' 5:07, 0:00,59:59, 1h00, 0h05,12h34,99h59, 4d04,99d00,-1h30,12h00,-0h01,-0h00,-4d05, 0h10,--:--,--:--,-0h12,--:--,--:--') $fcGot
+# the 1 s timer's next tick, 30 ms past the next whole second
+$taH = @{ Timer = [pscustomobject]@{ Interval = $null } }
+$ta0 = Get-Date
+Set-ChatOverlayTickAligned $taH
+$taMs = $taH.Timer.Interval.TotalMilliseconds
+$taOff = ($ta0.Millisecond + $taMs) % 1000
+Check 'the timer''s next tick 30 ms past a whole second, never under a quarter second on' (
+    $taMs -ge 250 -and $taMs -le 1250 -and ($taOff -le 30 -or $taOff -ge 830)) "$taMs from $($ta0.Millisecond)"
 # VS Code tabs with no process (Read-ChatOpenTabs): each a row as an idle
 # open chat's once its transcript was found - none where a process holds its
 # chat, or with no transcript - and taking a cut-off and a job as that would
@@ -914,7 +963,7 @@ chatoverlay -ChipDelay 3001 -Compact off *> $null
 $cm2 = Get-ChatOverlayConfig
 $cmdsC = Get-OvToldCommands { chatoverlay -Compact off -ChipDelay 600 }
 $cm3 = Get-ChatOverlayConfig
-Check '-Compact on is the prompt line off, -ChipDelay kept, both said; out of range refused with the rest of its line; a running panel told' (
+Check '-Compact on is compact rows, -ChipDelay kept, both said; out of range refused with the rest of its line; a running panel told' (
     $cmDefault -and -not $cm1.prompts -and $cm1.chipDelayMs -eq 250 -and ($cmSaid -join '|') -like '*compact rows: on*' -and ($cmSaid -join '|') -like '*open chip: after a 250 ms rest*' -and
     -not $cm2.prompts -and $cm2.chipDelayMs -eq 250 -and $cmdsC -match ' reload\n' -and $cm3.prompts -and $cm3.chipDelayMs -eq 600) "$($cm1.prompts) $($cm1.chipDelayMs) / $($cm2.prompts) $($cm2.chipDelayMs) / $($cm3.prompts) $($cm3.chipDelayMs) / $($cmSaid -join '|')"
 Set-ChatOverlayConfig @{ prompts = $true; chipDelayMs = 400 }
@@ -1026,9 +1075,9 @@ $rzHi = & $rz 380 8 0 5000 36 1 1904
 Check 'resize: a row for each row''s height down, one off for each up, none within the first; 1 to 30' (
     $rzD.Rows -eq 10 -and $rzD.Steps -eq 2 -and $rzU.Rows -eq 8 -and $rzU.Steps -eq 0 -and $rzU2.Rows -eq 7 -and $rzLo.Rows -eq 1 -and $rzHi.Rows -eq 30 -and $rzD.Width -eq 380) "$($rzD.Rows) $($rzU.Rows)/$($rzU.Steps) $($rzU2.Rows) $($rzLo.Rows) $($rzHi.Rows)"
 $rzC = & $rz 380 8 -20 500 36 1 1904 $true
-$rz0 = & $rz 380 8 0 72 0 1 1904
-$rz0b = & $rz 380 8 0 72 0 2 1904
-Check 'resize: collapsed, width only; a row height not known taken as 36 units, scaled' (
+$rz0 = & $rz 380 8 0 84 0 1 1904
+$rz0b = & $rz 380 8 0 84 0 2 1904
+Check 'resize: collapsed, width only; a row height not known taken as 42 units, scaled' (
     $rzC.Width -eq 400 -and $rzC.Rows -eq 8 -and $rzC.Steps -eq 0 -and $rz0.Rows -eq 10 -and $rz0b.Rows -eq 9) "$($rzC.Width) $($rzC.Rows) $($rz0.Rows) $($rz0b.Rows)"
 # 3 rows drawn of 12 open - the screen's foot cut the rest - 8 kept: down
 # never saves fewer than 8
@@ -2728,18 +2777,26 @@ Update-ChatOverlayHover
 `$styleOk = `$style -and (@(`$style.Children | ForEach-Object { `$_.Tag }) -join ',') -eq 'full,compact' -and (& `$on `$style) -eq 'full' -and
     `$boxH -gt 0 -and `$boxH -le 28 * `$H.Settings.Child.RowDefinitions.Count -and [System.Windows.Controls.Grid]::GetRow(`$style) -eq 4 -and
     [System.Windows.Controls.Grid]::GetRow(`$H.WidthSlider) -eq [System.Windows.Controls.Grid]::GetRow(`$H.RowsSlider)
-# compact: one line a chat, tighter; the view key alone redraws it
+# compact: one line a chat, tighter - a smaller tile, the words at the
+# line's end; full: the tile 36 units tall, the project and the words on
+# the first line, the title under them; the view key alone redraws it
 `$hFull = Get-ChatOverlayRowHeight `$H
 Set-ChatOverlayRowStyle `$H 'compact'
 `$H.Win.UpdateLayout()
 `$drawn = @(`$H.Stack.Children | Where-Object { `$_.Tag -and `$_.Tag -isnot [string] })
 `$hComp = Get-ChatOverlayRowHeight `$H
-`$compact = -not (Get-ChatOverlayConfig).prompts -and `$drawn.Count -eq [int]`$H.Ctx.Config.maxRows -and -not @(`$drawn | Where-Object { `$_.Children.Count -ne 1 -or `$_.Margin.Top -ne 1 }).Count -and
+# a row as drawn: its tile and how tall, then what is beside it
+`$rowIs = { param(`$w) `$k = @(`$w.Children); "`$(`$k.Count) `$(`$k[0].Tag) `$(`$k[0].Height) `$(`$k[1].Tag) `$(`$w.Margin.Top)" }
+`$compact = -not (Get-ChatOverlayConfig).prompts -and `$drawn.Count -eq [int]`$H.Ctx.Config.maxRows -and -not @(`$drawn | Where-Object { (& `$rowIs `$_) -ne '2 tile 21 line 1' }).Count -and
     `$hComp -lt `$hFull -and (& `$on (& `$chipsOf 'compact')) -eq 'compact'
 Set-ChatOverlayRowStyle `$H 'full'
-`$compact = `$compact -and (Get-ChatOverlayConfig).prompts -and @(`$H.Stack.Children | Where-Object { `$_.Tag -and `$_.Tag -isnot [string] -and `$_.Children.Count -eq 2 }).Count -eq [int]`$H.Ctx.Config.maxRows
-# where each chat runs, after its dot: VS Code, a terminal, a queued
-# prompt's run, none known; a job has no mark, whatever it carries
+# full, beside the tile: the line with the words, then the title alone
+`$fullIs = { param(`$w) `$t = @(@(`$w.Children)[1].Children); "`$(`$t.Count) `$(`$t[0].Tag) `$(@(`$t[0].Children | Where-Object { `$_.Tag -is [string] -and `$_.Tag -eq 'state' }).Count) `$(`$t[1].Text -eq `$w.Tag.title)" }
+`$compact = `$compact -and (Get-ChatOverlayConfig).prompts -and @(`$H.Stack.Children | Where-Object { `$_.Tag -and `$_.Tag -isnot [string] -and (& `$rowIs `$_) -eq '2 tile 36 text 3' -and
+            (& `$fullIs `$_) -eq '2 line 1 True' }).Count -eq [int]`$H.Ctx.Config.maxRows
+# where each chat runs, at its tile's left in its state's colour: VS Code,
+# a terminal, a queued prompt's run, a window for one not known; a ring
+# for a job, whatever it carries
 `$wr = @(
     [pscustomobject]@{ key = 's:v'; kind = 'session'; status = 'idle'; rank = 3; project = 'p'; title = 'in vs code'; prompt = 'x'; stateText = 'idle'; job = `$null; where = 'vscode' }
     [pscustomobject]@{ key = 's:t'; kind = 'session'; status = 'idle'; rank = 3; project = 'p'; title = 'in a terminal'; prompt = 'x'; stateText = 'idle'; job = `$null; where = 'terminal' }
@@ -2750,11 +2807,12 @@ Set-ChatOverlayRowStyle `$H 'full'
 `$H.Ctx.ViewSig = 'where'
 Update-ChatOverlayView `$H ([pscustomobject]@{ header = [pscustomobject]@{ usage = @(); notes = @() }; rows = `$wr })
 `$marks = @(`$H.Stack.Children | Where-Object { `$_.Tag -and `$_.Tag -isnot [string] } | ForEach-Object {
-        `$ln = `$_.Children[0]
-        `$p = @(`$ln.Children | Where-Object { `$_ -is [System.Windows.Shapes.Path] })
-        if (`$p.Count -eq 1 -and `$ln.Children[1] -eq `$p[0] -and `$p[0].Width -eq 10 -and `$p[0].Height -eq 9 -and `$p[0].Stroke -eq (Get-ChatOverlayBrush 'dim')) { [string]`$p[0].Tag } elseif (`$p.Count) { 'bad' } else { '-' }
+        `$in = @(@(`$_.Children)[0].Children)[1]
+        `$m = @(`$in.Children)[0]
+        if (`$m -is [System.Windows.Controls.Canvas] -and `$m.Width -eq 16 -and `$m.Height -eq 14 -and @(`$in.Children)[1].Tag -eq 'clock' -and
+            @(`$m.Children)[0].Stroke -eq (Get-ChatOverlayBrush ([string]`$_.Tag.status))) { [string]`$m.Tag } else { 'bad' }
     }) -join ','
-`$where = `$marks -eq 'vscode,terminal,run,-,-'
+`$where = `$marks -eq 'vscode,terminal,run,window,none'
 # the edges dragged: the right side - wider to the right, the left edge,
 # top and rows where they were; the top - a row for each row's height up,
 # the bottom held, and the place kept
@@ -2833,8 +2891,8 @@ Check 'a reload with a slider still moving writes it first: config.json and the 
 Check 'widened by the screen''s left edge: held there, it grows to the right' ($sz[11] -eq 'True') "$sizeOut"
 Check 'fewer chats than rows: dragged down, the rows kept never drop; up, one off those drawn' ($sz[12] -eq 'True') "$sizeOut"
 Check 'the settings box opened after a drag shows what was dragged to, and a nudge moves on from there' ($sz[13] -eq 'True') "$sizeOut"
-Check 'the settings box: width and rows on one row, Style full or compact; compact draws one line a chat, and full brings the prompts back' ($sz[14] -eq 'True') "$sizeOut"
-Check 'where a chat runs, after its dot: a window for VS Code, >_ for a terminal, a play triangle for a queued prompt''s run; nothing for a job' ($sz[15] -eq 'True') "$sizeOut"
+Check 'the settings box: width and rows on one row, Style full or compact; compact draws one line a chat by a smaller tile, and full the title under the project and words' ($sz[14] -eq 'True') "$sizeOut"
+Check 'where a chat runs, at its tile''s left in its state''s colour: a title bar for VS Code, >_ for a terminal, a play triangle for a queued prompt''s run, a bare window for one not known; a ring for a job' ($sz[15] -eq 'True') "$sizeOut"
 
 # the Recent list and the unread dot, drawn - in a process of its own, as a
 # command line holds only so much of the one above
@@ -2873,10 +2931,10 @@ Update-ChatOverlayView `$H `$snapR
     (Get-ChatOverlayDrawnRows `$H) -eq 2 -and @(`$rects | Where-Object { `$_.Key -like 'recent:*' -and (Test-ChatOverlayRowOpenable `$_.Row) }).Count -eq 3
 `$dotOf = {
     param(`$k)
-    `$ln = @(`$kids | Where-Object { `$_.Tag -and `$_.Tag -isnot [string] -and `$_.Tag.key -eq `$k })[0].Children[0]
-    `$d = @(`$ln.Children | Where-Object { `$_ -is [System.Windows.Shapes.Ellipse] -and `$_.Tag -is [string] -and `$_.Tag -eq 'unread' })
-    `$st = @(`$ln.Children | Where-Object { `$_ -is [System.Windows.Controls.TextBlock] -and `$_.Text -like 'idle *' })[0]
-    if (`$d.Count -eq 1 -and `$d[0].Width -eq 6 -and `$d[0].Fill -eq (Get-ChatOverlayBrush 'accent') -and `$ln.Children.IndexOf(`$d[0]) -eq `$ln.Children.IndexOf(`$st) + 1) { 'dot' } elseif (`$d.Count) { 'bad' } else { '-' }
+    `$tile = @(@(`$kids | Where-Object { `$_.Tag -and `$_.Tag -isnot [string] -and `$_.Tag.key -eq `$k })[0].Children)[0]
+    `$d = @(`$tile.Children | Where-Object { `$_ -is [System.Windows.Shapes.Ellipse] -and `$_.Tag -is [string] -and `$_.Tag -eq 'unread' })
+    if (`$tile.Tag -eq 'tile' -and `$d.Count -eq 1 -and `$d[0].Width -eq 13 -and `$d[0].Fill -eq (Get-ChatOverlayBrush 'accent') -and
+        `$d[0].HorizontalAlignment -eq 'Right' -and `$d[0].VerticalAlignment -eq 'Top') { 'dot' } elseif (`$d.Count) { 'bad' } else { '-' }
 }
 `$unreadOk = (& `$dotOf 's:u1') -eq 'dot' -and (& `$dotOf 's:u2') -eq '-'
 # collapsed: nothing of it, and the one line says how many are new
@@ -3039,7 +3097,7 @@ Stop-ChatOverlaySizeDrag `$null
 $recentOut = Invoke-Sta 'recent-test' $wpfRecent
 $rz2 = "$recentOut" -split '\|'
 Check 'Recent under the open rows: a faint header, a compact line each the open chip takes, none counted as a row' ($rz2[0] -eq 'True') "$recentOut"
-Check 'a row that finished a turn unseen has the accent dot just before its state; the others none' ($rz2[1] -eq 'True') "$recentOut"
+Check 'a row that finished a turn unseen has the accent dot on its tile''s top right corner; the others none' ($rz2[1] -eq 'True') "$recentOut"
 Check 'collapsed: no Recent, and the one line says "1 new"' ($rz2[2] -eq 'True') "$recentOut"
 Check 'the chip on a recent line keeps it through a redraw, and goes when it does' ($rz2[3] -eq 'True') "$recentOut"
 Check 'the settings box: Recent off, 5 or 10, the one in force filled, kept in config.json, and a pass run at once to build it' ($rz2[4] -eq 'True') "$recentOut"
@@ -3050,6 +3108,136 @@ Check 'the bottom edge past every open row: Recent lines from the pool, live; le
 Check 'the bottom edge back up: the Recent lines go first, then a row - only what changed saved; off lights Off' ($rz2[9] -eq 'True') "$recentOut"
 Check 'a press let go where it was saves nothing; down again, the open row comes back before the Recent lines' ($rz2[10] -eq 'True') "$recentOut"
 Check 'the top edge by the screen''s foot: a Recent line the foot cut comes back for a line''s travel up, the count kept, the bottom held' ($rz2[11] -eq 'True') "$recentOut"
+
+# the tiles, drawn - in a process of their own: each state's border and
+# ground, a queued job's dashes, the ghost under the lit digits, the mark
+# for where a chat runs, the shape each character lights; the clocks as
+# built, then moved by the timer's tick, but not while the panel is
+# hidden; every tile as wide, full or compact, so every title starts in
+# one column
+$wpfTile = @"
+$staLoad
+`$cfgWas = [IO.File]::ReadAllText(`$script:ChatqConfigPath)
+Set-ChatOverlayConfig @{ width = 380; maxRows = 8; prompts = `$true; recent = 0; theme = 'dark'; hotkey = 'none'; consoleHotkey = 'none' }
+Initialize-ChatOverlayNative
+$staPanel
+`$H.Placed = `$true
+`$script:ChatOverlayWorkAreaSeam = { param(`$r) [pscustomobject]@{ X = -4000; Y = 0; Width = 1920; Height = 1020 } }
+Set-ChatOverlayHidden `$H `$false
+[ChatOverlayNative]::MoveTo(`$H.Hwnd, -2594, 197)
+`$t0 = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+`$tr = @(
+    [pscustomobject]@{ key = 's:w'; kind = 'session'; status = 'waiting'; rank = 0; project = 'p'; title = 'waits'; stateText = 'needs you'; stateWords = 'needs you'; job = `$null; where = 'vscode'; since = `$t0 - 300000 }
+    [pscustomobject]@{ key = 's:b'; kind = 'session'; status = 'busy'; rank = 1; project = 'p'; title = 'works'; stateText = 'working'; stateWords = 'working'; job = `$null; where = 'terminal'; since = `$t0 - 3540000 }
+    [pscustomobject]@{ key = 's:i'; kind = 'session'; status = 'idle'; rank = 3; project = 'p'; title = 'idles'; stateText = 'idle'; stateWords = 'idle'; job = `$null; where = 'run'; since = `$t0 - 7500000 }
+    [pscustomobject]@{ key = 'c:x'; kind = 'cutoff'; status = 'cutoff'; rank = 0.5; project = 'p'; title = 'cut off'; stateText = 'cut off - resets 13:00'; stateWords = 'cut off - resets 13:00'; job = `$null; since = `$t0 - 600000; resetsAt = `$t0 + 5400000 }
+    [pscustomobject]@{ key = 'j:1'; kind = 'job'; status = 'queued'; rank = 4; project = 'p'; title = 'sends soon'; stateText = '#1 sends 13:12'; stateWords = '#1 sends 13:12'; job = `$null; sendAt = `$t0 + 720000 }
+    [pscustomobject]@{ key = 'j:2'; kind = 'job'; status = 'queued'; rank = 4; project = 'p'; title = 'after it'; stateText = '#2 after #1'; stateWords = '#2 after #1'; job = `$null }
+    [pscustomobject]@{ key = 'j:3'; kind = 'job'; status = 'running'; rank = 2; project = 'p'; title = 'runs'; stateText = '#3 running'; stateWords = '#3 running'; job = `$null; since = `$t0 - 65000 }
+    [pscustomobject]@{ key = 's:o'; kind = 'session'; status = 'idle'; rank = 3; project = 'p'; title = 'idles long'; stateText = 'idle'; stateWords = 'idle'; job = `$null; where = ''; since = `$t0 - 468000000 }
+)
+`$snapT = [pscustomobject]@{ header = [pscustomobject]@{ usage = @(); notes = @() }; rows = `$tr }
+`$H.Ctx.ViewSig = 'tiles'
+Update-ChatOverlayView `$H `$snapT
+`$H.Win.UpdateLayout()
+`$wrapsOf = { @(`$H.Stack.Children | Where-Object { `$_.Tag -and `$_.Tag -isnot [string] }) }
+`$tileOf = { param(`$w) @(`$w.Children)[0] }
+`$wraps = & `$wrapsOf
+# its border and ground: A of the wash, d for dashes, ! where the colour
+# is not its state's
+`$ground = @(foreach (`$w in `$wraps) {
+        `$b = @((& `$tileOf `$w).Children)[0]
+        `$c = Get-ChatOverlayBrush ([string]`$w.Tag.status)
+        `$rgb = -not `$b.Fill -or (`$b.Fill.Color.R -eq `$c.Color.R -and `$b.Fill.Color.G -eq `$c.Color.G -and `$b.Fill.Color.B -eq `$c.Color.B)
+        "`$(if (`$b.Fill) { '{0:X2}' -f `$b.Fill.Color.A } else { '-' })`$(if (`$b.StrokeDashArray -and `$b.StrokeDashArray.Count) { 'd' })`$(if (`$b.Stroke -ne `$c -or -not `$rgb) { '!' })"
+    }) -join ','
+# its clock: the ghost of every segment, then five cells lit in its colour
+`$segBad = @(foreach (`$w in `$wraps) {
+        `$cv = @(@(@((& `$tileOf `$w).Children)[1]).Children)[1]
+        `$k = @(`$cv.Children)
+        `$lit = Get-ChatOverlayBrush ([string]`$w.Tag.status)
+        if (-not (`$cv.Tag -eq 'clock' -and `$k.Count -eq 6 -and `$k[0].Fill -eq (Get-ChatOverlayBrush 'ghost') -and -not @(`$k[1..5] | Where-Object { `$_.Fill -ne `$lit }).Count)) { `$w.Tag.key }
+    })
+# where it runs: the mark and its paths - one, the outline and what is in
+# it; two with a play triangle filled in its state's colour, ! where not
+`$marks = @(foreach (`$w in `$wraps) {
+        `$mk = @(@(@((& `$tileOf `$w).Children)[1]).Children)[0]
+        `$k = @(`$mk.Children)
+        "`$(`$mk.Tag):`$(`$k.Count)`$(if (`$k.Count -eq 2 -and `$k[1].Fill -ne (Get-ChatOverlayBrush ([string]`$w.Tag.status))) { '!' })"
+    }) -join ','
+`$says = { @(`$H.RowClocks | ForEach-Object { `$_.Clock.Text }) -join ',' }
+`$built = & `$says
+# a slow machine's build may take seconds: up to 50 still reads the same
+`$builtOk = `$H.RowClocks.Count -eq 8 -and `$built -match '^ 5:[0-4]\d,59:[0-4]\d, 2h05,-1h30,-0h12,--:--, 1:[0-5]\d, 5d10$'
+# the shape each character lights: a blank none, a minus the middle bar
+# alone, the separator two dots or a small h or d - whose upper strokes,
+# the top 30 percent of each, are on the left and the right
+`$G = Get-ChatOverlaySegGeometry
+`$cell = { param(`$r, `$i) `$H.RowClocks[`$r].Clock.Cells[`$i].Data }
+`$band = { param(`$g, [double]`$y0, [double]`$y1) `$b = `$g.Bounds; [System.Windows.Media.Geometry]::Combine(`$g, [System.Windows.Media.RectangleGeometry]::new([System.Windows.Rect]::new(`$b.Left - 1, `$b.Top + `$b.Height * `$y0, `$b.Width + 2, `$b.Height * (`$y1 - `$y0))), [System.Windows.Media.GeometryCombineMode]::Intersect, `$null).Bounds }
+`$midX = { param(`$r) `$r.Left + `$r.Width / 2 }
+`$mb = `$G.Glyph['-'].Bounds
+`$eb = `$G.Glyph['8'].Bounds
+`$glyphs = [ordered]@{
+    blank = `$null -eq (& `$cell 0 0)
+    colon = (& `$cell 0 2) -eq `$G.Sep[':']
+    minus = (& `$cell 3 0) -eq `$G.Glyph['-']
+    h = (& `$cell 3 2) -eq `$G.Sep['h']
+    d = (& `$cell 7 2) -eq `$G.Sep['d']
+    dashes = -not @(0, 1, 3, 4 | Where-Object { (& `$cell 5 `$_) -ne `$G.Glyph['-'] }).Count
+    bar = `$mb.Height -lt `$eb.Height / 5 -and [Math]::Abs((`$mb.Top + `$mb.Bottom) - (`$eb.Top + `$eb.Bottom)) -lt 0.5
+    dots = (& `$band `$G.Sep[':'] 0.4 0.6).IsEmpty
+    hLeft = (& `$midX (& `$band `$G.Sep['h'] 0 0.3)) -lt (& `$midX `$G.Sep['h'].Bounds)
+    dRight = (& `$midX (& `$band `$G.Sep['d'] 0 0.3)) -gt (& `$midX `$G.Sep['d'].Bounds)
+}
+`$glyphBad = @(`$glyphs.Keys | Where-Object { -not `$glyphs[`$_] })
+# the timer's tick: each clock to now - none while the panel is hidden -
+# and the next tick set (Set-ChatOverlayTickAligned), on a timer never
+# started; an odd tick, so no pass
+`$script:ChatOverlayFullScreenSeam = { `$false }
+`$H.Timer = [System.Windows.Threading.DispatcherTimer]::new()
+`$H.RowClocks[2].Spec.From -= 3600000
+`$H.Hidden = `$true
+`$H.Tick = 0
+Invoke-ChatOverlayTick
+`$hid = `$H.RowClocks[2].Clock.Text
+`$H.Hidden = `$false
+`$H.Timer.Interval = [TimeSpan]::FromSeconds(7)
+`$H.Tick = 0
+Invoke-ChatOverlayTick
+`$next = `$H.Timer.Interval.TotalMilliseconds
+`$ticked = & `$says
+`$tickOk = `$hid -eq ' 2h05' -and `$ticked -match '^ 5:[0-4]\d,59:[0-4]\d, 3h05,-1h30,-0h12,--:--, 1:[0-5]\d, 5d10$' -and `$next -ge 250 -and `$next -le 1250
+# as wide and as tall, whatever the mark or state; the titles in one column
+`$colOf = { param(`$ws) @(`$ws | ForEach-Object { [Math]::Round(@(`$_.Children)[1].TranslatePoint([System.Windows.Point]::new(0, 0), `$H.Stack).X, 2) }) }
+`$same = { param(`$a) `$a.Count -and -not @(`$a | Where-Object { `$_ -ne `$a[0] }).Count }
+`$wF = @(`$wraps | ForEach-Object { (& `$tileOf `$_).ActualWidth })
+`$hF = @(`$wraps | ForEach-Object { (& `$tileOf `$_).ActualHeight })
+`$cF = & `$colOf `$wraps
+`$fullOk = `$wF[0] -gt 0 -and (& `$same `$wF) -and (& `$same `$cF) -and `$hF[0] -eq 36 -and (& `$same `$hF)
+Set-ChatOverlayRowStyle `$H 'compact'
+`$H.Win.UpdateLayout()
+`$wrapsC = & `$wrapsOf
+`$wC = @(`$wrapsC | ForEach-Object { (& `$tileOf `$_).ActualWidth })
+`$hC = @(`$wrapsC | ForEach-Object { (& `$tileOf `$_).ActualHeight })
+`$cC = & `$colOf `$wrapsC
+`$compactOk = `$wrapsC.Count -eq 8 -and `$wC[0] -gt 0 -and `$wC[0] -lt `$wF[0] -and (& `$same `$wC) -and (& `$same `$cC) -and `$hC[0] -eq 21 -and (& `$same `$hC) -and
+    (& `$says) -match '^ 5:[0-4]\d,59:[0-4]\d, 2h05,-1h30,-0h12,--:--, 1:[0-5]\d, 5d10$'
+[IO.File]::WriteAllText(`$script:ChatqConfigPath, `$cfgWas)
+'{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}' -f (`$ground -eq '38,1A,-,38,-d,-d,1A,-'), (-not `$segBad.Count), (`$marks -eq 'vscode:1,terminal:1,run:2,none:1,none:1,none:1,none:2,window:1'),
+    (-not `$glyphBad.Count), `$builtOk, `$tickOk, `$fullOk, `$compactOk,
+    "ground `$ground seg `$(`$segBad -join ',') marks `$marks glyphs `$(`$glyphBad -join ',') built '`$built' hid '`$hid' ticked '`$ticked' next `$next full `$(`$wF -join ',')/`$(`$hF -join ',')/`$(`$cF -join ',') compact `$(`$wC -join ',')/`$(`$hC -join ',')/`$(`$cC -join ',') '`$(& `$says)'"
+"@
+$tileOut = Invoke-Sta 'tile-test' $wpfTile
+$tl = "$tileOut" -split '\|'
+Check 'a tile''s border in its state''s colour, its ground washed in for a chat that needs you or works and bare for the rest, a queued job''s border dashed' ($tl[0] -eq 'True') "$tileOut"
+Check 'a tile''s clock: the ghost of every segment under five cells lit in the state''s colour' ($tl[1] -eq 'True') "$tileOut"
+Check 'a tile''s mark by where the chat runs - VS Code, a terminal, a queued prompt''s run, not known - and a ring for one open nowhere, a filled triangle in it while its job runs' ($tl[2] -eq 'True') "$tileOut"
+Check 'a clock''s characters: a blank lights nothing, a minus the middle bar alone, the separator two dots or a small h or d' ($tl[3] -eq 'True') "$tileOut"
+Check 'the clocks as drawn: minutes and seconds while a chat works or waits, under an hour; hours and minutes idle, past 99 hours days and hours; down to a reset or a send; dashes for a job with no time' ($tl[4] -eq 'True') "$tileOut"
+Check 'the timer''s tick moves each clock to now, none while the panel is hidden, and sets when the next tick comes' ($tl[5] -eq 'True') "$tileOut"
+Check 'every full tile as wide and 36 units tall, whatever its mark or state, so every title starts in one column' ($tl[6] -eq 'True') "$tileOut"
+Check 'compact, every tile as wide, narrower than full and 21 units tall, each with its clock, the titles in one column' ($tl[7] -eq 'True') "$tileOut"
 
 # the console, a mode of the panel's own window: the panel shown on a screen
 # of the test's own, off every real one, then turned into the console -
@@ -3120,29 +3308,58 @@ Complete-ChatConsoleIndexRead `$H
 `$idxRead = `$idxStarted -and -not `$C.IndexRead -and @(`$C.Index).Count -gt 0 -and @(`$C.Index).Count -eq @(Get-ChatIndex).Count -and `$C.IndexStamp -eq (Get-ChatIndexStamp)
 `$idxSay = "`$idxStarted `$(@(`$C.Index).Count) `$(`$C.IndexStamp)"
 `$kinds = (@(`$C.ChatItems | ForEach-Object Kind | Sort-Object -Unique) -join ',')
-# each chat drawn as the panel draws it: the same first line - dot, where it
-# runs, state, unread dot, project and title - in the console's list as on
-# the panel, and compact there: no prompt line
+# each chat drawn as the panel draws it - its tile in its state's colour,
+# where it runs, the unread dot on it, its state words, project and title -
+# in the console's list compact, on the panel full
+`$rowSays = {
+    param(`$wrap)
+    `$all = [System.Collections.Generic.List[object]]::new()
+    `$walk = { param(`$e) `$all.Add(`$e); if (`$e -is [System.Windows.Controls.Panel]) { foreach (`$c in `$e.Children) { & `$walk `$c } } }
+    & `$walk `$wrap
+    `$is = { param(`$t) @(`$all | Where-Object { `$_.Tag -is [string] -and `$_.Tag -eq `$t })[0] }
+    `$mark = @(`$all | Where-Object { `$_ -is [System.Windows.Controls.Canvas] -and `$_.Tag -is [string] -and `$_.Tag -ne 'clock' })[0]
+    # project and title: one line's runs compact, the title a line of its
+    # own full - read by their runs, as Text is empty on a TextBlock built
+    # from them
+    `$names = @(`$all | Where-Object { `$_ -is [System.Windows.Controls.TextBlock] -and `$_.Tag -isnot [string] } | ForEach-Object { (@(`$_.Inlines) | ForEach-Object Text) -join '' })
+    "`$(`$mark.Tag);`$(@((& `$is 'tile').Children)[0].Stroke.Color);new:`$([bool](& `$is 'unread'));`$((& `$is 'state').Text);`$(((`$names -join ' ') -replace '\s+', ' ').Trim())"
+}
+# a Recent line as the panel's: its dot, then its words and title
 `$lineSays = {
     param(`$wrap)
     @(@(`$wrap.Children)[0].Children | ForEach-Object {
             if (`$_ -is [System.Windows.Shapes.Ellipse]) { "dot:`$(`$_.Tag):`$(`$_.Fill.Color)`$(`$_.Stroke.Color)" }
-            # its runs: Text is empty on a TextBlock built from them
             elseif (`$_ -is [System.Windows.Controls.TextBlock]) { "text:`$((@(`$_.Inlines) | ForEach-Object Text) -join '')" }
             else { "`$(`$_.GetType().Name):`$(`$_.Tag)" }
         }) -join ';'
 }
+# a row's tile and what is beside it: compact, the one line; full, the
+# project and words over the title
+`$shapeOf = { param(`$w) `$k = @(`$w.Children); "`$(`$k.Count) `$(`$k[0].Height) `$(`$k[1].Tag)" }
 `$itemOf = { param(`$id) @(`$C.Chats.Children | Where-Object { `$_.Tag -and `$_.Tag -isnot [string] -and `$_.Tag.Id -eq `$id })[0] }
 `$wrapOf = { param(`$b) @(`$b.Child.Children)[-1].Children[0] }
 `$cardWrap = & `$wrapOf (& `$itemOf '$idCard')
 `$panWrap = @(`$H.Stack.Children | Where-Object { `$_.Tag -and `$_.Tag -isnot [string] -and `$_.Tag.key -eq 's:$idCard' })[0]
 `$recB = @(`$C.Chats.Children | Where-Object { `$_.Tag -and `$_.Tag -isnot [string] -and `$_.Tag.Kind -eq 'recent' })[0]
 `$recWrap = if (`$recB) { & `$wrapOf `$recB }
-`$rowSay = "console [`$(& `$lineSays `$cardWrap)] `$(`$cardWrap.Children.Count) panel [`$(& `$lineSays `$panWrap)] `$(`$panWrap.Children.Count) recent [`$(if (`$recWrap) { & `$lineSays `$recWrap })] `$(`$recWrap.Tag.status)"
-`$rowsOk = `$cardWrap.Tag -eq `$snap0.rows[0] -and `$cardWrap.Children.Count -eq 1 -and `$panWrap.Children.Count -eq 2 -and
-    (& `$lineSays `$cardWrap) -eq (& `$lineSays `$panWrap) -and (& `$lineSays `$cardWrap) -like '*;Path:vscode;text:idle 1m;dot:unread:*;text:A  Card' -and
+`$rowSay = "console [`$(& `$rowSays `$cardWrap)] `$(& `$shapeOf `$cardWrap) panel [`$(& `$rowSays `$panWrap)] `$(& `$shapeOf `$panWrap) recent [`$(if (`$recWrap) { & `$lineSays `$recWrap })] `$(`$recWrap.Tag.status)"
+`$rowsOk = `$cardWrap.Tag -eq `$snap0.rows[0] -and (& `$shapeOf `$cardWrap) -eq '2 21 line' -and (& `$shapeOf `$panWrap) -eq '2 36 text' -and
+    (& `$rowSays `$cardWrap) -eq (& `$rowSays `$panWrap) -and (& `$rowSays `$cardWrap) -eq "vscode;`$((Get-ChatOverlayBrush 'idle').Color);new:True;idle 1m;A Card" -and
     `$recWrap -and `$recWrap.Tag.status -eq 'recent' -and `$recWrap.Children.Count -eq 1 -and
     (& `$lineSays `$recWrap) -like "dot::`$((Get-ChatOverlayBrush 'recent').Color);*"
+# the list's clocks its own, one a tile, moved every tick while the console
+# shows - the panel's, under it, not
+`$clockOf = { param(`$w, `$list) `$el = @(@(@(`$w.Children)[0].Children)[1].Children)[1]; @(`$list | Where-Object { `$_.Clock.El -eq `$el })[0] }
+`$cc = & `$clockOf `$cardWrap `$C.RowClocks
+`$pc = & `$clockOf `$panWrap `$H.RowClocks
+`$tick0 = "`$(`$cc.Clock.Text)/`$(`$pc.Clock.Text)"
+`$cc.Spec.From = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - 7460000
+`$pc.Spec.From = `$cc.Spec.From
+Update-ChatOverlayRowClocks `$H
+`$tickSay = "`$tick0 > `$(`$cc.Clock.Text)/`$(`$pc.Clock.Text) clocks `$(@(`$C.RowClocks).Count) of `$(@(`$C.ChatItems | Where-Object { `$_.Kind -ne 'recent' }).Count)"
+`$conTick = `$cc -and `$pc -and `$tick0 -eq '--:--/--:--' -and `$cc.Clock.Text -eq ' 2h04' -and `$pc.Clock.Text -eq '--:--' -and
+    `$null -eq `$cc.Clock.Cells[0].Data -and `$cc.Clock.Cells[1].Data -eq `$cc.Clock.Geo.Glyph['2'] -and `$cc.Clock.Cells[2].Data -eq `$cc.Clock.Geo.Sep['h'] -and
+    @(`$C.RowClocks).Count -eq @(`$C.ChatItems | Where-Object { `$_.Kind -ne 'recent' }).Count
 # a click's args of its own each time: the handler marks them Handled, and
 # raised again they would reach no handler at all
 `$up = { param(`$el, `$ts = 0) `$a = [System.Windows.Input.MouseButtonEventArgs]::new([System.Windows.Input.Mouse]::PrimaryDevice, `$ts, [System.Windows.Input.MouseButton]::Left); `$a.RoutedEvent = [System.Windows.UIElement]::MouseLeftButtonUpEvent; `$el.RaiseEvent(`$a) }
@@ -3155,7 +3372,7 @@ Complete-ChatConsoleIndexRead `$H
 `$pickOk = `$C.Target.Id -eq 'c1' -and `$picked -ne `$cutB -and `$picked.BorderBrush.Color -eq (Get-ChatOverlayBrush 'accent').Color -and
     `$picked.Background.Color -eq (Get-ChatOverlayBrush 'select').Color -and `$picked.BorderThickness.Left -eq `$other.BorderThickness.Left -and
     `$other.BorderBrush -eq [System.Windows.Media.Brushes]::Transparent -and `$other.Background -eq [System.Windows.Media.Brushes]::Transparent -and
-    @(`$picked.Child.Children).Count -eq 2 -and (& `$lineSays (& `$wrapOf `$picked)) -like '*text:cut off - resets 13:00;text:api  Rate limiter'
+    @(`$picked.Child.Children).Count -eq 2 -and (& `$rowSays (& `$wrapOf `$picked)) -like 'none;*;new:False;cut off - resets 13:00;api Rate limiter'
 `$C.SearchBox.Text = 'limiter'
 `$searched = @(`$C.ChatItems).Count
 `$C.SearchBox.Text = ''
@@ -3478,10 +3695,10 @@ Invoke-ChatOverlayVerb 'stop'
 `$verbSay = "`$(`$verbSay -join ' ') `$shownHidden `$(`$H.Mode)"
 if (`$j -and (Find-ChatqJob `$j.id)) { `$null = Remove-ChatqJob `$j 'test' }
 `$modeSay = "was [`$was] esc [`$afterEsc] back [`$afterBack] close [`$afterClose] console ex `$ex rect `$(`$cr -join ',') again `$(`$again -join ',') panel `$(`$p0 -join ',') m11 `$m11 saved `$(`$st.w)x`$(`$st.h) view `$viewOk"
-'{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}|{9}|{10}|{11}|{12}|{13}|{14}|{15}|{16}|{17}|{18}|{19}|{20}|{21}|{22}|{23}|{24}|{25}|{26}|{27}|{28}|{29}|{30}|{31}|{32}|{33}|{34}|{35}|{36}|{37}|{38}|{39}|{40}|{41}|{42}|{43}' -f `$modeOk, `$kinds, `$searched, `$to, `$staged, `$sent, `$kept, `$saved, `$folderSaid, `$files, `$editKept, `$askHeld, `$removed, `$contOnce, `$codexOpts, `$codexSent, `$contSay, `$idxRead, `$idxSay,
+'{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}|{9}|{10}|{11}|{12}|{13}|{14}|{15}|{16}|{17}|{18}|{19}|{20}|{21}|{22}|{23}|{24}|{25}|{26}|{27}|{28}|{29}|{30}|{31}|{32}|{33}|{34}|{35}|{36}|{37}|{38}|{39}|{40}|{41}|{42}|{43}|{44}|{45}' -f `$modeOk, `$kinds, `$searched, `$to, `$staged, `$sent, `$kept, `$saved, `$folderSaid, `$files, `$editKept, `$askHeld, `$removed, `$contOnce, `$codexOpts, `$codexSent, `$contSay, `$idxRead, `$idxSay,
     `$viewOk, `$escOk, `$backOk, `$closeOk, `$verbsOk, `$sizeOk, `$verbSay, `$modeSay, `$rowsOk, `$pickOk, (`$rowSay -replace '\|', '/'), `$roundOk, `$placeOk, `$minOk,
     ("round [`$(`$script:roundBad -join ' / ')] place [`$placeSay] min [`$minSay]" -replace '\|', '/'), `$watchOk, `$watchSay, (`$dragOk -and `$lookOk), (`$lookSay -replace '\|', '/'),
-    `$runAsOk, `$openOk, `$maxOk, ("runAs [`$runAsSay] open [`$openSay] `$maxSay" -replace '\|', '/'), `$logKept, `$dropOk
+    `$runAsOk, `$openOk, `$maxOk, ("runAs [`$runAsSay] open [`$openSay] `$maxSay" -replace '\|', '/'), `$logKept, `$dropOk, `$conTick, (`$tickSay -replace '\|', '/')
 "@
 $conOut = Invoke-Sta 'console-test' $con
 $cp = "$conOut" -split '\|'
@@ -3498,7 +3715,8 @@ Check 'a waiting job''s chat opens in VS Code from its details, through the chip
 Check 'to the console and back from a collapsed, locked, hidden or unlocked panel: each comes back exactly as it was' ($cp.Count -gt 33 -and $cp[30] -eq 'True') "$($cp[33])"
 Check 'the panel''s place around the console: a slider at rest kept as it opens, none kept from the console''s rect; a reload''s width holds the right edge, never past the screen''s left, and is kept' ($cp.Count -gt 33 -and $cp[31] -eq 'True') "$($cp[33])"
 Check 'a console size saved under the window''s least opens at that least in this screen''s pixels, its right edge still at the panel''s' ($cp.Count -gt 33 -and $cp[32] -eq 'True') "$($cp[33])"
-Check 'the console''s list draws each chat with the panel''s row builder - the same line, dot to unread, compact - and a recent one as the panel''s Recent' ($cp.Count -gt 29 -and $cp[27] -eq 'True') "$($cp[29])"
+Check 'the console''s list draws each chat with the panel''s row builder - the same tile, mark, unread dot, words and title, compact - and a recent one as the panel''s Recent' ($cp.Count -gt 29 -and $cp[27] -eq 'True') "$($cp[29])"
+Check 'the console''s list keeps a clock for each tile, moved every tick while it shows; the panel''s under it are not' ($cp.Count -gt 45 -and $cp[44] -eq 'True') "$($cp[45])"
 Check 'a click on a chat in the console''s list picks it: the accent''s bar on the selection''s colour, the others plain, Continue kept' ($cp.Count -gt 28 -and $cp[28] -eq 'True') "$($cp[29])"
 Check 'it lists the chats the limit cut off and those open in VS Code; the search narrows them' ($cp[1] -like '*cutoff*' -and $cp[1] -like '*open*' -and $cp[2] -eq '1') "$conOut"
 Check 'a chat picked is the one written to; a file dropped and a screenshot pasted go with it, a folder does not' ($cp[3] -like 'To*Card*' -and $cp[4] -eq 'clip.png,console-drop.txt' -and $cp[8] -eq 'True') "$conOut"

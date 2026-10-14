@@ -24,6 +24,16 @@ $te = Get-ChatqEta @((& $tj 't1' 9), (& $tj 't2' 10), (& $tj 't3' 11 'codex'), (
 Check 'one reset''s jobs: the first sends then, each of the rest after the one before it - one at a time' (
     $te['t1'] -match '^(\w{3} )?\d\d:\d\d$' -and $te['t2'] -eq 'after #9' -and $te['t3'] -eq 'after #10' -and $te['t4'] -match '^(\w{3} )?\d\d:\d\d$' -and $te['t4'] -ne $te['t1'] -and
     $te['t5'] -match '^(\w{3} )?\d\d:\d\d \(chat busy\)$' -and $te['t6'] -eq 'after #13 (chat busy)') (@('t1', 't2', 't3', 't4', 't5', 't6' | ForEach-Object { "$_=$($te[$_])" }) -join ' ')
+# -SendAt, for the overlay's row clocks: the time each sends, where its
+# words are that time - none for one after another, next, or an overload
+$tAt = @{}
+$null = Get-ChatqEta @((& $tj 't1' 9), (& $tj 't2' 10), (& $tj 't4' 12 -Nb $tu.AddHours(2))) $tb -SendAt $tAt
+$tAtN = @{}
+$null = Get-ChatqEta @((& $tj 'n1' 20)) @{} -SendAt $tAtN
+$tAtO = @{}
+$null = Get-ChatqEta @((& $tj 'o1' 21)) @{ claude = [pscustomobject]@{ Until = $tu; Type = 'overloaded' } } -SendAt $tAtO
+Check 'the time each job sends, for the row clocks: its clock time''s own, none tied after another, next, or waiting out an overload' (
+    $tAt.Count -eq 2 -and $tAt['t1'] -eq $tu.AddMinutes(1) -and $tAt['t4'] -eq $tu.AddHours(2) -and -not $tAtN.Count -and -not $tAtO.Count) (@($tAt.Keys | Sort-Object | ForEach-Object { "$_=$($tAt[$_].ToString('o'))" }) -join ' ')
 Check 'Continue says it queued them to go one at a time' ((Format-ChatqContinueSay 3 0) -eq 'queued 3 continues ahead of the prompts waiting - one at a time, each when its limit is over' -and
     (Format-ChatqContinueSay 1 2) -eq 'queued 1 continue ahead of the prompts waiting - it goes when its limit is over; 2 had one already' -and (Format-ChatqContinueSay 0 1) -eq 'queued 0 continues; 1 had one already') (Format-ChatqContinueSay 3 0)
 Set-Location -LiteralPath $sb

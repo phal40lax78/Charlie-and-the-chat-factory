@@ -236,6 +236,7 @@ if ($script:ChatqIsWindows) {
 $bgCut = [pscustomobject]@{ Id = $idBg; Cwd = $projBg; Title = 'Background host chat'; At = (Get-Date).AddMinutes(-1); ResetsAt = (Get-Date).AddHours(2); Why = 'limit'; Path = $pBg }
 $r10 = @(Get-ChatOverlayRows -Sessions @($e1) -Texts $bgTexts -Background $bg9 -CutOff @($bgCut))[0]
 Check 'a chat the limit cut off reads cut off, not its dev server''s shell' ($r10.status -eq 'cutoff' -and $r10.stateText -like 'cut off*') "$($r10.status) '$($r10.stateText)'"
+Check 'and is counted from the cut-off, not from when the shell began' ($r10.since -eq (ConvertTo-ChatOverlayMs $bgCut.At) -and $bg9[$idBg].Since -ne $r10.since) "$($r10.since) cut $(ConvertTo-ChatOverlayMs $bgCut.At) shell $($bg9[$idBg].Since)"
 # -Whole: every transcript to its end in one call, whatever the clock says
 $idBg2 = 'bdbdbdbd-bdbd-4dbd-8dbd-bdbdbdbdbdbd'
 $pBg2 = New-FakeChat $projBg $idBg2 'Second background chat' 1 @('and another')

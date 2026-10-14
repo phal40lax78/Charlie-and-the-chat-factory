@@ -806,6 +806,7 @@ function Get-ChatqBoardLine {
 
 # Deferred: DEFERRED.md "Background work on the overlay: what it leaves out"
 # Deferred: DEFERRED.md "Codex chats on the phone board"
+# Deferred: DEFERRED.md "Row tiles on macOS, in -Print and on the phone's board"
 function ConvertTo-ChatqPhoneBoard {
     <#
     The board the phone draws, from what the overlay computes: -Snap is

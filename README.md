@@ -24,7 +24,7 @@ PowerShell.
 - **Picks up what the limit cut off:** once it is over, the panel asks and continues those chats on a click - or, chosen, [continues each by itself](#auto-continue) a minute after the reset.
 - **Waits out `API Error: 529 Overloaded`** by watching status.claude.com, and resumes as soon as Claude Code is back.
 - **Tells you how it went:** a desktop toast, your phone through Join or ntfy, or a command of your own.
-- **Shows every running chat at a glance:** `chatoverlay` keeps a small panel on top — each open chat's project, title, newest prompt and whether it waits on you, with usage live at the top. On Windows it starts by itself, and a click on a chat opens it as a tab in VS Code.
+- **Shows every running chat at a glance:** `chatoverlay` keeps a small panel on top — each open chat's project, title and whether it waits on you, on Windows by a tile in its state's colour whose big clock says how long it has worked, waited or sat idle, with usage live at the top. On Windows it starts by itself, and a click on a chat opens it as a tab in VS Code.
 - **Does all of it in the panel's place:** `chatconsole` turns the panel into a console — pick a chat, write to it, drop files on it, send it next or queue it; continue the chats the limit cut off; start new ones; run the queue.
 
 One script and the `src/` folder it loads, no modules, nothing to build. It was two tools — chatrm and chatq — and is now one, with one index and one install.
@@ -1634,7 +1634,7 @@ chatoverlay -AutoStart off  # not with every shell and VS Code window (on Window
 chatoverlay -Print          # the same, once, in this console
 ```
 
-![The overlay: a usage line for Claude - five-hour window at 100% in red, weekly at 46% - and one for Copilot's chat and code quotas, each ending with the time of its figure; then four chats with their newest prompt beneath - one amber and waiting on input, one green and working, each carrying a queued prompt, one idle, and a purple queued prompt for a chat that is not open](docs/demo-overlay.png)
+![The overlay: a usage line for Claude - five-hour window at 100% in red with its reset, weekly at 46% - and one for Copilot's chat and code quotas, each ending with the time of its figure; then four chats, each on a bordered tile with a seven-segment clock in its state's colour - one amber, waiting on input for 3:11, and one green, working for 1:11, each carrying a queued prompt; one grey, idle for 30 hours; and a dashed purple one, its clock in dashes, for a prompt queued behind the others for a chat that is not open](docs/demo-overlay.png)
 
 A small panel in the top-right corner that stays above other windows:
 
@@ -1650,11 +1650,24 @@ A small panel in the top-right corner that stays above other windows:
   a narrow panel wraps the line rather than hiding a window. The settings
   box switches to **bars** - a bar and a reset countdown per window, the
   same few words under each name - and back.
-- **Every open Claude chat:** project, title and newest prompt, with a dot for
-  what it is doing. Amber is waiting on you (a permission prompt, say) and goes
-  to the top; green is working; grey is idle. A chat open in two windows is one
-  row. A VS Code Claude tab with no process behind it - one a window's
-  reload brought back, say - is an idle row too, not a Recent line. A tab
+- **Every open Claude chat:** project and title, in the colour of what it is
+  doing. Amber is waiting on you (a permission prompt, say) and goes
+  to the top; green is working; grey is idle. On Windows a row starts on a
+  tile in that colour, its border drawn in it, with a big seven-segment
+  clock lit in it over the faint ghost of every segment: how long the chat
+  has worked or waited on you, in minutes and seconds under an hour
+  (`5:03`) and hours and minutes after (`2h05`), or sat idle, in hours and
+  minutes, moving by the minute; days and hours past 99 hours (`4d07`). A
+  tile whose chat needs you - amber, or cut off - has its ground washed in
+  its colour, one at work a little, the rest none. Its words, at the right
+  end of the project's line, say what it is doing with no age, since the
+  clock tells that; the title has the line under them. With compact rows
+  (**Style**) project, title and words share one line, by a smaller tile -
+  one line a chat. No row there shows what you typed. On macOS and in
+  `chatoverlay -Print` a row has a dot in its colour instead, its age in its
+  words and its newest prompt under it - none with compact rows. A chat
+  open in two windows is one row. A VS Code Claude tab with no process
+  behind it - one a window's reload brought back, say - is an idle row too, not a Recent line. A tab
   carries no session id, so
   [the extension](#chats-open-in-vs-code-and-the-extension) matches it
   to its chat by its label, the title's first 24 characters, among each
@@ -1666,23 +1679,26 @@ A small panel in the top-right corner that stays above other windows:
   starts a workflow, a background agent or a background command ends at
   once, and Claude calls the chat idle while the work goes on. Its row stays
   green and says what is running and for how long: `workflow 12m`,
-  `2 agents 3m`, `shell 5m`, or `background` for a mix. It is judged as
+  `2 agents 3m`, `shell 5m`, or `background` for a mix - on Windows the
+  words alone, as the tile's clock counts the time. It is judged as
   [Reloading safely](#reloading-safely) judges it, in any folder, with
   background commands added: a shell counts while one of Claude's own shells
   still runs under the chat's `claude` process, so one ended from the task
   list stops counting at once. A dev server a chat started reads `shell`
   for as long as it runs. Each transcript is read on from where the last
   look stopped, so this costs next to nothing between looks. A slash command counts as the newest thing sent. Claude Code writes
-  `/compact` down only once it ends, so while it runs the row says a command
-  is running rather than showing the prompt before it. After the dot, a
-  small mark says where the chat runs: a window outline for a VS Code
-  panel, `>_` for a terminal's `claude`, and a play triangle while a
-  queued prompt runs in it - `claude -p` registers as an SDK run
-  (`sdk-cli`), which had drawn as `>_`. The phone's board says `a queued
-  prompt` there.
+  `/compact` down only once it ends, so while it runs a row's prompt line
+  says a command is running rather than showing the prompt before it. At
+  the tile's left, in its colour, a mark says where the chat runs: a
+  window with its title bar for a VS Code panel, one with `>_` for a
+  terminal's `claude`, and one with a play triangle while a queued prompt
+  runs in it - `claude -p` registers as an SDK run (`sdk-cli`), which had
+  drawn as `>_` - or a bare window when that is not known. A job or a
+  cut-off chat, open nowhere, has a ring, with the triangle in it while
+  the job runs. The phone's board says `a queued prompt` there.
 - **A blue dot for a turn you have not seen,** on Windows only. A chat
   that went from working or waiting to idle while you were elsewhere gets
-  a small blue dot just before its state, and the collapsed line and the
+  a blue dot on its tile's top right corner, and the collapsed line and the
   tray icon's tooltip count them (`2 new`). A chat whose window was in
   front as it finished gets none: any window of its VS Code counts, or for
   a terminal's `claude` any tab of the terminal that draws it. A console
@@ -1700,7 +1716,9 @@ A small panel in the top-right corner that stays above other windows:
   overlay keeps it in memory only, so a restart clears every dot, and
   reading the chat in VS Code clears none.
 - **Chats the limit cut off,** in orange, just under those waiting on you:
-  `cut off - resets 13:00`, or `529 - waits for Claude`. One no window has
+  `cut off - resets 13:00`, or `529 - waits for Claude`. The tile's clock
+  counts down to the reset (`-1h30`), and once that is past - or with none
+  to wait for, as for a 529 - up from when it was cut off. One no window has
   open gets a row of its own: from the transcripts of the last week while
   its reset is ahead or under 12 hours ago, or while the cut-off is under
   12 hours old. A continue you queued for it takes the row's place. The
@@ -1711,8 +1729,8 @@ A small panel in the top-right corner that stays above other windows:
   `· terminal`, `· skipped` (its continue taken back, or left at the
   ask), `· failed`, `· stopped`, `· by hand` (too old, or a reset days
   out) - the same in full in the words' tooltip, the chip's, the console
-  and `chatoverlay -Print`. Every title starts at one column: a row with no
-  where mark keeps its place empty.
+  and `chatoverlay -Print`. Every tile is as wide, whatever its mark or
+  clock, so every title starts at one column.
 - **The ask, once the limit is over:** a banner at the foot of the header,
   `limit over at 13:00 · 3 chats it cut off can continue`, with a dot in
   the cut-off orange. Rest on it for its chip - **continue 3** or **leave
@@ -1720,7 +1738,11 @@ A small panel in the top-right corner that stays above other windows:
   the chats, and those left to a terminal. Which chats, and what an
   answer writes: [When the limit is over](#when-the-limit-is-over).
 - **The queue.** A queued prompt rides on its chat's row (`#3 sends 13:01`), or
-  has a purple row of its own when that chat is not open; blue while it runs.
+  has a purple row of its own when that chat is not open, its tile's border
+  dashed and its clock counting down to when it sends (`-0h12`) - dashes
+  (`--:--`) when its words name no time, as `after #2` or `waits for a
+  background command` do, and once the time is past; blue while it runs,
+  the clock counting how long.
   One the watcher holds back says why where its send time would be:
   `waits for a background command (since 14:02)`, or `waits for you to
   leave its tab` ([the handover](#a-queued-run-takes-the-tabs-place)).
@@ -1940,10 +1962,11 @@ auto-continue off or asking, the row keeps its plain `cut off - resets
 13:00` words, and **continue** is still there. A chat a terminal's
 `claude` holds gets no **continue**, in any mode: Claude Code's own wait
 continues it there, and a continue queued too would be a second writer.
-They sit left of the row's words, which their tooltip also says in
-full. A click counts only
-when it goes down and up on the same chip - the banner's two answers too -
-and neither takes a chat's unread dot away. The tray says what was done.
+On a full row they sit on the title's line, under the row's words; with
+compact rows, left of them. Their tooltip says the words in full. A click
+counts only when it goes down and up on the same chip - the banner's two
+answers too - and neither takes a chat's unread dot away. The tray says
+what was done.
 
 **Delete a chat from its row.** Wherever the chip has open, it has
 **delete** beside it - `chatrm` without the typing. The first click only
@@ -2077,7 +2100,7 @@ a VS Code crash cut off** sets it.
 
 ```powershell
 chatoverlay -Width 460 -Rows 12   # wider, and up to 12 chats before "+N more"
-chatoverlay -Compact on           # one line a chat, no prompt under it
+chatoverlay -Compact on           # one line a chat
 chatoverlay -ChipDelay 250        # the open chip after a 250 ms rest
 chatoverlay -Recent 10            # ten chats not open under the rest; 0 for none
 ```
@@ -2088,7 +2111,7 @@ chatoverlay -Recent 10            # ten chats not open under the rest; 0 for non
 | `maxRows` | 8 | 1–30; the rest become `+3 more · 2 idle`, and so do the rows that would run past the screen's bottom from wherever the panel sits. The panel's top or bottom edge (kept as you let go), the settings box, or `chatoverlay -Rows 12` |
 | `opacity` | 0.94 | 0.3–1; the settings box's slider, or `chatoverlay -Opacity 85` |
 | `theme` | `dark` | `light`, or `system` to follow the OS; `chatoverlay -Theme system` |
-| `prompts` | `true` | `false` hides the prompt lines - compact rows, one line a chat, and good for screen sharing; the settings box's Style, or `chatoverlay -Compact on` |
+| `prompts` | `true` | `false`: compact rows, one line a chat - on Windows a smaller tile, the state at the line's end; on macOS and in `-Print` no prompt lines, good for screen sharing. Named from when every full row showed its prompt. The settings box's Style, or `chatoverlay -Compact on` |
 | `chipDelayMs` | 400 | 100–3000; how long the pointer rests on a row before its open chip comes; `chatoverlay -ChipDelay 250` |
 | `recent` | 5 | 0–20; how many chats not open the Recent list shows, 0 for none - in the panel, the console, `-Print` and the phone board alike; the panel's top or bottom edge stretched past the open chats (kept as you let go), the settings box (off, 5, 10), or `chatoverlay -Recent 10` |
 | `hotkey` | `Ctrl+Alt+Shift+O` | `chatoverlay -Hotkey Ctrl+Win+F9`; `none` for no key |
@@ -2116,7 +2139,8 @@ chatoverlay -Recent 10            # ten chats not open under the rest; 0 for non
   **Leave them**, with a notification once per ask; a cut-off row says what
   auto-continue does with it - and `-Theme`, `-Opacity`, `-Rows`,
   `-Compact` and `-Refresh` apply there too; `-Width` from its next start.
-  A terminal's chat has `>_` before its title, and one a queued prompt
+  A row is a dot, its newest prompt under it, with no tile or clock. A
+  terminal's chat has `>_` before its title, and one a queued prompt
   runs in a hollow play triangle; there is no Recent list,
   no open chip and no unread dot. Live usage
   reads the login from the keychain there, and the first read by another
@@ -2158,9 +2182,9 @@ back. While the folder picker is open over the console, or its header is being
 dragged, those wait until it is closed or let go.
 
 **On the left, the chats**, with a search over titles and projects, each drawn
-as the panel draws its rows - the state's dot, where it runs, project and
-title, what it is doing, the unread dot - on one line, the one picked with an
-accent bar at its left:
+as the panel draws its compact rows - the tile, with where it runs and its
+clock, project and title, what it is doing, the unread dot - on one line, the
+one picked with an accent bar at its left:
 - **Cut off** - the chats the limit or a 529 stopped, each with **Continue**,
   and **Continue all** for every one of them - queued ahead of the prompts
   waiting, whatever **When** says, and continued one at a time in the

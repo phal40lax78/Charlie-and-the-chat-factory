@@ -164,8 +164,12 @@ function chatoverlay {
     .SYNOPSIS
     A small always-on-top panel: usage live at the top, every open Claude chat and the queue beneath. On Windows it starts with every shell and VS Code window unless -AutoStart off.
     .DESCRIPTION
-    Each open chat is a row: project, title, its newest prompt, and whether it
-    is working (green), waiting on you (amber, at the top), or idle (grey).
+    Each open chat is a row: project, title, and whether it is working
+    (green), waiting on you (amber, at the top), or idle (grey). On Windows
+    the row starts on a tile in that colour: a mark for where the chat is
+    open, over a seven-segment clock - how long it has worked, waited or
+    sat idle, or how long until it resets or sends. On macOS and with
+    -Print its newest prompt is under it instead.
     Chats the limit cut off are orange, with when it resets; once it is
     over, the panel says how many it cut off and continues them if you say
     so (chatq -AutoContinue off only marks them). Queued prompts
@@ -225,7 +229,7 @@ function chatoverlay {
     .PARAMETER Rows
     How many chat rows it shows at most, 1 to 30 (8 by default); the rest are counted on a line of their own.
     .PARAMETER Compact
-    on: one line a chat, without its newest prompt under it. off (the default): the prompt line too.
+    on: one line a chat - on Windows a smaller tile, the chat's state at the line's end; on macOS and with -Print no newest prompt under it. off (the default): on Windows a taller tile, the title under the project and the state; on macOS and with -Print the prompt line too.
     .PARAMETER ChipDelay
     How long the pointer rests on a chat's row before its open chip comes, in milliseconds: 100 to 3000, 400 by default.
     .PARAMETER Recent
@@ -301,7 +305,9 @@ function chatoverlay {
     if ($UsageView) { $set.usageView = $UsageView.ToLowerInvariant() }
     if ($CopilotUsage) { $set.copilotUsage = ($CopilotUsage -eq 'on') }
     if ($CodexUsage) { $set.codexUsage = ($CodexUsage -eq 'on') }
-    # compact is the prompt line turned off: the one setting both ways
+    # compact is prompts off: the name from when full rows showed the prompt
+    # everywhere - on macOS and in -Print they still do; on Windows full is
+    # the taller tile (Add-ChatOverlayRow)
     if ($Compact) { $set.prompts = ($Compact -eq 'off') }
     if ($PSBoundParameters.ContainsKey('Opacity')) {
         $o = if ($Opacity -gt 1) { $Opacity / 100 } else { $Opacity }
@@ -348,7 +354,7 @@ function chatoverlay {
         if ($set.ContainsKey('opacity')) { Write-Host "  opacity: $([int]($set.opacity * 100))%" -ForegroundColor Green }
         if ($set.ContainsKey('width')) { Write-Host "  width: $($set.width)" -ForegroundColor Green }
         if ($set.ContainsKey('maxRows')) { Write-Host "  rows: $($set.maxRows) at most" -ForegroundColor Green }
-        if ($set.ContainsKey('prompts')) { Write-Host "  compact rows: $Compact$(if ($Compact -eq 'on') { ' - one line a chat' } else { ' - each with its newest prompt' })" -ForegroundColor Green }
+        if ($set.ContainsKey('prompts')) { Write-Host "  compact rows: $Compact$(if ($Compact -eq 'on') { ' - one line a chat' } elseif ($script:ChatqIsWindows) { ' - each on a taller tile, its title under its project and state' } else { ' - each with its newest prompt' })" -ForegroundColor Green }
         if ($set.ContainsKey('chipDelayMs')) { Write-Host "  open chip: after a $($set.chipDelayMs) ms rest on a row" -ForegroundColor Green }
         if ($set.ContainsKey('recent')) { Write-Host "  recent chats: $(if ($set.recent) { "the newest $($set.recent) not open, under the open ones" } else { 'off' })" -ForegroundColor Green }
         if ($set.ContainsKey('usageView')) { Write-Host "  usage as $($set.usageView)" -ForegroundColor Green }

@@ -922,7 +922,11 @@ Show-ChatOverlayChip `$H `$rects[0] `$away
 `$H.Ctx.ViewSig = 'c'
 Update-ChatOverlayView `$H ([pscustomobject]@{ header = `$none; rows = `$rows })
 `$kids = @(`$H.Stack.Children)
-`$st = @(@(`$kids[1].Children)[0].Children | Where-Object { `$_.Tag -eq 'state' })[0]
+# its words, over its title (Add-ChatOverlayRow, full)
+`$all = [System.Collections.Generic.List[object]]::new()
+`$walk = { param(`$e) `$all.Add(`$e); if (`$e -is [System.Windows.Controls.Panel]) { foreach (`$c in `$e.Children) { & `$walk `$c } } }
+& `$walk `$kids[1]
+`$st = @(`$all | Where-Object { `$_.Tag -is [string] -and `$_.Tag -eq 'state' })[0]
 `$inRow = `$kids.Count -eq 3 -and `$kids[0].Tag.key -eq `$rows[0].key -and `$st.Text -eq 'idle 1m' -and `$kids[2].Tag -eq 'said' -and
     `$kids[2].Text -eq "opening 'two' in VS Code - 3s" -and `$H.OpenLine -eq `$kids[2]
 `$H.OpenSay = Get-ChatOverlayOpenSay 'two' 'done' 0

@@ -370,6 +370,8 @@ function New-ChatConsole {
         Text = ''; NewCwd = ''; NewName = ''; Search = ''; Sel = $null; ShowLog = $false; Jobs = @(); JobsSig = $null
         Index = @(); IndexStamp = $null; IndexParsed = $false; IndexRead = $null; Sync = $null; SyncAt = [datetime]::MinValue; Info = @{}
         Request = $null; WatchSays = ''; TypedAt = $null; Skips = 0; Dirty = $null; Modal = $false; Confirm = @{}; Blocks = $null; BlocksAt = [datetime]::MinValue
+        # the chat list's row clocks, which every tick moves (Update-ChatOverlayRowClocks)
+        RowClocks = [System.Collections.Generic.List[object]]::new()
     }
     $H.Con = $C
     Restore-ChatConsoleDraft $H
@@ -983,8 +985,9 @@ function Get-ChatConsoleChatItems {
         $title = Format-ChatTitle ([string](Get-ChatField $askItem 'Title')) 80
         $row = [pscustomobject]@{
             key = "c:$id"; kind = 'cutoff'; provider = 'claude'; status = 'cutoff'; chat = 'cutoff'; rank = 0.5; project = $leaf; title = $title
-            prompt = $null; promptKind = $null; detail = $words; since = $null; sessionId = $id; pids = @(); cwd = $cwd; job = $null; order = 0
-            stateText = $words; path = [string](Get-ChatField $askItem 'Path'); where = ''; unread = $false
+            prompt = $null; promptKind = $null; detail = $words; since = (ConvertTo-ChatOverlayMs (Get-ChatField $askItem 'At')); sessionId = $id; pids = @(); cwd = $cwd
+            job = $null; order = 0; stateText = $words; path = [string](Get-ChatField $askItem 'Path'); where = ''; unread = $false
+            resetsAt = (Get-ChatOverlayCutOffReset $askItem)
         }
         $cut.Add([pscustomobject]@{
                 Key = "cutoff:$id"; Kind = 'cutoff'; Provider = 'claude'; Id = $id; Title = $title; Project = $leaf; Cwd = $cwd; Path = $row.path
@@ -1051,6 +1054,7 @@ function Update-ChatConsoleChats {
     if ($key -eq $C.Sigs.Chats) { return }
     $C.Sigs.Chats = $key
     $C.Chats.Children.Clear()
+    $C.RowClocks = [System.Collections.Generic.List[object]]::new()
     $C.ChatItems = @($cut + $open + $recent)
     $section = {
         param($title, $items, [scriptblock]$extra, [string]$more = '')
@@ -1090,8 +1094,9 @@ function Update-ChatConsoleChats {
 function New-ChatConsoleChatItem {
     <#
     One chat in the list, drawn as the panel draws it (Add-ChatOverlayRow,
-    compact: no prompt line) - the dot, where it runs, project and title,
-    its state, the unread dot - so a chat looks the same in both. Around
+    compact) - its tile, where it runs and its clock, project and title,
+    its state, the unread dot - so a chat looks the same in both; the clock
+    goes in the list's own RowClocks, which every tick moves. Around
     it, what only the console has: a click makes it the one written to, the
     one picked has the accent's bar at its left on the selection's colour,
     and a cut-off chat has Continue at the right.
@@ -1129,7 +1134,7 @@ function New-ChatConsoleChatItem {
         [void]$g.Children.Add($cb)
     }
     $txt = [System.Windows.Controls.StackPanel]::new()
-    Add-ChatOverlayRow $txt $Item.Row ([pscustomobject]@{ prompts = $false })
+    Add-ChatOverlayRow $txt $Item.Row ([pscustomobject]@{ prompts = $false }) $C.RowClocks
     [void]$g.Children.Add($txt)
     $b.Child = $g
     $b.add_MouseEnter({ param($s, $e) if ($s.Background -eq [System.Windows.Media.Brushes]::Transparent) { $s.Background = Get-ChatOverlayBrush 'hover' } })

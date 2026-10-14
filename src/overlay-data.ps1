@@ -2155,10 +2155,26 @@ function Format-ChatOverlayDeferral {
 
 function Get-ChatOverlayStateText {
     # the words at the right of a row: what it is doing, a queued prompt it
-    # carries, and for how long. A prompt the watcher holds back for a
-    # reason of its own says that reason (Format-ChatOverlayDeferral, the
-    # job's wait) where its send time would be.
+    # carries (Get-ChatOverlayStateWords), and for how long
     param($Row, [datetime]$Now = (Get-Date))
+    $words = Get-ChatOverlayStateWords $Row
+    # the reset, or what it waits on, is what it says - not how long ago
+    if ([string]$Row.status -eq 'cutoff') { return $words }
+    $age = ''
+    if ($Row.since -and $Row.status -ne 'queued') {
+        $age = ' ' + (Get-ChatAge ([DateTimeOffset]::FromUnixTimeMilliseconds([int64]$Row.since).LocalDateTime))
+    }
+    return "$words$age"
+}
+
+function Get-ChatOverlayStateWords {
+    # a row's state words with no age: what it is doing, and a queued
+    # prompt it carries. The Windows panel's rows say these beside a clock
+    # (Get-ChatOverlayRowClock), which tells the time. A prompt the watcher
+    # holds back for a reason of its own says that reason
+    # (Format-ChatOverlayDeferral, the job's wait) where its send time
+    # would be. Pure.
+    param($Row)
     $what = switch ([string]$Row.status) {
         'waiting' { if ($Row.detail) { [string]$Row.detail } else { 'needs you' } }
         'needs-input' { 'needs you' }
@@ -2166,7 +2182,6 @@ function Get-ChatOverlayStateText {
         'busy' { if ($Row.detail) { [string]$Row.detail } else { 'working' } }
         'running' { 'running' }
         'idle' { 'idle' }
-        # the reset, or what it waits on, is what it says - not how long ago
         'cutoff' { return [string]$Row.detail }
         default { [string]$Row.status }
     }
@@ -2187,11 +2202,59 @@ function Get-ChatOverlayStateText {
         if ($Row.kind -eq 'job' -or $Row.status -eq $j.state) { $what = "#$($j.seq) $jt" }
         else { $badge = "#$($j.seq) $jt $($script:ChatqDot) " }
     }
-    $age = ''
-    if ($Row.since -and $Row.status -ne 'queued') {
-        $age = ' ' + (Get-ChatAge ([DateTimeOffset]::FromUnixTimeMilliseconds([int64]$Row.since).LocalDateTime))
+    return "$badge$what"
+}
+
+function Get-ChatOverlayRowClock {
+    # What a row's clock counts (Format-ChatOverlayRowClock): From, up from
+    # when its state began - its since; To, down to a time ahead - a
+    # cut-off's reset (resetsAt), a queued job's send time (sendAt). Live:
+    # a chat at work or waiting on you, whose seconds tick under an hour.
+    # Hold: a queued job, which has no since to count up from once its send
+    # time passes or while it waits behind another. Pure.
+    param($Row)
+    $st = [string]$Row.status
+    $from = if ($Row.since) { [int64]$Row.since } else { $null }
+    $to = $null
+    if ($st -eq 'queued') { $from = $null; $to = Get-ChatField $Row 'sendAt' }
+    elseif ($st -eq 'cutoff') { $to = Get-ChatField $Row 'resetsAt' }
+    return [pscustomobject]@{
+        From = $from; To = $(if ($to) { [int64]$to } else { $null })
+        Live = ($st -in 'waiting', 'needs-input', 'busy', 'running'); Hold = ($st -eq 'queued')
     }
-    return "$badge$what$age"
+}
+
+function Format-ChatOverlayRowClock {
+    # A row clock's five characters (Get-ChatOverlayRowClock's spec, at
+    # -NowMs): minutes:seconds under an hour while live, else hours h
+    # minutes, and past 99 hours days d hours, the days capped at 99. A
+    # countdown rounds its minutes up, so it reads 0h00 only at the time
+    # itself, and wears a minus where the first digit is blank. Past its
+    # time it counts up from From, or holds at dashes; dashes too for no
+    # time at all. Pure.
+    param($Spec, [int64]$NowMs)
+    $down = $false
+    if ($Spec -and $null -ne $Spec.To -and [int64]$Spec.To -gt $NowMs) { $down = $true; $ms = [int64]$Spec.To - $NowMs }
+    elseif (-not $Spec -or $Spec.Hold -or $null -eq $Spec.From) { return '--:--' }
+    else { $ms = $NowMs - [int64]$Spec.From }
+    $sec = [int64][Math]::Floor([Math]::Max([int64]0, [int64]$ms) / 1000)
+    if ($Spec.Live -and $sec -lt 3600) { $hi = [int64][Math]::Floor($sec / 60); $lo = $sec % 60; $sep = ':' }
+    else {
+        $min = if ($down) { [int64][Math]::Ceiling($sec / 60) } else { [int64][Math]::Floor($sec / 60) }
+        if ($min -lt 6000) { $hi = [int64][Math]::Floor($min / 60); $lo = $min % 60; $sep = 'h' }
+        else { $hrs = [int64][Math]::Floor($min / 60); $hi = [Math]::Min([int64]99, [int64][Math]::Floor($hrs / 24)); $lo = $hrs % 24; $sep = 'd' }
+    }
+    $head = if ($hi -ge 10) { '{0:D2}' -f $hi } elseif ($down) { "-$hi" } else { " $hi" }
+    return "$head$sep$('{0:D2}' -f $lo)"
+}
+
+function Get-ChatOverlayCutOffReset {
+    # when a cut-off chat's limit resets, as epoch ms, for its row's clock
+    # to count down to (Get-ChatOverlayRowClock); $null for a 529 or a
+    # restart, which have none. Pure.
+    param($CutOff)
+    if ([string](Get-ChatField $CutOff 'Why') -in 'overloaded', 'restart') { return $null }
+    return (ConvertTo-ChatOverlayMs (Get-ChatField $CutOff 'ResetsAt'))
 }
 
 function Read-ChatOpenTabs {
@@ -2269,9 +2332,14 @@ function Get-ChatOverlayRows {
     time the transcript's (its ActiveAt, else its write time), and tab:
     cut-offs, jobs and -Background take it
     as they take that one, and Recent leaves it out by its row.
+    -SendAt: Get-ChatqEta's own -SendAt, the time each queued job sends; its row
+    carries it as sendAt, epoch ms, and a cut-off row its reset as
+    resetsAt (Get-ChatOverlayCutOffReset), for the clocks to count down
+    to (Get-ChatOverlayRowClock). Every row carries stateWords, its
+    stateText with no age.
     #>
     param([object[]]$Sessions, [hashtable]$Texts, [object[]]$Jobs, [hashtable]$Eta, [datetime]$Now = (Get-Date), [object[]]$CutOff, [hashtable]$Unread,
-        [hashtable]$Auto, [hashtable]$Background, [object[]]$Tabs)
+        [hashtable]$Auto, [hashtable]$Background, [object[]]$Tabs, [hashtable]$SendAt)
     $rankOf = @{ 'waiting' = 0; 'needs-input' = 0; 'cutoff' = 0.5; 'busy' = 1; 'running' = 2; 'idle' = 3; 'queued' = 4 }
     $ms = { param($v) ConvertTo-ChatOverlayMs $v }
     $nowMs = ConvertTo-ChatOverlayMs $Now
@@ -2397,7 +2465,12 @@ function Get-ChatOverlayRows {
             # waits on you
             if ($open.status -eq 'idle' -or ($open.status -eq 'busy' -and (Get-ChatField $open 'background'))) {
                 $open.status = 'cutoff'; $open.chat = 'cutoff'; $open.rank = $rankOf['cutoff']; $open.detail = $words
+                # counted from the cut-off, as a cut-off row of its own is -
+                # not from when its background work began (its clock, the
+                # board's age)
+                if ($c.At) { $open.since = & $ms $c.At }
                 Set-ChatqProp $open 'auto' $ai
+                Set-ChatqProp $open 'resetsAt' (Get-ChatOverlayCutOffReset $c)
                 if ($aj) { $open.job = $ji; $onCut[[string]$aj.id] = $true }
             }
             continue
@@ -2408,6 +2481,7 @@ function Get-ChatOverlayRows {
                 title = (Format-ChatTitle ([string]$c.Title) 80); prompt = $null; promptKind = $null
                 detail = $words; since = $(if ($c.At) { & $ms $c.At } else { $null }); sessionId = [string]$c.Id; pids = @(); cwd = [string]$c.Cwd
                 job = $ji; order = 0; stateText = ''; path = [string]$c.Path; where = ''; unread = $false; auto = $ai
+                resetsAt = (Get-ChatOverlayCutOffReset $c)
             })
         if ($aj) { $onCut[[string]$aj.id] = $true }
     }
@@ -2441,6 +2515,7 @@ function Get-ChatOverlayRows {
                 chat = $null; title = (Format-ChatTitle ([string]$j.title) 80); prompt = [string]$jw.First; promptKind = 'job'
                 detail = $detail; since = $since; sessionId = [string]$j.sessionId; pids = @(); cwd = [string]$j.cwd
                 job = $info; order = $order; stateText = ''; where = ''; unread = $false
+                sendAt = $(if ($SendAt -and $SendAt[$j.id]) { & $ms $SendAt[$j.id] } else { $null })
             })
     }
     $sorted = @($rows | Sort-Object @{ Expression = { $_.rank } }, @{ Expression = {
@@ -2448,7 +2523,10 @@ function Get-ChatOverlayRows {
                 if ($_.rank -eq 0) { $s } elseif ($_.rank -eq 4) { [double]$_.order } else { -1 * $s }
             }
         })
-    foreach ($r in $sorted) { $r.stateText = Get-ChatOverlayStateText $r $Now }
+    foreach ($r in $sorted) {
+        $r.stateText = Get-ChatOverlayStateText $r $Now
+        Set-ChatqProp $r 'stateWords' (Get-ChatOverlayStateWords $r)
+    }
     return $sorted
 }
 
@@ -2726,7 +2804,9 @@ function Invoke-ChatOverlayCycle {
         $Ctx.BlocksAt = $now
     }
     $jobs = @($Ctx.Jobs | ForEach-Object { $_.Job })
-    $eta = if ($jobs) { Get-ChatqEta $jobs $Ctx.Blocks } else { @{} }
+    # each queued job's send time, for its row's clock (Get-ChatqEta -SendAt)
+    $sendAt = @{}
+    $eta = if ($jobs) { Get-ChatqEta $jobs $Ctx.Blocks -SendAt $sendAt } else { @{} }
 
     # what each VS Code window's chats are doing, noted by the window's
     # extension host, so a window that goes down with no look before it
@@ -2833,7 +2913,8 @@ function Invoke-ChatOverlayCycle {
         if (Update-ChatOverlayAuto $Ctx $alive $now $eta -Scan:($autoWant -and -not $Peek) -Rows $scanRows) {
             $jobs = @($Ctx.Jobs | ForEach-Object { $_.Job })
             $queued = @($Ctx.Jobs | Where-Object { $_.Job.state -eq 'queued' })
-            $eta = Get-ChatqEta $jobs $Ctx.Blocks
+            $sendAt = @{}
+            $eta = Get-ChatqEta $jobs $Ctx.Blocks -SendAt $sendAt
             Update-ChatOverlayAutoStates $Ctx $alive $now $eta
         }
     }
@@ -2901,7 +2982,7 @@ function Invoke-ChatOverlayCycle {
     # usage heads-ups from the figures above, and quiet hours' summary (src/phone-extras.ps1)
     if ($Ctx.WantPhone) { try { Update-ChatqPhoneExtras $Ctx $usage $jobs $now } catch { } }
     $rows = @(Get-ChatOverlayRows -Sessions $live -Texts $Ctx.Text -Jobs $Ctx.Jobs -Eta $eta -Now $now -CutOff $Ctx.CutOff -Unread $Ctx.Unread `
-            -Auto $Ctx.AutoStates -Background $bg -Tabs @($Ctx.Tabs))
+            -Auto $Ctx.AutoStates -Background $bg -Tabs @($Ctx.Tabs) -SendAt $sendAt)
     # the newest chats not open, less any with a row of its own already -
     # not for the macOS panel, which draws none (Start-ChatOverlayMacHost);
     # chatoverlay -Print lists them there too, from a context of its own
@@ -3318,6 +3399,7 @@ function Get-ChatOverlayCompactUsage {
     [pscustomobject]@{ Text = $text; Stale = [bool]($on.Count -and -not @($on | Where-Object { -not $_.stale }).Count) }
 }
 
+# Deferred: DEFERRED.md "Row tiles on macOS, in -Print and on the phone's board"
 function Write-ChatOverlayPrint {
     # chatoverlay -Print: one pass, drawn in the console. Linux's only view,
     # and the way to see what the panel would show. ASCII marks only - a

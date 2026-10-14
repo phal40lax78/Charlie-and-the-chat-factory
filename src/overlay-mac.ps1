@@ -129,7 +129,8 @@ var CO = {
     for (i = 0; i < rows.length && i < max; i++) {
       var r = rows[i];
       // a terminal's chat marked >_, one a queued prompt runs in a play
-      // triangle, as the Windows panel draws them; VS Code's unmarked
+      // triangle, as the Windows panel's tiles mark them; VS Code's
+      // unmarked, and no tile or clock here (Start-ChatOverlayMacHost)
       out.push([[r.status === 'queued' ? '\u25CB ' : '\u25CF ', r.status, false],
         [r.project ? r.project + '  ' : '', 'project', true],
         [(r.where === 'terminal' ? '>_ ' : r.where === 'run' ? '\u25B7 ' : '') + r.title + '   ', 'text', false],
@@ -458,6 +459,7 @@ function Update-ChatOverlayMacAsk {
 
 # Deferred: DEFERRED.md "A close on macOS does not hold"
 # Deferred: DEFERRED.md "Recent on macOS"
+# Deferred: DEFERRED.md "Row tiles on macOS, in -Print and on the phone's board"
 function Start-ChatOverlayMacHost {
     <#
     UNTESTED. The macOS overlay: this pwsh collects every 2 s and a JXA child
