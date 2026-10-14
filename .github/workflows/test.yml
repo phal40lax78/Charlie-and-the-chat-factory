@@ -33,7 +33,7 @@ jobs:
           if ($bad) { $bad.FullName; exit 1 }
 
       - name: Extension check
-        if: matrix.host == 'powershell'
+        if: matrix.host == 'pwsh'
         run: node tests/extension-check.js
 
       # the phone's reply page: its WebCrypto held to the reference vector
@@ -41,28 +41,28 @@ jobs:
       # nothing it may load or post but the one text/plain POST (and, since
       # 0.9.0, the GET that reads its answers from the down topic)
       - name: Reply page check
-        if: matrix.host == 'powershell'
+        if: matrix.host == 'pwsh'
         run: node tests/reply-page-check.js
 
       # the same page's board and whole answer: the PC -> phone channel held
       # to the vectors Node's crypto and zlib made, the board drawn and tapped
       # under a fake DOM and a fake ntfy server
       - name: Board page check
-        if: matrix.host == 'powershell'
+        if: matrix.host == 'pwsh'
         run: node tests/board-page-check.js
 
       # the Marketplace package: build.js fills payload/ and refuses a version
       # that is not the script's, a script that is not ASCII, an SVG in the
       # listing; vsce then checks the manifest the Marketplace will read
       - name: Extension package
-        if: matrix.host == 'powershell'
+        if: matrix.host == 'pwsh'
         working-directory: extension
         run: npx --yes @vscode/vsce@3 package --out Charlie-and-the-chat-factory.vsix
 
       # the macOS overlay's JXA: compiled and its pure part driven under node;
       # only a Mac can run the rest (TESTING.md)
       - name: Overlay (macOS panel) check
-        if: matrix.host == 'powershell'
+        if: matrix.host == 'pwsh'
         run: node tests/overlay-mac-check.js
 
       - name: Self-test (${{ matrix.host }})

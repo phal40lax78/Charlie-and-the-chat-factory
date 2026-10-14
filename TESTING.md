@@ -225,9 +225,10 @@ pwsh 7, 279, 250, 78 and 35):
 `.github/workflows/test.yml` runs on `windows-latest`, once under Windows
 PowerShell 5.1 and once under PowerShell 7, and fails on any failed check. The
 5.1 leg also fails on a non-ASCII byte in any `.ps1` — the runner is en-US, so
-the CP949 problem that rule exists for would never show there — and runs the
-extension check and the overlay's macOS check with node. It also packs the
-extension with `vsce package`, whose `vscode:prepublish` is `extension/build.js`:
+the CP949 problem that rule exists for would never show there. The 7 leg
+runs the extension check and the overlay's macOS check with node, which
+evens out the two legs' time. It also packs the extension with
+`vsce package`, whose `vscode:prepublish` is `extension/build.js`:
 a version that is not the script's, a script that is not ASCII, or an SVG in
 the listing's README or CHANGELOG fails the run before vsce reads the manifest.
 
@@ -271,7 +272,7 @@ node tests/reply-page-check.js    # docs/reply.html, the page the phone pairs an
 
 The PowerShell half is `tests/sections/phone.ps1`, the last section of
 `run-tests.ps1`, so it runs in both CI legs; the page check is its own step,
-**Reply page check**, on the 5.1 leg. Neither reaches Join, ntfy or GitHub:
+**Reply page check**, on the 7 leg. Neither reaches Join, ntfy or GitHub:
 Join's push goes to `ChatqJoinSeam`, the reply topic's poll comes from
 `ChatqReplyPollSeam`, Join's device list from `ChatqJoinDevicesSeam`, a live
 chat's alert to `ChatqLiveSendSeam` instead of the hidden sender, and
@@ -847,7 +848,7 @@ The PowerShell half is `tests/sections/phone-board.ps1`, after `phone.ps1`,
 `phone-extras.ps1` and `permit.ps1` (75 checks, one of them the 0.9.0
 merge's: a link made again after the whole answer keeps a soon alert's
 `w=1` and a permission card's `r=`); the page check (86) is its own CI step, **Board
-page check**, on the 5.1 leg. Nothing reaches ntfy.sh: the down topic's
+page check**, on the 7 leg. Nothing reaches ntfy.sh: the down topic's
 POST and PUT go to `ChatqDownSeam` - which the sandbox sets from the first
 section on, so an alert any section sends with a phone paired lands there
 too - and the phone's messages come through `ChatqReplyPollSeam`, sealed
