@@ -57,9 +57,9 @@ var CO = {
   colors: {
     waiting: [0.96, 0.73, 0.26], 'needs-input': [0.96, 0.73, 0.26], busy: [0.30, 0.76, 0.54],
     running: [0.31, 0.63, 1.0], idle: [0.50, 0.53, 0.56], queued: [0.71, 0.55, 1.0], cutoff: [1.0, 0.54, 0.30],
-    text: [0.91, 0.92, 0.93], dim: [0.60, 0.63, 0.65], faint: [0.42, 0.44, 0.47], project: [0.54, 0.72, 1.0],
-    normal: [0.35, 0.66, 0.90], warning: [0.96, 0.73, 0.26], critical: [1.0, 0.36, 0.36],
-    warn: [0.96, 0.73, 0.26], error: [1.0, 0.48, 0.45], unlocked: [0.31, 0.63, 1.0]
+    text: [0.95, 0.91, 0.86], dim: [0.76, 0.69, 0.68], faint: [0.63, 0.56, 0.56], project: [0.95, 0.70, 0.78],
+    normal: [0.85, 0.78, 0.75], warning: [0.96, 0.73, 0.26], critical: [1.0, 0.36, 0.36],
+    warn: [0.96, 0.73, 0.26], error: [1.0, 0.48, 0.45], unlocked: [1.0, 0.31, 0.71], trim: [0.69, 0.60, 0.42]
   },
   // the light look: the same meanings, darker to read on white
   light: {
@@ -67,8 +67,10 @@ var CO = {
     running: [0.12, 0.44, 0.92], idle: [0.55, 0.58, 0.62], queued: [0.51, 0.31, 0.87], cutoff: [0.74, 0.30, 0.0],
     text: [0.12, 0.14, 0.16], dim: [0.34, 0.38, 0.42], faint: [0.55, 0.58, 0.62], project: [0.04, 0.41, 0.85],
     normal: [0.04, 0.41, 0.85], warning: [0.75, 0.53, 0.0], critical: [0.81, 0.13, 0.18],
-    warn: [0.60, 0.40, 0.0], error: [0.81, 0.13, 0.18], unlocked: [0.04, 0.41, 0.85]
+    warn: [0.60, 0.40, 0.0], error: [0.81, 0.13, 0.18], unlocked: [0.04, 0.41, 0.85], trim: [0.0, 0.0, 0.0]
   },
+  // the dark look's gold line round the panel, or null for none
+  frameLine: function (theme) { return theme === 'light' ? null : CO.colors.trim; },
   // config.theme - dark, light or system - to the look drawn
   themeOf: function (config, systemDark) {
     var t = (config && config.theme) || 'dark';
@@ -273,6 +275,14 @@ function run(argv) {
     // HUD material for dark; the popover one follows the appearance given
     fx.setMaterial(theme === 'light' ? 6 : 13);
     fx.setAppearance($.NSAppearance.appearanceNamed(theme === 'light' ? 'NSAppearanceNameVibrantLight' : 'NSAppearanceNameVibrantDark'));
+    // the dark look's gold line round the panel (CO.frameLine) - untried
+    // Cocoa, so a bridge that refuses the CGColor costs the line alone: its
+    // colour set before its width, so a refusal leaves no line at all
+    try {
+      var fl = CO.frameLine(theme);
+      if (fl) { fx.layer.setBorderColor($.NSColor.colorWithSRGBRedGreenBlueAlpha(fl[0], fl[1], fl[2], 1).CGColor); }
+      fx.layer.setBorderWidth(fl ? 1 : 0);
+    } catch (e) {}
     panel.setAlphaValue(opacity);
   };
   var paint = function (now) {
@@ -421,7 +431,7 @@ function Show-ChatOverlayMacNotice {
     # A macOS notification through osascript. The script goes in on stdin,
     # so no argument quoting stands between the text and AppleScript; the
     # text is escaped for an AppleScript string. Never throws.
-    param([string]$Text, [string]$Title = 'chatq')
+    param([string]$Text, [string]$Title = 'Charlie')
     $q = { param($s) '"' + (($s -replace '[\r\n]+', ' ') -replace '\\', '\\' -replace '"', '\"') + '"' }
     $as = "display notification $(& $q $Text) with title $(& $q $Title)"
     if ($script:ChatOverlayMacNotifySeam) { $null = & $script:ChatOverlayMacNotifySeam ([pscustomobject]@{ Title = $Title; Text = $Text; Script = $as }); return }   # tests
@@ -460,6 +470,8 @@ function Update-ChatOverlayMacAsk {
 # Deferred: DEFERRED.md "A close on macOS does not hold"
 # Deferred: DEFERRED.md "Recent on macOS"
 # Deferred: DEFERRED.md "Row tiles on macOS, in -Print and on the phone's board"
+# Deferred: DEFERRED.md "The dark look's ornaments on macOS"
+# Deferred: DEFERRED.md "The hover card: what it leaves out"
 function Start-ChatOverlayMacHost {
     <#
     UNTESTED. The macOS overlay: this pwsh collects every 2 s and a JXA child

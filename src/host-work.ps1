@@ -744,7 +744,7 @@ function Get-ChatRestartCutOffs {
     a note's chats are no rows, up to 30 s from goneAt: an ask is
     announced once, in the words of the look that first offers it. Their
     host pid goes into -Pending, for a look again soon. -Once: a pass
-    that keeps no notes, chatoverlay -Print's - a note with no goneAt kept
+    that keeps no notes, charlie -Print's - a note with no goneAt kept
     waits for nothing, as nothing here would ever keep one. -Asked: the
     answered keys; an answered chat is no row. -Prune (the overlay's own
     passes): a note keeps only the chats a later look may still offer - it

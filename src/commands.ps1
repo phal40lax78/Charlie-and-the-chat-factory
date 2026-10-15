@@ -1432,8 +1432,10 @@ function chatnotify {
     pasted bare never reaches chatq at all - PowerShell stops at its first & -
     and one in quotes has its key and device read out of it.
 
-    Tasker: every title starts "chatq ", so a profile on the Join plugin's
-    event can filter them, or match only "needs input" and "failed".
+    Tasker: a title is the chat's name after the event's mark, the text
+    leading with the event - or "<mark> Charlie <dot> <event>" when the text
+    names no chat - so a profile on the Join plugin's event can match only
+    "needs input" and "failed"; Join's group is "chatq".
 
     ntfy instead of, or as well as, Join: -Ntfy <topic>. Anyone who knows the
     topic can read the alerts, so treat it as a password - a long random one on
@@ -1707,7 +1709,7 @@ function Write-ChatqCheatSheet {
     Write-Host '  chatqrun [<n>] [-Now]       requeue n / stop waiting and try now' -ForegroundColor Cyan
     Write-Host '  chatqlog <n>                what a run did' -ForegroundColor Cyan
     Write-Host '  chatnotify                  alerts: toast here, Join or ntfy on the phone' -ForegroundColor Cyan
-    Write-Host '  chatoverlay                 every open chat, the queue and usage, always on top' -ForegroundColor Cyan
+    Write-Host '  charlie                     every open chat, the queue and usage, always on top' -ForegroundColor Cyan
     Write-Host '  chatconsole                 all of the above in a window: write, drop files, new chats' -ForegroundColor Cyan
     Write-Host ''
     Write-Host '  -WhatIf shows the pick only   -Mode auto|acceptEdits|...   -At 13:00 / -In 2h' -ForegroundColor DarkGray

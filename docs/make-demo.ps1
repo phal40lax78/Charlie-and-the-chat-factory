@@ -2,7 +2,7 @@
 Renders the README's frames:
 
     docs/demo-queue.svg, docs/demo-list.svg        chatq and chatqlist
-    docs/demo-overlay.png                          chatoverlay's panel
+    docs/demo-overlay.png                          charlie's panel
     docs/demo-1-type.svg ... docs/demo-4-reloaded.svg   the chatrm walk-through
     docs/demo-2-tab.png, demo-queue.png, demo-list.png  the same, for the Marketplace
 

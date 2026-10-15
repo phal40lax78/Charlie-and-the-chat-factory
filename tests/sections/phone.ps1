@@ -133,7 +133,7 @@ $env:CHATQ_WATCHER = '1'
 $rc0 = Get-ChatqReplyConfig
 $pj = & $phLastJoin
 Check 'chatnotify -Reply on, no phone paired: the pairing push goes out, a topic and no key, neither printed' ($rc0.Wanted -and -not $rc0.Paired -and $rc0.PairUntil -and
-    $rc0.Topic -cmatch '^chatq-[a-z2-7]{24}$' -and $said -notlike "*$($rc0.Topic)*" -and $said -like '*pairing alert sent*' -and $pj.Q['title'] -eq "chatq $([char]0xB7) pair" -and
+    $rc0.Topic -cmatch '^chatq-[a-z2-7]{24}$' -and $said -notlike "*$($rc0.Topic)*" -and $said -like '*pairing alert sent*' -and $pj.Q['title'] -eq "$([char]::ConvertFromUtf32(0x1F517)) Charlie $([char]0xB7) pair" -and
     $pj.Q['dismissOnTouch'] -eq 'true' -and -not $pj.Q['notificationId']) $said
 Check 'the pairing link: where to post, the pairing id and a 2048-bit public key - nothing that answers an alert' ($pj.F['v'] -eq '2' -and $pj.F['m'] -eq 'pair' -and
     $pj.F['t'] -eq $rc0.Topic -and $pj.F['s'] -eq 'https://ntfy.sh' -and $pj.F['a'] -eq $rc0.PairId -and (ConvertFrom-ChatqB64Url $pj.F['n']).Length -eq 256 -and
@@ -311,7 +311,7 @@ Check 'a prompt from the phone queues a job for the alert''s chat, in the chat''
     -not $new.PSObject.Properties['noLinks']) "handled $h ($(if ($null -ne $h) { $h.GetType().Name })), jobs $($jobs.Count), new $($new.sessionId) '$(Read-ChatqPrompt $new)' mode '$($new.mode)' at queue '$($new.modeAtQueue)'"
 Check 'the needs-input job it answered is skipped, naming the new one' ($old.state -eq 'skipped' -and $old.result.reason -eq "answered from the phone with #$($new.seq)") "$($old.state) $($old.result.reason)"
 $j2 = & $phLastJoin
-Check 'the answer is a reply push, with a fresh link about the new job' ($j2.Q['title'] -eq "chatq $([char]0xB7) reply" -and $j2.Q['text'] -eq "queued #$($new.seq) for $($new.title)" -and
+Check 'the answer is a reply push, with a fresh link about the new job' ($j2.Q['title'] -eq "$([char]::ConvertFromUtf32(0x1F4AC)) Charlie $([char]0xB7) reply" -and $j2.Q['text'] -eq "queued #$($new.seq) for $($new.title)" -and
     $j2.F['n'] -eq "$($new.seq)" -and $j2.F['a'] -ne $aid -and $j2.F['e'] -eq 'reply') $j2.Url
 Check 'the poll asks the reply topic from the window''s start' ($script:PhPolls[$script:PhPolls.Count - 1] -like "https://ntfy.sh/$($rc.Topic)/json?poll=1&*" -and
     $script:PhPolls[$script:PhPolls.Count - 1] -match 'since=\d{10}$') $script:PhPolls[$script:PhPolls.Count - 1]
@@ -1021,6 +1021,36 @@ try {
 catch { "error|`$(`$_.Exception.Message)" }
 "@
     Check 'the setup window: "Give it the reply link too" ticked from config.json; unticked, Save has CommandLinks off to write' ($cmdWin -eq 'ok|True|off|True') $cmdWin
+    # its two looks (src/phone-setup.ps1): the same keys in both palettes, every
+    # @name@ of the markup filled in either, and the heading - a serif over a
+    # gold rule in the dark look, the old Segoe UI semibold with no rule in the
+    # light one
+    $spPal = $script:ChatqPhoneSetupPalettes
+    $spKeys = @{ }
+    $spLeft = @{ }
+    foreach ($look in 'dark', 'light') {
+        $spKeys[$look] = (@($spPal[$look].Keys | Sort-Object) -join ',')
+        $spXaml = $script:ChatqPhoneSetupXaml
+        foreach ($k in $spPal[$look].Keys) { $spXaml = $spXaml.Replace("@$k@", $spPal[$look][$k]) }
+        $spLeft[$look] = @([regex]::Matches($spXaml, '@\w+@') | ForEach-Object { $_.Value } | Select-Object -Unique) -join ','
+    }
+    Check 'the setup window''s two looks name the same keys, and no @name@ is left in its markup in either' ($spKeys['dark'] -ceq $spKeys['light'] -and $spKeys['dark'] -and -not $spLeft['dark'] -and -not $spLeft['light']) "$($spKeys['dark']) / $($spKeys['light']) / left $($spLeft['dark']) $($spLeft['light'])"
+    $spSerif = 'Georgia, Constantia, Palatino Linotype, Book Antiqua, Malgun Gothic, Microsoft YaHei UI'
+    $spWin = Invoke-Sta 'setup-heading' @"
+`$ErrorActionPreference = 'Stop'
+`$env:CHATQ_OVERLAY = '1'; `$env:CHATQ_WATCHER = '1'
+. '$cmdTool' *> `$null
+try {
+    `$r = foreach (`$look in 'dark', 'light') {
+        `$w = New-ChatqPhoneSetupWindow -Theme `$look
+        `$h = `$w.FindName('Heading'); `$rule = `$w.FindName('HeadRule')
+        "`$(`$h.FontFamily.Source)|`$(`$h.FontWeight)|`$(`$rule.Visibility)"
+    }
+    'ok|' + (`$r -join '|')
+}
+catch { "error|`$(`$_.Exception.Message)" }
+"@
+    Check 'the setup window''s heading: a serif, normal weight, over a visible rule in the dark look; Segoe UI semibold and the rule collapsed in the light one' ($spWin -ceq "ok|$spSerif|Normal|Visible|Segoe UI|SemiBold|Collapsed") $spWin
 }
 [System.IO.File]::WriteAllText($script:ChatqConfigPath, $phCfgMid, $utf8)
 # replies.json unreadable - NULs after a power cut: pairing puts it aside
@@ -1497,7 +1527,7 @@ $re1 = & $lvRun (& $lvCtx) $lvWait
 $re2 = & $lvRun (& $lvCtx) $lvBusyIdle
 chatnotify -Events all *> $null
 Check 'no phone channel: no alert; phoneEvents holds needs input back from live alerts too, done still goes' ($rn.Count -eq 0 -and $re1.Count -eq 0 -and $re2.Count -eq 1) "$($rn.Count) $($re1.Count) $($re2.Count)"
-Check 'the overlay''s own context never sends by itself: only the Windows host sets WantPhone (chatoverlay -Print and the macOS collector do not)' (-not (New-ChatOverlayContext).WantPhone)
+Check 'the overlay''s own context never sends by itself: only the Windows host sets WantPhone (charlie -Print and the macOS collector do not)' (-not (New-ChatOverlayContext).WantPhone)
 
 # the sender: the alert's file sent through Send-ChatqAlert as about its chat,
 # with a reply link that says j=live, then deleted
@@ -1510,7 +1540,7 @@ $lj = & $phLastJoin
 $la = $lj.F['a']
 $le = (Get-ChatqReplyState).alerts[$la]
 Check 'the outbox: one file per alert, sent through Join as about its chat and deleted' ($rs.Count -eq 1 -and $lvFiles.Count -eq 1 -and $sn -eq 1 -and
-    $script:PhJoins.Count -eq $n0 + 1 -and $lj.Q['title'] -eq "chatq $([char]0xB7) needs input" -and $lj.Q['text'] -eq $rs[0].text -and
+    $script:PhJoins.Count -eq $n0 + 1 -and $lj.Q['title'].StartsWith([string][char]0x2753) -and $lj.Q['text'] -eq (Get-ChatqAlertLook 'needs input' $rs[0].text ([pscustomobject]@{ title = 'Live chat title' })).Body -and
     $lj.Q['notificationId'] -eq ('chatq-' + $idLive.Substring(0, 12)) -and -not @(Get-ChildItem -LiteralPath $script:ChatqOutboxDir -Filter *.json -File).Count) "$($lvFiles.Count) files, sent ${sn}: $($lj.Url)"
 Check 'its link says j=live and names the chat; the registry keeps the chat - id, title, folder, transcript, config dir - and no job' ($lj.F['j'] -eq 'live' -and
     $lj.F['e'] -eq 'needs input' -and $lj.F['p'] -eq 'claude' -and $lj.F['c'] -eq 'Live chat title' -and $lj.F['n'] -eq '' -and -not $lj.F.ContainsKey('x') -and

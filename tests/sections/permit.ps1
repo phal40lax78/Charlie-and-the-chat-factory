@@ -32,7 +32,7 @@ $pmCfg = [pscustomobject]@{
 }
 Save-ChatqJson $script:ChatqConfigPath $pmCfg
 $pmHan = U '\uD55C\uAE00'
-$pmPushes = { param([string]$Ev) @($script:PmJoins | ForEach-Object { Get-JoinPush $_ } | Where-Object { $_.Q['title'] -eq "chatq $([char]0xB7) $Ev" }) }
+$pmPushes = { param([string]$Ev) @($script:PmJoins | ForEach-Object { Get-JoinPush $_ } | Where-Object { $_.Q['title'].StartsWith([char]::ConvertFromUtf32($script:ChatqAlertMark[$Ev])) }) }
 # the phone's answer, sealed as the page seals it: h from the card it opened
 $pmSeal = {
     param([string]$Aid, [string]$Act, [string]$Text = '', [string]$H, [int64]$Ts = 0)

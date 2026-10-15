@@ -503,22 +503,23 @@ Check 'one not open gets a row of its own - a 529 says what it waits on - and a 
     $firstCut -gt [array]::IndexOf(@($RC.key), 's:w-new') -and $firstCut -lt [array]::IndexOf(@($RC.key), 's:b-new')) ($RC.key -join ',')
 Check 'and when the limit is over it says so' ((Format-ChatOverlayCutOff ([pscustomobject]@{ Why = 'limit'; ResetsAt = $tnow.AddMinutes(-5) }) $tnow) -eq 'cut off - limit over')
 # the row clocks: what each counts (Get-ChatOverlayRowClock) - up from its
-# since, live while it works or waits on you; down to a cut-off's reset, a
-# 529's none; down to a queued job's send time (Get-ChatqEta -SendAt)
+# since - in minutes, at work too; down to a cut-off's reset, a 529's
+# none; down to a queued job's send time (Get-ChatqEta -SendAt)
 $sendAt = $tnow.AddMinutes(12)
 $RS = @(Get-ChatOverlayRows -Sessions $S2 -Texts $T -Jobs $J -Eta @{ j1 = '17:10'; j2 = 'after #1'; j3 = '17:22' } -Now $tnow -CutOff $C -SendAt @{ j3 = $sendAt })
 $rsOf = { param($k) @($RS | Where-Object { $_.key -eq $k })[0] }
-$clockSays = { param($r) $c = Get-ChatOverlayRowClock $r; "$($c.From)/$($c.To)/$([int]$c.Live)$([int]$c.Hold)" }
+$clockSays = { param($r) $c = Get-ChatOverlayRowClock $r; "$($c.From)/$($c.To)/$([int]$c.Hold)$([int][bool]$c.PSObject.Properties['Live'])" }
 $resetMs = ConvertTo-ChatOverlayMs $resetAt
 $rcWant = [ordered]@{
     's:i-3' = "$(& $ago 60)/$resetMs/00"; 'c:gone-1' = "$(ConvertTo-ChatOverlayMs $tnow.AddMinutes(-30))/$resetMs/00"; 'c:gone-2' = "$(ConvertTo-ChatOverlayMs $tnow.AddMinutes(-20))//00"
-    'j:j3' = "/$(ConvertTo-ChatOverlayMs $sendAt)/01"; 'j:j2' = '//01'; 's:b-new' = "$(& $ago 2)//10"; 's:w-old' = "$(& $ago 30)//10"
-    'j:j5' = "$(ConvertTo-ChatOverlayMs $tnow.AddMinutes(-3))//10"
+    'j:j3' = "/$(ConvertTo-ChatOverlayMs $sendAt)/10"; 'j:j2' = '//10'; 's:b-new' = "$(& $ago 2)//00"; 's:w-old' = "$(& $ago 30)//00"
+    'j:j5' = "$(ConvertTo-ChatOverlayMs $tnow.AddMinutes(-3))//00"
 }
 $rcBad = @(foreach ($k in $rcWant.Keys) { $got = & $clockSays (& $rsOf $k); if ($got -ne $rcWant[$k]) { "$k $got not $($rcWant[$k])" } })
 $rcIdle = & $clockSays $ri1
-Check 'a row clock counts up from its since - live at work or waiting - down to a cut-off''s reset (a 529 has none) or a queued job''s send time' (
-    -not $rcBad.Count -and $rcIdle -eq "$(& $ago 60)//00") (($rcBad + "i-1 $rcIdle") -join '; ')
+$rcBusy = Format-ChatOverlayRowClock (Get-ChatOverlayRowClock (& $rsOf 's:b-new')) (ConvertTo-ChatOverlayMs $tnow)
+Check 'a row clock counts up from its since - in minutes, a chat at work too - down to a cut-off''s reset (a 529 has none) or a queued job''s send time' (
+    -not $rcBad.Count -and $rcIdle -eq "$(& $ago 60)//00" -and $rcBusy -eq ' 0h02') (($rcBad + "i-1 $rcIdle" + "b-new '$rcBusy'") -join '; ')
 # and the words beside it: the state text with no age
 $wB = & $rsOf 's:b-new'
 $wJ = & $rsOf 'j:j2'
@@ -527,12 +528,22 @@ Check 'every row carries its state words: its state text with no age, a queued p
     $wB.stateWords -eq 'working' -and $wB.stateText -like 'working ?*' -and $wJ.stateWords -eq '#2 after #1' -and $wJ.stateText -eq '#2 after #1' -and
     $wC.stateWords -eq "cut off - resets $resetSays" -and $wC.stateText -eq $wC.stateWords -and $ri1.stateWords -like '#1 sends 17:10 * idle' -and
     $ri1.stateText.StartsWith("$($ri1.stateWords) ") -and $ri1.stateText.Length -gt $ri1.stateWords.Length + 1) "'$($wB.stateWords)' '$($wJ.stateWords)' '$($wC.stateWords)' '$($ri1.stateWords)' / '$($ri1.stateText)'"
+# what a Windows row says of them: only what its tile cannot - not idle,
+# working, running or needs you, alone or after a prompt's badge; a Recent
+# line its age
+$rw = { param($w, $k = 'session') Get-ChatOverlayRowWords ([pscustomobject]@{ kind = $k; stateWords = $w; stateText = "$w 5m" }) }
+$rwSays = @((& $rw $wB.stateWords), (& $rw 'needs you'), (& $rw 'running'), (& $rw 'idle'), (& $rw $wJ.stateWords), (& $rw $wC.stateWords), (& $rw $ri1.stateWords),
+    (& $rw 'asks to run Bash'), (& $rw '#3 running' 'job'), (Get-ChatOverlayRowWords ([pscustomobject]@{ kind = 'recent'; stateText = 'claude - 2h' })))
+Check 'a Windows row says only what its tile cannot: a reset, a place in the queue, a detail - never idle, working, running or needs you' (
+    ($rwSays -join '|') -eq "||||#2 after #1|cut off - resets $resetSays|$($ri1.stateWords.Substring(0, $ri1.stateWords.LastIndexOf(" $($script:ChatqDot) ")))|asks to run Bash|#3 running|claude - 2h" -and
+    $rwSays[6] -like '#1 sends 17:10') ($rwSays -join '|')
 Check 'a cut-off''s reset for its clock: the limit''s, none for a 529 or a restart' (
     (Get-ChatOverlayCutOffReset $C[2]) -eq $resetMs -and $null -eq (Get-ChatOverlayCutOffReset $C[3]) -and
     $null -eq (Get-ChatOverlayCutOffReset ([pscustomobject]@{ Why = 'restart'; ResetsAt = $resetAt })))
-# its five characters: minutes:seconds under an hour while live, else hours
-# h minutes, past 99 hours days d hours (99 at most); down, the minutes
-# rounded up and a minus where the first digit is blank; dashes for none
+# its five characters: hours h minutes - minutes:seconds under an hour where
+# the spec says Live, as the hover card's call clock does - past 99 hours
+# days d hours (99 at most); down, the minutes rounded up and a minus where
+# the first digit is blank; dashes for none
 $n0 = [int64]1790000000000
 $fc = { param($From, $To, [bool]$Live = $false, [bool]$Hold = $false) Format-ChatOverlayRowClock ([pscustomobject]@{ From = $From; To = $To; Live = $Live; Hold = $Hold }) $n0 }
 $fcGot = @(
@@ -541,7 +552,7 @@ $fcGot = @(
     (& $fc $null ($n0 + 5370000)), (& $fc $null ($n0 + 43200000)), (& $fc $null ($n0 + 30000)), (& $fc $null ($n0 + 500)), (& $fc $null ($n0 + 363600000)),
     (& $fc ($n0 - 600000) ($n0 - 1000)), (& $fc $null ($n0 - 1000) -Hold $true), (& $fc $null $null -Hold $true), (& $fc $null ($n0 + 720000) -Hold $true),
     (& $fc $null $null), (Format-ChatOverlayRowClock $null $n0)) -join ','
-Check 'a row clock''s five characters: live under an hour m:ss, else h and minutes, then d and hours to 99; counting down, minutes up and a minus; dashes for none' (
+Check 'a row clock''s five characters: h and minutes - m:ss under an hour for a Live spec - then d and hours to 99; counting down, minutes up and a minus; dashes for none' (
     $fcGot -eq ' 5:07, 0:00,59:59, 1h00, 0h05,12h34,99h59, 4d04,99d00,-1h30,12h00,-0h01,-0h00,-4d05, 0h10,--:--,--:--,-0h12,--:--,--:--') $fcGot
 # the 1 s timer's next tick, 30 ms past the next whole second
 $taH = @{ Timer = [pscustomobject]@{ Interval = $null } }
@@ -691,10 +702,10 @@ $script:ChatOverlaySpawn = { $script:OvSpawned++; $true }
 Remove-Item -LiteralPath $script:ChatOverlayCmdPath -Force -EA SilentlyContinue
 $ovLock = [System.IO.File]::Open($script:ChatOverlayLockPath, 'OpenOrCreate', 'ReadWrite', 'None')
 try {
-    chatoverlay *> $null
+    charlie *> $null
     $cmds = [System.IO.File]::ReadAllText($script:ChatOverlayCmdPath)
     Check 'a running overlay is shown, never started twice' ($script:OvSpawned -eq 0 -and $cmds -match ' show\n') $cmds
-    chatoverlay -Stop *> $null
+    charlie -Stop *> $null
     chatinstall *> $null
     chatuninstall *> $null
     $cmds = [System.IO.File]::ReadAllText($script:ChatOverlayCmdPath)
@@ -727,16 +738,16 @@ Check 'and the snapshot it saves has no BOM and keeps Hangul' ((Test-Path -Liter
     ([System.IO.File]::ReadAllText($script:ChatOverlayPath, $utf8).Contains($tCustom)))
 $saved = [System.IO.File]::ReadAllText($script:ChatOverlayPath, $utf8) | ConvertFrom-Json
 Check 'schema 1, times as epoch milliseconds' ($saved.schema -eq 1 -and [double]$saved.at -gt 1.7e12 -and @($saved.rows | Where-Object { $_.since -and [double]$_.since -gt 1.7e12 }).Count)
-chatoverlay -Unlock *> $null
-chatoverlay -Reset *> $null
-chatoverlay -Collapse *> $null
+charlie -Unlock *> $null
+charlie -Reset *> $null
+charlie -Collapse *> $null
 $ost = Read-ChatOverlayState
-chatoverlay -Expand *> $null
+charlie -Expand *> $null
 Check 'not running: -Unlock, -Reset and -Collapse wait in overlay-state.json' ((-not $ost.locked) -and $null -eq $ost.x -and $ost.collapsed -and -not (Read-ChatOverlayState).collapsed)
-chatoverlay -Lock *> $null
-chatoverlay -AutoStart on *> $null
+charlie -Lock *> $null
+charlie -AutoStart on *> $null
 Check '-AutoStart on is kept in config.json, and read at shell start' ((Get-ChatqConfig).overlay.autoStart -eq $true -and (Test-ChatOverlayAutoStart))
-chatoverlay -AutoStart off *> $null
+charlie -AutoStart off *> $null
 $offKept = (Get-ChatqConfig).overlay.autoStart -eq $false -and -not (Test-ChatOverlayAutoStart)
 # Start-ChatOverlayAuto, what a shell and each VS Code window run: one line,
 # and the launch's own words kept off it
@@ -745,7 +756,7 @@ $script:OvSpawned = 0
 $auOff = @(Start-ChatOverlayAuto *>&1 | ForEach-Object { "$_" })
 $auOffN = $script:OvSpawned
 Check '-AutoStart off is kept, and honoured: off, nothing started' ($offKept -and ($auOff -join '|') -eq 'off' -and $auOffN -eq 0) "$offKept $($auOff -join '|') $auOffN"
-chatoverlay -AutoStart on *> $null
+charlie -AutoStart on *> $null
 $ovLock = [System.IO.File]::Open($script:ChatOverlayLockPath, 'OpenOrCreate', 'ReadWrite', 'None')
 try { $auRun = @(Start-ChatOverlayAuto *>&1 | ForEach-Object { "$_" }) } finally { $ovLock.Dispose() }
 $auRunN = $script:OvSpawned
@@ -797,7 +808,7 @@ Check 'a config.json that does not read: off, not the default - nothing started'
 # the auto start - off, as -AutoStart off is - but not by the next sign-in
 $script:ChatqSignInSeam = { 1700000000000 }
 $script:OvSpawned = 0
-$chStop = (chatoverlay -Stop *>&1 | Out-String -Width 300).Trim()
+$chStop = (charlie -Stop *>&1 | Out-String -Width 300).Trim()
 $chMark = (Read-ChatOverlayState).closedSignIn
 $chAuto = @(Start-ChatOverlayAuto *>&1 | ForEach-Object { "$_" })
 $chAutoN = $script:OvSpawned
@@ -805,27 +816,27 @@ $script:ChatqSignInSeam = { 1700000900000 }
 $chNext = @(Start-ChatOverlayAuto *>&1 | ForEach-Object { "$_" })
 $chNextN = $script:OvSpawned
 Check 'closed by hand: -Stop keeps it against this sign-in and says so; the auto start says off and starts nothing - the next sign-in starts it' (
-    $chStop -eq 'the overlay is not running - it stays closed until you next sign in, or chatoverlay starts it' -and [int64]$chMark -eq 1700000000000 -and
+    $chStop -eq 'the overlay is not running - it stays closed until you next sign in, or charlie starts it' -and [int64]$chMark -eq 1700000000000 -and
     ($chAuto -join '|') -eq 'off' -and $chAutoN -eq 0 -and ($chNext -join '|') -eq 'started' -and $chNextN -eq 1) "$chStop / $chMark / $($chAuto -join '|') $chAutoN / $($chNext -join '|') $chNextN"
-# chatoverlay itself, and -AutoStart on, lift it; where no sign-in can be
+# charlie itself, and -AutoStart on, lift it; where no sign-in can be
 # told, nothing is kept and nothing is promised
 $script:ChatqSignInSeam = { 1700000000000 }
 [void](Set-ChatOverlayClosed)
 $chHeld = Test-ChatOverlayClosedByHand
 # a launch that fails: lifted all the same, and no wait for one to come up
 $script:ChatOverlaySpawn = { $false }
-chatoverlay *> $null
+charlie *> $null
 $script:ChatOverlaySpawn = { $script:OvSpawned++; $true }
 $chBare = (Read-ChatOverlayState).closedSignIn
 [void](Set-ChatOverlayClosed)
-chatoverlay -AutoStart on *> $null
+charlie -AutoStart on *> $null
 $chOn = (Read-ChatOverlayState).closedSignIn
 $script:ChatqSignInSeam = { $null }
-$chNone = (chatoverlay -Stop *>&1 | Out-String -Width 300).Trim()
+$chNone = (charlie -Stop *>&1 | Out-String -Width 300).Trim()
 $chNoneMark = (Read-ChatOverlayState).closedSignIn
 $chNoneHeld = Test-ChatOverlayClosedByHand
 $script:ChatqSignInSeam = $null
-Check 'chatoverlay and -AutoStart on lift a close by hand; no sign-in known: nothing kept, the -Stop says only that it is not running' (
+Check 'charlie and -AutoStart on lift a close by hand; no sign-in known: nothing kept, the -Stop says only that it is not running' (
     $chHeld -and $null -eq $chBare -and $null -eq $chOn -and $chNone -eq 'the overlay is not running' -and $null -eq $chNoneMark -and -not $chNoneHeld) "$chHeld / $chBare / $chOn / $chNone / $chNoneMark $chNoneHeld"
 # chatuninstall's stop is no close: a chatinstall after it in the same
 # sign-in starts the overlay again
@@ -880,7 +891,7 @@ $csGone = Get-ChatOverlayCodeStamp (Join-Path $csDir 'no-such.ps1') $csSrc
 Check 'a code change: looked at once a minute, a restart only once it held 5 s - a new part holds it off again; none noted or no script, never' (
     $csWas -like 'main.ps1:*|a.ps1:*' -and -not $csNever -and -not $csSame -and -not $csSoon -and -not $csSeen -and -not $csHeld -and $csGo -and
     -not $csMore -and $csMoreGo -and $null -eq $csGone) "$csWas / $csNever $csSame $csSoon $csSeen $csHeld $csGo $csMore $csMoreGo / $csGone"
-chatoverlay -AutoStart off *> $null
+charlie -AutoStart off *> $null
 # the overlay log: a line once in 5 minutes, unless it is something clicked
 $olTag = "open: t$([guid]::NewGuid().ToString('N').Substring(0, 8))"
 Write-ChatOverlayLog $olTag
@@ -909,45 +920,73 @@ $olLines = @([System.IO.File]::ReadAllLines((Join-Path $script:ChatqLogDir 'over
 $olNew = @($olLines | Where-Object { $_.EndsWith("  $olTag new 3") }).Count
 $olAgain = @($olLines | Where-Object { $_.EndsWith("  $olTag old 7") }).Count
 Check 'overlay.log: past 500 lines held back, those 5 minutes old let go - a newer one still held back' ($olKept -eq 11 -and $olNew -eq 0 -and $olAgain -eq 1) "$olKept $olNew $olAgain"
-chatoverlay -Hotkey 'Ctrl+Hyper+Q' *> $null
+charlie -Hotkey 'Ctrl+Hyper+Q' *> $null
 Check 'a hotkey it cannot read is refused, not saved' ((Get-ChatOverlayConfig).hotkey -eq 'Ctrl+Alt+Shift+O')
 $chkDefault = (Get-ChatOverlayConfig).consoleHotkey
-chatoverlay -ConsoleHotkey none *> $null
+charlie -ConsoleHotkey none *> $null
 $chkNone = (Get-ChatOverlayConfig).consoleHotkey
-chatoverlay -ConsoleHotkey 'Ctrl+Hyper+Q' *> $null
+charlie -ConsoleHotkey 'Ctrl+Hyper+Q' *> $null
 Check 'the console''s hotkey: Ctrl+Alt+Shift+Q unless set, none for no key, nonsense refused' (
     $chkDefault -eq 'Ctrl+Alt+Shift+Q' -and $chkNone -eq 'none' -and (Get-ChatOverlayConfig).consoleHotkey -eq 'none') "$chkDefault $chkNone"
 Set-ChatOverlayConfig @{ consoleHotkey = 'Ctrl+Alt+Shift+Q' }
-chatoverlay -Theme light -Opacity 85 *> $null
+charlie -Theme light -Opacity 85 *> $null
 $oc = Get-ChatOverlayConfig
-chatoverlay -Opacity 5 *> $null
+charlie -Opacity 5 *> $null
 Check '-Theme and -Opacity are kept, a percent read as one, nonsense refused' ($oc.theme -eq 'light' -and $oc.opacity -eq 0.85 -and (Get-ChatOverlayConfig).opacity -eq 0.85) "$($oc.theme) $($oc.opacity)"
 Set-ChatOverlayConfig @{ theme = 'purple' }
 Check 'a theme it does not know draws dark' ((Get-ChatOverlayConfig).theme -eq 'dark')
 Set-ChatOverlayConfig @{ theme = 'dark'; opacity = 0.94 }
 # the panel's size: -Width and -Rows, kept, and a running panel told
-$wrSaid = @(chatoverlay -Width 460 -Rows 12 6>&1 | ForEach-Object { "$_" })
+$wrSaid = @(charlie -Width 460 -Rows 12 6>&1 | ForEach-Object { "$_" })
 $wr1 = Get-ChatOverlayConfig
-chatoverlay -Width 200 *> $null
-chatoverlay -Width 801 *> $null
-chatoverlay -Rows 0 *> $null
-chatoverlay -Rows 31 -Width 500 *> $null
+charlie -Width 200 *> $null
+charlie -Width 801 *> $null
+charlie -Rows 0 *> $null
+charlie -Rows 31 -Width 500 *> $null
 $wr2 = Get-ChatOverlayConfig
 Check '-Width and -Rows are kept and said; out of range refused, and nothing else on that line saved either' (
     $wr1.width -eq 460 -and $wr1.maxRows -eq 12 -and ($wrSaid -join '|') -like '*width: 460*' -and ($wrSaid -join '|') -like '*rows: 12 at most*' -and
     $wr2.width -eq 460 -and $wr2.maxRows -eq 12) "$($wr1.width) $($wr1.maxRows) / $($wr2.width) $($wr2.maxRows) / $($wrSaid -join '|')"
+# chatoverlay is charlie's old name, from before the panel was Charlie's, and
+# a profile, a habit or the extension may still type it: an alias, the same
+# command
+$alSaid = @(chatoverlay -Width 100 *>&1 | ForEach-Object { "$_" })
+$chSaid = @(charlie -Width 100 *>&1 | ForEach-Object { "$_" })
+$alCmd = Get-Command chatoverlay -EA SilentlyContinue
+$alGlobal = Get-Alias -Name chatoverlay -Scope Global -EA SilentlyContinue
+$alHelp = Get-Help chatoverlay -EA SilentlyContinue
+Check 'chatoverlay still works: -Width 100 says what charlie -Width 100 says; Get-Command finds the alias of charlie, set Global, and Get-Help charlie''s help' (
+    $chSaid.Count -and ($alSaid -join '|') -eq ($chSaid -join '|') -and $alCmd -and $alCmd.CommandType -eq 'Alias' -and $alCmd.ResolvedCommand.Name -eq 'charlie' -and
+    $alGlobal -and $alGlobal.Definition -eq 'charlie' -and
+    $alHelp -and $alHelp.Name -eq 'charlie' -and "$($alHelp.Synopsis)" -like 'A small always-on-top panel*') "$($alSaid -join '|') / $($chSaid -join '|') / $($alCmd.CommandType) $($alCmd.Definition) / global $($alGlobal.Definition) / $($alHelp.Name)"
+# and nothing else in the code says it: the alias, the help's note of it, the
+# helper windows' titles and macOS's App Nap reason keep it - each matched by
+# its text, wherever it moves - and each is still there
+$oldKept = 'Set-Alias -Name chatoverlay -Value charlie', 'chatoverlay is the old', "New-ChatOverlayBareWindow 'chatoverlay controls'",
+    "New-ChatOverlayBareWindow 'chatoverlay edges'", "New-ChatOverlayBareWindow 'chatoverlay open'", "'chatoverlay keeps its panel current'"
+$oldSeen = @{}
+$oldLeft = @(foreach ($oldFile in @(Get-ChildItem -LiteralPath (Join-Path $root 'src') -Filter '*.ps1') + @(Get-Item -LiteralPath (Join-Path $root 'Charlie-and-the-chat-factory.ps1'))) {
+        $oldN = 0
+        foreach ($oldRest in [System.IO.File]::ReadAllLines($oldFile.FullName, $utf8)) {
+            $oldN++
+            foreach ($oldK in $oldKept) { if ($oldRest.Contains($oldK)) { $oldSeen[$oldK] = $true; $oldRest = $oldRest.Replace($oldK, '') } }
+            if ($oldRest.Contains('chatoverlay')) { "$($oldFile.Name):$oldN" }
+        }
+    })
+Check 'the code says chatoverlay only in the alias, the help''s note, the helper windows'' titles and the App Nap reason' (
+    -not $oldLeft.Count -and $oldSeen.Count -eq $oldKept.Count) "left in $($oldLeft -join ', ') / $($oldSeen.Count) of $($oldKept.Count) kept"
 Set-ChatOverlayConfig @{ width = 5000; maxRows = 0 }
 $wrHeld = Get-ChatOverlayConfig
 Set-ChatOverlayConfig @{ width = -3; maxRows = 99 }
 $wrHeld2 = Get-ChatOverlayConfig
 Check 'a width or row count out of range in config.json is held to it: 260 to 800, 1 to 30' (
     $wrHeld.width -eq 800 -and $wrHeld.maxRows -eq 1 -and $wrHeld2.width -eq 260 -and $wrHeld2.maxRows -eq 30) "$($wrHeld.width) $($wrHeld.maxRows) $($wrHeld2.width) $($wrHeld2.maxRows)"
-$cmdsW = Get-OvToldCommands { chatoverlay -Width 420 -Rows 6 }
+$cmdsW = Get-OvToldCommands { charlie -Width 420 -Rows 6 }
 Check 'a running panel is told to reload them' ($cmdsW -match ' reload\n' -and (Get-ChatOverlayConfig).width -eq 420 -and (Get-ChatOverlayConfig).maxRows -eq 6) ($cmdsW -replace "`n", ' | ')
 Set-ChatOverlayConfig @{ width = 380; maxRows = 8 }
 $uvDefault = (Get-ChatOverlayConfig).usageView
 $cxuDefault = (Get-ChatOverlayConfig).codexUsage
-chatoverlay -UsageView bars -CopilotUsage off -CodexUsage off *> $null
+charlie -UsageView bars -CopilotUsage off -CodexUsage off *> $null
 $uvSet = Get-ChatOverlayConfig
 Set-ChatOverlayConfig @{ usageView = 'sideways' }
 Check 'usage as lines unless -UsageView bars; -CopilotUsage and -CodexUsage off kept; a view it does not know draws lines' (
@@ -956,12 +995,12 @@ Check 'usage as lines unless -UsageView bars; -CopilotUsage and -CodexUsage off 
 Set-ChatOverlayConfig @{ usageView = 'lines'; copilotUsage = $true; codexUsage = $true }
 # compact rows and the chip's rest: kept, said, a running panel told
 $cmDefault = (Get-ChatOverlayConfig).prompts
-$cmSaid = @(chatoverlay -Compact on -ChipDelay 250 6>&1 | ForEach-Object { "$_" })
+$cmSaid = @(charlie -Compact on -ChipDelay 250 6>&1 | ForEach-Object { "$_" })
 $cm1 = Get-ChatOverlayConfig
-chatoverlay -ChipDelay 50 *> $null
-chatoverlay -ChipDelay 3001 -Compact off *> $null
+charlie -ChipDelay 50 *> $null
+charlie -ChipDelay 3001 -Compact off *> $null
 $cm2 = Get-ChatOverlayConfig
-$cmdsC = Get-OvToldCommands { chatoverlay -Compact off -ChipDelay 600 }
+$cmdsC = Get-OvToldCommands { charlie -Compact off -ChipDelay 600 }
 $cm3 = Get-ChatOverlayConfig
 Check '-Compact on is compact rows, -ChipDelay kept, both said; out of range refused with the rest of its line; a running panel told' (
     $cmDefault -and -not $cm1.prompts -and $cm1.chipDelayMs -eq 250 -and ($cmSaid -join '|') -like '*compact rows: on*' -and ($cmSaid -join '|') -like '*open chip: after a 250 ms rest*' -and
@@ -1028,6 +1067,16 @@ $tLight = Resolve-ChatOverlayTheme 'system'
 $script:ChatOverlaySystemDarkSeam = $null
 Check 'theme: system follows Windows'' own setting' ($tDark -eq 'dark' -and $tLight -eq 'light' -and (Resolve-ChatOverlayTheme 'light') -eq 'light' -and (Resolve-ChatOverlayTheme '') -eq 'dark')
 Check 'both looks name every colour' (@($script:ChatOverlayPalettes.dark.Keys | Where-Object { -not $script:ChatOverlayPalettes.light.ContainsKey($_) }).Count -eq 0)
+# the frame's line and the tray's ring: the light look's trim its edge, the
+# same brush, and its ring the near-black it always drew, so that look draws
+# as it did; the dark one's gold no state's colour; and what the tray draws
+# with - its states and the ring - #RRGGBB, as System.Drawing reads it
+$ovPal = $script:ChatOverlayPalettes
+$trayBad = @(foreach ($lk in 'dark', 'light') { foreach ($tk in 'waiting', 'cutoff', 'busy', 'running', 'idle', 'trayRing') { if ([string]$ovPal[$lk][$tk] -notmatch '^#[0-9A-Fa-f]{6}$') { "$lk.$tk" } } })
+Check 'the light look''s trim is its edge and its tray ring the icon''s near-black, #130A1E, so that look draws as it did' (
+    $ovPal.light.trim -and $ovPal.light.trim -eq $ovPal.light.edge -and $ovPal.light.trayRing -eq '#130A1E') "$($ovPal.light.trim) $($ovPal.light.edge) $($ovPal.light.trayRing)"
+Check 'the dark look''s gold trim is none of waiting, warning, warn or cutoff, and the tray''s colours are #RRGGBB in both looks' (
+    $ovPal.dark.trim -and $ovPal.dark.trim -notin @($ovPal.dark.waiting, $ovPal.dark.warning, $ovPal.dark.warn, $ovPal.dark.cutoff) -and -not $trayBad) "$($ovPal.dark.trim) / $($trayBad -join ' ')"
 # the buttons' window over the panel's top strip: panel and size in screen
 # pixels, the bar 20 tall, 4 under the panel's top and 8 in from its right
 $work = [pscustomobject]@{ X = 0; Y = 0; Width = 1920; Height = 1040 }
@@ -1788,7 +1837,7 @@ Check 'recent: a folder on a share or a mapped network drive never asked, and ta
 # a build's time in the log only a quarter second past its slice, not past
 # 250 ms: one that spends its slice is past it as it stops, so every start
 # had a line. A folder that held one there still has it said, and a whole
-# build - chatoverlay -Print's, the phone board's - has no slice: 250 ms.
+# build - charlie -Print's, the phone board's - has no slice: 250 ms.
 # The first folder asked holds each build; the slice is 400 ms, so the one
 # that spent it has 200 ms to spare on a busy PC before it is logged.
 $tkLog = Join-Path $script:ChatqLogDir 'overlay.log'
@@ -1889,13 +1938,13 @@ $cxUT = New-ChatOverlayContext
 Update-ChatOverlayText $cxUT ([pscustomobject]@{ SessionId = $idUT; Cwd = $projO })
 Check 'an open chat nothing has titled shows its first real prompt, past a noisy one' ($cxUT.Text[$idUT].First -eq 'untitled first ask') "$($cxUT.Text[$idUT].First)"
 # -Recent: kept, said, out of range refused, a running panel told
-$rcSaid = @(chatoverlay -Recent 10 6>&1 | ForEach-Object { "$_" })
+$rcSaid = @(charlie -Recent 10 6>&1 | ForEach-Object { "$_" })
 $rcSet = (Get-ChatOverlayConfig).recent
-chatoverlay -Recent 21 *> $null
-chatoverlay -Recent -1 *> $null
+charlie -Recent 21 *> $null
+charlie -Recent -1 *> $null
 $rcKept = (Get-ChatOverlayConfig).recent
-$rcOffSaid = @(chatoverlay -Recent 0 6>&1 | ForEach-Object { "$_" })
-$cmdsR = Get-OvToldCommands { chatoverlay -Recent 5 }
+$rcOffSaid = @(charlie -Recent 0 6>&1 | ForEach-Object { "$_" })
+$cmdsR = Get-OvToldCommands { charlie -Recent 5 }
 Set-ChatOverlayConfig @{ recent = 50 }
 $rcHeld = (Get-ChatOverlayConfig).recent
 Set-ChatOverlayConfig @{ recent = 5 }
@@ -1968,19 +2017,19 @@ Check 'the chip reads watch while the row''s job runs - the same open under anot
 Check 'the tray for a run''s live view asked for (16), and a print-mode run no job is (15) as before' (
     (Get-ChatOverlayOpenBalloon 16) -eq 'A queued prompt is running in that chat - its live view opens in VS Code.' -and
     (Get-ChatOverlayOpenBalloon 15) -eq 'A queued prompt is running in that chat - open it once it finishes.') "$(Get-ChatOverlayOpenBalloon 16)"
-# the watch chip's word comes back once its open ends (brushes by name: no
-# WPF in this process)
+# the chip says opening beside its bin while the open runs, and nothing
+# once it ends (brushes by name: no WPF in this process)
 $fnBrush = ${function:Get-ChatOverlayBrush}
 ${function:Get-ChatOverlayBrush} = { param($n) $n }
 try {
     $script:ChatShowSpawnSeam = { param($c) [pscustomobject]@{ HasExited = $true; ExitCode = 16 } }
-    $Hw = @{ Ctx = $cu8; OpenProc = $null; ChipText = [pscustomobject]@{ Text = 'watch'; Foreground = $null }; ChipOpenLabel = 'watch' }
+    $Hw = @{ Ctx = $cu8; OpenProc = $null; ChipHint = [pscustomobject]@{ Text = ''; Foreground = $null } }
     Invoke-ChatOverlayOpen $Hw $uRowA
-    $wDuring = [string]$Hw.ChipText.Text
+    $wDuring = "$($Hw.ChipHint.Text)/$($Hw.ChipHint.Foreground)"
     Update-ChatOverlayOpen $Hw
 }
 finally { ${function:Get-ChatOverlayBrush} = $fnBrush; $script:ChatShowSpawnSeam = { param($c) $null } }
-Check 'the watch chip says opening while its child runs, and watch again after' ($wDuring -eq 'opening' -and $Hw.ChipText.Text -eq 'watch' -and -not $Hw.OpenProc) "$wDuring $($Hw.ChipText.Text)"
+Check 'the chip says opening beside its bin while its child runs, and nothing after' ($wDuring -eq 'opening/dim' -and $Hw.ChipHint.Text -eq '' -and -not $Hw.OpenProc) "$wDuring '$($Hw.ChipHint.Text)'"
 # The open's end brings the chat's VS Code window to the front: picked from
 # VS Code's windows by title - its folder's name, or for a window with other
 # folders the name its tab file gives - and only ever one. Every window call
@@ -2547,6 +2596,176 @@ Check 'the light theme redraws the frame and keeps the settings box open' ($wp[7
 Check 'the opacity slider sets the panel''s, and config.json gets it once it rests' ($wp[9] -eq 'True') "$wpfOut"
 Check 'collapsed: one line of counts and usage, and the chevron offers to expand' ($wp[11] -eq '1' -and $wp[12] -eq ('5h 42%/no chats open') -and $wp[13] -eq 'Expand') "$wpfOut"
 
+# the dark look's ornaments (New-ChatOverlayDecor) and its serif titles
+# (Set-ChatOverlaySerif), on the narrowest panel: three idle rows and a
+# Recent line with no project, then that line in the console's list. The
+# frame drawn at 96 dpi, as its height and a hash of its pixels - in each
+# look, and with the rows' stack alone in it as it was before the
+# ornaments. config.json put back after.
+$wpfDecor = @"
+$staLoad
+`$script:ChatOverlayMouseDownSeam = { `$false }
+`$script:ChatOverlayPointerSeam = { [System.Drawing.Point]::new(-100000, -100000) }
+`$cfgWas = [IO.File]::ReadAllText(`$script:ChatqConfigPath)
+Set-ChatOverlayConfig @{ width = 260; maxRows = 8; prompts = `$true; recent = 5; theme = 'dark'; hotkey = 'none'; consoleHotkey = 'none' }
+Initialize-ChatOverlayNative
+$staPanel
+`$H.Placed = `$true
+`$script:ChatOverlayWorkAreaSeam = { param(`$r) [pscustomobject]@{ X = -4000; Y = 0; Width = 1920; Height = 1020 } }
+Set-ChatOverlayHidden `$H `$false
+[ChatOverlayNative]::MoveTo(`$H.Hwnd, -2594, 197)
+`$rows = @(1..3 | ForEach-Object { [pscustomobject]@{ key = "s:`$_"; kind = 'session'; status = 'idle'; rank = 3; project = 'p'; title = "chat `$_"; prompt = 'x'; stateText = 'idle 1m'; job = `$null } })
+`$rec = @([pscustomobject]@{ key = 'recent:r1'; kind = 'recent'; provider = 'claude'; status = 'recent'; title = 'closed alone'; since = 1; stateText = '1h' })
+`$H.Ctx.ViewSig = 'decor'
+Update-ChatOverlayView `$H ([pscustomobject]@{ header = [pscustomobject]@{ usage = @(); notes = @() }; counts = [pscustomobject]@{ idle = 3 }; rows = `$rows; recent = `$rec })
+`$H.Win.UpdateLayout()
+# a Grid of the second line, the crest and the stack, under the frame's own
+# padding; nothing of the ornaments hit-testable or painted but in the gold
+`$D = `$H.Decor
+`$g = `$H.Frame.Child
+`$gold = Get-ChatOverlayBrush 'trim'
+`$tree = `$D -and `$g -is [System.Windows.Controls.Grid] -and `$g -eq `$D.Grid -and `$H.Win.Content -eq `$H.Frame -and
+    `$g.Children.Count -eq 3 -and `$g.Children[0] -eq `$D.Line -and `$g.Children[1] -eq `$D.Crest -and `$g.Children[2] -eq `$H.Stack -and
+    -not `$D.Line.IsHitTestVisible -and -not `$D.Crest.IsHitTestVisible -and -not `$D.Flourish.IsHitTestVisible -and
+    `$null -eq `$g.Background -and `$null -eq `$D.Line.Background -and `$null -eq `$D.Crest.Background -and
+    `$D.Crest.Children.Count -eq 1 -and `$D.Crest.Children[0] -eq `$D.Flourish -and
+    `$D.Line.BorderBrush -eq `$gold -and `$D.Flourish.Fill -eq `$gold -and `$D.Flourish.Stroke -eq `$gold -and `$H.Frame.BorderBrush -eq `$gold -and
+    `$D.Line.Visibility -eq 'Visible' -and `$D.Crest.Visibility -eq 'Visible'
+# no room taken: the frame as tall as the stack and its padding and edge
+`$fr = `$H.Frame
+`$chrome = `$fr.Padding.Top + `$fr.Padding.Bottom + `$fr.BorderThickness.Top + `$fr.BorderThickness.Bottom
+`$room = `$D.Line.DesiredSize.Width -eq 0 -and `$D.Line.DesiredSize.Height -eq 0 -and `$D.Crest.DesiredSize.Width -eq 0 -and `$D.Crest.DesiredSize.Height -eq 0 -and
+    `$H.Stack.ActualHeight -gt 0 -and [Math]::Abs(`$fr.ActualHeight - (`$H.Stack.ActualHeight + `$chrome)) -lt 0.01
+# the flourish, its stroke counted, left of the first button and in the top
+# strip, above where the rows start
+`$fl = `$D.Flourish
+`$fb = [System.Windows.Rect]::Inflate(`$fl.TransformToAncestor(`$H.Win).TransformBounds(`$fl.Data.Bounds), `$fl.StrokeThickness, `$fl.StrokeThickness)
+`$top = `$H.Stack.TransformToAncestor(`$H.Win).Transform([System.Windows.Point]::new(0, 0)).Y
+`$bar = `$H.Win.Width - `$script:ChatOverlayBarIndent - `$H.CtlButtons.Count * 22
+`$clear = `$H.Win.Width -eq 260 -and `$H.CtlButtons.Count -eq 6 -and `$fb.Right -le `$bar -and `$fb.Left -ge 0 -and `$fb.Top -ge 0 -and `$fb.Bottom -le `$top
+# the frame as drawn, and drawn with the stack alone in it
+`$shot = {
+    `$H.Win.UpdateLayout()
+    `$bw = [int][Math]::Ceiling(`$H.Frame.ActualWidth)
+    `$bh = [int][Math]::Ceiling(`$H.Frame.ActualHeight)
+    `$rt = [System.Windows.Media.Imaging.RenderTargetBitmap]::new(`$bw, `$bh, 96, 96, [System.Windows.Media.PixelFormats]::Pbgra32)
+    `$rt.Render(`$H.Frame)
+    `$bits = [byte[]]::new(`$bw * `$bh * 4)
+    `$rt.CopyPixels(`$bits, `$bw * 4, 0)
+    "`$(`$H.Frame.ActualHeight)/" + [BitConverter]::ToString([System.Security.Cryptography.SHA256]::Create().ComputeHash(`$bits)).Replace('-', '')
+}
+`$alone = {
+    [void]`$g.Children.Remove(`$H.Stack)
+    `$H.Frame.Child = `$H.Stack
+    `$s = & `$shot
+    `$H.Frame.Child = `$null
+    [void]`$g.Children.Add(`$H.Stack)
+    `$H.Frame.Child = `$g
+    `$s
+}
+# the titles: a full row's own TextBlock; a compact or Recent line's Run, in
+# the TextBlock that holds that line - each the text of a name
+# (New-ChatOverlayRowName)
+`$wraps = { @(`$H.Stack.Children | Where-Object { `$_.Tag -and `$_.Tag -isnot [string] }) }
+`$nameText = { param(`$p) @(@(`$p.Children | Where-Object { `$_.Tag -is [string] -and `$_.Tag -eq 'name' })[-1].Children)[0] }
+`$titlesOf = {
+    foreach (`$w in (& `$wraps)) {
+        `$text = @(`$w.Children | Where-Object { `$_.Tag -is [string] -and `$_.Tag -eq 'text' })
+        if (`$text.Count) { `$t = & `$nameText `$text[0]; @{ El = `$t; Line = `$t } }
+        else {
+            `$ln = @(`$w.Children | Where-Object { `$_.Tag -is [string] -and `$_.Tag -eq 'line' })[0]
+            `$main = & `$nameText `$ln
+            @{ El = @(`$main.Inlines)[-1]; Line = `$main }
+        }
+    }
+}
+`$unset = { param(`$o, `$p) `$o.ReadLocalValue(`$p) -eq [System.Windows.DependencyProperty]::UnsetValue }
+`$faceP = [System.Windows.Documents.TextElement]::FontFamilyProperty
+# the serif on the title, its line held at the sans's - and a compact line's
+# TextBlock keeps the sans as its own face
+`$serif = [string]`$script:ChatOverlayColors.serif
+`$inSerif = {
+    param(`$x)
+    `$x.El.FontFamily.Source -eq `$serif -and `$x.Line.LineStackingStrategy -eq 'BlockLineHeight' -and `$x.Line.LineHeight -eq `$script:ChatOverlaySansLine -and
+    (`$x.Line -eq `$x.El -or (& `$unset `$x.Line `$faceP))
+}
+# a full row and the Recent line, how tall
+`$heights = { `$ws = & `$wraps; @(@(`$ws | Where-Object { [string]`$_.Tag.kind -ne 'recent' })[0].ActualHeight, @(`$ws | Where-Object { [string]`$_.Tag.kind -eq 'recent' })[0].ActualHeight) }
+# a line of the panel's sans, measured
+`$sans = [System.Windows.Controls.TextBlock]::new()
+`$sans.Text = 'chat 1'
+`$sans.FontFamily = `$H.Win.FontFamily
+`$sans.FontSize = 12
+`$sans.Measure([System.Windows.Size]::new([double]::PositiveInfinity, [double]::PositiveInfinity))
+`$dark1 = & `$shot
+`$tDark = @(& `$titlesOf)
+`$serifOk = `$serif -and `$tDark.Count -eq 4 -and -not @(`$tDark | Where-Object { -not (& `$inSerif `$_) }).Count -and
+    [Math]::Abs(`$sans.DesiredSize.Height - `$script:ChatOverlaySansLine) -lt 0.001
+`$hDark = & `$heights
+`$darkAlone = & `$alone
+# light: the ornaments collapsed, the titles as they were
+`$H.Ctx.Config.theme = 'light'
+Update-ChatOverlayTheme `$H
+`$light1 = & `$shot
+`$tLight = @(& `$titlesOf)
+`$bare = `$tLight.Count -eq 4 -and -not @(`$tLight | Where-Object { -not (& `$unset `$_.El `$faceP) -or -not (& `$unset `$_.Line ([System.Windows.Controls.TextBlock]::LineHeightProperty)) }).Count
+`$hLight = & `$heights
+`$lightAlone = & `$alone
+`$lightSame = `$light1 -eq `$lightAlone -and `$D.Line.Visibility -eq 'Collapsed' -and `$D.Crest.Visibility -eq 'Collapsed' -and `$H.Frame.BorderBrush -eq (Get-ChatOverlayBrush 'edge')
+`$sameH = `$hDark[0] -gt 0 -and `$hDark[1] -gt 0 -and [Math]::Abs(`$hDark[0] - `$hLight[0]) -lt 0.01 -and [Math]::Abs(`$hDark[1] - `$hLight[1]) -lt 0.01
+# dark again: the ornaments back, drawn as before
+`$H.Ctx.Config.theme = 'dark'
+Update-ChatOverlayTheme `$H
+`$dark2 = & `$shot
+`$asWas = `$lightSame -and `$dark1 -ne `$darkAlone -and (`$dark1 -split '/')[0] -eq (`$darkAlone -split '/')[0] -and `$dark2 -eq `$dark1 -and
+    `$D.Line.Visibility -eq 'Visible' -and `$D.Crest.Visibility -eq 'Visible' -and `$D.Line.BorderBrush -eq (Get-ChatOverlayBrush 'trim')
+# compact rows: the serif on the title's Run there too
+Set-ChatOverlayRowStyle `$H 'compact'
+`$H.Win.UpdateLayout()
+`$tComp = @(& `$titlesOf)
+`$serifOk = `$serifOk -and `$tComp.Count -eq 4 -and -not @(`$tComp | Where-Object { `$_.Line -eq `$_.El -or -not (& `$inSerif `$_) }).Count
+# the console's list, which draws its rows the panel's way at its own 12.5:
+# the Recent line's title held at a sans line of that size, as measured, and
+# the line as tall in the dark look as in the light, which holds nothing
+`$script:ChatConsoleNoSync = `$true
+Enter-ChatOverlayConsoleMode `$H
+`$conMain = {
+    `$b = New-ChatConsoleChatItem `$H ([pscustomobject]@{ Id = 'recent:r1'; Kind = 'recent'; Row = `$rec[0] })
+    [void]`$H.Con.Chats.Children.Add(`$b)
+    `$H.Win.UpdateLayout()
+    `$ln = @(@(@(@(`$b.Child.Children)[-1].Children)[0].Children) | Where-Object { `$_.Tag -is [string] -and `$_.Tag -eq 'line' })[0]
+    @{ Item = `$b; Main = & `$nameText `$ln }
+}
+`$sans125 = [System.Windows.Controls.TextBlock]::new()
+`$sans125.Text = 'closed alone'
+`$sans125.FontFamily = `$H.Win.FontFamily
+`$sans125.FontSize = 12.5
+`$sans125.Measure([System.Windows.Size]::new([double]::PositiveInfinity, [double]::PositiveInfinity))
+`$cDark = & `$conMain
+`$conOk = `$H.Mode -eq 'console' -and `$cDark.Main -and `$cDark.Main.FontSize -eq 12.5 -and @(`$cDark.Main.Inlines)[-1].FontFamily.Source -eq `$serif -and
+    `$cDark.Main.LineStackingStrategy -eq 'BlockLineHeight' -and `$cDark.Main.LineHeight -eq `$H.Con.SansLine -and
+    [Math]::Abs(`$H.Con.SansLine - `$sans125.DesiredSize.Height) -lt 0.001
+`$conDarkH = `$cDark.Item.ActualHeight
+`$H.Ctx.Config.theme = 'light'
+Update-ChatOverlayTheme `$H
+`$cLight = & `$conMain
+`$conOk = `$conOk -and `$cLight.Main -and `$conDarkH -gt 0 -and [Math]::Abs(`$conDarkH - `$cLight.Item.ActualHeight) -lt 0.01 -and
+    (& `$unset `$cLight.Main ([System.Windows.Controls.TextBlock]::LineHeightProperty)) -and (& `$unset @(`$cLight.Main.Inlines)[-1] `$faceP)
+[IO.File]::WriteAllText(`$script:ChatqConfigPath, `$cfgWas)
+'{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}|{9}' -f `$tree, `$room, `$clear, `$asWas, `$serifOk, `$sameH, `$bare, `$lightSame, `$conOk,
+    "flourish `$fb bar `$bar top `$top frame `$(`$fr.ActualHeight) stack `$(`$H.Stack.ActualHeight) chrome `$chrome sans `$(`$script:ChatOverlaySansLine)/`$(`$sans.DesiredSize.Height) titles `$(`$tDark.Count)/`$(`$tLight.Count)/`$(`$tComp.Count) h `$(`$hDark -join ',')/`$(`$hLight -join ',') dark `$dark1 alone `$darkAlone light `$light1 alone `$lightAlone again `$dark2 console `$(`$H.Mode) `$(`$cDark.Main.FontSize) line `$(`$cDark.Main.LineHeight)/`$(`$H.Con.SansLine)/`$(`$sans125.DesiredSize.Height) h `$conDarkH/`$(`$cLight.Item.ActualHeight)"
+"@
+$decorOut = Invoke-Sta 'decor-test' $wpfDecor
+$dc = "$decorOut" -split '\|'
+Check 'the dark look''s ornaments: a Grid of the inner line, the crest and the rows'' stack in the frame, none of it hit-testable or painted, the flourish alone in the crest, all in the trim''s gold' ($dc[0] -eq 'True') "$decorOut"
+Check 'the ornaments take no room: nothing desired, and the frame as tall as the rows'' stack and its padding and edge' ($dc.Count -gt 1 -and $dc[1] -eq 'True') "$decorOut"
+Check 'at 260 wide the flourish is clear of the bar''s first button and inside the top strip' ($dc.Count -gt 2 -and $dc[2] -eq 'True') "$decorOut"
+Check 'the light look draws as the frame with the rows'' stack alone; the dark one draws its ornaments, as tall, and again once switched back' ($dc.Count -gt 3 -and $dc[3] -eq 'True') "$decorOut"
+Check 'the dark look''s chat titles are in its serif - full, compact and Recent - each line held at the sans''s, as tall as a sans line measures' ($dc.Count -gt 4 -and $dc[4] -eq 'True') "$decorOut"
+Check 'a full row and a Recent line with no project are as tall in the dark look as in the light' ($dc.Count -gt 5 -and $dc[5] -eq 'True') "$decorOut"
+Check 'the light look sets no face or line height on a title, and draws as it did' ($dc.Count -gt 7 -and $dc[6] -eq 'True' -and $dc[7] -eq 'True') "$decorOut"
+Check 'the console''s list, at its own 12.5: a dark Recent title in the serif, its line held at a sans line of that size, as tall as in the light look, which holds none' ($dc.Count -gt 9 -and $dc[8] -eq 'True') "$decorOut"
+
 # the tray icon: Charlie with the state's dot, drawn into a NotifyIcon never
 # made visible; then the icon unreadable, the dot alone as before
 $wpfTray = @"
@@ -2564,6 +2783,21 @@ Set-ChatOverlayTrayColor `$H '#FF0000'
 `$same = `$H.IconHandle -eq `$h1
 Set-ChatOverlayTrayColor `$H '#00FF00'
 `$green = & `$px (`$n - [Math]::Round(`$n / 4)) (`$n - [Math]::Round(`$n / 4))
+# the ring is the look's, and in the key: a look change draws the same
+# colour anew. A pixel of the ring at the dot's left, halfway down it
+`$ringAt = { `$dd = [Math]::Round(`$n * 0.5); & `$px ([int](`$n - `$dd)) ([int](`$n - `$dd / 2)) }
+`$near = { param(`$c, `$hex) `$w = [System.Drawing.ColorTranslator]::FromHtml(`$hex); [Math]::Abs(`$c.R - `$w.R) + [Math]::Abs(`$c.G - `$w.G) + [Math]::Abs(`$c.B - `$w.B) }
+`$darkRing = `$script:ChatOverlayPalettes.dark.trayRing
+`$keyOk = `$H.IconColor -eq "#00FF00|`$darkRing"
+`$ringDark = & `$ringAt
+`$h2 = `$H.IconHandle
+`$script:ChatOverlayColors = `$script:ChatOverlayPalettes.light
+Set-ChatOverlayTrayColor `$H '#00FF00'
+`$keyOk = `$keyOk -and `$H.IconHandle -ne `$h2 -and `$H.IconColor -eq '#00FF00|#130A1E'
+`$ringLight = & `$ringAt
+`$script:ChatOverlayColors = `$script:ChatOverlayPalettes.dark
+`$ringOk = [System.Drawing.ColorTranslator]::FromHtml(`$script:ChatOverlayPalettes.light.trayRing).ToArgb() -eq [System.Drawing.Color]::FromArgb(19, 10, 30).ToArgb() -and
+    (& `$near `$ringLight '#130A1E') -lt (& `$near `$ringLight `$darkRing) -and (& `$near `$ringDark `$darkRing) -lt (& `$near `$ringDark '#130A1E')
 `$face = Get-ChatIconSource
 `$script:ChatIconPng = 'not an image'
 `$script:ChatIconBitmap = `$null
@@ -2575,10 +2809,11 @@ Set-ChatOverlayTrayText `$H.Tray `$long
 `$longOk = `$H.Tray.Text -ceq `$long
 Set-ChatOverlayTrayText `$H.Tray 'Charlie: 2 idle'
 `$longOk = `$longOk -and `$H.Tray.Text -ceq 'Charlie: 2 idle'
-'{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}' -f `$n, ([System.Windows.Forms.SystemInformation]::SmallIconSize.Width),
+'{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}|{9}|{10}|{11}' -f `$n, ([System.Windows.Forms.SystemInformation]::SmallIconSize.Width),
     (`$dot.R -gt 200 -and `$dot.G -lt 60 -and `$dot.A -eq 255), (`$top.A -eq 255 -and -not (`$top.R -gt 200 -and `$top.G -lt 60)),
     (`$same -and `$H.IconHandle -ne `$h1 -and `$green.G -gt 200 -and `$green.R -lt 60), (`$face -and `$face.PixelWidth -eq 48),
-    (`$mid.B -gt 200 -and `$mid.A -eq 255), (`$corner.A -eq 0), `$longOk
+    (`$mid.B -gt 200 -and `$mid.A -eq 255), (`$corner.A -eq 0), `$longOk, `$keyOk, `$ringOk,
+    "ring `$(`$ringDark.R),`$(`$ringDark.G),`$(`$ringDark.B) then `$(`$ringLight.R),`$(`$ringLight.G),`$(`$ringLight.B) key `$(`$H.IconColor)"
 `$H.Tray.Dispose()
 "@
 $trayOut = Invoke-Sta 'tray-icon-test' $wpfTray
@@ -2588,6 +2823,8 @@ Check 'the tray icon is Charlie, at the small-icon size, with the state''s colou
 Check 'the same colour draws nothing again, another draws anew; the windows get Charlie at 48 px' ($tr[4] -eq 'True' -and $tr[5] -eq 'True') "$trayOut"
 Check 'with the icon unreadable, the tray is the dot alone, as it was' ($tr[6] -eq 'True' -and $tr[7] -eq 'True') "$trayOut"
 Check 'a tooltip past .NET Framework''s 63 characters is taken whole, and a short one after it' ($tr[8] -eq 'True') "$trayOut"
+Check 'the tray icon''s key holds the look''s ring: a look change draws the same colour anew, with a new handle' ($tr.Count -gt 10 -and $tr[9] -eq 'True') "$trayOut"
+Check 'the tray''s ring: crimson in the dark look, the icon''s near-black in the light one, FromArgb(19, 10, 30) as before' ($tr.Count -gt 10 -and $tr[10] -eq 'True') "$trayOut"
 
 # its size: the resize handle, the width and rows sliders, a screen too short
 # for the rows, and a reload - shown off every screen, the pointer never
@@ -2696,7 +2933,7 @@ Set-ChatOverlayRowCount `$H 30
 `$px = Get-ChatOverlayScale `$H ([ChatOverlayNative]::GetRect(`$H.Hwnd)) -Device
 `$n = Get-ChatOverlayDrawnRows `$H
 `$cut = `$H.Win.MaxHeight -eq [Math]::Floor(303 / `$px) -and `$n -ge 1 -and `$n -lt 12 -and (& `$more) -like "+`$(12 - `$n) more*" -and `$H.Win.ActualHeight -le `$H.Win.MaxHeight
-# a shell's chatoverlay -Width -Rows: reload, the right edge held
+# a shell's charlie -Width -Rows: reload, the right edge held
 `$tall = 1020
 Set-ChatOverlayConfig @{ width = 420; maxRows = 4 }
 `$e2 = & `$right
@@ -2791,7 +3028,7 @@ Set-ChatOverlayRowStyle `$H 'compact'
     `$hComp -lt `$hFull -and (& `$on (& `$chipsOf 'compact')) -eq 'compact'
 Set-ChatOverlayRowStyle `$H 'full'
 # full, beside the tile: the line with the words, then the title alone
-`$fullIs = { param(`$w) `$t = @(@(`$w.Children)[1].Children); "`$(`$t.Count) `$(`$t[0].Tag) `$(@(`$t[0].Children | Where-Object { `$_.Tag -is [string] -and `$_.Tag -eq 'state' }).Count) `$(`$t[1].Text -eq `$w.Tag.title)" }
+`$fullIs = { param(`$w) `$t = @(@(`$w.Children)[1].Children); "`$(`$t.Count) `$(`$t[0].Tag) `$(@(`$t[0].Children | Where-Object { `$_.Tag -is [string] -and `$_.Tag -eq 'state' }).Count) `$(`$t[1].Tag -eq 'name' -and @(`$t[1].Children)[0].Text -eq `$w.Tag.title)" }
 `$compact = `$compact -and (Get-ChatOverlayConfig).prompts -and @(`$H.Stack.Children | Where-Object { `$_.Tag -and `$_.Tag -isnot [string] -and (& `$rowIs `$_) -eq '2 tile 36 text 3' -and
             (& `$fullIs `$_) -eq '2 line 1 True' }).Count -eq [int]`$H.Ctx.Config.maxRows
 # where each chat runs, at its tile's left in its state's colour: VS Code,
@@ -2927,7 +3164,7 @@ Update-ChatOverlayView `$H `$snapR
 `$rw = @(`$kids | Where-Object { `$_.Tag -and `$_.Tag -isnot [string] -and `$_.Tag.kind -eq 'recent' })
 `$rects = @(Get-ChatOverlayRowRects `$H)
 `$recentOk = `$head.Count -eq 1 -and `$head[0].Text -eq 'Recent' -and `$hi -gt `$kids.IndexOf(@(`$kids | Where-Object { `$_.Tag -and `$_.Tag -isnot [string] -and `$_.Tag.key -eq 's:u2' })[0]) -and
-    `$rw.Count -eq 3 -and -not @(`$rw | Where-Object { `$kids.IndexOf(`$_) -lt `$hi -or `$_.Children.Count -ne 1 -or `$_.Children[0].Tag -ne 'line' -or `$_.Margin.Top -ne 1 }).Count -and
+    `$rw.Count -eq 3 -and -not @(`$rw | Where-Object { `$kids.IndexOf(`$_) -lt `$hi -or (@(`$_.Children | ForEach-Object { `$_.Tag }) -join ',') -ne 'icons,line' -or `$_.Margin.Top -ne 1 }).Count -and
     (Get-ChatOverlayDrawnRows `$H) -eq 2 -and @(`$rects | Where-Object { `$_.Key -like 'recent:*' -and (Test-ChatOverlayRowOpenable `$_.Row) }).Count -eq 3
 `$dotOf = {
     param(`$k)
@@ -3167,8 +3404,8 @@ Update-ChatOverlayView `$H `$snapT
     }) -join ','
 `$says = { @(`$H.RowClocks | ForEach-Object { `$_.Clock.Text }) -join ',' }
 `$built = & `$says
-# a slow machine's build may take seconds: up to 50 still reads the same
-`$builtOk = `$H.RowClocks.Count -eq 8 -and `$built -match '^ 5:[0-4]\d,59:[0-4]\d, 2h05,-1h30,-0h12,--:--, 1:[0-5]\d, 5d10$'
+# a slow machine's build may take seconds: up to 59 still reads the same
+`$builtOk = `$H.RowClocks.Count -eq 8 -and `$built -match '^ 0h05, 0h59, 2h05,-1h30,-0h12,--:--, 0h01, 5d10$'
 # the shape each character lights: a blank none, a minus the middle bar
 # alone, the separator two dots or a small h or d - whose upper strokes,
 # the top 30 percent of each, are on the left and the right
@@ -3180,7 +3417,7 @@ Update-ChatOverlayView `$H `$snapT
 `$eb = `$G.Glyph['8'].Bounds
 `$glyphs = [ordered]@{
     blank = `$null -eq (& `$cell 0 0)
-    colon = (& `$cell 0 2) -eq `$G.Sep[':']
+    colon = (& `$cell 5 2) -eq `$G.Sep[':']
     minus = (& `$cell 3 0) -eq `$G.Glyph['-']
     h = (& `$cell 3 2) -eq `$G.Sep['h']
     d = (& `$cell 7 2) -eq `$G.Sep['d']
@@ -3207,7 +3444,7 @@ Invoke-ChatOverlayTick
 Invoke-ChatOverlayTick
 `$next = `$H.Timer.Interval.TotalMilliseconds
 `$ticked = & `$says
-`$tickOk = `$hid -eq ' 2h05' -and `$ticked -match '^ 5:[0-4]\d,59:[0-4]\d, 3h05,-1h30,-0h12,--:--, 1:[0-5]\d, 5d10$' -and `$next -ge 250 -and `$next -le 1250
+`$tickOk = `$hid -eq ' 2h05' -and `$ticked -match '^ 0h05, 0h59, 3h05,-1h30,-0h12,--:--, 0h01, 5d10$' -and `$next -ge 250 -and `$next -le 1250
 # as wide and as tall, whatever the mark or state; the titles in one column
 `$colOf = { param(`$ws) @(`$ws | ForEach-Object { [Math]::Round(@(`$_.Children)[1].TranslatePoint([System.Windows.Point]::new(0, 0), `$H.Stack).X, 2) }) }
 `$same = { param(`$a) `$a.Count -and -not @(`$a | Where-Object { `$_ -ne `$a[0] }).Count }
@@ -3222,7 +3459,7 @@ Set-ChatOverlayRowStyle `$H 'compact'
 `$hC = @(`$wrapsC | ForEach-Object { (& `$tileOf `$_).ActualHeight })
 `$cC = & `$colOf `$wrapsC
 `$compactOk = `$wrapsC.Count -eq 8 -and `$wC[0] -gt 0 -and `$wC[0] -lt `$wF[0] -and (& `$same `$wC) -and (& `$same `$cC) -and `$hC[0] -eq 21 -and (& `$same `$hC) -and
-    (& `$says) -match '^ 5:[0-4]\d,59:[0-4]\d, 2h05,-1h30,-0h12,--:--, 1:[0-5]\d, 5d10$'
+    (& `$says) -match '^ 0h05, 0h59, 2h05,-1h30,-0h12,--:--, 0h01, 5d10$'
 [IO.File]::WriteAllText(`$script:ChatqConfigPath, `$cfgWas)
 '{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}' -f (`$ground -eq '38,1A,-,38,-d,-d,1A,-'), (-not `$segBad.Count), (`$marks -eq 'vscode:1,terminal:1,run:2,none:1,none:1,none:1,none:2,window:1'),
     (-not `$glyphBad.Count), `$builtOk, `$tickOk, `$fullOk, `$compactOk,
@@ -3234,7 +3471,7 @@ Check 'a tile''s border in its state''s colour, its ground washed in for a chat 
 Check 'a tile''s clock: the ghost of every segment under five cells lit in the state''s colour' ($tl[1] -eq 'True') "$tileOut"
 Check 'a tile''s mark by where the chat runs - VS Code, a terminal, a queued prompt''s run, not known - and a ring for one open nowhere, a filled triangle in it while its job runs' ($tl[2] -eq 'True') "$tileOut"
 Check 'a clock''s characters: a blank lights nothing, a minus the middle bar alone, the separator two dots or a small h or d' ($tl[3] -eq 'True') "$tileOut"
-Check 'the clocks as drawn: minutes and seconds while a chat works or waits, under an hour; hours and minutes idle, past 99 hours days and hours; down to a reset or a send; dashes for a job with no time' ($tl[4] -eq 'True') "$tileOut"
+Check 'the clocks as drawn: hours and minutes, at work, waiting or idle - no seconds; past 99 hours days and hours; down to a reset or a send; dashes for a job with no time' ($tl[4] -eq 'True') "$tileOut"
 Check 'the timer''s tick moves each clock to now, none while the panel is hidden, and sets when the next tick comes' ($tl[5] -eq 'True') "$tileOut"
 Check 'every full tile as wide and 36 units tall, whatever its mark or state, so every title starts in one column' ($tl[6] -eq 'True') "$tileOut"
 Check 'compact, every tile as wide, narrower than full and 21 units tall, each with its clock, the titles in one column' ($tl[7] -eq 'True') "$tileOut"
@@ -3994,7 +4231,7 @@ Invoke-ChatOverlayVerb 'restart'
 Clear-ChatOverlayClosed `$H.State
 Set-ChatOverlayShown `$H `$true
 `$say += "back `$back"
-# chatoverlay typed in the 4 s, after the last pass that would read it:
+# charlie typed in the 4 s, after the last pass that would read it:
 # the close's timer reads the commands once more, and the show takes it
 # back rather than the overlay going under the word "shown"
 `$said.Clear()
@@ -4017,7 +4254,7 @@ Send-ChatOverlayCommand 'show'
 `$t0 = Get-Date
 Invoke-ChatOverlayVerb 'close'
 `$closed = `$H.Closing -and -not `$H.Win.IsVisible -and -not `$H.Stop -and [int64](Read-ChatOverlayState).closedSignIn -eq 1700000000000 -and
-    `$said.Count -eq 1 -and `$said[0].Text -like 'Closed until you next sign in*chatoverlay*'
+    `$said.Count -eq 1 -and `$said[0].Text -like 'Closed until you next sign in*charlie*'
 `$guard = [System.Windows.Threading.DispatcherTimer]::new()
 `$guard.Interval = [TimeSpan]::FromSeconds(15)
 `$guard.add_Tick({ param(`$s, `$e) `$s.Stop(); [System.Windows.Threading.Dispatcher]::CurrentDispatcher.BeginInvokeShutdown('Normal') })
@@ -4037,7 +4274,7 @@ Check 'the code on disk changed: the timer''s pass restarts the overlay, but not
 Check 'the x: kept against this sign-in, said in a balloon, the panel gone at once, the process stopped 4 s on' ($lf.Count -gt 4 -and $lf[4] -eq 'True') "$lifeOut"
 Check 'full screen: the native call compiles and answers 0 to 7; busy, full screen and presentation hold the screen, nothing else does' ($lf.Count -gt 5 -and $lf[5] -eq 'True') "$lifeOut"
 Check 'the x''s 4 s: the panel''s verbs and other balloons dropped; the hotkey takes the close back, unkept; a restart is the stop, the close kept' ($lf.Count -gt 6 -and $lf[6] -eq 'True') "$lifeOut"
-Check 'the x''s 4 s: a chatoverlay typed after the last pass is read as they end, and takes the close back' ($lf.Count -gt 7 -and $lf[7] -eq 'True') "$lifeOut"
+Check 'the x''s 4 s: a charlie typed after the last pass is read as they end, and takes the close back' ($lf.Count -gt 7 -and $lf[7] -eq 'True') "$lifeOut"
 Check 'the heap collected by the first pass past its time, not before, then by the first pass 5 minutes on and not before that' ($lf.Count -gt 8 -and $lf[8] -eq 'True') "$lifeOut"
 
 # The compaction itself, on a heap like the one a start leaves: big buffers
@@ -4047,12 +4284,14 @@ Check 'the heap collected by the first pass past its time, not before, then by t
 $heapTest = @"
 $staLoad
 `$log = Join-Path `$script:ChatqLogDir 'overlay.log'
-`$said = { @(if (Test-Path -LiteralPath `$log) { [System.IO.File]::ReadAllLines(`$log) | Where-Object { `$_ -match '  the heap compacted in \d+ ms: private \d+ MB, then \d+`$' } }).Count }
+`$said = { @(if (Test-Path -LiteralPath `$log) { [System.IO.File]::ReadAllLines(`$log) | Where-Object { `$_ -match '  the heap compacted in \d+ ms: private \d+ MB, then \d+, the heap \d+`$' } }).Count }
 `$n0 = & `$said
 `$held = [System.Collections.Generic.List[object]]::new()
 `$gone = [System.Collections.Generic.List[object]]::new()
 foreach (`$i in 1..64) { `$gone.Add([byte[]]::new(1MB)); `$held.Add([byte[]]::new(100KB)) }
 `$gone.Clear()
+try { throw 'kept in `$Error' } catch {}
+`$errs = `$global:Error.Count
 [System.GC]::Collect()
 `$p = [System.Diagnostics.Process]::GetCurrentProcess()
 `$was = `$p.PrivateMemorySize64
@@ -4060,10 +4299,10 @@ Invoke-ChatOverlayHeapCompact
 `$p.Refresh()
 `$drop = [Math]::Round((`$was - `$p.PrivateMemorySize64) / 1MB)
 `$n1 = & `$said
-'{0}|{1}' -f (`$drop -ge 32 -and `$n1 -eq `$n0 + 1 -and `$held.Count -eq 64), "given back `$drop MB, logged `$n0 > `$n1"
+'{0}|{1}' -f (`$drop -ge 32 -and `$n1 -eq `$n0 + 1 -and `$held.Count -eq 64 -and `$errs -ge 1 -and `$global:Error.Count -eq 0), "given back `$drop MB, logged `$n0 > `$n1, `$Error `$errs > `$(`$global:Error.Count)"
 "@
 $heapOut = Invoke-Sta 'heap-test' $heapTest
-Check 'the heap compacted: 64 MB of big buffers freed between ones held, given back, and said in the log' ("$heapOut" -like 'True|*') "$heapOut"
+Check 'the heap compacted: 64 MB of big buffers freed between ones held, given back, said in the log with the heap left, $Error emptied' ("$heapOut" -like 'True|*') "$heapOut"
 
 # A tick that throws past its catch, as an out-of-memory once did, in the
 # hover timer's place and every time: set going again after each throw.

@@ -376,7 +376,8 @@ function Remove-ChatSessionById {
     process, it loses the turn or is written straight back. A chat a queued
     prompt holds is kept too, as chatrm keeps it without -DropJobs. Gone, it
     leaves the same reload request chatrm does while VS Code runs, with busy
-    judged from -Live for the chat's folder.
+    judged from -Live for the chat's folder, and the windows that had it as
+    a tab asked to close it (Get-ChatCloseTabs).
     #>
     param([string]$SessionId, [string]$Cwd, [string]$Title, [string]$ConfigDir = $script:ChatClaudeHome, [object[]]$Live = @())
     $t = '"' + (Format-ChatTitle $Title 40) + '"'
@@ -406,6 +407,7 @@ function Remove-ChatSessionById {
         $nums = @(Get-ChatqJobs | Where-Object { $_.sessionId -eq $SessionId -and $_.state -in 'queued', 'running' } | ForEach-Object { "#$($_.seq)" }) -join ' '
         return (& $say $false "$t has $nums queued for it - kept. chatrm -DropJobs drops them first.")
     }
+    $tabs = @(Get-ChatCloseTabs $hit -ConfigHome $ConfigDir)
     if (-not (Remove-ChatSession $hit 6>$null)) {
         return (& $say $false "$t is held open by another process - nothing deleted.")
     }
@@ -416,13 +418,13 @@ function Remove-ChatSessionById {
                 $_ -and [string](Get-ChatField $_ 'SessionId') -ne $SessionId -and [string](Get-ChatField $_ 'Status') -in 'busy', 'waiting' -and
                 ([string](Get-ChatField $_ 'Cwd')).TrimEnd('\', '/') -eq $key
             }).Count
-        Write-ChatReloadRequest -Title $rec.Title -Cwd $Cwd -Kind deleted -Busy $busy
+        Write-ChatReloadRequest -Title $rec.Title -Cwd $Cwd -Kind deleted -Busy $busy -CloseTabs $tabs
     }
     return (& $say $true "Deleted $t.")
 }
 
 #region archive and restore ---------------------------------------------------
-# chatrm -Archive puts a chat out of the way without losing it: a Claude chat
+# chatarchive puts a chat out of the way without losing it: a Claude chat
 # and its leftovers move into data/archive/claude/<id>/ with a manifest of where
 # each came from, a Codex thread goes through codex archive (Codex keeps thread
 # state in its own databases, so only its CLI can archive one properly). The
@@ -662,7 +664,7 @@ function Remove-ChatTombstone {
 }
 
 function Get-ChatArchive {
-    # What chatrestore can bring back: every chat chatrm archived, plus any
+    # What chatrestore can bring back: every chat chatarchive put away, plus any
     # thread under -CodexHome's archived_sessions folder, if it keeps one
     # there. A Codex row carries the home it is to be unarchived in: its
     # manifest's, else -CodexHome - an archive from before the manifest
@@ -752,7 +754,7 @@ function Restore-ChatArchive {
 function chatrestore {
     <#
     .SYNOPSIS
-    Bring back a chat that chatrm -Archive put away. With nothing typed, list
+    Bring back a chat that chatarchive put away. With nothing typed, list
     the archive.
     .DESCRIPTION
     A Claude chat moves back to where it was, leftovers and all, and shows up in
@@ -762,13 +764,15 @@ function chatrestore {
     chatrestore
     .EXAMPLE
     chatrestore 'Parser rewrite'
+    .LINK
+    chatarchive
     #>
     param([Parameter(Position = 0, ValueFromRemainingArguments)][string[]]$Target)
     Set-StrictMode -Off
     $all = @(Get-ChatArchive)
     $t = ((@($Target) -join ' ').Trim()).Trim("'", '"').Trim()
     if (-not $t) {
-        if (-not $all) { Write-Host '  nothing archived - chatrm <title> -Archive puts a chat here' -ForegroundColor DarkGray; return }
+        if (-not $all) { Write-Host '  nothing archived - chatarchive <title> puts a chat here' -ForegroundColor DarkGray; return }
         Write-Host ''
         foreach ($r in $all) {
             $age = if ($r.When) { Get-ChatAge $r.When } else { '?' }
@@ -1893,9 +1897,13 @@ function Write-ChatReloadRequest {
     # of the run finds no window holding the chat - named anyway, so only the
     # window that closed its tab acts, and not every window on the folder.
     # -JobId: the run's job, which that window's live view of it is keyed by.
+    # -CloseTabs: on a delete, the windows that had a deleted chat as a tab,
+    # each asked to close it (Get-ChatCloseTabs); left out when there are
+    # none. sessionId and hostPids stay unset on a delete all the same, so
+    # the reload ask goes as it always did.
     param([string]$Title, [string]$Cwd = (Get-Location).Path, [string]$Kind = 'deleted', $Busy = $null, $Away = $null,
         [string]$SessionId, [string]$ConfigHome, [string]$OldProcess, [int[]]$HostPids = @(), [string]$Transcript,
-        [switch]$Auto, [int[]]$HandoverPids = @(), [string]$JobId)
+        [switch]$Auto, [int[]]$HandoverPids = @(), [string]$JobId, [object[]]$CloseTabs = @())
     $req = [ordered]@{
         id    = [guid]::NewGuid().ToString()
         kind  = $Kind
@@ -1915,8 +1923,48 @@ function Write-ChatReloadRequest {
         if ($Auto) { $req.auto = $true }
         if ($JobId) { $req.jobId = $JobId }
     }
+    $ct = @($CloseTabs | Where-Object { $_ })
+    if ($ct.Count) { $req.closeTabs = [object[]]$ct }
     $req.at = (Get-Date).ToString('o')
     Save-ChatRequest $script:ChatReloadPath $req
+}
+
+# Deferred: DEFERRED.md "A deleted chat's tab: the ones left open"
+function Get-ChatCloseTabs {
+    <#
+    The VS Code windows that have this Claude chat as a tab, for a delete's
+    reload request (Write-ChatReloadRequest -CloseTabs): one entry a
+    window, @{ sessionId; label; title; hostPid; cwd; home }, the label and
+    cwd as that window's open-tabs file has them (extension.js writeTabs),
+    title the chat's as chatq has it, home the Claude home it lives under
+    (-ConfigHome, else the one over its projects folder). Every window's
+    file is read (Read-ChatHostFiles), a gone window's passed by: not
+    Read-ChatOpenTabs, which keeps a chat two windows hold only once. Asked
+    before the transcript goes, since a window's next look drops a chat
+    gone from disk from its file. None for a Codex or Copilot chat: only
+    Claude's tabs are closed.
+    #>
+    param($Hit, [string]$ConfigHome, [string]$Dir = $script:ChatOverlayOpenTabsDir, [datetime]$Now = (Get-Date))
+    if (-not $Hit -or $Hit.Provider -ne 'claude' -or -not $Dir) { return @() }
+    $sid = [string]$Hit.Record.Id
+    if (-not $sid) { $sid = $Hit.File.BaseName }
+    # projects/<slug>/<id>.jsonl, the only place a Claude chat is found
+    if (-not $ConfigHome) { $ConfigHome = Split-Path (Split-Path $Hit.File.DirectoryName -Parent) -Parent }
+    $out = [System.Collections.Generic.List[object]]::new()
+    foreach ($h in @(Read-ChatHostFiles $Dir $Now)) {
+        $t = @(Get-ChatField $h.Data 'tabs' | Where-Object { $_ -and [string](Get-ChatField $_ 'sessionId') -eq $sid }) | Select-Object -First 1
+        if (-not $t) { continue }
+        $out.Add([ordered]@{
+                sessionId = $sid
+                label     = [string](Get-ChatField $t 'label')
+                title     = [string]$Hit.Record.Title
+                hostPid   = $h.HostPid
+                cwd       = [string](Get-ChatField $t 'cwd')
+                home      = $(if ($ConfigHome) { $ConfigHome } else { $null })
+            })
+    }
+    # unrolled: callers take it as @(Get-ChatCloseTabs)
+    return $out.ToArray()
 }
 
 function Write-ChatOpenRequest {
@@ -2238,14 +2286,15 @@ function Write-ChatGhostAdvice {
     # Said once, after a delete, and only while a window is up to do it. macOS
     # runs VS Code as Electron and 'Code Helper (...)', never a bare Code, so the
     # name has to differ per platform or the advice never prints there at all.
-    param([switch]$WaitForIdle, [switch]$AllProjects, [string]$Title, [string]$Kind = 'deleted')
+    # -CloseTabs: the windows to close a deleted chat's tab in, passed on.
+    param([switch]$WaitForIdle, [switch]$AllProjects, [string]$Title, [string]$Kind = 'deleted', [object[]]$CloseTabs = @())
     $procs = if ($script:ChatIsMac) { @('Electron', 'Code Helper*') } else { @('Code') }
     if (-not @(Get-Process -Name $procs -EA SilentlyContinue).Count) { return }
     # judged before the request goes out, so the window says it too: a bare
     # Reload button reads as "safe now" to anyone not watching this terminal
     $idle = Test-ChatIdle -AllProjects:$AllProjects
     $busy = if ($null -eq $idle) { $null } else { -not $idle }
-    Write-ChatReloadRequest -Title $Title -Kind $Kind -Busy $busy
+    Write-ChatReloadRequest -Title $Title -Kind $Kind -Busy $busy -CloseTabs $CloseTabs
     Write-Host 'the session list is cached - reload to see it go:'
     Write-Host '  Ctrl+Shift+P > Developer: Reload Window'
     if (Test-ChatGhostWatch) {
@@ -2264,7 +2313,7 @@ function Write-ChatGhostAdvice {
         $true { Write-Host '  all project chat is idle - safe to reload now' -ForegroundColor Green }
         $false {
             Write-Host '  a chat is still active - reload once it finishes' -ForegroundColor Yellow
-            Write-Host '  chatrm without -NoWait waits and tells you when' -ForegroundColor DarkGray
+            Write-Host "  $(if ($Kind -eq 'archived') { 'chatarchive' } else { 'chatrm' }) without -NoWait waits and tells you when" -ForegroundColor DarkGray
         }
         default { }   # no index to judge by: say nothing rather than guess
     }
@@ -2330,12 +2379,13 @@ function Format-ChatWalkRow {
     # title, the tail. Walking matches after Enter should look exactly like
     # walking them before it. Trimmed rather than padded so the tail stays
     # beside the title, and its width is held back before clipping so a long
-    # title can never push it off the end.
-    param($Hit, [int]$Index, [int]$Count, [int]$Width, [switch]$Ambiguous)
+    # title can never push it off the end. -Command: the one typed, chatrm or
+    # chatarchive.
+    param($Hit, [int]$Index, [int]$Count, [int]$Width, [switch]$Ambiguous, [string]$Command = 'chatrm')
     $c = Get-ChatSyntaxColor
     $tail = Format-ChatPickTail (Get-ChatAge $Hit.Record.When) $Index $Count
     $segments = @(
-        @{ Text = '  chatrm '; Color = $c.Command }
+        @{ Text = "  $Command "; Color = $c.Command }
         @{ Text = "'" + $Hit.Record.Title.Replace("'", "''") + "'"; Color = $c.String }
     )
     # Only when title and age are both the same, which the line alone cannot
@@ -2365,22 +2415,25 @@ function Confirm-ChatOne {
     # One match, and the words typed were only part of its title. Deleting on
     # that alone is how 'chatrm Haiku' took 'Haiku ChatGPT Opus Astra' with no
     # prompt at all. Show the whole title and make the answer deliberate.
-    param($Item, [string]$Needle)
+    # -Archive: chatarchive's, which asks to archive it instead.
+    param($Item, [string]$Needle, [switch]$Archive)
     $width = [Math]::Max(20, $Host.UI.RawUI.WindowSize.Width - 1)
+    $cmd = if ($Archive) { 'chatarchive' } else { 'chatrm' }
+    $ask = if ($Archive) { 'archive it' } else { 'delete it permanently' }
     Write-Host ''
     Write-Host "  '$Needle' is part of this title, not all of it:" -ForegroundColor Yellow
-    Write-Host (Format-ChatWalkRow $Item 1 1 $width)
+    Write-Host (Format-ChatWalkRow $Item 1 1 $width -Command $cmd)
 
     # No VT means no key loop, and a confirm that only works under VT would
     # leave the weakest hosts deleting unprompted - the bug in a new costume.
     if (-not (Test-ChatVT)) {
         Write-Host ''
-        return ((Read-Host "  delete it permanently? (y/N)").Trim() -match '^(y|yes)$')
+        return ((Read-Host "  $($ask)? (y/N)").Trim() -match '^(y|yes)$')
     }
 
     $esc = [char]27
     return Invoke-ChatKeyLoop -Paint {
-        Write-Host "  delete permanently?  y / Enter = yes,  n / Esc = no$esc[K"
+        Write-Host "  $(if ($Archive) { 'archive' } else { 'delete permanently' })?  y / Enter = yes,  n / Esc = no$esc[K"
         1
     } -OnKey {
         param($key)
@@ -2401,13 +2454,14 @@ function Confirm-ChatOne {
 function Select-ChatOne {
     # The same one-line walk Tab does, over the chats a title matched. Enter
     # takes the one on screen and deletes it, with nothing in between.
-    param([object[]]$Items)
+    # -Command: the one typed, chatrm or chatarchive, which the line shows.
+    param([object[]]$Items, [string]$Command = 'chatrm')
     $width = [Math]::Max(20, $Host.UI.RawUI.WindowSize.Width - 1)
     # one match still shows the line, so all three paths look alike - there is
     # simply nothing to walk. The caller decides whether that one still needs
     # confirming: an exact title does not, a fragment of one does.
     if ($Items.Count -eq 1) {
-        Write-Host (Format-ChatWalkRow $Items[0] 1 1 $width)
+        Write-Host (Format-ChatWalkRow $Items[0] 1 1 $width -Command $Command)
         return $Items[0]
     }
     if (-not (Test-ChatVT)) { return Select-ChatNumbered $Items -One }
@@ -2429,7 +2483,7 @@ function Select-ChatOne {
         # heavier than the plain line Tab leaves behind
         $it = $Items[$s.I]
         $key = "$($it.Record.Title)|$(Get-ChatAge $it.Record.When)"
-        $row = Format-ChatWalkRow $it ($s.I + 1) $Items.Count $width -Ambiguous:($seen[$key] -gt 1)
+        $row = Format-ChatWalkRow $it ($s.I + 1) $Items.Count $width -Ambiguous:($seen[$key] -gt 1) -Command $Command
         Write-Host ($row + "$esc[K")
         1
     } -OnKey {
@@ -2565,18 +2619,14 @@ function chatrm {
     A chat with a prompt queued for it by chatq is kept, and the job named.
     -DropJobs drops those jobs first - cancelling one that is running and
     waiting for it to stop - and then deletes.
-    .PARAMETER Archive
-    Move the chat out of the way instead of deleting it; chatrestore brings it
-    back. A Claude chat and its leftovers go to data/archive/, a Codex thread
-    through codex archive. Copilot chats have an archive of their own in VS Code.
-    A chat at work is kept: a Claude chat open in a window, a Codex thread
-    written in the last minute or with a turn that has not ended.
     .EXAMPLE
     chatrm 44e899d3
     .EXAMPLE
     chatrm "Review uncommitted changes"
     .LINK
     chatfind
+    .LINK
+    chatarchive
     #>
     param(
         [Parameter(Position = 0, ValueFromRemainingArguments)][string[]]$Target,
@@ -2585,14 +2635,96 @@ function chatrm {
         [switch]$AllProjects,
         [switch]$NoWait,
         [switch]$WaitForIdle,
-        [switch]$DropJobs,
-        [switch]$Archive
+        [switch]$DropJobs
     )
     Set-StrictMode -Off
+    # -Archive is chatarchive now. Target takes the words left over, so the
+    # old switch would land in the title searched for and match nothing:
+    # said instead, and nothing done. Any short form PowerShell took for it
+    # (-Ar, -Arch) and the -Archive:$true form, which binds as '-Archive:'
+    if (@($Target | Where-Object { $_ -match '^-Ar(c(h(i(ve?)?)?)?)?(:|$)' }).Count) {
+        Write-Error 'chatrm has no -Archive any more - chatarchive <id>... | "<title>" puts a chat away'
+        return
+    }
+    Invoke-ChatTake -Target $Target -Provider $Provider -Force:$Force -AllProjects:$AllProjects -NoWait:$NoWait -DropJobs:$DropJobs
+}
 
-    if (-not $Target) { Write-Error 'usage: chatrm <id>... | "<title>" [-Force] [-AllProjects] [-NoWait] [-DropJobs] [-Archive]'; return }
+function chatarchive {
+    <#
+    .SYNOPSIS
+    Put a local AI chat out of the way without losing it; chatrestore brings
+    it back.
+    .DESCRIPTION
+    A Claude chat and its leftovers move to data/archive/, with a manifest of
+    where each came from; a Codex thread goes through codex archive. Copilot
+    chats have an archive of their own in VS Code. A chat at work is kept: a
+    Claude chat open in a window, a Codex thread written in the last minute
+    or with a turn that has not ended.
+
+    Picks its chats as chatrm does: an id outright, a title by substring,
+    shown in full and asked about when only part of it was typed, and Tab
+    fills in the whole argument from the index.
+    .PARAMETER Target
+    One or more ids (prefixes are fine), or a chat title.
+    .PARAMETER Provider
+    Limit to claude, copilot or codex. Defaults to all of them; a Copilot
+    chat is named and kept.
+    .PARAMETER Force
+    Skip the confirmation prompts in title mode.
+    .PARAMETER AllProjects
+    Match titles from every project rather than the one this directory belongs
+    to. Ids are unambiguous and always reach any project.
+    .PARAMETER NoWait
+    Say whether the window is safe to reload and return, instead of waiting
+    for this project's chats to go quiet, as chatrm does.
+    .PARAMETER WaitForIdle
+    The default; accepted, as chatrm accepts it.
+    .PARAMETER DropJobs
+    A chat with a prompt queued for it by chatq is kept, and the job named.
+    -DropJobs drops those jobs first, then archives.
+    .EXAMPLE
+    chatarchive 44e899d3
+    .EXAMPLE
+    chatarchive "Parser rewrite"
+    .LINK
+    chatrestore
+    .LINK
+    chatrm
+    #>
+    param(
+        [Parameter(Position = 0, ValueFromRemainingArguments)][string[]]$Target,
+        [string[]]$Provider,
+        [switch]$Force,
+        [switch]$AllProjects,
+        [switch]$NoWait,
+        [switch]$WaitForIdle,
+        [switch]$DropJobs
+    )
+    Set-StrictMode -Off
+    Invoke-ChatTake -Target $Target -Provider $Provider -Force:$Force -AllProjects:$AllProjects -NoWait:$NoWait -DropJobs:$DropJobs -Archive
+}
+
+function Invoke-ChatTake {
+    # chatrm's body and chatarchive's, one path: ids or a title, the asking,
+    # the jobs that hold a chat, the reload advice after. -Archive puts each
+    # chat away (Save-ChatArchive) rather than deleting it (Remove-ChatSession).
+    # A delete asks the windows that had a Claude chat as a tab to close it
+    # (Get-ChatCloseTabs), read before it goes; an archive does not, as it
+    # keeps a chat open in a window anyway.
+    param([string[]]$Target, [string[]]$Provider, [switch]$Force, [switch]$AllProjects, [switch]$NoWait, [switch]$DropJobs, [switch]$Archive)
+    Set-StrictMode -Off
+    $cmd = if ($Archive) { 'chatarchive' } else { 'chatrm' }
+    if (-not $Target) { Write-Error "usage: $cmd <id>... | `"<title>`" [-Force] [-AllProjects] [-NoWait] [-DropJobs]"; return }
+    $tabs = [System.Collections.Generic.List[object]]::new()
     # one step for both paths below: delete, or put away
-    $take = { param($h) if ($Archive) { Save-ChatArchive $h } else { Remove-ChatSession $h } }
+    $take = {
+        param($h)
+        if ($Archive) { return (Save-ChatArchive $h) }
+        $t = @(Get-ChatCloseTabs $h)
+        $gone = Remove-ChatSession $h
+        if ($gone) { foreach ($e in $t) { $tabs.Add($e) } }
+        return $gone
+    }
     $names = if ($Provider) { $Provider } else { @($script:ChatProviders.Keys) }
     $deleted = 0
     $lastTitle = ''
@@ -2640,14 +2772,14 @@ function chatrm {
         elseif ($matched.Count -eq 1 -and -not $exact) {
             # the one guard that also covers scripts, -NoProfile and no-VT
             # hosts, where no key handler exists to fill the title in first
-            if (Confirm-ChatOne $matched[0] $needle) { @($matched[0]) } else { @() }
+            if (Confirm-ChatOne $matched[0] $needle -Archive:$Archive) { @($matched[0]) } else { @() }
         }
         else {
-            $one = Select-ChatOne $matched
+            $one = Select-ChatOne $matched -Command $cmd
             if ($one) { @($one) } else { @() }
         }
 
-        if (-not $chosen) { Write-Host 'nothing deleted'; return }
+        if (-not $chosen) { Write-Host "nothing $(if ($Archive) { 'archived' } else { 'deleted' })"; return }
         foreach ($m in $chosen) {
             # already shown once - by the confirm above, or by the picker list
             if (Test-ChatJobsHold $m -DropJobs:$DropJobs) { continue }
@@ -2660,7 +2792,7 @@ function chatrm {
         $kind = if ($Archive) { 'archived' } else { 'deleted' }
         # waiting is the default, -NoWait the way out: a reload taken
         # mid-answer loses the answer, so the safe moment is worth the wait
-        Write-ChatGhostAdvice -WaitForIdle:(-not $NoWait) -AllProjects:$AllProjects -Title $what -Kind $kind
+        Write-ChatGhostAdvice -WaitForIdle:(-not $NoWait) -AllProjects:$AllProjects -Title $what -Kind $kind -CloseTabs $tabs.ToArray()
     }
 }
 

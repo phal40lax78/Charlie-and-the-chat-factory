@@ -8,7 +8,7 @@ function Test-ChatOverlayAlive {
 }
 
 function Test-ChatOverlayAutoStart {
-    # on a system with a panel to draw, unless chatoverlay -AutoStart off -
+    # on a system with a panel to draw, unless charlie -AutoStart off -
     # on by default on Windows (Get-ChatOverlayConfig), so a missing
     # config.json, or one with no such key, reads as on there too. One that
     # is there but does not read is off: it may be the file that says off,
@@ -39,8 +39,8 @@ function Start-ChatOverlayAuto {
     try {
         if (-not (Test-ChatOverlayAutoStart)) { $say = 'off' }
         elseif (Test-ChatOverlayAlive) { $say = 'running' }
-        # the x, the tray's Quit or chatoverlay -Stop, since this sign-in:
-        # closed until the next, or until chatoverlay starts it
+        # the x, the tray's Quit or charlie -Stop, since this sign-in:
+        # closed until the next, or until charlie starts it
         elseif (Test-ChatOverlayClosedByHand) { $say = 'off' }
         else {
             # Write-Host is the information stream: taken apart from what
@@ -117,7 +117,7 @@ function Get-ChatOverlayLaunch {
 }
 
 function Start-ChatOverlayProcess {
-    # just the launch; chatoverlay decides whether one is needed
+    # just the launch; charlie decides whether one is needed
     param([string]$Open = '')
     if ($script:ChatOverlaySpawn) { return (& $script:ChatOverlaySpawn) }   # tests: no real process
     if (-not $script:ChatqIsWindows -and -not $script:ChatIsMac) { return $false }
@@ -159,7 +159,7 @@ function Stop-ChatOverlay {
     return $false
 }
 
-function chatoverlay {
+function charlie {
     <#
     .SYNOPSIS
     A small always-on-top panel: usage live at the top, every open Claude chat and the queue beneath. On Windows it starts with every shell and VS Code window unless -AutoStart off.
@@ -175,18 +175,19 @@ function chatoverlay {
     so (chatq -AutoContinue off only marks them). Queued prompts
     are rows too (purple), or ride on their chat's row when it is open. On
     Windows, a chat that finished a turn while you were elsewhere, since
-    you last opened it from the overlay, has a small blue dot - not one
-    whose window was in front as it finished; macOS has no such dot, as it
-    has no open chip to clear it. Under them, on Windows, a faint Recent
-    list: the newest chats not open, each openable as a tab like an open
-    one. Usage sits at the top, a line for each of Claude, Codex and
-    Copilot, each ending with when its figure is from - or as bars with a
-    countdown to each reset. Claude's is asked live from its usage endpoint
-    every five minutes while a chat works, every fifteen while all are idle,
-    and on the refresh button; Copilot's through the GitHub CLI (gh) every
-    fifteen; Codex's from codex app-server, which spends no turn on it,
-    every five minutes while Codex works and fifteen while it is idle -
-    or what Codex wrote on its last run, when that is newer.
+    you last opened it from the overlay, has a small dot, pink in the dark
+    look and blue in the light - not one whose window was in front as it
+    finished; macOS has no such dot, as it has no open chip to clear it.
+    Under them, on Windows, a faint Recent list: the newest chats not open,
+    each openable as a tab like an open one. Usage sits at the top, a line
+    for each of Claude, Codex and Copilot, each ending with when its figure
+    is from - or as bars with a countdown to each reset. Claude's is asked
+    live from its usage endpoint every five minutes while a chat works,
+    every fifteen while all are idle, and on the refresh button; Copilot's
+    through the GitHub CLI (gh) every fifteen; Codex's from
+    codex app-server, which spends no turn on it, every five minutes while
+    Codex works and fifteen while it is idle - or what Codex wrote on its
+    last run, when that is newer.
 
     Clicks go through it and it never takes focus. On Windows a bar along
     its top strip is the exception: shown with the panel, it takes the
@@ -201,7 +202,8 @@ function chatoverlay {
     recent chats, the corners for both). The hotkey (Ctrl+Alt+Shift+O) or
     the tray menu unlocks the whole panel to drag; it locks again by itself
     two minutes after the pointer leaves. Windows and macOS (untested);
-    elsewhere -Print shows the same in the console.
+    elsewhere -Print shows the same in the console. chatoverlay is the old
+    name, from before the panel was Charlie's, and still works.
     .PARAMETER Stop
     Close it.
     .PARAMETER Unlock
@@ -221,7 +223,7 @@ function chatoverlay {
     .PARAMETER LiveUsage
     off: show only Claude Code's own cached usage figure, and never ask the endpoint.
     .PARAMETER Theme
-    dark (the default), light, or system - following the OS's own light or dark setting.
+    dark (the default, Charlie's: near-black, crimson and gold), light, or system - following the OS's own light or dark setting.
     .PARAMETER Opacity
     How opaque the panel is, 0.3 to 1 - or as a percent, 30 to 100.
     .PARAMETER Width
@@ -245,17 +247,17 @@ function chatoverlay {
     .PARAMETER CodexUsage
     off: Codex's line only from what Codex wrote on its last run, and codex app-server is never started for it.
     .EXAMPLE
-    chatoverlay
+    charlie
     .EXAMPLE
-    chatoverlay -AutoStart off
+    charlie -AutoStart off
     .EXAMPLE
-    chatoverlay -Theme system -Opacity 85
+    charlie -Theme system -Opacity 85
     .EXAMPLE
-    chatoverlay -Width 460 -Rows 12
+    charlie -Width 460 -Rows 12
     .EXAMPLE
-    chatoverlay -Compact on -ChipDelay 250
+    charlie -Compact on -ChipDelay 250
     .EXAMPLE
-    chatoverlay -Recent 10
+    charlie -Recent 10
     #>
     [CmdletBinding()]
     param(
@@ -285,7 +287,7 @@ function chatoverlay {
         # none runs. What stays closed is said only where the auto start
         # would otherwise have brought it back.
         $auto = (Get-ChatOverlayConfig).autoStart
-        $until = " - it stays closed until you next sign in, or chatoverlay starts it"
+        $until = " - it stays closed until you next sign in, or charlie starts it"
         if (-not $alive) {
             $kept = Set-ChatOverlayClosed
             Write-Host "  the overlay is not running$(if ($kept -and $auto) { $until })" -ForegroundColor DarkGray
@@ -395,7 +397,7 @@ function chatoverlay {
             $cxSay = if ((Get-ChatOverlayConfig).codexUsage) { ' Codex is asked too.' } else { " Codex's moves only when Codex runs (-CodexUsage off)." }
             Write-Host "  asked Claude for usage now - it shows within a few seconds.$cxSay" -ForegroundColor DarkGray
         }
-        else { Write-Host '  the overlay is not running - chatoverlay -Print asks once' -ForegroundColor DarkGray }
+        else { Write-Host '  the overlay is not running - charlie -Print asks once' -ForegroundColor DarkGray }
     }
     if ($Console) {
         if (-not $script:ChatqIsWindows) { Write-Host '  the console is Windows only for now - chatq, chatqlist and chatqrm do the same from a shell' -ForegroundColor Yellow; return }
@@ -408,7 +410,7 @@ function chatoverlay {
     if ($set.Count -or $verbs -or $Refresh) { return }
 
     if (-not $script:ChatqIsWindows -and -not $script:ChatIsMac) {
-        Write-Host '  the panel is Windows and macOS only - chatoverlay -Print shows the same here' -ForegroundColor Yellow
+        Write-Host '  the panel is Windows and macOS only - charlie -Print shows the same here' -ForegroundColor Yellow
         return
     }
     if ($alive) {
@@ -437,12 +439,12 @@ function chatoverlay {
     # a close kept until the next sign-in is Windows' alone: a Mac's
     # sign-in is not looked for (Get-ChatqSignInAt)
     if ((Get-ChatOverlayConfig).autoStart -and $script:ChatqIsWindows) {
-        Write-Host "  chatoverlay -Stop, or its x, closes it until you next sign in $($script:ChatqDot) -AutoStart off keeps it to when you start it" -ForegroundColor DarkGray
+        Write-Host "  charlie -Stop, or its x, closes it until you next sign in $($script:ChatqDot) -AutoStart off keeps it to when you start it" -ForegroundColor DarkGray
     }
     elseif ((Get-ChatOverlayConfig).autoStart) {
-        Write-Host "  chatoverlay -Stop closes it $($script:ChatqDot) it starts again with every shell and VS Code window unless -AutoStart off" -ForegroundColor DarkGray
+        Write-Host "  charlie -Stop closes it $($script:ChatqDot) it starts again with every shell and VS Code window unless -AutoStart off" -ForegroundColor DarkGray
     }
-    else { Write-Host "  chatoverlay -Stop closes it $($script:ChatqDot) -AutoStart on brings it back with every shell and VS Code window" -ForegroundColor DarkGray }
+    else { Write-Host "  charlie -Stop closes it $($script:ChatqDot) -AutoStart on brings it back with every shell and VS Code window" -ForegroundColor DarkGray }
 }
 
 function chatconsole {
@@ -465,7 +467,7 @@ function chatconsole {
     open it too.
     #>
     Set-StrictMode -Off
-    chatoverlay -Console
+    charlie -Console
 }
 
 #endregion

@@ -87,6 +87,100 @@ Check 'the delete chip: kept while working or in a terminal; else deleted, row a
     $rmOk.Done -and $rmOk.Say -eq 'Deleted "Chip delete chat".' -and -not (Test-Path -LiteralPath $pRm) -and -not @(Get-ChatIndex | Where-Object { $_.Id -eq $idRm }) -and
     -not $rmTwice.Done -and $rmTwice.Say -like '*not on disk*') "$($rmBusy.Say) | $($rmTerm.Say) | $($rmOk.Say) | $($rmTwice.Say)"
 
+# A delete asks the windows that had a Claude chat as a tab to close it
+# (Get-ChatCloseTabs): closeTabs on the reload request, one entry a window
+# whose open-tabs file lists the chat, read before it goes - every window's
+# file, not one a chat; a gone window's passed by, and its file removed.
+# The request is still a plain delete's, no sessionId or hostPids. VS Code
+# is made to look up, as reload-safety does; a hidden ping is a second
+# window, alive for as long as this takes.
+$ctDir = $script:ChatOverlayOpenTabsDir
+$null = New-Item -ItemType Directory -Path $ctDir -Force
+$ctStart = [DateTimeOffset]::new((Get-Process -Id $PID).StartTime).ToUnixTimeMilliseconds()
+function Write-CtFile([int]$HostPid, [object[]]$Tabs, $Started = $null) {
+    $o = [ordered]@{ v = 1; pid = $HostPid; started = $Started; window = "win$HostPid"; tabs = @($Tabs) }
+    [System.IO.File]::WriteAllText((Join-Path $ctDir "$HostPid.json"), ($o | ConvertTo-Json -Compress -Depth 5), $utf8)
+}
+$ctTab = { param($sid, $label) [ordered]@{ sessionId = $sid; cwd = $projA; label = $label } }
+$idT1 = 'f1f1f1f1-0000-4000-8000-0000000000f1'
+$idT2 = 'f1f1f1f1-0000-4000-8000-0000000000f2'
+$idT3 = 'f1f1f1f1-0000-4000-8000-0000000000f3'
+$idT4 = 'f1f1f1f1-0000-4000-8000-0000000000f4'
+$pT1 = New-FakeChat $projA $idT1 'Tab close one' 1 @('one')
+$pT2 = New-FakeChat $projA $idT2 'Tab close two' 1 @('two')
+$pT3 = New-FakeChat $projA $idT3 'Tab close none' 1 @('three')
+$pT4 = New-FakeChat $projA $idT4 'Tab close chip' 1 @('four')
+$ctPids = @(Get-Process | ForEach-Object Id)
+$ctGone = 4000
+while ($ctPids -contains $ctGone) { $ctGone += 4 }
+$ctPing = Start-Process (Join-Path $env:SystemRoot 'System32\PING.EXE') -ArgumentList '-n', '300', '127.0.0.1' -WindowStyle Hidden -PassThru
+function Get-Process {
+    [CmdletBinding()] param([string[]]$Name, [int[]]$Id)
+    if ($Name) { return [pscustomobject]@{ Name = 'Code' } }
+    Microsoft.PowerShell.Management\Get-Process @PSBoundParameters
+}
+$ctReloadWas = Read-TestFile $script:ChatReloadPath
+try {
+    Write-CtFile $PID @((& $ctTab $idT1 'Tab close one'), (& $ctTab $idT2 'Tab close two'), (& $ctTab $cxId 'Codex gitignore thread')) $ctStart
+    Write-CtFile $ctPing.Id @((& $ctTab $idT1 'Tab close one, in two'), (& $ctTab $idT4 'Tab close chip'))
+    Write-CtFile $ctGone @((& $ctTab $idT1 'Tab close one'))
+    Remove-Item -LiteralPath $script:ChatReloadPath -Force -EA SilentlyContinue
+    chatrm $idT1 $idT2 -Force -NoWait *> $null
+    $ctRq = [System.IO.File]::ReadAllText($script:ChatReloadPath, $utf8) | ConvertFrom-Json
+    $ctAll = @($ctRq.closeTabs)
+    $ctE = { param($sid, $hp) $ctAll | Where-Object { $_.sessionId -eq $sid -and $_.hostPid -eq $hp } }
+    $ct1a = @(& $ctE $idT1 $PID)
+    $ct1b = @(& $ctE $idT1 $ctPing.Id)
+    $ct2 = @(& $ctE $idT2 $PID)
+    $ctHome = { param($e) ([string]$e.home).TrimEnd('\') -eq $claudeHome.TrimEnd('\') }
+    Check 'chatrm of two chats: one request, closeTabs an entry for each window that had each as a tab - its label, the title, the window, the folder, the Claude home - a gone window''s passed by and its file removed' (
+        -not (Test-Path -LiteralPath $pT1) -and -not (Test-Path -LiteralPath $pT2) -and $ctRq.kind -eq 'deleted' -and $ctAll.Count -eq 3 -and
+        $ct1a.Count -eq 1 -and $ct1a[0].label -eq 'Tab close one' -and $ct1a[0].title -eq 'Tab close one' -and $ct1a[0].cwd -eq $projA -and (& $ctHome $ct1a[0]) -and
+        $ct1b.Count -eq 1 -and $ct1b[0].label -eq 'Tab close one, in two' -and $ct1b[0].title -eq 'Tab close one' -and
+        $ct2.Count -eq 1 -and $ct2[0].label -eq 'Tab close two' -and (& $ctHome $ct2[0]) -and
+        -not @($ctAll | Where-Object { $_.hostPid -eq $ctGone }).Count -and -not (Test-Path -LiteralPath (Join-Path $ctDir "$ctGone.json")) -and
+        @($ctRq.PSObject.Properties.Name | Where-Object { $_ -in 'sessionId', 'hostPids' }).Count -eq 0) ($ctRq | ConvertTo-Json -Compress -Depth 5)
+    Remove-Item -LiteralPath $script:ChatReloadPath -Force -EA SilentlyContinue
+    chatrm $idT3 -Force -NoWait *> $null
+    $ctRq3 = [System.IO.File]::ReadAllText($script:ChatReloadPath, $utf8) | ConvertFrom-Json
+    $ctCx = @(Get-ChatCloseTabs ([pscustomobject]@{ Provider = 'codex'; File = (Get-Item -LiteralPath $cxPath); Record = [pscustomobject]@{ Id = $cxId; Title = 'Codex gitignore thread' } }))
+    Check 'a chat no window has as a tab: the request carries no closeTabs; a Codex thread a window lists gets none' (
+        -not (Test-Path -LiteralPath $pT3) -and $ctRq3.kind -eq 'deleted' -and -not ($ctRq3.PSObject.Properties.Name -contains 'closeTabs') -and $ctCx.Count -eq 0) ($ctRq3 | ConvertTo-Json -Compress -Depth 5)
+    Remove-Item -LiteralPath $script:ChatReloadPath -Force -EA SilentlyContinue
+    $ctChip = Remove-ChatSessionById $idT4 $projA 'Tab close chip' $claudeHome @()
+    $ctRq4 = [System.IO.File]::ReadAllText($script:ChatReloadPath, $utf8) | ConvertFrom-Json
+    # one entry still goes out as a list, which is what the window reads
+    $ct4Arr = $ctRq4.closeTabs -is [array]
+    $ct4 = @($ctRq4.closeTabs)
+    Check 'the delete chip asks the same: the one window that had it, as a list of one, its home the one it was asked under' (
+        $ctChip.Done -and -not (Test-Path -LiteralPath $pT4) -and $ctRq4.cwd -eq $projA -and $ct4Arr -and $ct4.Count -eq 1 -and $ct4[0].hostPid -eq $ctPing.Id -and
+        $ct4[0].sessionId -eq $idT4 -and $ct4[0].label -eq 'Tab close chip' -and $ct4[0].title -eq 'Tab close chip' -and $ct4[0].home -eq $claudeHome -and
+        -not ($ctRq4.PSObject.Properties.Name -contains 'sessionId')) ($ctRq4 | ConvertTo-Json -Compress -Depth 5)
+    # chatclean asks too, for a ghost it removed. The picker takes only this
+    # ghost and the relist pass is stubbed, so nothing else of the sandbox goes
+    $idT5 = 'f1f1f1f1-0000-4000-8000-0000000000f5'
+    $pT5 = New-FakeChat $projA $idT5 'Tab close ghost' 1 @()
+    Write-CtFile $ctPing.Id @((& $ctTab $idT5 'Tab close ghost'))
+    Remove-Item -LiteralPath $script:ChatReloadPath -Force -EA SilentlyContinue
+    $ctPick = ${function:Select-ChatItems}
+    $ctRelist = ${function:Repair-ChatListedAll}
+    ${function:Select-ChatItems} = { param($Items, $Title) @($Items | Where-Object { $_.Record.Id -eq $idT5 }) }
+    ${function:Repair-ChatListedAll} = { [pscustomobject]@{ Relisted = @(); Held = @() } }
+    try { chatclean -Provider claude *> $null }
+    finally { ${function:Select-ChatItems} = $ctPick; ${function:Repair-ChatListedAll} = $ctRelist }
+    $ctRq5 = if (Test-Path -LiteralPath $script:ChatReloadPath) { [System.IO.File]::ReadAllText($script:ChatReloadPath, $utf8) | ConvertFrom-Json }
+    $ct5 = @($ctRq5.closeTabs)
+    Check 'chatclean asks the same for a ghost it removed: the window that had it as a tab' (
+        -not (Test-Path -LiteralPath $pT5) -and $ctRq5.kind -eq 'deleted' -and $ct5.Count -eq 1 -and $ct5[0].hostPid -eq $ctPing.Id -and
+        $ct5[0].sessionId -eq $idT5 -and $ct5[0].label -eq 'Tab close ghost' -and (& $ctHome $ct5[0])) ($ctRq5 | ConvertTo-Json -Compress -Depth 5)
+}
+finally {
+    Remove-Item function:Get-Process
+    try { $ctPing.Kill() } catch {}
+    foreach ($p in $PID, $ctPing.Id, $ctGone) { Remove-Item -LiteralPath (Join-Path $ctDir "$p.json") -Force -EA SilentlyContinue }
+    Restore-TestFile $script:ChatReloadPath $ctReloadWas
+}
+
 $r = Resolve-ChatqTarget 'Copilot chat about tests'
 Check 'a Copilot chat is named, then refused' ($r.Error -like '*Copilot*') $r.Error
 $r = Resolve-ChatqTarget 'zzqx nothing like it'
@@ -147,7 +241,7 @@ Copy-Item -LiteralPath (Join-Path $root 'src') -Destination $sb2 -Recurse
 # would put a real panel on the screen - the shell-start path still runs
 $null = New-Item -ItemType Directory -Path (Join-Path $sb2 'data') -Force
 [System.IO.File]::WriteAllText((Join-Path $sb2 'data\config.json'), '{"overlay":{"autoStart":false}}', $utf8)
-$probe2 = "Remove-Item env:CHATQ_WATCHER, env:CHATQ_ALLPARTS -EA SilentlyContinue; Set-StrictMode -Version Latest; `$ErrorActionPreference = 'Stop'; try { . '$(Join-Path $sb2 'Charlie-and-the-chat-factory.ps1')'; Set-Location -LiteralPath '$projA'; chatfind Doomed *> `$null; chatindex *> `$null; `$r = & `$script:ChatTitleCompleter 'chatrm' 'Target' 'Pars' `$null @{}; chatqlist *> `$null; chat *> `$null; chatoverlay -Print *> `$null; 'ok' } catch { 'threw: ' + `$_.Exception.Message + ' ' + `$_.InvocationInfo.PositionMessage }"
+$probe2 = "Remove-Item env:CHATQ_WATCHER, env:CHATQ_ALLPARTS -EA SilentlyContinue; Set-StrictMode -Version Latest; `$ErrorActionPreference = 'Stop'; try { . '$(Join-Path $sb2 'Charlie-and-the-chat-factory.ps1')'; Set-Location -LiteralPath '$projA'; chatfind Doomed *> `$null; chatindex *> `$null; `$r = & `$script:ChatTitleCompleter 'chatrm' 'Target' 'Pars' `$null @{}; chatqlist *> `$null; chat *> `$null; charlie -Print *> `$null; 'ok' } catch { 'threw: ' + `$_.Exception.Message + ' ' + `$_.InvocationInfo.PositionMessage }"
 $strict2 = (& $exe -NoProfile -NonInteractive -Command $probe2 | Select-Object -Last 1)
 Check 'loads and runs under StrictMode as a normal shell does' ($strict2 -eq 'ok') $strict2
 # the script copied without its src/: it names what is missing and defines
@@ -208,24 +302,24 @@ Check 'a shell''s load leaves out the overlay''s parts: every call into them fro
     $gtBridges -eq $gtWant -and -not $gtLoose.Count -and -not $gtTop.Count -and $gtReach.ContainsKey('Show-ChatqPhoneSetup') -and
     (Get-ChatqPhoneSetupLaunch).Command -like "*CHATQ_ALLPARTS='1'*Show-ChatqPhoneSetup*") "$($gtParts.Count) / $gtBridges / loose $($gtLoose -join ',') / top $($gtTop -join ',')"
 # and the load itself, in a process of its own: a shell's without them, but
-# with chatoverlay and chatconsole - which start or tell the overlay's own
-# process - and the console's folders the phone's board reads; the same
-# with CHATQ_OVERLAY, the guard of every process the overlay starts and of
-# the question hook; CHATQ_ALLPARTS loads them all
+# with charlie (and chatoverlay, its alias) and chatconsole - which start or
+# tell the overlay's own process - and the console's folders the phone's
+# board reads; the same with CHATQ_OVERLAY, the guard of every process the
+# overlay starts and of the question hook; CHATQ_ALLPARTS loads them all
 $gtLoad = {
     param([string]$Set)
     Invoke-Sta 'gate-load' @"
 Remove-Item env:CHATQ_OVERLAY, env:CHATQ_ALLPARTS -EA SilentlyContinue
 $Set
 . '$(Join-Path $sb 'tool\Charlie-and-the-chat-factory.ps1')'
-((@('Start-ChatOverlayHost', 'Enter-ChatOverlayConsoleMode', 'Start-ChatOverlayMacHost', 'Get-ChatIconSource', 'chatoverlay', 'chatconsole', 'Get-ChatOverlayLaunch', 'Write-ChatOverlayPrint') | ForEach-Object { [int][bool](Get-Command `$_ -CommandType Function -EA SilentlyContinue) }) -join '') + '|' + [bool]`$script:ChatConsoleStatePath
+((@('Start-ChatOverlayHost', 'Enter-ChatOverlayConsoleMode', 'Start-ChatOverlayMacHost', 'Get-ChatIconSource', 'charlie', 'chatconsole', 'Get-ChatOverlayLaunch', 'Write-ChatOverlayPrint') | ForEach-Object { [int][bool](Get-Command `$_ -CommandType Function -EA SilentlyContinue) }) -join '') + '|' + [bool]`$script:ChatConsoleStatePath + '|' + [bool](Get-Command chatoverlay -CommandType Alias -EA SilentlyContinue)
 "@
 }
 $gtPlain = & $gtLoad ''
 $gtOverlay = & $gtLoad "`$env:CHATQ_OVERLAY = '1'"
 $gtAll = & $gtLoad "`$env:CHATQ_ALLPARTS = '1'"
-Check 'a shell''s load: the panel''s, the console''s and the Mac''s parts left out, chatoverlay, chatconsole and the console''s folders kept - with CHATQ_OVERLAY too, but for stand-ins of the two hosts; CHATQ_ALLPARTS loads them all' (
-    $gtPlain -eq '00001111|True' -and $gtOverlay -eq '10101111|True' -and $gtAll -eq '11111111|True') "$gtPlain $gtOverlay $gtAll"
+Check 'a shell''s load: the panel''s, the console''s and the Mac''s parts left out, charlie, chatconsole and the console''s folders kept - with CHATQ_OVERLAY too, but for stand-ins of the two hosts; CHATQ_ALLPARTS loads them all' (
+    $gtPlain -eq '00001111|True|True' -and $gtOverlay -eq '10101111|True|True' -and $gtAll -eq '11111111|True|True') "$gtPlain $gtOverlay $gtAll"
 # A role's load - the permission bridge's, the question hook's - is the
 # parts its entry reaches: every function it calls, on through theirs, and
 # every part whose top level sets a variable one of them reads but never

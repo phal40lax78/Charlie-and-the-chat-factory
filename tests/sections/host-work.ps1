@@ -756,7 +756,7 @@ Check 'the log not sure yet: no row, its host pending, the note keeping goneAt a
     "$($ecHdP.Count) $($ecHd0.Count) $($ecHd1.Count) $($ecHd2.Count) // $(Read-TestFile (& $ecNote 7001))")
 $script:EcDead = @(7001, 7002, 7003, 7009)
 & $ecSave 7009 $ecNow.AddMinutes(-2)
-# chatoverlay -Print keeps no notes (-Once): before a host's pass keeps
+# charlie -Print keeps no notes (-Once): before a host's pass keeps
 # goneAt it waits for nothing, after it as the host does
 $ecOn0 = @(Get-ChatRestartCutOffs -Live @() -Asked @{} -Jobs @() -Once -Now $ecNow)
 $ecOnN = Read-ChatqJson (& $ecNote 7009)
@@ -772,7 +772,7 @@ Remove-Item -LiteralPath (& $ecNote 7009) -Force -EA SilentlyContinue
 Check 'a host whose exit the log never names - its VS Code''s own process ended: waited for 30 s from goneAt - still at 29 s - then a restart''s row, the cause still looked for' (
     $ecHd3.Count -eq 0 -and $ecPd3[7009] -and $ecHd5.Count -eq 0 -and $ecPd5[7009] -and $ecHd4.Count -eq 1 -and $ecHd4[0].Cause -eq '' -and -not $ecPd4.Count -and
     $ecHn4 -and -not $ecHn4.PSObject.Properties['cause']) "$($ecHd3.Count) $($ecHd5.Count) $($ecHd4.Count) // $(Read-TestFile (& $ecNote 7009))"
-Check 'chatoverlay -Print, which keeps no notes: a host no pass has found gone offered at once as a restart, the note as it was; one a host''s pass found gone waits as the host does' (
+Check 'charlie -Print, which keeps no notes: a host no pass has found gone offered at once as a restart, the note as it was; one a host''s pass found gone waits as the host does' (
     $ecOn0.Count -eq 1 -and $ecOn0[0].Cause -eq '' -and $ecOnN -and -not $ecOnN.PSObject.Properties['goneAt'] -and $ecOn1.Count -eq 0) "$($ecOn0.Count) $($ecOn1.Count) // $($ecOnN | ConvertTo-Json -Compress -Depth 4)"
 # the clock put back since a host's pass kept goneAt: the wait counts from
 # now, not from a goneAt still ahead, which would hold the chat until the
@@ -1132,7 +1132,7 @@ $emCx.WantAsk = $true
 $script:EcMem = @{ Limit = 100GB; Free = 3.5GB }
 $emSn = Invoke-ChatOverlayCycle $emCx -Peek
 $emSnN = Invoke-ChatOverlayCycle (New-ChatOverlayContext) -Peek
-Check 'the overlay''s pass: a host''s carries it in the header and its first note; chatoverlay -Print''s looks at nothing' (
+Check 'the overlay''s pass: a host''s carries it in the header and its first note; charlie -Print''s looks at nothing' (
     $emSn.header.memory -and $emSn.header.memory.percent -eq 96 -and @($emSn.header.notes)[0].kind -eq 'memory' -and -not $emCx.MemSaid -and
     $null -eq $emSnN.header.memory) "$($emSn.header.memory | ConvertTo-Json -Compress)"
 

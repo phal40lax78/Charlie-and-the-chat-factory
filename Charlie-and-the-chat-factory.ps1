@@ -20,7 +20,7 @@ Then type chat for the cheat sheet. Everything else is in README.md.
 # handing back what you already had. extension/package.json carries the same
 # version: the extension installs this copy by it, and extension/build.js
 # refuses to pack the two apart.
-$script:ChatVersion = '0.10.10'
+$script:ChatVersion = '0.10.13'
 
 # The tool's folder and this file, read here once and never inside a function:
 # data/ sits in that folder, and the profile line, the watcher and the overlay
@@ -152,11 +152,11 @@ elseif (-not $env:CHATQ_WATCHER -and -not $env:CHATQ_OVERLAY -and -not $env:CLAU
         }
         catch {}
         # The overlay, the same way back after a reboot: on by default on
-        # Windows, since a chat clicked in it opens as a tab; chatoverlay
+        # Windows, since a chat clicked in it opens as a tab; charlie
         # -AutoStart off keeps it to when it is asked for. One file read and
         # a lock check when it is running already.
         try {
-            if ((Start-ChatOverlayAuto) -eq 'started') { Write-Host '  chatoverlay started' -ForegroundColor DarkGray }
+            if ((Start-ChatOverlayAuto) -eq 'started') { Write-Host '  charlie started' -ForegroundColor DarkGray }
         }
         catch {}
     }

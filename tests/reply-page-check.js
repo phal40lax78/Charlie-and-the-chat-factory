@@ -518,6 +518,19 @@ const fragOf = (q) => '#' + Object.keys(q).filter((n) => q[n] !== undefined).map
     const css = (html.match(/<style>([\s\S]*?)<\/style>/) || [])[1] || '';
     check('no CSS that loads: no url() but data:, no @import, no style="" to hide one in',
         css.length > 0 && !/url\(\s*["']?(?!data:)/i.test(css) && !/@import/i.test(html) && !/\sstyle\s*=/i.test(html));
+    // the dark look's flourish (0.10.11) is the one thing the CSS loads: an
+    // inline SVG as a data: URL. Each must be just a drawing - one <svg> with
+    // its namespace, and nothing in it that references, scripts or styles
+    const cssUrls = [...css.matchAll(/url\(\s*([^)]*?)\s*\)/gi)].map((u) => u[1].replace(/^["']|["']$/g, ''));
+    const svgs = cssUrls.map((u) => { try { return decodeURIComponent(u.slice(u.indexOf(',') + 1)); } catch (e) { return null; } });
+    check('every CSS data: URL is an SVG image, "data:image/svg+xml," and then its percent-encoded drawing',
+        cssUrls.length > 0 && cssUrls.every((u) => u.startsWith('data:image/svg+xml,')), cssUrls.map((u) => u.slice(0, 30)).join(' | '));
+    check('each decodes to one <svg xmlns=\'http://www.w3.org/2000/svg\' ...> and its closing tag',
+        svgs.length > 0 && svgs.every((s) => s !== null && /^<svg xmlns='http:\/\/www\.w3\.org\/2000\/svg'[^>]*>[\s\S]*<\/svg>$/.test(s) && (s.match(/<svg\b/g) || []).length === 1),
+        svgs.join(' | '));
+    check('and none holds an href, <use, <image, <script, <style, foreignObject, an on...= handler or a url(',
+        svgs.length > 0 && svgs.every((s) => s !== null && !/href|<use|<image|<script|<style|foreignObject|[\s'"]on[a-z]+\s*=|url\(/i.test(s)),
+        svgs.join(' | '));
     const csp = (html.match(/<meta\s+http-equiv="Content-Security-Policy"\s+content="([^"]*)"/i) || [])[1] || '';
     const dirs = {};
     csp.split(';').map((d) => d.trim().split(/\s+/)).filter((d) => d[0]).forEach((d) => { dirs[d[0]] = d.slice(1).join(' '); });

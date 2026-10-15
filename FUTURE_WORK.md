@@ -216,11 +216,31 @@ another - **Session history** in the same tab - may keep a live channel for
 the session it left; whether it does is unverified. If so, the handover's
 close ([onHandover](extension/extension.js)) and Show it's
 ([showLive](extension/extension.js)) would end that other session's
-process too. Show it's close before the handover had the same exposure.
+process too. Show it's close before the handover had the same exposure,
+and so does the close of a deleted chat's tab
+([closeTabsHere](extension/extension.js), 0.10.12).
 
 **To close:** S48 item 4. If a panel keeps the old channel, close only a
 panel whose one channel is the chat's - which needs the Claude extension to
 say so - or say what else will end before the close.
+
+## A closed tab writing its deleted chat back
+
+**Why deferred:** 0.10.12 closes a deleted Claude chat's tab
+([closeTabsHere](extension/extension.js)) after the transcript is gone.
+Whether Claude Code, as it ends that tab's process, writes anything back
+under the chat's id - an empty stub, a sidecar folder, a `cost-state`
+record such as a reloading window writes - has not been watched on a real
+window. The ghost watch would take a stub back (README, *Ghosts*), but a
+sidecar folder or another file would be left, and only the next
+`chatclean` would sweep it. Driven through stubs only (TESTING.md, Tier 0
+"extension: a deleted chat's tab").
+
+**To close:** S33 item 40 in TESTING.md: delete an idle chat open in a
+tab and watch its project folder for 20 s. Nothing written - close this.
+Something written - have the close pass's window, or the script after the
+request, remove what came back under that id, as the ghost watch does a
+stub.
 
 ## The overlay: what 0.4.0 left out
 
@@ -258,7 +278,7 @@ Its items left on purpose are in [DEFERRED.md](DEFERRED.md).
 
 ## Codex threads archived from Codex's own panel
 
-**Why deferred:** `chatrestore` lists what `chatrm -Archive` archived, from its
+**Why deferred:** `chatrestore` lists what `chatarchive` archived, from its
 own records, plus any rollout under `~/.codex/archived_sessions/` - which spike
 S16 showed is where `codex archive` moves one. Whether Codex's panel archives
 the same way, rather than only in its sqlite state, has not been watched, so
@@ -276,7 +296,7 @@ both ways shows once, and cached for a minute for the Tab completer.
 
 ## A Codex thread open in the panel, or a turn that ended in an error
 
-**Why deferred:** `chatrm -Archive` keeps a Codex thread at work
+**Why deferred:** `chatarchive` keeps a Codex thread at work
 ([Get-ChatCodexBusy](src/chatrm.ps1)), read from the rollout alone: a record
 in the last minute, or a last `task_started` with no `task_complete` or
 `turn_aborted` after it, in a rollout a codex still holds open to write (on
@@ -768,3 +788,29 @@ before. **Why it waits:** found while measuring the tiles; what in the
 long way costs is not timed yet. **To close:** time its parts - the
 edges' zone, the bar's target and placing, the chip - as the 2026-10-06
 pass timed the short way, and keep only what each check needs.
+
+## The board's Recent and Older headings in light mode
+
+The board's `.shead[data-sec="recent"]` and `.shead[data-sec="older"]`
+headings ([docs/reply.html](docs/reply.html)) read faint in the light
+look. The dark look sets both to `color: var(--muted)` (0.10.11), which
+would fix the light look too. **Why it waits:** light mode was to stay as
+it was in that release, so the rule sits under the dark media query only.
+**To close:** move the `color: var(--muted)` rule out of the dark block so
+it covers both looks, and look at the board in light mode on a phone.
+
+## A card on a chat whose subagent asks
+
+A chat that waits while its foreground subagent asks to run a tool may
+show on its card as `Allow Agent` and the agent's description:
+[Get-ChatOverlayCardModel](src/overlay-data.ps1) takes the newest call
+still open in the chat's own transcript, which is the Agent call - the
+subagent's calls are in a transcript of their own - and the row's
+`detail`, the registry's `waitingFor`, goes unused while a call is open.
+The Agent call asks for nothing; the subagent's call does. **Why it
+waits:** reasoned from the transcripts' shapes in the card's review, not
+seen: whether the registry says waiting then, and what its `waitingFor`
+says, is not known. **To close:** catch one live - a chat whose
+foreground Agent runs a Bash call that asks - then, for an open Agent or
+Workflow call, show `Waits in` and its description, or the row's `detail`
+where it says more than `input needed`.

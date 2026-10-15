@@ -374,7 +374,10 @@ function message(req, fresh) {
     if (req.kind === 'new') {
         return 'A new chat, ' + what + ', was started in this folder by chatq. Claude Code leaves chats a claude -p run started out of its list, so no reload shows it: the overlay\'s open chip offers it in a terminal.';
     }
-    const done = (req.kind === 'archived' ? 'Archived ' : 'Deleted ') + what + '.';
+    // tabsClosed: the deleted chats' tabs this window closed (closeDeleted)
+    const n = req.tabsClosed > 0 ? req.tabsClosed : 0;
+    const closed = n === 1 ? ' and closed its tab' : n > 1 ? ' and closed their ' + n + ' tabs' : '';
+    const done = (req.kind === 'archived' ? 'Archived ' : 'Deleted ') + what + closed + '.';
     if (req.busy === true) {
         return done + ' A chat in this workspace is still working, and reloading now would cut it off - reload once it finishes.';
     }
@@ -2397,6 +2400,106 @@ async function offer(context, req, file) {
     }
 }
 
+// --- a deleted chat's tab, closed --------------------------------------------
+// chatrm, chatclean and the overlay's delete chip remove a chat's transcript,
+// and its tab stayed open on a chat no longer there. So the script names,
+// before it deletes, every window whose data/open-tabs file lists the chat
+// (writeTabs): closeTabs, [{ sessionId, label, title, hostPid, cwd, home }],
+// one entry a window. Each window closes its own - hostPid its extension
+// host - whatever folder the request is for, and only where it is sure: one
+// Claude tab here of that label, a label no other chat of its folders has
+// (labelShared), and the chat not working (workingNow) - chatrm asks no
+// such thing. A label alone, never the chat's open: on a deleted chat that
+// makes a blank tab and a new process. Anything less sure leaves the tab,
+// and says so. Seen per window, by request id and this host's pid: one
+// window's mark must not stop another that holds the chat too. A request
+// at startup, or past openMaxAge, is only marked.
+const CLOSE_SEEN = 'chatManager.closeSeenIds';
+Object.assign(texts, {
+    tabLeft: names => names.length === 1 ?
+        names[0] + ' was deleted, but its tab here was left open: no tab could be told for sure to be the chat\'s, or the chat was still working. Close it yourself once you are sure.' :
+        names.join(', ') + ' were deleted, but their tabs here were left open: no tab could be told for sure to be theirs, or a chat was still working. Close them yourself once you are sure.'
+});
+
+// this window's entries of a request's closeTabs, each with a label
+function closeTabsOf(req) {
+    return (Array.isArray(req.closeTabs) ? req.closeTabs : []).filter(e => e && typeof e === 'object' &&
+        e.hostPid === process.pid && typeof e.label === 'string');
+}
+
+function closeSeen(context, key) {
+    if (seenSet(context).has(CLOSE_SEEN + ' ' + key)) return true;
+    const list = context.globalState.get(CLOSE_SEEN);
+    return Array.isArray(list) && list.includes(key);
+}
+// marked here at once, before any await, as markSeen is
+function markCloseSeen(context, key) {
+    seenSet(context).add(CLOSE_SEEN + ' ' + key);
+    const list = context.globalState.get(CLOSE_SEEN);
+    const next = (Array.isArray(list) ? list.filter(x => x !== key) : []).concat([key]).slice(-SEEN_KEEP);
+    return context.globalState.update(CLOSE_SEEN, next);
+}
+
+// The newest close pass still to finish, else null. A reload ask a check
+// takes while it runs waits for it (checkOne): a reload then - a newer
+// request's, by itself - would bring the tab back under a new host's pid,
+// which no request names, and lose the delete's ask besides.
+let closePending = null;
+
+// The request's tabs here, closed on the show queue: undefined where it
+// names none of this window's, or was seen; else a promise of how many
+// were closed.
+function closeDeleted(context, req, onlyRecent) {
+    const mine = closeTabsOf(req);
+    if (!mine.length) return;
+    const key = req.id + '@' + process.pid;
+    if (closeSeen(context, key)) return;
+    markCloseSeen(context, key);
+    if (onlyRecent || !(ageOf(req) <= timing.openMaxAge)) {
+        log('deleted ' + req.id + ': ' + mine.length + ' tab(s) here not closed - ' + (onlyRecent ? 'the window just started' : 'the request is old'));
+        return;
+    }
+    const p = enqueue(() => closeTabsHere(req, mine));
+    closePending = p;
+    p.then(() => { if (closePending === p) closePending = null; });
+    return p;
+}
+
+// Each entry's tab, closed where sure; the rest said in one notice. How
+// many were closed.
+// Deferred: DEFERRED.md "A deleted chat's tab: the ones left open"
+async function closeTabsHere(req, entries) {
+    let closed = 0;
+    const left = [];
+    for (const e of entries) {
+        const label = e.label;
+        const say = s => log('deleted ' + String(e.sessionId || '').slice(0, 8) + ': its tab ' + JSON.stringify(label) + ' ' + s);
+        const named = '"' + (e.title || label || 'a chat') + '"';
+        const ofLabel = () => allTabs().filter(t => isClaudeTab(t) && t.label === label);
+        // an untitled tab reads "Claude Code", as every other one does
+        if (!label || label === claudeTabLabel('')) { say('not closed - no label to tell it by'); left.push(named); continue; }
+        const hits = ofLabel();
+        if (!hits.length) { say('is gone already'); continue; }
+        if (hits.length > 1) { say('not closed - another Claude tab here has that label'); left.push(named); continue; }
+        const t = hits[0];
+        if (await labelShared(label, e.cwd, e.sessionId, e.home || undefined)) { say('not closed - another chat of its folder has that label'); left.push(named); continue; }
+        if (workingNow({ sessionId: e.sessionId, home: e.home })) { say('not closed - the chat is working'); left.push(named); continue; }
+        // the last look, right before the close
+        if (!allTabs().includes(t)) { say('went meanwhile'); continue; }
+        if (ofLabel().length !== 1) { say('not closed - another Claude tab of that label came meanwhile'); left.push(named); continue; }
+        try {
+            await bounded(vscode.window.tabGroups.close(t), 'closing the tab');
+            closed++;
+            say('closed');
+        } catch (err) {
+            say('could not be closed: ' + (err && err.message));
+            left.push(named);
+        }
+    }
+    if (left.length) vscode.window.showInformationMessage(texts.tabLeft(left));
+    return closed;
+}
+
 // Every request in the file not seen yet, oldest first; what the newest of
 // them came to is returned.
 function check(context, file, onlyRecent) {
@@ -2412,8 +2515,12 @@ function check(context, file, onlyRecent) {
 
 function checkOne(context, req, file, onlyRecent) {
     if (!req.id || req.kind === 'open') return;
-    if (wasSeen(context, SEEN_KEY, req.id)) return;
-    if (!isTarget(req)) return;
+    // A deleted chat's tabs here first, before the seen and target gates: a
+    // window holding the tab may be neither the request's folder nor the
+    // one that took its reload ask
+    const closing = closeDeleted(context, req, onlyRecent);
+    if (wasSeen(context, SEEN_KEY, req.id)) return closing;
+    if (!isTarget(req)) return closing;
     if (onlyRecent) {
         // at startup, ignore a request left over from days ago - the list it
         // was about was rebuilt from disk when this window opened
@@ -2424,7 +2531,14 @@ function checkOne(context, req, file, onlyRecent) {
         // given as it ended, is stale with someone opening windows
         if (req.kind === 'ran' || req.kind === 'new') { markSeen(context, SEEN_KEY, req.id); return; }
     }
-    return offer(context, req, file);
+    // The reload ask once the tabs are closed - its own, so it can say so,
+    // or an older request's still closing, so no reload overtakes that and
+    // the asks stay oldest first - marked seen now, so a poll meanwhile
+    // passes it by
+    const wait = closePending;
+    if (!wait) return offer(context, req, file);
+    markSeen(context, SEEN_KEY, req.id);
+    return wait.then(n => offer(context, closing && n > 0 ? Object.assign({}, req, { tabsClosed: n }) : req, file));
 }
 
 // The overlay's open chip: always a tab (openTab). The chip ends no process,
@@ -4182,7 +4296,7 @@ const overlayIo = {
 };
 
 // The overlay, started with the window. data/config.json's overlay.autoStart
-// is the one switch - chatoverlay -AutoStart on|off sets it - and a missing
+// is the one switch - charlie -AutoStart on|off sets it - and a missing
 // file or key reads as the default: on for Windows, off on a Mac, where the
 // panel is untested. A config.json there that cannot be read, or does not
 // parse, reads as off: it may be the one that turned the overlay off. Once
@@ -4232,9 +4346,9 @@ async function startOverlay(context) {
 }
 
 // Chat Manager: Overlay: start by itself... - the one switch, set as
-// chatoverlay -AutoStart on|off sets it, without a terminal: the owner who
+// charlie -AutoStart on|off sets it, without a terminal: the owner who
 // never installed the terminal commands has no other way to stop it. Off
-// also closes a running overlay through chatoverlay -Stop, so it is off now
+// also closes a running overlay through charlie -Stop, so it is off now
 // and not only at the next start. Run through the tool folder's loader and
 // setup's runPs, as startOverlay is, so the tests stand in for PowerShell;
 // the script's own lines say whether it took. Never throws.
@@ -4256,12 +4370,14 @@ async function overlayAutoStart() {
         }
         const pick = await vscode.window.showQuickPick([
             { label: 'On', description: 'with every shell and VS Code window', value: 'on' },
-            { label: 'Off', description: 'only when chatoverlay starts it; a running one is closed', value: 'off' }
+            { label: 'Off', description: 'only when charlie starts it; a running one is closed', value: 'off' }
         ], { placeHolder: texts.autoStartAsk });
         if (!pick || !pick.value) return done('nothing picked');
         const exe = io.powershell(platform);
         if (!exe) { vscode.window.showWarningMessage(texts.autoStartFailed); return done(pick.value + ' - no PowerShell found'); }
         // Write-Host is the information stream: *>&1 brings it to stdout
+        // chatoverlay, not charlie: a tool folder from before 0.10.11 has
+        // only that name, and the alias keeps it working in a newer one
         const r = await setup._runPs(exe, loader, 'chatoverlay -AutoStart ' + pick.value + ' *>&1 | Out-String -Width 200', 60000, log);
         const set = lastSaid(r && r.stdout, /^start with every shell and VS Code window: (on|off)$/);
         if (!(r && r.ok) || !set.endsWith(': ' + pick.value)) {
@@ -4532,3 +4648,5 @@ Object.assign(module.exports, { _askReload: askReload, _askSay: askSay, _onReloa
 // this window's Claude tabs, for the overlay
 Object.assign(module.exports, { _openTabChats: openTabChats, _writeTabs: writeTabs, _lookTabs: lookTabs, _watchTabs: watchTabs,
     _tabsFile: tabsFile, _tabsIo: tabsIo });
+// a deleted chat's tab, closed
+Object.assign(module.exports, { _closeTabsOf: closeTabsOf, _closeDeleted: closeDeleted, _closeTabsHere: closeTabsHere, _closeSeenKey: CLOSE_SEEN });

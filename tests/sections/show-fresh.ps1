@@ -827,9 +827,15 @@ $rr = @([pscustomobject]@{ Key = 's:a'; Rect = @(10, 20, 100, 30) })
 Check 'a row under the pointer: its last pixel in, the next out' ((Find-ChatOverlayRowAt ([pscustomobject]@{ X = 109; Y = 49 }) $rr).Key -eq 's:a' -and
     $null -eq (Find-ChatOverlayRowAt ([pscustomobject]@{ X = 110; Y = 49 }) $rr) -and $null -eq (Find-ChatOverlayRowAt ([pscustomobject]@{ X = 109; Y = 50 }) $rr))
 $scrS = [pscustomobject]@{ X = 0; Y = 0; Width = 1920; Height = 1040 }
-$cp1 = Get-ChatOverlayChipPlacement @(1524, 200, 380, 20) @(40, 18) $scrS
-$cp2 = Get-ChatOverlayChipPlacement @(1900, 1030, 380, 20) @(40, 18) $scrS
-Check 'the chip flush with its row''s right end, centred on it, and kept on the screen' ($cp1.X -eq 1864 -and $cp1.Y -eq 201 -and $cp2.X -eq 1880 -and $cp2.Y -eq 1022) "$($cp1.X),$($cp1.Y) $($cp2.X),$($cp2.Y)"
+$cp1 = Get-ChatOverlayChipLayout @(1524, 200, 380, 20) @(1524, 200, 380, 20) @(40, 18) $null $scrS
+$cp2 = Get-ChatOverlayChipLayout @(1900, 1030, 380, 20) @(1900, 1030, 380, 20) @(40, 18) $null $scrS
+Check 'the chip''s icons flush with their row''s right end, centred on it, and kept on the screen' ($cp1.X -eq 1864 -and $cp1.Y -eq 201 -and $cp2.X -eq 1880 -and $cp2.Y -eq 1022 -and
+    ($cp1.IconsAt -join ',') -eq '0,0' -and $null -eq $cp1.WordsAt) "$($cp1.X),$($cp1.Y) $($cp2.X),$($cp2.Y) $($cp1.IconsAt -join ',')"
+# a full row's: the icons centred on the row, the words on the title's line,
+# the window round both
+$cp3 = Get-ChatOverlayChipLayout @(1524, 200, 380, 36) @(1570, 218, 200, 16) @(117, 15) @(90, 18) $scrS
+Check 'the chip''s words and icons placed apart in one window round both' ($cp3.X -eq 1680 -and $cp3.Y -eq 210 -and ($cp3.IconsAt -join ',') -eq '107,0' -and ($cp3.WordsAt -join ',') -eq '0,7' -and
+    $null -eq (Get-ChatOverlayChipLayout @(0, 0, 1, 1) @(0, 0, 1, 1) $null @(0, 0) $scrS)) "$($cp3.X),$($cp3.Y) $($cp3.IconsAt -join ',') $($cp3.WordsAt -join ',')"
 Check 'only a Claude chat with an id and a folder gets one' ((Test-ChatOverlayRowOpenable (& $rowS 'C:\p')) -and
     -not (Test-ChatOverlayRowOpenable ([pscustomobject]@{ provider = 'codex'; sessionId = $idS; cwd = 'C:\p' })) -and
     -not (Test-ChatOverlayRowOpenable (& $rowS 'C:\p' 'j:1')) -and -not (Test-ChatOverlayRowOpenable (& $rowS '')) -and -not (Test-ChatOverlayRowOpenable $null))
@@ -907,7 +913,8 @@ Show-ChatOverlayChip `$H `$rects[0] `$away
 `$cx = [ChatOverlayNative]::GetExStyle(`$H.ChipHwnd)
 `$cr = [ChatOverlayNative]::GetRect(`$H.ChipHwnd)
 `$ln = `$rects[0].Line
-`$flush = [Math]::Abs((`$cr[0] + `$cr[2]) - (`$ln[0] + `$ln[2])) -le 1
+`$rr = `$rects[0].Rect
+`$flush = [Math]::Abs((`$cr[0] + `$cr[2]) - (`$rr[0] + `$rr[2])) -le 1
 `$shown = `$H.ChipWin.IsVisible -and `$H.ChipKey -eq `$rows[0].key -and `$H.ChipArmed
 `$H.Ctx.ViewSig = 'b'
 Update-ChatOverlayView `$H ([pscustomobject]@{ header = `$none; rows = @(`$rows[1]) })

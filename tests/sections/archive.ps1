@@ -2,9 +2,34 @@
 # never on its own - it uses what the runner and the sections before it set.
 
 Section 'archive and restore'
-chatrm 'Archive me please' -Archive -Force -NoWait *> $null
+# chatarchive is its own command now, chatrm's switches but -Archive, which
+# chatrm no longer takes: said, not searched for as part of the title, and
+# nothing moved
+$arWant = 'AllProjects,DropJobs,Force,NoWait,Provider,Target,WaitForIdle'
+$arHas = @((Get-Command chatarchive).Parameters.Keys | Where-Object { $_ -in 'Target', 'Provider', 'Force', 'AllProjects', 'NoWait', 'WaitForIdle', 'DropJobs', 'Archive' } | Sort-Object) -join ','
+$rmHas = @((Get-Command chatrm).Parameters.Keys | Where-Object { $_ -in 'Target', 'Provider', 'Force', 'AllProjects', 'NoWait', 'WaitForIdle', 'DropJobs', 'Archive' } | Sort-Object) -join ','
+$rmArch = try { chatrm 'Archive me please' -Archive -Force -NoWait -ErrorAction Continue 2>&1 | Out-String -Width 300 } catch { "threw $_" }
+# the short forms PowerShell took for the old switch, and -Archive:$true
+$rmArch += try { chatrm 'Archive me please' -Arch -Force -NoWait -ErrorAction Continue 2>&1 | Out-String -Width 300 } catch { "threw $_" }
+$rmArch += try { chatrm 'Archive me please' -Archive:$true -Force -NoWait -ErrorAction Continue 2>&1 | Out-String -Width 300 } catch { "threw $_" }
+$rmArchN = ([regex]::Matches($rmArch, 'no -Archive any more - chatarchive')).Count
+Check 'chatarchive takes chatrm''s switches but -Archive; chatrm takes no -Archive any more, says chatarchive does it, and moves nothing' (
+    $arHas -eq $arWant -and $rmHas -eq $arWant -and $rmArchN -eq 3 -and $rmArch -notlike '*threw*' -and
+    (Test-Path -LiteralPath $pArch) -and -not (Test-Path -LiteralPath (Join-Path $script:ChatArchiveDir "claude\$idArch"))) "$arHas / $rmHas / $rmArch"
+# what knows the command list knows chatarchive: Tab for its titles and
+# -Provider, Enter's fill-in of a title typed in part, the cheat sheet, help
+$arTab = { param($s) @((TabExpansion2 -inputScript $s -cursorColumn $s.Length).CompletionMatches | ForEach-Object CompletionText) }
+$arTitles = & $arTab 'chatarchive Archive me'
+$arProv = & $arTab 'chatarchive -Provider co'
+$arSheet = (chat *>&1 | Out-String -Width 300)
+Check 'chatarchive: Tab fills its titles and -Provider, Enter fills a title typed in part, the cheat sheet and Get-Help name it' (
+    $arTitles -contains "'Archive me please'" -and ($arProv -join ',') -eq 'copilot,codex' -and
+    (Test-ChatPartialTarget 'chatarchive Archive me') -and -not (Test-ChatPartialTarget "chatarchive 'Archive me please'") -and
+    $arSheet -like '*chatarchive ...*chatrestore brings it back*' -and $arSheet -notlike '*-Archive*' -and
+    (Get-Help chatarchive).Synopsis -like '*chatrestore brings*') "$($arTitles -join ',') / $($arProv -join ',')"
+chatarchive 'Archive me please' -Force -NoWait *> $null
 $man = Join-Path $script:ChatArchiveDir "claude\$idArch\manifest.json"
-Check 'chatrm -Archive moves the chat and its leftovers into data/archive' (-not (Test-Path -LiteralPath $pArch) -and -not (Test-Path -LiteralPath $archHist) -and (Test-Path -LiteralPath $man))
+Check 'chatarchive moves the chat and its leftovers into data/archive' (-not (Test-Path -LiteralPath $pArch) -and -not (Test-Path -LiteralPath $archHist) -and (Test-Path -LiteralPath $man))
 $tomb = if (Test-Path -LiteralPath $script:ChatTombPath) { [System.IO.File]::ReadAllText($script:ChatTombPath, $utf8) } else { '' }
 Check 'the old path is tombstoned and leaves the index' ($tomb -like "*$idArch*" -and -not @(Get-ChatIndex | Where-Object { $_.Id -eq $idArch }))
 Check 'chatrestore lists it' (@(Get-ChatArchive | Where-Object { $_.Id -eq $idArch }).Count -eq 1)
@@ -15,17 +40,17 @@ $backText = if (Test-Path -LiteralPath $pArch) { [System.IO.File]::ReadAllText($
 Check 'restore replaces the stub with the chat, leftovers and all' ($backText -like '*archive this one*' -and (Test-Path -LiteralPath (Join-Path $archHist 'x')) -and -not (Test-Path -LiteralPath (Split-Path $man -Parent)))
 $tomb = if (Test-Path -LiteralPath $script:ChatTombPath) { [System.IO.File]::ReadAllText($script:ChatTombPath, $utf8) } else { '' }
 Check 'its tombstone is cleared and it is back in the index' ($tomb -notlike "*$idArch*" -and @(Get-ChatIndex | Where-Object { $_.Id -eq $idArch }).Count -eq 1)
-chatrm 'Archive me please' -Archive -Force -NoWait *> $null
+chatarchive 'Archive me please' -Force -NoWait *> $null
 [System.IO.File]::WriteAllText($pArch, ('{"type":"user","message":{"role":"user","content":"written since"},"sessionId":"x"}' + "`n"), $utf8)
 chatrestore 'Archive me please' *> $null
 Check 'restore never moves over a chat with messages in it' ((Test-Path -LiteralPath $man) -and ([System.IO.File]::ReadAllText($pArch, $utf8) -like '*written since*'))
 Remove-Item -LiteralPath $pArch -Force
 chatrestore 'Archive me please' *> $null
 $env:FAKE_AGENTS = '[{"pid":1,"sessionId":"' + $idArch + '","kind":"interactive","status":"idle"}]'
-chatrm 'Archive me please' -Archive -Force -NoWait *> $null
+chatarchive 'Archive me please' -Force -NoWait *> $null
 Remove-Item env:FAKE_AGENTS
 Check 'a chat still open in a window is not archived' ((Test-Path -LiteralPath $pArch) -and -not (Test-Path -LiteralPath $man))
-chatrm 'Codex gitignore thread' -Archive -Force -NoWait *> $null
+chatarchive 'Codex gitignore thread' -Force -NoWait *> $null
 $cxArch = @(Get-ChildItem -LiteralPath (Join-Path $codexHome 'archived_sessions') -Filter "*$cxId*" -Recurse -File -EA SilentlyContinue)
 Check 'a Codex thread goes through codex archive' ($cxArch.Count -eq 1 -and -not (Test-Path -LiteralPath $cxPath))
 Check 'and chatrestore lists it too' (@(Get-ChatArchive | Where-Object { $_.Id -eq $cxId -and $_.Provider -eq 'codex' }).Count -eq 1)
@@ -43,7 +68,7 @@ $cxElse = Join-Path $sb 'codex-elsewhere'
 $cxMan = $null; $cxRow = $null; $cxGone = $false; $cxBack = $false
 try {
     $env:CODEX_HOME = $cxElse
-    chatrm 'Codex gitignore thread' -Archive -Force -NoWait *> $null
+    chatarchive 'Codex gitignore thread' -Force -NoWait *> $null
     $cxGone = -not (Test-Path -LiteralPath $cxPath)
     $cxMan = Read-ChatqJson (Join-Path $script:ChatArchiveDir "codex\$cxId\manifest.json")
     $cxRow = @(Get-ChatArchive | Where-Object { $_.Id -eq $cxId })[0]
@@ -134,18 +159,18 @@ $cxWrote = (Get-Item -LiteralPath $cxPath).LastWriteTime
 $cxArchived = { @(Get-ChildItem -LiteralPath (Join-Path $codexHome 'archived_sessions') -Filter "*$cxId*" -Recurse -File -EA SilentlyContinue).Count }
 try {
     [System.IO.File]::AppendAllText($cxPath, (& $cxEvent (Get-Date) ([ordered]@{ type = 'agent_message'; message = 'working on it' })), $utf8)
-    $cxOut = (chatrm 'Codex gitignore thread' -Archive -Force -NoWait *>&1 | Out-String -Width 300)
-    Check 'chatrm -Archive keeps a Codex thread written just now in sessions/, and says why' ((Test-Path -LiteralPath $cxPath) -and (& $cxArchived) -eq 0 -and -not (Test-Path -LiteralPath (Join-Path $script:ChatArchiveDir "codex\$cxId")) -and $cxOut -like '*Codex is writing to it*')
+    $cxOut = (chatarchive 'Codex gitignore thread' -Force -NoWait *>&1 | Out-String -Width 300)
+    Check 'chatarchive keeps a Codex thread written just now in sessions/, and says why' ((Test-Path -LiteralPath $cxPath) -and (& $cxArchived) -eq 0 -and -not (Test-Path -LiteralPath (Join-Path $script:ChatArchiveDir "codex\$cxId")) -and $cxOut -like '*Codex is writing to it*')
     [System.IO.File]::WriteAllBytes($cxPath, $cxBytes)
     [System.IO.File]::AppendAllText($cxPath, (& $cxEvent (Get-Date).AddMinutes(-10) ([ordered]@{ type = 'task_started'; turn_id = 't1' })), $utf8)
-    $cxOut = & $cxHeld $cxPath { chatrm 'Codex gitignore thread' -Archive -Force -NoWait *>&1 | Out-String -Width 300 }
+    $cxOut = & $cxHeld $cxPath { chatarchive 'Codex gitignore thread' -Force -NoWait *>&1 | Out-String -Width 300 }
     Check 'and one whose turn has not ended, though nothing was written for 10 minutes' ((Test-Path -LiteralPath $cxPath) -and (& $cxArchived) -eq 0 -and $cxOut -like '*has not ended*')
 }
 finally {
     [System.IO.File]::WriteAllBytes($cxPath, $cxBytes)
     (Get-Item -LiteralPath $cxPath).LastWriteTime = $cxWrote
 }
-chatrm 'Archive me please' -Archive -Force -NoWait *> $null
+chatarchive 'Archive me please' -Force -NoWait *> $null
 chatuninstall -All *> $null
 Check 'chatuninstall -All will not take the only copy of an archived chat' ((Test-Path -LiteralPath $man) -and (Test-Path -LiteralPath (Join-Path $sb 'tool\Charlie-and-the-chat-factory.ps1')))
 chatrestore 'Archive me please' *> $null

@@ -15,7 +15,15 @@ $script:ChatqIdleSeam = 99999
 $txt = "done $([char]0xC644)$([char]0xB8CC) a & b %PATH%"
 $sent = Send-ChatqAlert 'done' $txt 2
 $nb = $script:Ntfys[$script:Ntfys.Count - 1].Body | ConvertFrom-Json
-Check 'away: ntfy gets JSON - the title, Hangul intact, priority 5' ($sent -and $nb.topic -eq $topic -and $nb.title -eq "chatq $([char]0xB7) done" -and $nb.message -eq $txt -and $nb.priority -eq 5) ($script:Ntfys[$script:Ntfys.Count - 1].Body)
+Check 'away: ntfy gets JSON - the title, Hangul intact, priority 5' ($sent -and $nb.topic -eq $topic -and $nb.title -eq "$([char]::ConvertFromUtf32(0x2705)) Charlie $([char]0xB7) done" -and $nb.message -eq $txt -and $nb.priority -eq 5) ($script:Ntfys[$script:Ntfys.Count - 1].Body)
+$aj = [pscustomobject]@{ id = 'a'; seq = 4; sessionId = $null; provider = 'claude'; title = "Release  $([char]0xB178)$([char]0xD2B8)"; state = 'x' }
+$null = Send-ChatqAlert 'limited' "$($aj.title) $([char]0xB7) continues at 14:00" 0 -Job $aj
+$nb = $script:Ntfys[$script:Ntfys.Count - 1].Body | ConvertFrom-Json
+$lk = Get-ChatqAlertLook 'reply' 'new chat queued as #4' $aj
+$lu = Get-ChatqAlertLook 'unknown' "$('a' * 90) $([char]0xB7) x" ([pscustomobject]@{ title = ('a' * 90) })
+Check "about a chat: its name in the title after the event's mark, the event leading the words, the name not said twice - and never named where the text did not name it" ($nb.title -eq "$([char]0x23F8)$([char]0xFE0F) Release $([char]0xB178)$([char]0xD2B8)" -and
+    $nb.message -eq "limited $([char]0xB7) continues at 14:00" -and $lk.Title -eq "$([char]::ConvertFromUtf32(0x1F4AC)) Charlie $([char]0xB7) reply" -and $lk.Body -eq 'new chat queued as #4' -and
+    $lu.Title -eq (('a' * 59) + [char]0x2026) -and $lu.Body -eq "unknown $([char]0xB7) x") "$($nb.title) | $($nb.message) | $($lk.Title) $($lk.Body) | $($lu.Title)"
 $hookOut = Join-Path $sb 'hook.txt'
 chatnotify -Command ("Set-Content -LiteralPath '$hookOut' -Encoding UTF8 -Value (`$env:CHATQ_EVENT + '|' + `$env:CHATQ_TEXT + '|' + `$env:CHATQ_PRESENT)") *> $null
 $null = Send-ChatqAlert 'needs input' $txt 2

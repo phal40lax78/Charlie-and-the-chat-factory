@@ -12,7 +12,7 @@
 <meta name="robots" content="noindex">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#f4f5f7" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#101217" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#170a10" media="(prefers-color-scheme: dark)">
 <!-- an empty icon, so the browser does not ask the host for /favicon.ico -->
 <link rel="icon" href="data:,">
 <title>chatq reply</title>
@@ -24,9 +24,9 @@
 }
 @media (prefers-color-scheme: dark) {
     :root {
-        --bg: #101217; --card: #1a1d24; --fg: #e9ebef; --muted: #99a0ac; --line: #2e333d;
-        --accent: #3f7cf0; --accent-fg: #ffffff; --ok: #5fd08a; --warn: #f2b14c; --bad: #ff7b7f;
-        --ok-bg: #16281d; --warn-bg: #2d2412; --bad-bg: #331a1c; --wait-bg: #1b2336;
+        --bg: #170a10; --card: #23101a; --fg: #f2e8dc; --muted: #b3a19f; --line: #5a4630;
+        --accent: #ff4fb4; --accent-fg: #1a0b12; --ok: #5fd08a; --warn: #f2b14c; --bad: #ff7b7f;
+        --ok-bg: #16281d; --warn-bg: #2d2412; --bad-bg: #331a1c; --wait-bg: #2b1220;
     }
 }
 [hidden] { display: none !important; }
@@ -173,13 +173,13 @@ button:disabled { opacity: .45; cursor: default; }
    idle, faint recent. Read at a glance on a 390 px screen: one column, the
    title first, the state on the right, what to tap the whole row. */
 :root {
-    --amber: #a86200; --green: #177a3b; --orange: #c2410c; --purple: #6446cc; --idle: #7a818c; --blue: #2459d6;
+    --amber: #a86200; --green: #177a3b; --orange: #c2410c; --purple: #6446cc; --idle: #7a818c;
     --row: #ffffff; --soft: #eceef2; --bar: #d8dce3;
 }
 @media (prefers-color-scheme: dark) {
     :root {
-        --amber: #f2b14c; --green: #5fd08a; --orange: #ff8f57; --purple: #b39cff; --idle: #8d949f; --blue: #6fa0ff;
-        --row: #1a1d24; --soft: #242832; --bar: #2e333d;
+        --amber: #f2b14c; --green: #5fd08a; --orange: #ff8f57; --purple: #b39cff; --idle: #8d949f;
+        --row: #23101a; --soft: #2e1822; --bar: #3a2530;
     }
 }
 .board, .chat {
@@ -236,7 +236,7 @@ button:disabled { opacity: .45; cursor: default; }
     font-size: 16px; font-weight: 620; line-height: 1.3; word-break: keep-all; overflow-wrap: anywhere;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
-.rt .nd { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--blue); vertical-align: middle; }
+.rt .nd { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--accent); vertical-align: middle; }
 .rs { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rp { font-size: 13px; color: var(--muted); font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rr { flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; max-width: 45%; }
@@ -324,6 +324,16 @@ button:disabled { opacity: .45; cursor: default; }
     .answer .ahead, .answer .abody, .answer .acut, .answer .astate { display: none; }
     .answer .aone { display: block; }
     .bhead .usage, .bfoot .blisten { display: none; }
+}
+/* The dark look is Charlie's, as the overlay's: near-black, gold hairlines
+   (--line), a pink accent, serif headings - the system's own, none loaded -
+   and a small gold flourish under the board's header, an inline SVG
+   (img-src data:). Last, so it wins over the rules above. */
+@media (prefers-color-scheme: dark) {
+    .title, .card h1, .bhost, .bcard h2, .broken h1 { font-family: Didot, Baskerville, Georgia, Constantia, "Noto Serif KR", "Apple SD Gothic Neo", serif; }
+    .bhost { font-size: 15.5px; }
+    .shead[data-sec="recent"], .shead[data-sec="older"] { color: var(--muted); }
+    .bhead { background: var(--bg) url(data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2064%208%27%3E%3Cpath%20d%3D%27M32%20.5%2035.5%204%2032%207.5%2028.5%204z%27%20fill%3D%27%23B09A6C%27%2F%3E%3Cpath%20d%3D%27M2%203.5h23M7%205.5h18M39%203.5h23M39%205.5h18%27%20stroke%3D%27%23B09A6C%27%20fill%3D%27none%27%2F%3E%3C%2Fsvg%3E) no-repeat 50% 100% / 64px 8px; }
 }
 </style>
 </head>

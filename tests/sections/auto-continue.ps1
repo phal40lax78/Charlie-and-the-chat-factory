@@ -696,9 +696,9 @@ $null = Update-ChatqAutoState { param($v) $v.Since = (Get-Date).AddHours(-3) }
 # each Write-Host piece of a job's line comes back a line of its own
 $lsLine = if ($lsOn -match 'Autolist queued chat[^\n]*\n\s*(continue \(auto\))') { $Matches[1] } else { '' }
 Check 'chatqlist: nothing watching, said in yellow; with a watcher, the switch and its counts; off, how to turn it on; ask with no overlay, said' (
-    $lsNobody -like '*auto-continue on - but nothing is watching for cut-off chats: chatoverlay starts the overlay*' -and
+    $lsNobody -like '*auto-continue on - but nothing is watching for cut-off chats: charlie starts the overlay*' -and
     $lsOn -match "auto-continue on $d \d+ queued $d 1 chat never" -and $lsOff -like "*auto-continue off $d chatq -AutoContinue ask|on turns it on*" -and
-    $lsAsk -like '*auto-continue ask - but no overlay runs to ask about cut-off chats: chatoverlay starts it*') "$lsNobody"
+    $lsAsk -like '*auto-continue ask - but no overlay runs to ask about cut-off chats: charlie starts it*') "$lsNobody"
 Check 'chatqlist: an auto job reads continue (auto); a cut-off not continued is tagged' ($lsLine -like '*continue (auto)*' -and
     $lsOn -like '*Autolist never chat (limit *, never auto)*') "$lsLine | $lsOn"
 Write-ChatqBoard
@@ -748,7 +748,7 @@ $ro1 = @($snapA.rows | Where-Object { $_.sessionId -eq $idO1 })
 $ro2 = @($snapA.rows | Where-Object { $_.sessionId -eq $idO2 })
 $jo1 = @(Get-AcJobs $idO1)[0]
 $jo2 = @(Get-AcJobs $idO2)[0]
-Check 'a -Peek pass, and a context no host made (chatoverlay -Print), queue nothing' ($peekJobs -eq 0 -and $printJobs -eq 0) "$peekJobs $printJobs"
+Check 'a -Peek pass, and a context no host made (charlie -Print), queue nothing' ($peekJobs -eq 0 -and $printJobs -eq 0) "$peekJobs $printJobs"
 Check 'the host''s pass queues; a closed chat keeps one orange cut-off row carrying its job, and the job no row of its own' ($jo1 -and $ro1.Count -eq 1 -and
     $ro1[0].kind -eq 'cutoff' -and $ro1[0].status -eq 'cutoff' -and $ro1[0].rank -eq 0.5 -and $ro1[0].auto.state -eq 'armed' -and $ro1[0].job.seq -eq $jo1.seq -and
     # its time, or after a job queued earlier in this sandbox for the same
@@ -804,10 +804,11 @@ Check 'the chips a row gets: don''t continue on armed and due, continue where no
 $dontTip = @(Get-ChatOverlayChipActions (& $rowOf 'armed'))[0].Tip
 Check 'don''t continue''s tooltip carries what the row says in full, and the spec''s words' ($dontTip -like 'L. Don''t send "continue" to this chat after this reset. The next time the limit cuts it off, it is continued again - chatq ''T'' -AutoContinue never stops that.') $dontTip
 $scrA = [pscustomobject]@{ X = 0; Y = 0; Width = 1920; Height = 1040 }
-$cpA = Get-ChatOverlayChipPlacement @(1524, 200, 380, 20) @(170, 18) $scrA 90
-$cpB = Get-ChatOverlayChipPlacement @(1524, 200, 380, 20) @(170, 18) $scrA 400
-$cpC = Get-ChatOverlayChipPlacement @(1524, 200, 380, 20) @(40, 18) $scrA
-Check 'the auto chips keep clear of the row''s state, and never leave the row; open alone stays flush right' ($cpA.X -eq (1524 + 380 - 90 - 170) -and $cpB.X -eq 1524 -and $cpC.X -eq (1524 + 380 - 40)) "$($cpA.X) $($cpB.X) $($cpC.X)"
+$lnA = @(1524, 200, 380, 20)
+$cpA = Get-ChatOverlayChipLayout $lnA $lnA $null @(170, 18) $scrA 90
+$cpB = Get-ChatOverlayChipLayout $lnA $lnA $null @(170, 18) $scrA 400
+$cpC = Get-ChatOverlayChipLayout $lnA $lnA @(40, 18) $null $scrA 90
+Check 'the auto chips keep clear of the row''s state, and never leave the row; the icons stay flush right' ($cpA.X -eq (1524 + 380 - 90 - 170) -and $cpB.X -eq 1524 -and $cpC.X -eq (1524 + 380 - 40)) "$($cpA.X) $($cpB.X) $($cpC.X)"
 # a press on one chip released on another does nothing; the auto chips never take the unread dot
 $script:AcOpened = 0; $script:AcAuto = @(); $script:AcAsk = @(); $script:AcDel = 0
 $fnOpen = ${function:Invoke-ChatOverlayOpen}; $fnAuto = ${function:Invoke-ChatOverlayAutoChip}; $fnAsk = ${function:Invoke-ChatOverlayAskAnswer}; $fnDel = ${function:Invoke-ChatOverlayDeleteChip}
@@ -849,7 +850,7 @@ Check 'don''t continue from the chip removes the auto continue (by chip); contin
 Invoke-ChatOverlayAutoChip $Hu $rowO1 'continue'
 $twiceO1 = @(Get-AcJobs $idO1 | Where-Object { -not $_.auto -and $_.kind -eq 'continue' }).Count
 Check 'continue from the chip a second time, before the list is redrawn: no second continue queued' ($twiceO1 -eq 1) "$twiceO1"
-Check 'chatoverlay -Print words a cut-off in full, from the row''s auto' ((Get-Command Write-ChatOverlayPrint).Definition.Contains('if ($au -and $au.long) { $right = [string]$au.long }')) ''
+Check 'charlie -Print words a cut-off in full, from the row''s auto' ((Get-Command Write-ChatOverlayPrint).Definition.Contains('if ($au -and $au.long) { $right = [string]$au.long }')) ''
 
 # --- the console ------------------------------------------------------------------------------
 Check 'the console''s queue: an auto job auto-continues at its time' ((Get-ChatConsoleJobStatus ([pscustomobject]@{ state = 'queued'; auto = $true }) '13:01').Text -eq 'auto-continues 13:01' -and
@@ -894,7 +895,7 @@ try {
 }
 finally { ${function:Start-ChatqOutboxSender} = $fnStart }
 $ju = if ($script:AcJoins.Count) { [uri]::UnescapeDataString($script:AcJoins[0]) } else { '' }
-Check 'the outbox keeps the job and sends the alert about it: its number in the notification' ($ju -like "*title=chatq $d limited*" -and $ju -like "*auto-continues 13:01*") $ju
+Check 'the outbox keeps the job and sends the alert about it: its number in the notification' ($ju -like "*title=$([char]0x23F8)*" -and $ju -like "*auto-continues 13:01*") $ju
 # skip on the phone: its own words, the marker kept
 $payload = [pscustomobject]@{ act = 'skip'; text = '' }
 $fbk = Invoke-ChatqReply $payload @{ jobId = $jo2.id; seq = $jo2.seq; sessionId = $idO2; event = 'limited' } 'aidac'
@@ -989,28 +990,54 @@ Update-ChatOverlayView `$H ([pscustomobject]@{ header = [pscustomobject]@{ usage
 `$H.Win.UpdateLayout()
 `$rects = @(Get-ChatOverlayRowRects `$H)
 Show-ChatOverlayChip `$H `$rects[0] ([System.Drawing.Point]::new(-9000, -9000))
-`$kids = @(`$H.ChipWin.Content.Children)
-`$cr = [ChatOverlayNative]::GetRect(`$H.ChipHwnd)
+`$H.ChipWin.UpdateLayout()
+# an element's rect on the screen, in pixels; two within a pixel
+`$scr = { param(`$el) `$a = `$el.PointToScreen([System.Windows.Point]::new(0, 0)); `$b = `$el.PointToScreen([System.Windows.Point]::new(`$el.ActualWidth, `$el.ActualHeight))
+    @([int][Math]::Round(`$a.X), [int][Math]::Round(`$a.Y), [int][Math]::Round(`$b.X - `$a.X), [int][Math]::Round(`$b.Y - `$a.Y)) }
+`$near = { param(`$p, `$q) `$p -and `$q -and -not @(0..3 | Where-Object { [Math]::Abs(`$p[`$_] - `$q[`$_]) -gt 1 }).Count }
+# the row's own bin, and the chip's over it; the row's name - a full row's
+# project and title, a compact one's line - and the chip's copy of it, each
+# over its own, its text the same and trimmed the same
+`$drawnIcons = { @(@(@(`$H.Stack.Children | Where-Object { `$_.Tag -and `$_.Tag -isnot [string] })[0].Children | Where-Object { `$_.Tag -is [string] -and `$_.Tag -eq 'icons' })[0].Children) }
+`$chipIcons = { @(`$H.ChipIcons.Children | Where-Object { `$_.Tag -is [string] }) }
+`$textOf = { param(`$g) `$t = `$g.Children[0]; if (`$t.Inlines.Count) { (@(`$t.Inlines) | ForEach-Object { `$_.Text }) -join '' } else { `$t.Text } }
+`$drawnNames = { param(`$el) foreach (`$c in @(`$el.Children)) { if (`$c.Tag -is [string] -and `$c.Tag -eq 'name') { `$c } elseif (`$c -is [System.Windows.Controls.Panel]) { & `$drawnNames `$c } } }
+`$over = { param([int]`$n) `$d = & `$drawnIcons; `$c = & `$chipIcons; `$dn = @(& `$drawnNames @(`$H.Stack.Children | Where-Object { `$_.Tag -and `$_.Tag -isnot [string] })[0]); `$cn = @(`$H.ChipNameBox.Children)
+    `$d.Count -eq 1 -and `$c.Count -eq 1 -and `$d[0].Tag -eq 'delete' -and (& `$near (& `$scr `$d[0]) (& `$scr `$c[0])) -and `$dn.Count -eq `$n -and `$cn.Count -eq `$n -and
+    -not @(0..(`$n - 1) | Where-Object { -not (& `$near (& `$scr `$dn[`$_]) (& `$scr `$cn[`$_].Child)) -or (& `$textOf `$dn[`$_]) -ne (& `$textOf `$cn[`$_].Child) -or
+        [Math]::Abs(`$dn[`$_].Children[0].ActualWidth - `$cn[`$_].Child.Children[0].ActualWidth) -gt 0.5 -or `$cn[`$_].Tag -ne 'open' }).Count }
+`$kids = @(@(`$H.ChipWords.Children) + @(`$H.ChipNameBox.Children | Select-Object -Last 1) + (& `$chipIcons))
+`$cr = & `$scr `$H.ChipWords
 `$sr = `$rects[0].State
 `$tr = `$rects[0].Title
+`$overSay = { param(`$x) (@(& `$drawnIcons) + @(& `$chipIcons) + @(& `$drawnNames `$x) + @(`$H.ChipNameBox.Children | ForEach-Object Child) | ForEach-Object { "`$((& `$scr `$_) -join ',')/`$(`$_.ActualWidth)" }) -join ' ' }
+`$overA = (& `$over 2); `$overASay = & `$overSay @(`$H.Stack.Children | Where-Object { `$_.Tag -and `$_.Tag -isnot [string] })[0]
+# the name lit: accent text, underline drawn, the open's glyph at its end;
+# pressed a unit lower; back as it was
+`$nm = @(`$H.ChipNames)
+`$lit = { param(`$g) `$u = @(`$g.Children | Where-Object { `$_.Tag -eq 'underline' })[0]; `$a = @(`$g.Children | Where-Object { `$_.Tag -eq 'arrow' })[0]
+    `$cols = @(@(`$g.Children[0]) + @(`$g.Children[0].Inlines) | Where-Object { `$_.Tag -is [System.Windows.Media.SolidColorBrush] } | ForEach-Object { `$_.Foreground.Color })
+    "`$(`$u.RenderTransform.ScaleX)/`$(if (`$a) { `$a.Width })/`$(if (`$a) { `$a.Opacity })/`$(`$g.Children[0].RenderTransform.Y)/`$(@(`$cols | Select-Object -Unique).Count -eq 1 -and `$cols[0] -eq (Get-ChatOverlayBrush 'accent').Color)" }
+Set-ChatOverlayNameLit `$nm `$true -Now
+`$litOn = (@(`$nm | ForEach-Object { & `$lit `$_ }) -join ' ')
+Set-ChatOverlayNameLit `$nm `$true -Now -Down
+`$litDown = (@(`$nm | ForEach-Object { & `$lit `$_ }) -join ' ')
+Set-ChatOverlayNameLit `$nm `$false -Now
+`$litOff = (@(`$nm | ForEach-Object { & `$lit `$_ }) -join ' ')
+`$backTo = @(`$nm | ForEach-Object { @(`$_.Children[0]) + @(`$_.Children[0].Inlines) } | Where-Object { `$_.Tag -is [System.Windows.Media.SolidColorBrush] } | ForEach-Object { `$_.Foreground.Color -eq `$_.Tag.Color })
+`$litOk = `$nm.Count -eq 2 -and `$litOn -eq '1///0/True 1/14/1/0/True' -and `$litDown -eq '1///1/True 1/14/1/1/True' -and `$litOff -like '0///0/* 0/0/0/0/*' -and
+    `$backTo.Count -eq 2 -and `$backTo -notcontains `$false
 `$two = `$kids.Count -eq 3 -and (@(`$kids | ForEach-Object { `$_.Tag }) -join ',') -eq 'dont,open,delete' -and `$kids[0].Child.Text -eq "don't continue" -and
-    `$kids[0].ToolTip -like '#12 auto-continues 13:01. Don''t send*' -and `$H.ChipText -eq `$kids[1].Child -and `$sr -and `$tr -and `$tr[1] -ge (`$sr[1] + `$sr[3]) -and
-    [Math]::Abs((`$cr[0] + `$cr[2]) - (`$tr[0] + `$tr[2])) -le 1 -and [Math]::Abs((2 * `$cr[1] + `$cr[3]) - (2 * `$tr[1] + `$tr[3])) -le 2
+    `$kids[0].ToolTip -like '#12 auto-continues 13:01. Don''t send*' -and `$H.ChipHint -is [System.Windows.Controls.TextBlock] -and -not `$H.ChipHint.Text -and
+    `$H.ChipDelGlyph -eq `$kids[2].Child.Child -and `$sr -and `$tr -and `$tr[1] -ge (`$sr[1] + `$sr[3]) -and
+    [Math]::Abs((`$cr[0] + `$cr[2]) - (`$tr[0] + `$tr[2])) -le 1 -and [Math]::Abs((2 * `$cr[1] + `$cr[3]) - (2 * `$tr[1] + `$tr[3])) -le 2 -and `$overA -and `$litOk
+`$twoA = `$two
+# the project's part pressed and the title's let go: one name, it opens
+`$names2 = @(`$H.ChipNameBox.Children)
 # every tile as wide whatever its mark, so every title starts in one
 # column: this cut-off's ring, and below a VS Code chat's window
 `$tileW = { @(@(`$H.Stack.Children | Where-Object { `$_.Tag -and `$_.Tag -isnot [string] })[0].Children)[0].ActualWidth }
 `$w1 = & `$tileW
-# compact, the one line: left of the state and a gap
-`$H.Ctx.Config.prompts = `$false
-`$H.Ctx.ViewSig = 'chip compact'
-Update-ChatOverlayView `$H ([pscustomobject]@{ header = [pscustomobject]@{ usage = @(); notes = @() }; rows = @(`$ar) })
-`$H.Win.UpdateLayout()
-`$rc = @(Get-ChatOverlayRowRects `$H)
-Show-ChatOverlayChip `$H `$rc[0] ([System.Drawing.Point]::new(-9000, -9000))
-`$cc = [ChatOverlayNative]::GetRect(`$H.ChipHwnd)
-`$sc = `$rc[0].State
-`$two = `$two -and `$sc -and `$null -eq `$rc[0].Title -and (`$cc[0] + `$cc[2]) -le `$sc[0]
-`$H.Ctx.Config.prompts = `$true
 # a press on don't continue released on open does nothing; the same chip acts
 `$script:Opened = 0; `$script:AutoActs = @()
 `${function:Invoke-ChatOverlayOpen} = { param(`$H, `$Row) `$script:Opened++ }
@@ -1027,7 +1054,7 @@ Show-ChatOverlayChip `$H `$rc[0] ([System.Drawing.Point]::new(-9000, -9000))
 # is armed for the next one
 `$H.ChipArmed = `$false; `$H.ChipShownTick = [int64][Environment]::TickCount
 `$kids[1].RaiseEvent((& `$ev `$true)); `$kids[1].RaiseEvent((& `$ev `$false))
-`$unarmed = `$script:Opened -eq 0 -and `$H.ChipArmed -and `$kids[1].Child.Text -eq 'click again'
+`$unarmed = `$script:Opened -eq 0 -and `$H.ChipArmed -and `$H.ChipHint.Text -eq 'click again' -and `$H.ChipHintBox.Visibility -eq 'Visible'
 `$kids[1].RaiseEvent((& `$ev `$true)); `$kids[1].RaiseEvent((& `$ev `$false))
 `$unarmed = `$unarmed -and `$script:Opened -eq 1
 # one up a second under a pointer that never left it: the first click opens
@@ -1036,16 +1063,35 @@ Show-ChatOverlayChip `$H `$rc[0] ([System.Drawing.Point]::new(-9000, -9000))
 `$kids[1].RaiseEvent((& `$ev `$true)); `$kids[1].RaiseEvent((& `$ev `$false))
 `$unarmed = `$unarmed -and `$script:Opened -eq 1
 `$script:Opened = 0
-# a plain row: open and delete, flush right
+`$H.ChipArmed = `$true
+`$names2[0].RaiseEvent((& `$ev `$true)); `$names2[1].RaiseEvent((& `$ev `$false))
+`$unarmed = `$unarmed -and `$names2.Count -eq 2 -and `$script:Opened -eq 1
+`$script:Opened = 0
+# compact, the one line: left of the state and a gap
+`$H.Ctx.Config.prompts = `$false
+`$H.Ctx.ViewSig = 'chip compact'
+Update-ChatOverlayView `$H ([pscustomobject]@{ header = [pscustomobject]@{ usage = @(); notes = @() }; rows = @(`$ar) })
+`$H.Win.UpdateLayout()
+`$rc = @(Get-ChatOverlayRowRects `$H)
+Show-ChatOverlayChip `$H `$rc[0] ([System.Drawing.Point]::new(-9000, -9000))
+`$H.ChipWin.UpdateLayout()
+`$cc = & `$scr `$H.ChipWords
+`$sc = `$rc[0].State
+`$overB = (& `$over 1); `$overBSay = & `$overSay @(`$H.Stack.Children | Where-Object { `$_.Tag -and `$_.Tag -isnot [string] })[0]
+`$two = `$two -and `$sc -and `$null -eq `$rc[0].Title -and (`$cc[0] + `$cc[2]) -le `$sc[0] -and `$overB
+`$H.Ctx.Config.prompts = `$true
+# a plain row: its name and delete, the bin flush right
 `$pr = [pscustomobject]@{ key = "s:`$sid"; kind = 'session'; provider = 'claude'; status = 'idle'; rank = 3; project = 'p'; title = 'plain'; prompt = `$null; stateText = 'idle 1m'; job = `$null; sessionId = `$sid; cwd = 'C:\p'; where = 'vscode' }
 `$H.Ctx.ViewSig = 'plain'
 Update-ChatOverlayView `$H ([pscustomobject]@{ header = [pscustomobject]@{ usage = @(); notes = @() }; rows = @(`$pr) })
 `$H.Win.UpdateLayout()
 `$rects = @(Get-ChatOverlayRowRects `$H)
 Show-ChatOverlayChip `$H `$rects[0] ([System.Drawing.Point]::new(-9000, -9000))
-`$cr2 = [ChatOverlayNative]::GetRect(`$H.ChipHwnd)
-`$ln = `$rects[0].Line
-`$plain = (@(`$H.ChipWin.Content.Children | ForEach-Object { `$_.Tag }) -join ',') -eq 'open,delete' -and [Math]::Abs((`$cr2[0] + `$cr2[2]) - (`$ln[0] + `$ln[2])) -le 1
+`$H.ChipWin.UpdateLayout()
+`$cr2 = & `$scr `$H.ChipIcons
+`$rw2 = `$rects[0].Rect
+`$plain = -not `$H.ChipWords.Children.Count -and (@(& `$chipIcons | ForEach-Object { `$_.Tag }) -join ',') -eq 'delete' -and
+    [Math]::Abs((`$cr2[0] + `$cr2[2]) - (`$rw2[0] + `$rw2[2])) -le 1 -and (& `$over 2)
 `$w2 = & `$tileW
 `$slot = `$w1 -gt 0 -and `$w2 -eq `$w1
 # the collapsed line counts the auto ones
@@ -1057,7 +1103,7 @@ Update-ChatOverlayView `$H ([pscustomobject]@{ header = [pscustomobject]@{ usage
 Set-ChatOverlayHidden `$H `$true
 [IO.File]::WriteAllText(`$script:ChatqConfigPath, `$cfgWas)
 if (`$null -ne `$stateWas) { [IO.File]::WriteAllText(`$script:ChatqAutoPath, `$stateWas) }
-'{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}|{9}|{10}|{11}|{12}|{13}' -f `$row7, `$left, (`$trayOff -and `$trayOn -and `$trayItem), `$heldOk, `$top, `$two, `$dragged, `$same, `$unarmed, `$plain, `$folded, `$noticed, `$slot, "side `$(`$t.Side) y `$(`$t.Y) h `$(`$t.Height) p `$(`$p -join ',') box `$boxH chip `$(`$cr -join ',') state `$(`$sr -join ',') title `$(`$tr -join ',') compact `$(`$cc -join ',')/`$(`$sc -join ',') tiles `$w1/`$w2 fold '`$fold' kids `$(@(`$kids | ForEach-Object { `$_.Tag }) -join ',') opened `$(`$script:Opened) acts `$(`$script:AutoActs -join ',') balloons `$(@(`$script:AcBalloons | ForEach-Object { `$_.Text }) -join ' // ')"
+'{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}|{9}|{10}|{11}|{12}|{13}' -f `$row7, `$left, (`$trayOff -and `$trayOn -and `$trayItem), `$heldOk, `$top, `$two, `$dragged, `$same, `$unarmed, `$plain, `$folded, `$noticed, `$slot, "side `$(`$t.Side) y `$(`$t.Y) h `$(`$t.Height) p `$(`$p -join ',') box `$boxH chip `$(`$cr -join ',') state `$(`$sr -join ',') title `$(`$tr -join ',') compact `$(`$cc -join ',')/`$(`$sc -join ',') two `$twoA over `$overA/`$overB '`$overASay' '`$overBSay' tiles `$w1/`$w2 fold '`$fold' kids `$(@(`$kids | ForEach-Object { `$_.Tag }) -join ',') opened `$(`$script:Opened) acts `$(`$script:AutoActs -join ',') balloons `$(@(`$script:AcBalloons | ForEach-Object { `$_.Text }) -join ' // ')"
 "@
     $acOut = Invoke-Sta 'auto-continue-test' $acWpf
     $aw = "$acOut" -split '\|'
@@ -1066,9 +1112,9 @@ if (`$null -ne `$stateWas) { [IO.File]::WriteAllText(`$script:ChatqAutoPath, `$s
     Check 'the tray''s item is checked as config.json has it, and toggles on and ask through Invoke-ChatOverlayVerb' ($aw[2] -eq 'True') "$acOut"
     Check 'the tray''s toggle is held while the console runs a loop of its own' ($aw[3] -eq 'True') "$acOut"
     Check 'seven rows fit: with the panel at the screen''s top, the settings box goes under the bar, over the rows, on the screen' ($aw[4] -eq 'True') "$acOut"
-    Check 'the chip window over an auto row: don''t continue and open, the state in the tooltip; on a full row on the title''s line under the state, flush right, compact left of the state' ($aw[5] -eq 'True') "$acOut"
-    Check 'a press on one chip released on the other does nothing; on the same chip it acts; an unarmed chip takes no click' ($aw[6] -eq 'True' -and $aw[7] -eq 'True' -and $aw[8] -eq 'True') "$acOut"
-    Check 'a plain row gets open and delete, flush with its right end' ($aw[9] -eq 'True') "$acOut"
+    Check 'the chip window over an auto row: don''t continue, the state in the tooltip - on a full row on the title''s line under the state, flush right, compact left of the state - the bin over the row''s own, and the name - project and title, or the compact line - drawn again over the row''s, trimmed the same; lit, its text the accent''s, underlined, the open''s glyph at its end, a unit lower pressed, back as it was' ($aw[5] -eq 'True') "$acOut"
+    Check 'a press on one chip released on the other does nothing; on the same chip it acts - the name''s project and title one chip; an unarmed chip takes no click' ($aw[6] -eq 'True' -and $aw[7] -eq 'True' -and $aw[8] -eq 'True') "$acOut"
+    Check 'a plain row''s chip: its name and delete alone, the bin over the row''s own at its right end' ($aw[9] -eq 'True') "$acOut"
     Check 'collapsed, the one line counts the cut-off chats auto-continue will continue' ($aw[10] -eq 'True') "$acOut"
     Check 'Continue chosen in the settings box: on, and the notice said once' ($aw[11] -eq 'True') "$acOut"
     Check 'every tile is as wide whatever its mark, so every title starts in one column' ($aw[12] -eq 'True') "$acOut"

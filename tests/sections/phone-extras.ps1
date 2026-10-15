@@ -161,7 +161,7 @@ $s1 = & $xSoon (& $xBlock 9 120) (& $xQ 2)
 $s1j = if ($s1.Joins.Count) { Get-JoinPush $s1.Joins[0] } else { $null }
 $s1e = if ($s1j) { (Get-ChatqReplyState).alerts[$s1j.F['a']] } else { $null }
 Check 'soon: a lane blocked 2 h, the reset 9 min off, 2 queued - one usage alert, jobless with w=1, and the registry says soon' ($s1.Joins.Count -eq 1 -and
-    $s1j.Q['title'] -eq "chatq $([char]0xB7) usage" -and $s1j.Q['text'] -eq "Claude resets $(Format-ChatqClockTime $xNow.AddMinutes(9) $xNow) $([char]0xB7) 2 queued $([char]0xB7) they go then, one at a time" -and
+    $s1j.Q['title'] -eq "$([char]::ConvertFromUtf32(0x1F4CA)) Charlie $([char]0xB7) usage" -and $s1j.Q['text'] -eq "Claude resets $(Format-ChatqClockTime $xNow.AddMinutes(9) $xNow) $([char]0xB7) 2 queued $([char]0xB7) they go then, one at a time" -and
     $s1j.F['x'] -eq '1' -and $s1j.F['w'] -eq '1' -and $s1j.F['e'] -eq 'usage' -and $s1e -and $s1e['usage'] -eq 'soon' -and $s1j.Q['priority'] -eq '0') "$($s1.Joins.Count) $($s1j.Url)"
 $xSoonAid = if ($s1j) { $s1j.F['a'] } else { $null }
 $s2 = & $xSoon (& $xBlock 9 120) (& $xQ 2)
@@ -254,7 +254,7 @@ try {
     $wj = & $xLast
     $wakeFile2 = if (Test-Path -LiteralPath $script:ChatqWakePath) { (Get-Content -LiteralPath $script:ChatqWakePath -Raw).Trim() } else { '' }
     Check 'a sealed wake answering the soon alert: the watcher is woken and the phone told, the reply push about no chat' ($acted -eq 1 -and $wakeFile2 -eq 'now' -and
-        $wj.Q['title'] -eq "chatq $([char]0xB7) reply" -and $wj.Q['text'] -like 'trying the queue now - 2 queued*' -and $wj.F['x'] -eq '1') "$acted $wakeFile2 $($wj.Q['text'])"
+        $wj.Q['title'] -eq "$([char]::ConvertFromUtf32(0x1F4AC)) Charlie $([char]0xB7) reply" -and $wj.Q['text'] -like 'trying the queue now - 2 queued*' -and $wj.F['x'] -eq '1') "$acted $wakeFile2 $($wj.Q['text'])"
 }
 finally { ${function:Get-ChatqJobs} = $xWas.Jobs; $script:ChatqReplyPollSeam = $xWas.Poll; Remove-Item -LiteralPath $script:ChatqWakePath -Force -EA SilentlyContinue }
 # a threshold heads-up out of the outbox: jobless, no Send now, the registry says threshold
@@ -266,7 +266,7 @@ $null = Send-ChatqOutboxFile $xOb
 $oj = & $xLast
 $oe = (Get-ChatqReplyState).alerts[$oj.F['a']]
 Check 'a threshold heads-up from the outbox: a usage push, jobless (x=1), no w, the registry entry says threshold' ($script:XJoins.Count -eq $n0 + 1 -and
-    $oj.Q['title'] -eq "chatq $([char]0xB7) usage" -and $oj.F['x'] -eq '1' -and -not $oj.F.ContainsKey('w') -and $oe -and $oe['usage'] -eq 'threshold' -and -not $oe['live']) $oj.Url
+    $oj.Q['title'] -eq "$([char]::ConvertFromUtf32(0x1F4CA)) Charlie $([char]0xB7) usage" -and $oj.F['x'] -eq '1' -and -not $oj.F.ContainsKey('w') -and $oe -and $oe['usage'] -eq 'threshold' -and -not $oe['live']) $oj.Url
 
 # --- quiet hours ----------------------------------------------------------------------
 $xDay = (Get-Date).Date
@@ -340,9 +340,9 @@ $n0 = $script:XJoins.Count
 $sAfter = Send-ChatqAlert 'done' 'after the night' 1
 $sj = @($script:XJoins | Select-Object -Skip $n0 | ForEach-Object { Get-JoinPush $_ })
 Check 'after quiet hours the next alert sends the summary first - held 00:00-07:00: 1 done, 1 waiting, one line each - then itself; the file is gone' ($held0 -eq 2 -and $sAfter -and
-    $sj.Count -eq 2 -and $sj[0].Q['title'] -eq "chatq $([char]0xB7) summary" -and $sj[0].Q['text'] -like 'held 00:00-07:00: 1 done, 1 waiting*' -and
+    $sj.Count -eq 2 -and $sj[0].Q['title'] -eq "$([char]::ConvertFromUtf32(0x1F319)) Charlie $([char]0xB7) summary" -and $sj[0].Q['text'] -like 'held 00:00-07:00: 1 done, 1 waiting*' -and
     $sj[0].Q['text'] -like "*03:00 done $([char]0xB7) #14 Parser rewrite*" -and $sj[0].Q['priority'] -eq '1' -and $sj[0].F['x'] -eq '1' -and
-    $sj[1].Q['title'] -eq "chatq $([char]0xB7) done" -and -not (Test-Path -LiteralPath $script:ChatqHeldPath) -and
+    $sj[1].Q['title'] -eq "$([char]::ConvertFromUtf32(0x2705)) Charlie $([char]0xB7) done" -and -not (Test-Path -LiteralPath $script:ChatqHeldPath) -and
     -not @(Get-ChildItem -LiteralPath $script:ChatqData -Filter 'held-*.sending' -File).Count) "$held0 $($sj.Count) $(@($sj | ForEach-Object { $_.Q['title'] + ': ' + $_.Q['text'] }) -join ' || ')"
 # 210 held: 200 kept, a summary of 700 characters at most, the rest counted
 $script:ChatqClockSeam = $xDay.AddHours(3)
@@ -356,7 +356,7 @@ $sOk = Send-ChatqHeldSummary
 $mj = & $xLast
 Check 'held: 200 kept of 210; the summary 700 characters at most, whole lines, and "and N more" - sent as one push' ($manyItems.Count -eq 200 -and $sOk -and $script:XJoins.Count -eq $n0 + 1 -and
     $mt.Length -le 700 -and $mt -like 'held 00:00-07:00: 200 done*' -and $mt -match "$([char]0x2026) and \d+ more \(data/logs/alerts\.log\)$" -and
-    $mj.Q['title'] -eq "chatq $([char]0xB7) summary" -and $mj.Q['text'] -like 'held 00:00-07:00: 200 done*' -and -not (Test-Path -LiteralPath $script:ChatqHeldPath)) "$($manyItems.Count) $($mt.Length) $($mt.Substring([Math]::Max(0, $mt.Length - 60)))"
+    $mj.Q['title'] -eq "$([char]::ConvertFromUtf32(0x1F319)) Charlie $([char]0xB7) summary" -and $mj.Q['text'] -like 'held 00:00-07:00: 200 done*' -and -not (Test-Path -LiteralPath $script:ChatqHeldPath)) "$($manyItems.Count) $($mt.Length) $($mt.Substring([Math]::Max(0, $mt.Length - 60)))"
 Check 'a held alert over a day old is marked (yesterday); with quiet hours off since, the head says in quiet hours' ($mOld -like "held in quiet hours: 1 done`n* (yesterday) done $([char]0xB7) old") $mOld
 # a push that fails: the lines back, and no second try within 5 minutes
 $script:ChatqClockSeam = $xDay.AddHours(3)
@@ -417,7 +417,7 @@ $n0 = $script:XJoins.Count
 $offSaid = (chatnotify -QuietHours off 6>&1 | Out-String -Width 400)
 $oj2 = & $xLast
 Check '-QuietHours off with alerts held: saved off, and the summary goes at once' (-not (Get-ChatqConfig).PSObject.Properties['quietHours'] -and $script:XJoins.Count -eq $n0 + 1 -and
-    $oj2.Q['title'] -eq "chatq $([char]0xB7) summary" -and $offSaid -like '*quiet hours off*' -and $offSaid -like '*went as one summary*') $offSaid
+    $oj2.Q['title'] -eq "$([char]::ConvertFromUtf32(0x1F319)) Charlie $([char]0xB7) summary" -and $offSaid -like '*quiet hours off*' -and $offSaid -like '*went as one summary*') $offSaid
 $ur = Set-ChatqNotifyConfig @{ QuietHours = '00:00-07:00'; Urgent = 'none' }
 $ur2 = Set-ChatqNotifyConfig @{ Urgent = @('failed', 'needs-input') }
 Check '-Urgent none saves [] (nothing comes through); failed, needs-input saves both' (@((Get-ChatqConfig).quietHours.urgent).Count -eq 2 -and
@@ -518,7 +518,7 @@ $n4 = Get-ChatqJoinSay (Get-ChatqConfig) 'summary' $null 'x'
 $n5 = Get-ChatqJoinSay (Get-ChatqConfig) 'pair' $null 'x'
 $n6 = & $vSay 'test' $null
 Check 'never read aloud: an urgent alert in quiet hours, a -Quick push, a reply, the pairing push, the summary; a test is, when chosen' (-not $n1.Q.ContainsKey('say') -and
-    $n1.Q['title'] -eq "chatq $([char]0xB7) failed" -and -not $n2.Q.ContainsKey('say') -and -not $n3.Q.ContainsKey('say') -and -not $n4 -and -not $n5 -and $n6.Q['say'] -eq 'chatq test') "$($n1.Url) / $($n6.Q['say'])"
+    $n1.Q['title'] -eq "$([char]0x274C) Charlie $([char]0xB7) failed" -and -not $n2.Q.ContainsKey('say') -and -not $n3.Q.ContainsKey('say') -and -not $n4 -and -not $n5 -and $n6.Q['say'] -eq 'chatq test') "$($n1.Url) / $($n6.Q['say'])"
 $null = Set-ChatqNotifyConfig @{ QuietHours = 'off' }
 # the URL budget: the text trimmed first, then say dropped, the icon after that
 $icon = $script:ChatqJoinIcon

@@ -125,6 +125,47 @@ function Get-ChatqJoinUrl {
     }
 }
 
+# each event's mark, ahead of its alert's title: what happened, at a glance
+$script:ChatqAlertMark = @{
+    'done' = 0x2705; 'needs input' = 0x2753; 'failed' = 0x274C; 'started' = 0x25B6; 'limited' = 0x23F8
+    'overloaded' = 0x26A0; 'waiting' = 0x23F3; 'permission' = 0x1F510; 'usage' = 0x1F4CA
+    'reply' = 0x1F4AC; 'test' = 0x1F514; 'pair' = 0x1F517; 'summary' = 0x1F319
+}
+
+function Get-ChatqAlertLook {
+    <#
+    An alert's title and words as the toast, the phone and your command get
+    them, @{ Title; Body; ToastBody }. A text that leads with its chat's
+    name, as most do, gives the name to the title, after the event's mark,
+    and leads with the event instead: "<check> Release notes" over "done
+    <dot> 4m <dot> 2 turns". Any other is "<mark> Charlie <dot> <event>"
+    over the text as it is - a usage alert, or a reply that names no chat on
+    purpose (a new chat's sealed title, src/phone-board.ps1): the name goes
+    only where the text already put it. alerts.log keeps the text as it came.
+    #>
+    param([string]$Event, [string]$Text, $Job, [string]$ToastText)
+    $mark = ''
+    if ($script:ChatqAlertMark.ContainsKey($Event)) {
+        $cp = $script:ChatqAlertMark[$Event]
+        $mark = [char]::ConvertFromUtf32($cp)
+        # text-style by default, these three: VS16 asks for the emoji
+        if ($cp -in 0x25B6, 0x23F8, 0x26A0) { $mark += [char]0xFE0F }
+        $mark += ' '
+    }
+    $raw = [string](Get-ChatField $Job 'title')
+    $name = Limit-ChatqText (($raw -replace '\s+', ' ').Trim()) 60 -Ellipsis
+    $lead = "$raw $($script:ChatqDot) "
+    if (-not $name -or -not $Text.StartsWith($lead, [StringComparison]::Ordinal)) {
+        return [pscustomobject]@{ Title = "${mark}Charlie $($script:ChatqDot) $Event"; Body = $Text; ToastBody = $ToastText }
+    }
+    $body = {
+        param([string]$s)
+        if ($s.StartsWith($lead, [StringComparison]::Ordinal)) { $s = $s.Substring($lead.Length) }
+        if ($s) { "$Event $($script:ChatqDot) $s" } else { $Event }
+    }
+    return [pscustomobject]@{ Title = "$mark$name"; Body = (& $body $Text); ToastBody = $(if ($ToastText) { & $body $ToastText } else { $ToastText }) }
+}
+
 function Send-ChatqAlert {
     <#
     Every alert goes to logs/alerts.log, then to whichever channels are set up:
@@ -138,10 +179,12 @@ function Send-ChatqAlert {
       ntfy     the phone, through ntfy
     The two phone channels stay quiet while you are at the PC - keyboard or
     mouse used in the last quietMinutes (5) - since the toast says it there.
-    -Loud (chatnotify -Test) goes through regardless. Titles all start
-    "chatq <dot> ", so a Tasker profile can filter them - or match only "needs
-    input" and "failed". What the text carries (chat title, an excerpt of the
-    reply) passes through the push service's servers.
+    -Loud (chatnotify -Test) goes through regardless. The title is the
+    chat's name after the event's mark and the words lead with the event,
+    or it is "<mark> Charlie <dot> <event>" (Get-ChatqAlertLook), so a
+    Tasker profile finds "needs input" and "failed" in one or the other. What the text carries
+    (chat title, an excerpt of the reply) passes through the push service's
+    servers.
     config phoneEvents holds some events back from the phone (not 'test',
     'reply' or 'pair'). With replies on and a phone paired (chatnotify
     -Pair) each phone alert carries a link to answer it from the phone - see
@@ -179,7 +222,8 @@ function Send-ChatqAlert {
         [switch]$Quick, [switch]$NoReply, [string]$PairLink,
         [string]$UsageKind, [string]$Card, $Permit, [string]$Tag, [string]$ToastText, $SeenAt)
     if (-not $Quick -and -not $script:ChatqSendingSummary -and (Test-ChatqHeldWaiting)) { $null = Send-ChatqHeldSummary }
-    $title = "chatq $($script:ChatqDot) $Event"
+    $look = Get-ChatqAlertLook $Event $Text $Job $ToastText
+    $title = $look.Title
     $script:ChatqAlertReport = [System.Collections.Generic.List[string]]::new()
     $script:ChatqLastAlertAid = $null
     try {
@@ -192,7 +236,7 @@ function Send-ChatqAlert {
     $present = Test-ChatqUserPresent $cfg
     $toastOn = -not ($cfg.PSObject.Properties['toast'] -and $cfg.toast -eq $false)
     if ($toastOn) {
-        try { Show-ChatqToast $title $(if ($ToastText) { $ToastText } else { $Text }); $script:ChatqAlertReport.Add('toast: shown') }
+        try { Show-ChatqToast $title $(if ($ToastText) { $look.ToastBody } else { $look.Body }); $script:ChatqAlertReport.Add('toast: shown') }
         catch { $script:ChatqAlertReport.Add("toast: $($_.Exception.Message)") }
     }
     # your command runs on every alert, as it always has; one that carries
@@ -200,7 +244,7 @@ function Send-ChatqAlert {
     # or, when the alert stops short of the phone, on the way out, linkless
     $cmdLinks = Test-ChatqCommandLinks $cfg
     $runCmd = {
-        $e = Invoke-ChatqAlertCommand $cfg $Event $title $Text $Priority $present
+        $e = Invoke-ChatqAlertCommand $cfg $Event $title $look.Body $Priority $present
         if ($e) { $script:ChatqAlertReport.Add($e) }
         elseif ($cfg.PSObject.Properties['command'] -and $cfg.command) { $script:ChatqAlertReport.Add('command: ran') }
     }
@@ -258,7 +302,7 @@ function Send-ChatqAlert {
     }
     $sent = $false
     $script:ChatqLastAlertError = $null
-    $phoneText = if ($foot) { "$Text`n$foot" } else { $Text }
+    $phoneText = if ($foot) { "$($look.Body)`n$foot" } else { $look.Body }
     foreach ($ch in $phones) {
         # the pairing push is nothing without its link, which ntfy over
         # plain http leaves out: through there it would count as sent and
@@ -270,9 +314,9 @@ function Send-ChatqAlert {
         }
         $err = if ($ch -eq 'join') { Send-ChatqJoin $cfg $title $phoneText $Priority -Reply $reply -Job $Job -Quick:$Quick -Event $Event -NoSay:$quietIn -Tag $Tag }
         elseif ($ch -eq 'command') {
-            # CHATQ_TEXT the alert's own words, as on every other run of it; a
+            # CHATQ_TEXT the toast's words, as on every other run of it; a
             # clean exit is the command's word that it sent the alert on
-            $ce = Invoke-ChatqAlertCommand $cfg $Event $title $Text $Priority $present -Link $(if ($reply) { $reply.Link } else { '' }) -Quick:$Quick
+            $ce = Invoke-ChatqAlertCommand $cfg $Event $title $look.Body $Priority $present -Link $(if ($reply) { $reply.Link } else { '' }) -Quick:$Quick
             if ($ce) { $ce -replace '^command: ', '' } else { $null }
         }
         else { Send-ChatqNtfy $cfg $title $phoneText $Priority -Click $(if ($reply) { $reply.Link } else { '' }) -Quick:$Quick }
@@ -332,8 +376,8 @@ function Send-ChatqJoin {
 
 function Send-ChatqNtfy {
     # Published as JSON to the server root rather than with Title/Priority
-    # headers: .NET Framework will not put Hangul - or the middle dot every
-    # title starts with - into a header. $null when sent, else the error.
+    # headers: .NET Framework will not put Hangul - or a title's emoji and
+    # middle dot - into a header. $null when sent, else the error.
     # -Click: the reply link, opened by a tap on the notification - only over
     # https: the pairing push's link names the reply topic, and a server
     # reached in the clear would show it to the whole network. -Quick: one

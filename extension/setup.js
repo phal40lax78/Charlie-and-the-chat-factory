@@ -291,8 +291,8 @@ async function allowScripts(exe, log) {
 }
 
 const texts = {
-    ask: 'Charlie and the Chat Factory: add chatrm, chatq and chatoverlay to your PowerShell profile, so every new terminal has them? The profile is backed up first.',
-    askPolicy: (p) => 'Charlie and the Chat Factory: add chatrm, chatq and chatoverlay to your PowerShell profile, so every new terminal has them? ' +
+    ask: 'Charlie and the Chat Factory: add chatrm, chatq and charlie to your PowerShell profile, so every new terminal has them? The profile is backed up first.',
+    askPolicy: (p) => 'Charlie and the Chat Factory: add chatrm, chatq and charlie to your PowerShell profile, so every new terminal has them? ' +
         'PowerShell\'s execution policy is ' + p + ', which would stop that line, so Add also allows local scripts for your user (RemoteSigned). The profile is backed up first.',
     policyHave: (p) => 'Your PowerShell profile loads the chat commands, but PowerShell\'s execution policy is ' + p +
         ', so it never runs. Allow local scripts for your user (RemoteSigned)?',

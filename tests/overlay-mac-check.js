@@ -161,6 +161,28 @@ if (CO) {
     const autoRow = { key: 'c:1', status: 'cutoff', rank: 0.5, project: 'p', title: 'cut chat', prompt: null, stateText: '#12 auto 13:01' };
     const autoFlat = drawn({ at: noon, config: { maxRows: 4 }, rows: [autoRow], header: { usage: [], notes: [] } }, noon);
     check('auto-continue: a cut-off row shows its words as the rows give them', autoFlat.some(l => l.indexOf('cut chat') >= 0 && /#12 auto 13:01$/.test(l)), autoFlat.join(' / '));
+
+    // the dark look is Charlie's (0.10.11): the gold line round the panel,
+    // none in the light look, and the Mac's colours the Windows panel's
+    // divided by 255 - read from src/overlay-windows.ps1 itself, so the two
+    // cannot drift apart
+    const fl = CO.frameLine('dark');
+    check('the frame line: the dark look\'s trim, three parts, none in the light look', Array.isArray(fl) && fl.length === 3 && fl === CO.colors.trim && CO.frameLine('light') === null);
+    const win = fs.readFileSync(path.join(__dirname, '..', 'src', 'overlay-windows.ps1'), 'utf8');
+    const wd = win.match(/\$script:ChatOverlayPalettes\s*=\s*@\{\s*dark\s*=\s*@\{([\s\S]*?)\r?\n\s*\}/);
+    const winDark = {};
+    if (wd) {
+        const re = /(?:'([^']+)'|([A-Za-z]\w*))\s*=\s*(?:'([^']*)'|(-?[0-9.]+))/g;
+        let km;
+        while ((km = re.exec(wd[1]))) { winDark[km[1] || km[2]] = km[3] !== undefined ? km[3] : km[4]; }
+    }
+    check('the Windows dark palette is read out of overlay-windows.ps1: more than 20 keys', Object.keys(winDark).length > 20, Object.keys(winDark).length);
+    const shared = Object.keys(CO.colors).filter(k => /^#(?:[0-9A-Fa-f]{2})?[0-9A-Fa-f]{6}$/.test(winDark[k] || ''));
+    const off = shared.filter(k => {
+        const hex = winDark[k].slice(-6);
+        return [0, 1, 2].some(i => Math.abs(CO.colors[k][i] - Math.round(parseInt(hex.substr(i * 2, 2), 16) / 255 * 100) / 100) > 0.006);
+    });
+    check('every Mac colour Windows also names is that colour, divided by 255 to two places', shared.length > 15 && off.length === 0, off.join(', '));
 }
 console.log('');
 console.log('  ' + (total - failed) + ' passed, ' + failed + ' failed');

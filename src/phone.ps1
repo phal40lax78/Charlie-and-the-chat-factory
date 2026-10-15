@@ -2365,7 +2365,7 @@ function Get-ChatqLiveAlertStatusText {
     if (-not $script:ChatqIsWindows) { return 'on - but only the Windows overlay sends them' }
     # An overlay on older code is no longer a case to name here: it restarts
     # on what is on disk within a minute or so (Test-ChatOverlayCodeChanged).
-    $run = if (-not (Test-ChatqLockHeld $script:ChatOverlayLockPath)) { ' - the overlay is not running, so none go now (chatoverlay)' } else { '' }
+    $run = if (-not (Test-ChatqLockHeld $script:ChatOverlayLockPath)) { ' - the overlay is not running, so none go now (charlie)' } else { '' }
     return "on - waiting on you or finished, while you are away $qm min$run"
 }
 

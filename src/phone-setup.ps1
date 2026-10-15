@@ -41,17 +41,21 @@ $script:ChatqPhoneSetupServerHint = 'Blank for ntfy.sh. https only. Your own ser
 # Two looks, the overlay's colours: a state keeps its meaning in both, the
 # light look's darker to read on white. fill is a pressed-in choice (Save, a
 # ticked box) - a shade deeper than accent in the dark look, so white text on
-# it still reads.
+# it still reads. headFont, headWeight, rule and trim are the heading's: the
+# dark look's a serif over a short gold rule; the light look's as before, its
+# rule collapsed.
 $script:ChatqPhoneSetupPalettes = @{
     dark  = @{
-        window = '#FF1E2227'; text = '#FFE8EAED'; dim = '#FF9AA0A6'; faint = '#FF6B7079'; input = '#FF15181C'; edge = '#3DFFFFFF'
-        line = '#1FFFFFFF'; hover = '#1FFFFFFF'; accent = '#FF4EA1FF'; fill = '#FF1F6FEB'; onFill = '#FFFFFFFF'; select = '#474EA1FF'
-        ok = '#FF4CC38A'; warn = '#FFF5B942'; error = '#FFFF7B72'; link = '#FF8AB8FF'; bar = '#2EF5B942'
+        window = '#FF1F0F17'; text = '#FFF2E8DC'; dim = '#FFC2B1AE'; faint = '#FFA08E8F'; input = '#FF150A10'; edge = '#70B09A6C'
+        line = '#4DB09A6C'; hover = '#55B0203C'; accent = '#FFFF4FB4'; fill = '#FFC4206E'; onFill = '#FFFFFFFF'; select = '#3DFF4FB4'
+        ok = '#FF4CC38A'; warn = '#FFF5B942'; error = '#FFFF7B72'; link = '#FFF2B3C6'; bar = '#2EF5B942'
+        headFont = 'Georgia, Constantia, Palatino Linotype, Book Antiqua, Malgun Gothic, Microsoft YaHei UI'; headWeight = 'Normal'; rule = 'Visible'; trim = '#FFB09A6C'
     }
     light = @{
         window = '#FFF6F8FA'; text = '#FF1F2328'; dim = '#FF57606A'; faint = '#FF8C959F'; input = '#FFFFFFFF'; edge = '#40000000'
         line = '#1F000000'; hover = '#12000000'; accent = '#FF0969DA'; fill = '#FF0969DA'; onFill = '#FFFFFFFF'; select = '#290969DA'
         ok = '#FF1A7F37'; warn = '#FF9A6700'; error = '#FFCF222E'; link = '#FF0969DA'; bar = '#26D4A72C'
+        headFont = 'Segoe UI'; headWeight = 'SemiBold'; rule = 'Collapsed'; trim = '#00000000'
     }
 }
 
@@ -355,7 +359,8 @@ $script:ChatqPhoneSetupXaml = @'
     </Border>
     <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
       <StackPanel Margin="18,14,18,8">
-        <TextBlock Text="Phone alerts" FontSize="17" FontWeight="SemiBold"/>
+        <TextBlock x:Name="Heading" Text="Phone alerts" FontSize="17" FontFamily="@headFont@" FontWeight="@headWeight@"/>
+        <Border x:Name="HeadRule" Height="1" Width="48" HorizontalAlignment="Left" Margin="0,7,0,3" Background="@trim@" Visibility="@rule@" SnapsToDevicePixels="True"/>
         <TextBlock Style="{StaticResource Hint}" Margin="0,2,0,0" Text="chatq tells your phone when a chat needs you or is done - and you can answer."/>
 
         <TextBlock Style="{StaticResource Head}" Text="JOIN"/>

@@ -954,7 +954,7 @@ function Get-ChatqNotifyExtrasStatus {
     $ut = if ($uc.Alerts) { "at $((@($uc.At) | ForEach-Object { "$_%" }) -join ', ') (the overlay checks)" } else { 'heads-ups off' }
     if ($uc.Alerts) {
         if (-not $script:ChatqIsWindows) { $ut += ' - only the Windows overlay checks' }
-        elseif (-not (Test-ChatqLockHeld $script:ChatOverlayLockPath)) { $ut += ' - the overlay is not running, so none go now (chatoverlay)' }
+        elseif (-not (Test-ChatqLockHeld $script:ChatOverlayLockPath)) { $ut += ' - the overlay is not running, so none go now (charlie)' }
     }
     & $add "usage    $ut $d resets $(if ($uc.Reset) { 'on' } else { 'off' })"
     if (($uc.Alerts -or $uc.Reset) -and -not (Test-ChatqPhoneEvent $Cfg 'usage')) { & $add "    usage heads-ups are on, but 'usage' is not among the phone's events" 'Yellow' }

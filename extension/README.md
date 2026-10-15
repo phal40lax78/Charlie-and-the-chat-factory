@@ -11,10 +11,10 @@ those commands and keeps them up to date.
 ![The overlay: every open chat with its project and title beside a tile whose seven-segment clock, in its state's colour, says how long it has worked, waited or sat idle, and usage live at the top](https://raw.githubusercontent.com/phal40lax78/Charlie-and-the-chat-factory/main/docs/demo-overlay.png)
 
 - **Find any chat by part of its title** and Tab-complete it: `chatfind`, `chatrm`, `chatq`.
-- **Delete one chat** and everything it leaves on disk, or **archive** it and bring it back later.
+- **Delete one chat** and everything it leaves on disk - a Claude chat's tab here closes too, where it can be told for sure - or **archive** it (`chatarchive`) and bring it back later (`chatrestore`).
 - **Queue prompts while the usage limit is hit.** At the reset each chat is resumed in turn, sent its prompt, and run to the end - with VS Code closed, too.
 - **Tells you how it went:** a desktop toast, your phone through Join or ntfy, or a command of your own.
-- **Shows every running chat at a glance:** `chatoverlay` keeps a small panel above every app, started with VS Code on Windows. Click a chat there to open it as a tab.
+- **Shows every running chat at a glance:** `charlie` keeps a small panel above every app, started with VS Code on Windows. Click a chat there to open it as a tab.
 - **Open chat...** in the command palette lists this window's Claude chats, newest first, with what runs each - open, working, a terminal, or a queued prompt - and opens the one you pick in a tab. A chat working elsewhere, in a terminal, or taking a queued prompt is never opened a second time - for a queued prompt, its live view opens instead. On Windows it tells which window holds a chat, and a chat in another window is handed to that window, which brings its tab forward. A chat Claude Code's own list hides after a `claude -p` run is listed again first, or offered in a terminal where it cannot be - never opened as a blank chat.
 - **The queue in the status bar:** `chatq 3 queued · 16:05` - how many prompts wait and when the next one sends, as the board says it; a click opens the board.
 - **A queued run takes the chat's tab's place.** A prompt going into a chat open idle in a tab here closes that tab - Claude Code ends its process itself - and opens the run's **live view** there; when the run ends, the view turns back into the chat, loaded from disk and up to date. The tab in front of you is never taken: the prompt waits until you leave it, or until you click **Hand over now**. A tab that cannot be told apart is left, and you are told its view is stale until the run ends.
@@ -46,7 +46,7 @@ those commands and keeps them up to date.
    unless it is running already. **Chat Manager: Overlay: start by
    itself...** in the command palette turns that On or Off - Off also
    closes a running overlay - with no terminal needed.
-   `chatoverlay -AutoStart off` in a terminal sets the same switch,
+   `charlie -AutoStart off` in a terminal sets the same switch,
    `overlay.autoStart` in `data/config.json`, and leaves a running one
    up.
 
@@ -80,7 +80,7 @@ Then open a new terminal and type `chat` for the list of commands.
 | `chatManager.folder` | where the scripts and `data/` live; empty means `~/Tools/Charlie-and-the-chat-factory` |
 | `chatManager.showFresh` | after a queued run, show the chat in a fresh tab of its own instead of reloading the window (on) |
 | `chatManager.autoReloadAfterRun` | do that without asking when you are away and nothing else works (on) |
-| `chatManager.autoReload` | reload without asking after a delete (off) |
+| `chatManager.autoReload` | reload without asking after a delete (off); a deleted chat's tab closes either way |
 | `chatManager.watchRuns` | a queued prompt going into a chat open in a tab here takes the tab's place with its live view, and turns back into the chat when it ends (on). Off, the run goes in beside the tab, whose view is stale until the run ends. `"handover": false` in `data/config.json` turns it off for every window |
 | `chatManager.keepSessionSettings` | a chat chatq closes and opens again - Show it, a chat put back after a queued run (for 30 minutes after the run, however it is opened), the live view's **Open chat** - keeps Ultracode and a session-only effort level: its new process starts with them (on). Off, the new tab's input box holds the `/effort` to send |
 

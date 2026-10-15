@@ -865,8 +865,8 @@ function Invoke-ChatqAutoCommand {
         # a running overlay reads the config again; one not running reads it
         # as it starts
         if (Test-ChatOverlayAlive) { try { Send-ChatOverlayCommand 'reload' } catch {} }
-        elseif ($Value -eq 'ask') { Write-Host '    nothing asks while no overlay runs - chatoverlay starts it' -ForegroundColor DarkGray }
-        elseif ($Value -eq 'on' -and -not (Test-ChatqWatcherAlive)) { Write-Host '    nothing is continued while no overlay or watcher runs - chatoverlay starts the overlay' -ForegroundColor DarkGray }
+        elseif ($Value -eq 'ask') { Write-Host '    nothing asks while no overlay runs - charlie starts it' -ForegroundColor DarkGray }
+        elseif ($Value -eq 'on' -and -not (Test-ChatqWatcherAlive)) { Write-Host '    nothing is continued while no overlay or watcher runs - charlie starts the overlay' -ForegroundColor DarkGray }
         return
     }
     if (-not $Target) {
@@ -938,11 +938,11 @@ function Write-ChatqAutoLine {
     }
     $overlay = Test-ChatqLockHeld $script:ChatOverlayLockPath
     if ($cfg.Mode -eq 'ask' -and -not $overlay -and @($CutOff).Count) {
-        Write-Host '  auto-continue ask - but no overlay runs to ask about cut-off chats: chatoverlay starts it' -ForegroundColor Yellow
+        Write-Host '  auto-continue ask - but no overlay runs to ask about cut-off chats: charlie starts it' -ForegroundColor Yellow
         return
     }
     if ($cfg.On -and -not ($overlay -or (Test-ChatqWatcherAlive))) {
-        Write-Host '  auto-continue on - but nothing is watching for cut-off chats: chatoverlay starts the overlay' -ForegroundColor Yellow
+        Write-Host '  auto-continue on - but nothing is watching for cut-off chats: charlie starts the overlay' -ForegroundColor Yellow
         return
     }
     $bits = @("auto-continue $($cfg.Mode)")

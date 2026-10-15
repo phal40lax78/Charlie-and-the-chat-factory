@@ -124,7 +124,7 @@ $acOffLine = "  auto-continue: off - chats the limit cuts off are only marked; c
 $acAskLine = '  auto-continue: ask - once the limit is over, the overlay says how many chats it cut off, and continues them if you say so'
 Check 'chatq -AutoContinue off, then ask: kept and said; ask with no overlay running says nothing asks until one does' (
     $acOffCfg -eq 'off' -and ($acOffSaid -join '|') -eq $acOffLine -and $acAskCfg -eq 'ask' -and
-    ($acAskSaid -join '|') -eq "$acAskLine|    nothing asks while no overlay runs - chatoverlay starts it") "$($acOffSaid -join '|') / $($acAskSaid -join '|')"
+    ($acAskSaid -join '|') -eq "$acAskLine|    nothing asks while no overlay runs - charlie starts it") "$($acOffSaid -join '|') / $($acAskSaid -join '|')"
 $ovLock = [System.IO.File]::Open($script:ChatOverlayLockPath, 'OpenOrCreate', 'ReadWrite', 'None')
 try { $acRunSaid = @(chatq -AutoContinue off 6>&1 | ForEach-Object { "$_" }); $acCmds = [System.IO.File]::ReadAllText($script:ChatOverlayCmdPath) } finally { $ovLock.Dispose() }
 Remove-Item -LiteralPath $script:ChatOverlayCmdPath -Force -EA SilentlyContinue
@@ -361,7 +361,7 @@ Check 'announced once: not again on the next pass, nor by an overlay started aga
     $null -eq $cxA.AskNews -and $cxB.Ask.Count -eq 4 -and $null -eq $cxB.AskNews -and @(& $raLog | Where-Object { $_ -like '*ask: 4 cut-off chats can continue*' }).Count -eq 1)
 $shownN = (& $shownOf).Count
 $prOut = (@(Write-ChatOverlayPrint 6>&1 | ForEach-Object { "$_" }) -join '')
-Check 'chatoverlay -Print shows the ask''s note, and when 5h resets after its percent - and announces nothing' (
+Check 'charlie -Print shows the ask''s note, and when 5h resets after its percent - and announces nothing' (
     $prOut -like "*limit over at $raHm - 4 chats it cut off can continue*" -and $prOut -like "*5h 42% resets $(& $raAt $raUse5h)*" -and (& $shownOf).Count -eq $shownN) $prOut
 Get-ChildItem -LiteralPath $script:ChatqAutoDir -Filter '*.shown' -File | Remove-Item -Force
 $cxP = New-RaAskContext
@@ -369,7 +369,7 @@ $snP = Invoke-ChatOverlayCycle $cxP -Peek
 $cxN = New-ChatOverlayContext
 Send-ChatOverlayCommand 'ask-go'
 $null = Invoke-ChatOverlayCycle $cxN
-Check 'a -Peek pass, or a context that does not show it (chatoverlay -Print''s), finds the ask but never announces it, marks it shown, or acts on an answer' (
+Check 'a -Peek pass, or a context that does not show it (charlie -Print''s), finds the ask but never announces it, marks it shown, or acts on an answer' (
     $cxP.Ask.Count -eq 4 -and $snP.header.ask.count -eq 4 -and $null -eq $cxP.AskNews -and $cxN.Ask.Count -eq 4 -and $null -eq $cxN.AskNews -and (& $shownOf).Count -eq 0 -and
     -not @(Get-ChatqJobs | Where-Object { $_.sessionId -in $raK1, $raKV, $raKN, $raKW }).Count -and -not @($cxN.Commands | Where-Object { $_.verb -like 'ask-*' }).Count) "$($cxP.AskNews) $($cxN.AskNews) $((& $shownOf).Count)"
 $cxR = New-RaAskContext
@@ -486,8 +486,8 @@ Update-ChatOverlayMacAsk $macCtx
 $script:ChatOverlayMacNotifySeam = $null
 $macText = "limit over at $(& $raAt $macAt) - 4 chats it cut off can continue: Say `"hi`" \ there, Beta chat, Gamma chat and 1 more. Continue or leave them from the CQ menu."
 Check 'macOS: a new ask said once as a notification - three titles and the rest counted, pointing at the CQ menu, escaped for AppleScript - then what an answer did' (
-    $script:RaNotes.Count -eq 2 -and $script:RaNotes[0].Text -eq $macText -and $script:RaNotes[0].Title -eq 'chatq' -and
-    $script:RaNotes[0].Script -eq ('display notification "' + ($macText -replace '\\', '\\' -replace '"', '\"') + '" with title "chatq"') -and
+    $script:RaNotes.Count -eq 2 -and $script:RaNotes[0].Text -eq $macText -and $script:RaNotes[0].Title -eq 'Charlie' -and
+    $script:RaNotes[0].Script -eq ('display notification "' + ($macText -replace '\\', '\\' -replace '"', '\"') + '" with title "Charlie"') -and
     $script:RaNotes[1].Text -eq 'queued 4 continues ahead of the prompts waiting - one at a time, each when its limit is over' -and $null -eq $macCtx.AskNews -and $null -eq $macCtx.AskSaid) "$(@($script:RaNotes | ForEach-Object { $_.Script }) -join ' // ')"
 
 # the console's list with overlay.cutOff off: no cut-off rows in the
@@ -584,20 +584,56 @@ Set-ChatOverlayCollapsed `$H `$false
 `$e = @(`$rects | Where-Object { `$_.Key -eq 'ask' })[0]
 Show-ChatOverlayChip `$H `$e
 `$cc = `$H.ChipWin.Content
-`$chipAsk = `$cc -is [System.Windows.Controls.StackPanel] -and (@(`$cc.Children | ForEach-Object { `$_.Tag }) -join ',') -eq 'ask-go,ask-leave' -and
-    (@(`$cc.Children | ForEach-Object { `$_.Child.Text }) -join ',') -eq 'continue 3,leave them' -and `$null -eq `$H.ChipText -and
-    "`$(`$cc.Children[0].ToolTip)" -like 'Queue "Continue from where you left off." for each of the 3 chats the limit cut off, to go one at a time: T one, T two, T three' -and @(`$H.ChipActions).Count -eq 2
+`$cw = @(`$H.ChipWords.Children)
+`$chipAsk = `$cc -is [System.Windows.Controls.Grid] -and (@(`$cw | ForEach-Object { `$_.Tag }) -join ',') -eq 'ask-go,ask-leave' -and
+    (@(`$cw | ForEach-Object { `$_.Child.Text }) -join ',') -eq 'continue 3,leave them' -and `$null -eq `$H.ChipHint -and -not `$H.ChipIcons.Children.Count -and
+    "`$(`$cw[0].ToolTip)" -like 'Queue "Continue from where you left off." for each of the 3 chats the limit cut off, to go one at a time: T one, T two, T three' -and @(`$H.ChipActions).Count -eq 2
 Hide-ChatOverlayChip `$H
-`$H.ChipActions = @(Get-ChatOverlayChipActions ([pscustomobject]@{ key = 's:x'; kind = 'session'; provider = 'claude'; sessionId = '$idCard'; cwd = '$projA' }))
+`$xRow = [pscustomobject]@{ key = 's:x'; kind = 'session'; provider = 'claude'; sessionId = '$idCard'; cwd = '$projA' }
+`$H.ChipActions = @(Get-ChatOverlayChipActions `$xRow)
 New-ChatOverlayChipContent `$H
-`$cc = `$H.ChipWin.Content
-`$chipOpen = (@(`$cc.Children | ForEach-Object { `$_.Tag }) -join ',') -eq 'open,delete' -and `$H.ChipText -eq `$cc.Children[0].Child -and `$H.ChipText.Text -eq 'open' -and
-    `$H.ChipDelText -eq `$cc.Children[1].Child -and `$H.ChipDelText.Foreground -eq (Get-ChatOverlayBrush 'text')
+`$ci = @(`$H.ChipIcons.Children | Where-Object { `$_.Tag -is [string] })
+`$chipOpen = (@(`$ci | ForEach-Object { `$_.Tag }) -join ',') -eq 'delete' -and -not `$H.ChipWords.Children.Count -and `$H.ChipHint.Text -eq '' -and
+    `$H.ChipHintBox.Visibility -eq 'Hidden' -and `$H.ChipDelGlyph -eq `$ci[0].Child.Child -and `$H.ChipDelGlyph.Stroke -eq (Get-ChatOverlayBrush 'dim')
+# delete's first click asks: the bin red and sure? beside it, till a reset
+Invoke-ChatOverlayDeleteChip `$H `$xRow
+`$chipOpen = `$chipOpen -and `$H.DelArmKey -eq 's:x' -and `$H.ChipDelGlyph.Stroke -eq (Get-ChatOverlayBrush 'error') -and `$H.ChipHint.Text -eq 'sure?' -and `$H.ChipHintBox.Visibility -eq 'Visible'
+Reset-ChatOverlayDeleteArm `$H
+`$chipOpen = `$chipOpen -and -not `$H.DelArmKey -and `$H.ChipDelGlyph.Stroke -eq (Get-ChatOverlayBrush 'dim') -and `$H.ChipHint.Text -eq '' -and `$H.ChipHintBox.Visibility -eq 'Hidden'
 # on a chat at work: delete greyed, and a reset leaves it grey
 `$H.ChipActions = @(Get-ChatOverlayChipActions ([pscustomobject]@{ key = 's:x'; kind = 'session'; provider = 'claude'; sessionId = '$idCard'; cwd = '$projA'; status = 'busy' }))
 New-ChatOverlayChipContent `$H
 Reset-ChatOverlayDeleteArm `$H
-`$chipOpen = `$chipOpen -and `$H.ChipDelText.Foreground -eq (Get-ChatOverlayBrush 'faint') -and `$H.ChipDelText.Text -eq 'delete'
+`$chipOpen = `$chipOpen -and `$H.ChipDelGlyph.Stroke -eq (Get-ChatOverlayBrush 'faint')
+# the console's live bin asks red; its list rebuilt while it asks, the new bin is red too
+`$hostWas = `$script:ChatOverlayHost; `$script:ChatOverlayHost = `$H
+`$lbs = (New-ChatOverlayRowIcons `$xRow -Live).Children
+`$lb = `$lbs[0]
+Invoke-ChatOverlayRowIcon `$H `$lb
+`$lb2 = (New-ChatOverlayRowIcons `$xRow -Live).Children[0]
+`$chipOpen = `$chipOpen -and `$lbs.Count -eq 1 -and `$lb.Tag -eq 'delete' -and `$H.DelArmKey -eq 's:x' -and `$lb.Child.Stroke -eq (Get-ChatOverlayBrush 'error') -and `$H.DelArmGlyph -eq `$lb2.Child -and `$lb2.Child.Stroke -eq (Get-ChatOverlayBrush 'error')
+Reset-ChatOverlayDeleteArm `$H
+`$chipOpen = `$chipOpen -and `$lb2.Child.Stroke -eq (Get-ChatOverlayBrush 'dim') -and (New-ChatOverlayRowIcons `$xRow -Live).Children[0].Child.Stroke -eq (Get-ChatOverlayBrush 'dim')
+# the console's name: project and title, the open - a hand, the open's
+# tooltip, lit under the pointer, and a click on it opens, not picks
+`$nRow = [pscustomobject]@{ key = 's:n'; kind = 'session'; provider = 'claude'; sessionId = '$idCard'; cwd = '$projA'; status = 'idle'; rank = 3; project = 'pn'; title = 'named'; stateText = 'idle 1m'; job = `$null }
+`$conList = [System.Windows.Controls.StackPanel]::new()
+Add-ChatOverlayRow `$conList `$nRow ([pscustomobject]@{ prompts = `$false }) `$null -Live
+`$nameEl = @(@(`$conList.Children[0].Children | Where-Object { `$_.Tag -eq 'line' })[0].Children | Where-Object { `$_.Tag -is [string] -and `$_.Tag -eq 'name' })[0]
+`$openedRow = `$null
+`$openWas = `${function:Invoke-ChatOverlayOpen}
+`${function:Invoke-ChatOverlayOpen} = { param(`$H, `$Row) `$script:openedRow = `$Row }
+`$picked = 0
+`$conList.Children[0].add_MouseLeftButtonUp({ `$script:picked++ })
+`$up = [System.Windows.Input.MouseButtonEventArgs]::new([System.Windows.Input.Mouse]::PrimaryDevice, 0, [System.Windows.Input.MouseButton]::Left)
+`$up.RoutedEvent = [System.Windows.UIElement]::MouseLeftButtonUpEvent
+`$nameEl.RaiseEvent(`$up)
+`${function:Invoke-ChatOverlayOpen} = `$openWas
+`$nameText = (@(`$nameEl.Children[0].Inlines) | ForEach-Object { `$_.Text }) -join ''
+`$conName = `$nameEl -and `$nameText -eq 'pn  named' -and `$nameEl.Cursor -eq [System.Windows.Input.Cursors]::Hand -and "`$(`$nameEl.ToolTip)" -like 'Open this chat*' -and
+    `$script:openedRow.key -eq 's:n' -and `$script:picked -eq 0 -and @(`$nameEl.Children | Where-Object { `$_.Tag -eq 'underline' }).Count -eq 1 -and @(`$nameEl.Children | Where-Object { `$_.Tag -eq 'arrow' }).Count -eq 1
+`$chipOpen = `$chipOpen -and `$conName
+`$script:ChatOverlayHost = `$hostWas
 # the settings box's seventh row: Cut off, Ask or Leave
 Set-ChatOverlaySettingsOpen `$H `$true
 `$chipsOf = { param(`$t) @(`$H.Settings.Child.Children | Where-Object { `$_ -is [System.Windows.Controls.StackPanel] -and @(`$_.Children | ForEach-Object { `$_.Tag }) -contains `$t })[0] }
@@ -723,7 +759,7 @@ Check 'a week at its limit: its reset shown, not 5h''s, in the limit''s colour' 
 Check 'the banner: last in the header after the notes, in place of the ask''s note - tagged for the chip, its titles and those left as its tooltip, no row counted' ($ra.Count -gt 2 -and $ra[2] -eq 'True') $raSay
 Check 'collapsed: "N can continue" counted apart, and when 5h resets' ($ra.Count -gt 3 -and $ra[3] -eq 'True') $raSay
 Check 'the chip on the banner: continue N and leave them, each its own tip' ($ra.Count -gt 4 -and $ra[4] -eq 'True') $raSay
-Check 'the chip on a Claude row: open and delete, open still the text that says opening; delete greyed on a chat at work' ($ra.Count -gt 5 -and $ra[5] -eq 'True') $raSay
+Check 'the chip on a Claude row: delete as an icon, room beside it to say things; delete''s first click turns the bin red and says sure?, a reset takes both back; greyed on a chat at work; the console''s bin, its only icon, red through a rebuild of its list; the console''s project and title a hand with the open''s tooltip, a click there opening the chat and picking nothing'($ra.Count -gt 5 -and $ra[5] -eq 'True') $raSay
 Check 'the settings box''s seventh row: Cut off, Ask or Leave, the one in force filled; Leave saves off at config.json''s top level, and a fresh look follows' ($ra.Count -gt 6 -and $ra[6] -eq 'True') $raSay
 Check 'balloons go through Show-ChatOverlayBalloon: cut to 250, what a click means kept' ($ra.Count -gt 7 -and $ra[7] -eq 'True') $raSay
 Check 'a new ask is ballooned once - title, count, three titles and the rest counted - then what an answer did' ($ra.Count -gt 8 -and $ra[8] -eq 'True') $raSay

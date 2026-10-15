@@ -378,6 +378,7 @@ function New-ChatConsole {
     Initialize-ChatConsoleContent $H
 }
 
+# Deferred: DEFERRED.md "The console's inner line and flourish"
 function Initialize-ChatConsoleContent {
     # Everything the console shows, from scratch - a theme change comes
     # through here too - keeping what is typed. Built into Root, a frame of
@@ -393,10 +394,13 @@ function Initialize-ChatConsoleContent {
     $frame = [System.Windows.Controls.Border]::new()
     $frame.CornerRadius = [System.Windows.CornerRadius]::new(8)
     $frame.Background = Get-ChatOverlayBrush 'window'
-    $frame.BorderBrush = Get-ChatOverlayBrush 'edge'
+    $frame.BorderBrush = Get-ChatOverlayBrush 'trim'
     $frame.BorderThickness = [System.Windows.Thickness]::new(1)
     [System.Windows.Documents.TextElement]::SetForeground($frame, (Get-ChatOverlayBrush 'text'))
     [System.Windows.Documents.TextElement]::SetFontSize($frame, 12.5)
+    # a line of its text at that size, which a serif title in its list keeps
+    # (New-ChatConsoleChatItem, Set-ChatOverlaySerif)
+    $C.SansLine = 12.5 * $H.Win.FontFamily.LineSpacing
     $root = [System.Windows.Controls.Grid]::new()
     $frame.Child = $root
     foreach ($r in 'auto', 'star', 'auto') {
@@ -1095,11 +1099,13 @@ function New-ChatConsoleChatItem {
     <#
     One chat in the list, drawn as the panel draws it (Add-ChatOverlayRow,
     compact) - its tile, where it runs and its clock, project and title,
-    its state, the unread dot - so a chat looks the same in both; the clock
-    goes in the list's own RowClocks, which every tick moves. Around
-    it, what only the console has: a click makes it the one written to, the
-    one picked has the accent's bar at its left on the selection's colour,
-    and a cut-off chat has Continue at the right.
+    what its state says past the tile, the unread dot, delete - so a chat
+    looks the same in both; here its project and title, lit under the
+    pointer, open it, and delete takes the click itself (-Live). The clock
+    goes in the list's own RowClocks, which every tick moves. Around it,
+    what only the console has: a click anywhere else on it makes it the one
+    written to, the one picked has the accent's bar at its left
+    on the selection's colour, and a cut-off chat has Continue at the right.
     #>
     param($H, $Item)
     $C = $H.Con
@@ -1134,7 +1140,7 @@ function New-ChatConsoleChatItem {
         [void]$g.Children.Add($cb)
     }
     $txt = [System.Windows.Controls.StackPanel]::new()
-    Add-ChatOverlayRow $txt $Item.Row ([pscustomobject]@{ prompts = $false }) $C.RowClocks
+    Add-ChatOverlayRow $txt $Item.Row ([pscustomobject]@{ prompts = $false }) $C.RowClocks $C.SansLine -Live
     [void]$g.Children.Add($txt)
     $b.Child = $g
     $b.add_MouseEnter({ param($s, $e) if ($s.Background -eq [System.Windows.Media.Brushes]::Transparent) { $s.Background = Get-ChatOverlayBrush 'hover' } })

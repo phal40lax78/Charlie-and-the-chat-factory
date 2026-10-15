@@ -952,6 +952,55 @@ names one chat for sure. Three kinds stay in Recent as if closed:
 **Revisit when:** When the Claude extension gives a session id on the tab, or
 if old chats left open turn out to be common.
 
+## A deleted chat's tab: the ones left open
+
+**Scope:** [closeTabsHere](extension/extension.js) closes a deleted Claude
+chat's tab only where the window is sure of it, and
+[Get-ChatCloseTabs](src/chatrm.ps1) names only the windows whose
+`data/open-tabs/` file lists the chat. Left open: a side bar's copy, every
+tab the entries above leave out of that file, a tab no longer sure at the
+close, a request a window sees late, and Codex and Copilot tabs.
+
+- **The side bar's copy.** **Why deferred:** no Claude Code command
+  closes or reloads the side bar's session (2.1.283), as in "A chat in
+  the side bar gets a second process as a tab"; the open-tabs file lists
+  tabs only. The side bar stays on a chat no longer on disk until it is
+  switched or the window reloads, which the delete's reload ask offers.
+  **To close:** what closes that entry.
+- **Untitled tabs, two tabs of one label, a label two chats share, a chat
+  older than its folder's newest 200, and a chat of another Claude
+  home.** None is in the window's file
+  ([openTabChats](extension/extension.js)), so no request names its window
+  and nothing is said. A twin or shared label that comes after the file
+  was written, or a chat working at the close
+  ([workingNow](extension/extension.js)) - `chatrm` does not ask - leaves
+  the tab with one notice instead. **Why deferred:** closing ends the
+  chat's process, and a label is all a tab says; closing the wrong one
+  ends someone's work. **To close:** what closes "Two chats whose titles
+  share 24 characters" and "Tabs with no process: the ones a label cannot
+  name" - a session id on the tab.
+- **A request seen late.** A window that only sees the request as it
+  starts, or past `timing.openMaxAge` (2 minutes), marks it seen and
+  closes nothing, says nothing ([closeDeleted](extension/extension.js)).
+  **Why deferred:** by then the file the script read is old - the tab
+  may have been closed and its label taken by another chat - so the rule
+  leans to leaving it, as the reload ask's own age bounds do. **To close:** if stale tabs after a sleep or a slow start turn out
+  to be common, check the label against the request's `sessionId` once
+  more and close past the bound.
+- **Codex and Copilot tabs.** **Why deferred:** the open-tabs file holds
+  Claude tabs only ([isClaudeTab](extension/extension.js)), and Codex
+  keeps no list another process can read of which threads its panel has
+  open (FUTURE_WORK.md, "A Codex thread open in the panel, or a turn that
+  ended in an error"), so nothing ties such a tab to a deleted chat.
+  **To close:** a list of open threads from either, keyed by id.
+
+`chatarchive` closes nothing: it refuses a Claude chat open in a window
+before it moves anything.
+
+**Revisit when:** When the Claude extension gives a session id on the tab or
+a command that closes a session's panel or side bar view; when stale tabs
+after a delete turn up in use.
+
 ## Ultracode and a session-only effort on a tab chatq opens again
 
 **Scope:** [armCarry](extension/extension.js),
@@ -1508,32 +1557,76 @@ line, and Grow subtract it when the hidden rows reach none.
 
 **Revisit when:** If the extra height is ever seen on the panel.
 
-## A chat's prompt and recent turns on hover
+## The hover card: what it leaves out
 
-**Scope:** A row on the Windows panel no longer shows its chat's newest
-prompt, and a rest on it brings up only the open chip
-([Add-ChatOverlayRow](src/overlay-windows.ps1),
-[Show-ChatOverlayChip](src/overlay-windows.ps1)): nothing shows the
-prompt, or what the chat did last, short of opening it.
+**Scope:** The card a rest on a row brings up
+([Show-ChatOverlayCard](src/overlay-windows.ps1)) leaves out three things:
+- **A card on macOS.** The Mac panel
+  ([Start-ChatOverlayMacHost](src/overlay-mac.ps1)) has none, as it has no
+  open chip for one to come with.
+- **A Codex job's run.** A Codex rollout is no Claude transcript, so
+  [Get-ChatOverlayCardSource](src/overlay-data.ps1) gives its card no file
+  to read: the card has the row's state and the prompt the job sends, and
+  no call, EARLIER, TASKS or reply.
+- **A word in prose after a key word.** A call's words, a question and a
+  plan are masked by [Hide-ChatqSecrets](src/permit.ps1), whose key-word
+  rule hides the word after one with `pass`, `token`, `secret`, `auth`,
+  `cookie` or `session` in it, a space being enough: a question
+  `Which session should I close?` shows as
+  `Which session *** I close?`.
 
-**Why deferred:** a card on hover with the prompt and the chat's latest
-turns was asked for first, then put aside for the rows' state at a
-glance - the tile and its clock - which took the prompt line off the
-rows, as a prompt always on the screen showed too much. The card is a
-change of its own: the panel lets clicks through, so it would be a
-window of its own as the chip is, and the turns' text is not read now -
-[Update-ChatOverlayText](src/overlay-data.ps1) keeps a chat's title,
-newest prompt and mode, not what was said.
+**Why deferred:** the Mac panel has never run (S24 in TESTING.md), and a
+card would be more drawing in untested JXA. A Codex rollout has records
+of its own that nothing on the panel reads yet. The masking is the phone
+permission page's, tested there, and errs on the side of hiding: a word
+lost costs less than a token on the screen.
 
-**Revisit when:** If the card on hover is asked for again, or the prompt
-is missed on the rows.
+**Revisit when:** When S24 has run and works; if a Codex job's card is
+missed; if a question or a plan on a card reads badly in use.
 
-**To close:** a card window by the row, after the chip's rest and under
-its rules - one per visit, none while a full screen, the console or a
-drag holds the panel; its text the row's `prompt`, still collected for
-macOS, `-Print` and the phone's board, and the last few turns read from
-the transcript's tail as [Find-ChatTailRecords](src/overlay-data.ps1)
-reads it, in the collector's pass rather than on the panel's thread.
+**To close:** after S24, a card window by the Mac panel under the same
+rules; for Codex, a reader of its rollout's newest call and reply, as
+[Read-ChatOverlayCardTail](src/overlay-data.ps1) reads Claude's; for
+prose, a mode of Hide-ChatqSecrets for a question's and a plan's words
+that hides a key word's value only after `:` or `=`.
+
+## The hover card's work on the panel's thread
+
+**Scope:** While a card shows, each 2 s pass runs
+[Update-ChatOverlayCard](src/overlay-windows.ps1) on the panel's thread,
+and it does more there than it must:
+- It builds the card's model
+  ([Get-ChatOverlayCardModel](src/overlay-data.ps1)) again, and throws it
+  away when its text is the same: some 35 ms a pass on Windows PowerShell
+  5.1, most of it [Hide-ChatqSecrets](src/permit.ps1) at some 10 ms a
+  call shown.
+- It finds the card's source
+  ([Get-ChatOverlayCardSource](src/overlay-data.ps1)) again. For a Recent
+  row whose transcript is not under its folder's slug,
+  [Find-ChatOverlayTranscript](src/overlay-data.ps1) lists every folder
+  under `projects/`; a job's prompt file is read again.
+- When the transcript grew,
+  [Read-ChatOverlayCardTail](src/overlay-data.ps1) reads its end again and
+  parses the todo list in it - a line of up to 64 KB - with
+  `ConvertFrom-Json`, changed or not. In the review, on 5.1, a read took
+  25 to 54 ms for a window of 870 small lines, and 50 to 225 ms for one
+  with a 63 KB todo line and a 60 KB prompt in it, the prompt then parsed
+  the same way and now read by a regex.
+
+**Why deferred:** it is bounded, and only while a card shows: the pass
+comes every 2 s, the pointer has to rest on a row, and the read waits for
+the transcript to grow. The collector's own pass costs 40-60 ms there
+already ("The collector on a thread of its own", below). The model also
+changes with the day - a reply's `14:05` turns `Tue 14:05` at midnight -
+so skipping it takes care.
+
+**Revisit when:** If `data/logs/overlay.log`, or use - S53 in TESTING.md
+among it - shows the panel stutter while a card is up.
+
+**To close:** keep the model's inputs - the source's path, the tail's
+length, the row's state, words and title, the day - and build it only
+when one changed; find the source once, as the card comes up; keep the
+parsed todo list by its line's offset and length.
 
 ## Row tiles on macOS, in -Print and on the phone's board
 
@@ -1541,7 +1634,12 @@ reads it, in the collector's pass rather than on the panel's thread.
 clock. The Mac panel ([Start-ChatOverlayMacHost](src/overlay-mac.ps1)),
 `chatoverlay -Print` ([Write-ChatOverlayPrint](src/overlay-data.ps1)) and
 the phone's board ([ConvertTo-ChatqPhoneBoard](src/phone-board.ps1)) keep
-the dot, the age in the state's words, and the newest prompt.
+the dot, the age in the state's words, and the newest prompt. They keep
+`idle` and `working` in those words too, which the Windows rows drop for
+the tile ([Get-ChatOverlayRowWords](src/overlay-windows.ps1)), and the
+Mac panel draws no delete bin on a row
+([New-ChatOverlayRowIcons](src/overlay-windows.ps1)) nor turns its name
+into the open button ([New-ChatOverlayRowName](src/overlay-windows.ps1)).
 
 **Why deferred:** the ask was the Windows panel's state at a glance. The
 Mac panel has never run (S24 in TESTING.md), and new drawing in untested
@@ -1559,6 +1657,61 @@ row carries `stateWords`, `resetsAt` and `sendAt` - and draws it in its
 own way: Cocoa paths from the same segments on macOS, the five
 characters as text in `-Print`, and a clock of its own on the board's
 page, counting between the board's answers.
+
+## The dark look's ornaments on macOS
+
+**Scope:** The Mac panel ([Start-ChatOverlayMacHost](src/overlay-mac.ps1))
+takes the dark look's colours and a gold line round the panel, and no more:
+no second line 3 points in, no flourish, no serif on the chats' titles, and
+the HUD ground stays as it was, not the wine-black the Windows panel has.
+
+**Why deferred:** the Mac panel has never run (S24 in TESTING.md), and the
+line already rests on an untried CGColor bridge, which is why it sits in a
+`try`. More drawing in untested JXA would only add to that.
+
+**Revisit when:** When S24 has been run by hand and works.
+
+**To close:** check S24 item 12; draw a second layer 3 points in; draw the
+flourish as a `CAShapeLayer` at the top left; set the titles' font (Didot,
+else Baskerville, else the system serif, through `NSFont
+fontWithName:size:`); and set the wine-black ground as the layer's
+background.
+
+## The console's inner line and flourish
+
+**Scope:** The console ([Initialize-ChatConsoleContent](src/console.ps1))
+takes the dark look's colours and the outer gold line (the `trim` colour on
+its frame's border) only. The panel's second line and its lozenge flourish
+([New-ChatOverlayDecor](src/overlay-windows.ps1)) are not drawn there.
+
+**Why deferred:** the ask was the panel's look. The console's header is
+full, so a flourish has no room in it, and its lists run close to its edge,
+where a second line would meet them.
+
+**Revisit when:** If the console should look like the panel, or its header
+gets room.
+
+**To close:** wrap its root grid the way
+[New-ChatOverlayDecor](src/overlay-windows.ps1) wraps the panel's stack,
+and put the flourish before the header's usage.
+
+## The dark look's serif in a bundled face
+
+**Scope:** The serif on the chats' titles and the setup window's heading is
+the system's own - Georgia on Windows, by way of the palette's `serif`
+([Set-ChatOverlaySerif](src/overlay-windows.ps1)). No font ships with the
+tool.
+
+**Why deferred:** bundling one takes three things. A base64 font in a `.ps1`
+that writes it to `data/`, because install copies only `src/*.ps1`. A static
+instance cut from the variable file, because WPF has no variable fonts. And
+`font-src data:` in the phone page's CSP, with its tests.
+
+**Revisit when:** If the system serif reads wrong at S23 item 23, or a
+decorative face is wanted.
+
+**To close:** ship Cinzel (OFL, no reserved name) with its licence beside
+it.
 
 ## Copilot usage without the GitHub CLI
 

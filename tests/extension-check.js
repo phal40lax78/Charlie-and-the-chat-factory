@@ -873,6 +873,118 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     await Promise.all([q1, q2]);
     check('two shows queued together never interleave', order.join() === 'a1,a2,b1,b2', order.join());
 
+    // --- a deleted chat's tab, closed (closeTabs) ------------------------------
+    // the script names each window holding the chat by its extension host's
+    // pid: this window closes its own, only where sure, before the reload ask
+    {
+        const DSID = '44444444-4444-4444-8444-444444444444';
+        const entry = (x) => Object.assign({ sessionId: DSID, label: 'Gone chat', title: 'Gone chat', hostPid: process.pid, cwd: path.resolve('/work/projA'), home: null }, x);
+        let ctN = 0;
+        const delReq = (x) => Object.assign({ id: 'ct' + (++ctN), kind: 'deleted', title: 'Gone chat', busy: false, cwd: path.resolve('/work/projA'),
+            at: new Date().toISOString(), closeTabs: [entry()] }, x);
+        const run = async (req, onlyRecent, ctx) => {
+            fs.writeFileSync(file, JSON.stringify(req));
+            await ext._check(ctx || context, file, !!onlyRecent);
+            await ext._enqueue(async () => { });
+            return { calls: calls.join(), asked: asked.slice() };
+        };
+        const reloadAsk = 'Deleted "Gone chat". Reload to refresh the chat list?';
+        const closedAsk = 'Deleted "Gone chat" and closed its tab. Reload to refresh the chat list?';
+        const leftSay = ext._texts.tabLeft(['"Gone chat"']);
+        const gone = () => claudeTab(DSID, 'Gone chat');
+        reset();
+        logged.length = 0;
+        tabs.push(claudeTab(SID2, 'Other'), gone(), note());
+        active.tab = tabs[1];
+        const c1 = await run(delReq());
+        check('deleted chat\'s tab: its one Claude tab here closed, in front too, and then the reload ask, saying so',
+            c1.calls === 'close:Gone chat,ask' && c1.asked.length === 1 && c1.asked[0] === closedAsk && tabs.length === 2 &&
+            logged.includes('deleted 44444444: its tab "Gone chat" closed'), c1.calls + ' | ' + c1.asked.join(' | '));
+        reset();
+        tabs.push(gone(), claudeTab(SID2, 'Gone chat'));
+        const c2 = await run(delReq());
+        check('deleted chat\'s tab: a twin label here - left, said in one notice, and the reload ask as before',
+            c2.calls === 'ask,ask' && c2.asked[0] === leftSay && c2.asked[1] === reloadAsk && tabs.length === 2, c2.calls + ' | ' + c2.asked.join(' | '));
+        reset();
+        tabs.push(claudeTab(DSID, 'Claude Code'));
+        const c3 = await run(delReq({ closeTabs: [entry({ label: 'Claude Code' })] }));
+        reset();
+        tabs.push(claudeTab(DSID, ''));
+        const c3b = await run(delReq({ closeTabs: [entry({ label: '' })] }));
+        check('deleted chat\'s tab: an untitled one - "Claude Code", or no label - is never closed',
+            c3.calls === 'ask,ask' && c3.asked[0] === leftSay && c3b.calls === 'ask,ask' && tabs.length === 1, c3.calls + ' / ' + c3b.calls);
+        reset();
+        tabs.push({ label: 'Gone chat', input: new TabInputWebview('chatManager.watch'), group }, { label: 'Gone chat', input: new TabInputText('x'), group });
+        const c4 = await run(delReq());
+        check('deleted chat\'s tab: a watch panel, or another editor, of that label is never closed - no Claude tab of it here, nothing to say',
+            c4.calls === 'ask' && c4.asked[0] === reloadAsk && tabs.length === 2, c4.calls);
+        reset();
+        tabs.push(gone());
+        const c5 = await run(delReq({ closeTabs: [entry({ hostPid: 999777 })] }));
+        check('deleted chat\'s tab: another window\'s entry does nothing here', c5.calls === 'ask' && c5.asked[0] === reloadAsk && tabs.length === 1, c5.calls);
+        // working: its registry entry busy, in the Claude home it lives under
+        const wHome = path.join(dir, 'ext-closetabs-home');
+        fs.rmSync(wHome, { recursive: true, force: true });
+        fs.mkdirSync(path.join(wHome, 'sessions'), { recursive: true });
+        fs.writeFileSync(path.join(wHome, 'sessions', '999301.json'), JSON.stringify({ pid: 999301, sessionId: DSID, cwd: path.resolve('/work/projA'),
+            startedAt: Date.now(), status: 'busy', entrypoint: 'claude-vscode' }));
+        aliveSet.add(999301);
+        reset();
+        logged.length = 0;
+        tabs.push(gone());
+        const c6 = await run(delReq({ closeTabs: [entry({ home: wHome })] }));
+        aliveSet.delete(999301);
+        fs.rmSync(wHome, { recursive: true, force: true });
+        check('deleted chat\'s tab: the chat working - left, and said',
+            c6.calls === 'ask,ask' && c6.asked[0] === leftSay && tabs.length === 1 && logged.includes('deleted 44444444: its tab "Gone chat" not closed - the chat is working'),
+            c6.calls + ' | ' + logged.join(' | '));
+        // at startup, or old: only marked
+        reset();
+        tabs.push(gone());
+        const sReq = delReq();
+        const c7 = await run(sReq, true);
+        const c7b = await run(sReq);
+        reset();
+        tabs.push(gone());
+        const c8 = await run(delReq({ at: new Date(Date.now() - 3 * 60000).toISOString() }));
+        check('deleted chat\'s tab: a window just started, or a request past openMaxAge - nothing closed, and not later either',
+            c7.calls === 'ask' && c7b.calls === 'ask' && c8.calls === 'ask' && c8.asked[0] === reloadAsk && tabs.length === 1, c7.calls + ' / ' + c7b.calls + ' / ' + c8.calls);
+        // seen per window: another window took the reload ask and closed its
+        // own tab - this one, holding the chat too, still closes its tab; once
+        const st = {};
+        const pReq = delReq({ closeTabs: [entry({ hostPid: 999777 }), entry()] });
+        Object.assign(st, { 'chatManagerReload.lastSeenId': pReq.id, 'chatManager.seenIds': [pReq.id], [ext._closeSeenKey]: [pReq.id + '@999777'] });
+        reset();
+        tabs.push(gone());
+        const c9 = await run(pReq, false, { globalState: memo(st) });
+        tabs.push(gone());
+        calls.length = 0;
+        const c9b = await run(pReq, false, { globalState: memo(st) });
+        check('deleted chat\'s tab: seen per window - another window\'s mark stops nothing here, this window\'s own stops a second close',
+            c9.calls === 'close:Gone chat' && c9b.calls === '' && tabs.length === 1 &&
+            st[ext._closeSeenKey].join() === pReq.id + '@999777,' + pReq.id + '@' + process.pid, c9.calls + ' / ' + c9b.calls + ' ' + JSON.stringify(st[ext._closeSeenKey]));
+        reset();
+        tabs.push(gone());
+        const c10 = await run(delReq({ closeTabs: undefined }));
+        check('deleted chat\'s tab: a request with no closeTabs - the reload ask as ever, nothing closed',
+            c10.calls === 'ask' && c10.asked[0] === reloadAsk && tabs.length === 1, c10.calls);
+        reset();
+        tabs.push(gone(), claudeTab(SID2, 'Second gone'));
+        const c11 = await run(delReq({ title: '2 chats', closeTabs: [entry(), entry({ sessionId: SID2, label: 'Second gone', title: 'Second gone' })] }));
+        check('deleted chat\'s tab: several deleted at once - each closed, and said once',
+            c11.calls === 'close:Gone chat,close:Second gone,ask' && c11.asked[0] === 'Deleted "2 chats" and closed their 2 tabs. Reload to refresh the chat list?' &&
+            tabs.length === 0, c11.calls + ' | ' + c11.asked.join(' | '));
+        // a newer request in the same file waits for an older one's close:
+        // its reload, by itself, would bring the tab back under a new pid
+        reset();
+        tabs.push(gone());
+        const older = delReq();
+        const c12 = await run(Object.assign(delReq({ title: 'Later', closeTabs: undefined }), { earlier: [older] }));
+        check('deleted chat\'s tab: a newer request\'s reload ask waits for an older one\'s close - oldest first',
+            c12.calls === 'close:Gone chat,ask,ask' && c12.asked[0] === closedAsk && c12.asked[1] === 'Deleted "Later". Reload to refresh the chat list?' &&
+            tabs.length === 0, c12.calls + ' | ' + c12.asked.join(' | '));
+    }
+
     // end to end, the run's request, fresh
     const fresh = (id, x) => fs.writeFileSync(file, JSON.stringify(Object.assign({ id, kind: 'ran', title: 'T', sessionId: SID, cwd: path.resolve('/work/projA'),
         away: true, busy: false, oldProcess: 'ended', hostPids: [], at: new Date().toISOString() }, x)));
@@ -1845,6 +1957,59 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     check('label shared: a stale tab of that label is never closed - stale, and says so; a label of its own is closed and opened again',
         ls1 === 'stale' && !ls1Calls.includes('close:') && ls1Asked[0] === ext._texts.staleTab({ title: 'T' }) &&
         ls2 === 'reopened' && calls.includes('close:only me'), ls1 + ' ' + ls1Calls + ' / ' + ls2 + ' ' + calls.join());
+    // a deleted chat's tab: its label another chat of the folder has - left,
+    // whoever's it is; the label its own - closed
+    {
+        const GD = G(0x2099);
+        const ct = (sid, label) => ({ sessionId: sid, label, title: label, hostPid: process.pid, cwd: projA, home: home3 });
+        const sharedSay = (sid, label) => 'deleted ' + sid.slice(0, 8) + ': its tab ' + JSON.stringify(label) + ' not closed - another chat of its folder has that label';
+        ext._titleCache.clear();
+        reset();
+        logged.length = 0;
+        tabs.push(claudeTab(GD, 'T'));
+        const cs1 = await ext._closeTabsHere({ id: 'cs1' }, [ct(GD, 'T')]);
+        const cs1Calls = calls.join(), cs1Asked = asked.slice(), cs1Log = logged.slice();
+        reset();
+        tabs.push(claudeTab(L.solo, 'only me'));
+        const cs2 = await ext._closeTabsHere({ id: 'cs2' }, [ct(L.solo, 'only me')]);
+        check('deleted chat\'s tab: a label another chat of its folder has - left, said, and logged; a label of its own closed',
+            cs1 === 0 && cs1Calls === 'ask' && cs1Asked[0] === ext._texts.tabLeft(['"T"']) && cs1Log.includes(sharedSay(GD, 'T')) &&
+            cs2 === 1 && calls.join() === 'close:only me', cs1 + ' ' + cs1Calls + ' | ' + cs1Log.join(' | ') + ' / ' + cs2 + ' ' + calls.join());
+        // the folders' chats not all read within labelBudget: shared, left
+        ext._titleCache.clear();
+        ext._readChat = async (c) => { await new Promise(r => setTimeout(r, 200)); return realReadChat(c); };
+        ext._timing.labelBudget = 30;
+        reset();
+        logged.length = 0;
+        tabs.push(claudeTab(L.solo, 'only me'));
+        const cs3 = await ext._closeTabsHere({ id: 'cs3' }, [ct(L.solo, 'only me')]);
+        ext._timing.labelBudget = 0;
+        ext._readChat = realReadChat;
+        check('deleted chat\'s tab: the folder\'s chats not all read within labelBudget - taken as shared, left, and said',
+            cs3 === 0 && calls.join() === 'ask' && asked[0] === ext._texts.tabLeft(['"only me"']) && tabs.length === 1 &&
+            logged.includes(sharedSay(L.solo, 'only me')), cs3 + ' ' + calls.join() + ' | ' + logged.join(' | '));
+        // while labelShared reads: a twin tab comes, or the tab goes - the
+        // last look before the close stops it
+        const meanwhile = async (act) => {
+            ext._titleCache.clear();
+            let done = false;
+            ext._readChat = async (c) => { if (!done) { done = true; act(); } return realReadChat(c); };
+            reset();
+            logged.length = 0;
+            tabs.push(claudeTab(L.solo, 'only me'));
+            const n = await ext._closeTabsHere({ id: 'cs4' }, [ct(L.solo, 'only me')]);
+            ext._readChat = realReadChat;
+            return { n, calls: calls.join(), asked: asked.slice(), log: logged.slice() };
+        };
+        const cs4 = await meanwhile(() => tabs.push(claudeTab(SID2, 'only me')));
+        const cs5 = await meanwhile(() => tabs.splice(0, 1));
+        const say = (s) => 'deleted ' + L.solo.slice(0, 8) + ': its tab "only me" ' + s;
+        check('deleted chat\'s tab: a twin tab come, or the tab gone, while its label is looked at - nothing closed; the twin said, the gone one not',
+            cs4.n === 0 && cs4.calls === 'ask' && cs4.asked[0] === ext._texts.tabLeft(['"only me"']) && cs4.log.includes(say('not closed - another Claude tab of that label came meanwhile')) &&
+            cs5.n === 0 && cs5.calls === '' && cs5.log.includes(say('went meanwhile')),
+            JSON.stringify(cs4) + ' / ' + JSON.stringify(cs5));
+        ext._titleCache.clear();
+    }
     // openTab: this window's Claude home, the request naming none
     process.env.CLAUDE_CONFIG_DIR = home3;
     const heldOpen = (sid, title) => ext._openTab({ kind: 'open', sessionId: sid, title, cwd: projA, home: null, oldProcess: 'held', hostPids: [process.pid] });

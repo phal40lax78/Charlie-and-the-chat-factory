@@ -383,9 +383,14 @@ function chatclean {
 
     $chosen = if ($Force) { $ghosts } else { Select-ChatItems $ghosts "$($ghosts.Count) ghost chats (no messages at all)" }
     if (-not $chosen) { Write-Host 'nothing deleted'; return }
-    foreach ($g in $chosen) { $null = Remove-ChatSession $g }
+    # a ghost's tab is closed as chatrm's is: read before it goes
+    $tabs = [System.Collections.Generic.List[object]]::new()
+    foreach ($g in $chosen) {
+        $t = @(Get-ChatCloseTabs $g)
+        if (Remove-ChatSession $g) { foreach ($e in $t) { $tabs.Add($e) } }
+    }
     Write-Host ''
-    Write-ChatGhostAdvice
+    Write-ChatGhostAdvice -CloseTabs $tabs.ToArray()
 }
 
 function chatproviders {

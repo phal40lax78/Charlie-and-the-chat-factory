@@ -1,5 +1,149 @@
 # Changelog
 
+## 0.10.13 — What a chat is doing, on a card when you rest on its row
+
+- **Rest on a row and a card says what its chat is doing.** Since 0.10.10
+  a row shows its state and how long, but not what the chat is at, and
+  your prompt left the rows. Now, on Windows, as the open chip comes up -
+  after 400 ms, or what `charlie -ChipDelay` set - a card comes up beside
+  the panel, level with the row, on the side with more room: a speech
+  bubble whose tail points at the row, so whose chat it is goes without
+  saying - the row already names it. It says what the chat does now,
+  under a word in its state's colour: **NOW**
+  `Bash  git status --short` with a clock for how long that call has run;
+  **WAITS** `Allow Bash` and the command, `Asks` and the question, or
+  `Plan to approve` and its first line; **FINISHED 14:05**, **STOPPED**,
+  **CUT OFF**, **QUEUED**. Then the three calls before (**EARLIER**), the
+  todo list's progress (**TASKS** `1 of 3 · Writing the card`), your
+  newest prompt, dimmed, and the end of Claude's newest words, each with
+  its time.
+- **It never gets in the way.** The card goes with the chip, 300 ms after
+  the pointer leaves the row. It takes no click - the mouse goes through
+  it - and no focus, and is in neither Alt+Tab nor the taskbar. A queued
+  prompt's own row gets one, showing the prompt it will send; a banner
+  never does, and none comes while the settings box is open, the panel is
+  folded to one line or being dragged, out of a full screen's way, or in
+  the console. It takes the panel's look, dark or light, and the panel's
+  opacity.
+- **A tile's clock has no seconds now.** A chat at work or waiting on you
+  read `5:03`, ticking every second beside the rows; it reads `0h05` as
+  an idle one does, moving on the minute. The card's clock for the call
+  going keeps its seconds.
+- **Read only while it shows.** The card reads the end of the chat's
+  transcript as it comes up - 256 KB, or up to 4 MB while one line, a
+  file read whole, is longer - and again on the 2 s pass only while it
+  shows and the transcript grew. The prompt is what you typed: the file
+  VS Code says is open with it, and a pasted picture, are left out, and a
+  picture alone shows no prompt rather than an older one.
+- **What looks like a secret** in a call's words, a question or a plan
+  shows as `***`, as on the phone's permission page - the word after
+  `token`, `password`, `session` and the like too, even in a question.
+  Your prompt and Claude's words are as written: a card shows them only
+  while you rest on the row.
+- **Not on macOS,** and a Codex job's card has its prompt alone, its
+  rollout unread: DEFERRED.md, "The hover card: what it leaves out".
+
+## 0.10.12 — A deleted chat's tab closes, and `chatarchive`
+
+- **A deleted Claude chat's tab closes.** After `chatrm`, `chatclean` or
+  the overlay's delete, the tab stayed open on a chat no longer on disk.
+  Now each VS Code window that had the chat as a tab closes it, the one in
+  front too, and the reload offer says so: *Deleted "Old chat" and closed
+  its tab. Reload to refresh the chat list?* - the reload is still asked
+  for, since Claude Code's chat list is cached. The script names the
+  windows from their `data/open-tabs/` files before the transcript goes,
+  so a window on another folder closes its copy too.
+- **A tab it cannot be sure of is left.** A tab is known only by its
+  label, so a tab closes only when, right before the close, it is the one
+  Claude tab of that label in the window, no other chat of its folder
+  would carry the label, and the chat is not working or waiting on you -
+  `chatrm` itself never asks that. Otherwise the tab stays, and one notice
+  names the chats whose tabs were left. A tab the window's open-tabs file
+  never listed - untitled, two of one label, a label two chats share, a
+  chat older than its folder's newest 200 - stays without a word, and so
+  does every tab when the window only sees the request as it starts or
+  over 2 minutes late (DEFERRED.md). Codex and Copilot tabs and a chat in
+  the side bar are not closed; archiving refuses a chat open in a window,
+  as before.
+- **`chatarchive` puts a chat away.** `chatarchive <id|title>` does what
+  `chatrm -Archive` did, with `chatrm`'s switches - `-Force`,
+  `-AllProjects`, `-NoWait`, `-DropJobs`, `-Provider` - and its Tab and
+  Enter fill-in. A title typed in part asks `archive?` rather than
+  `delete permanently?`. `chatrestore` brings a chat back as before; its
+  help, the `chat` cheat sheet and `Get-Help chatarchive` say the new
+  name.
+- **BREAKING:** `chatrm` has no `-Archive` any more. `chatrm <chat>
+  -Archive`, or a short form of it, now stops with *chatrm has no -Archive
+  any more - chatarchive ... puts a chat away* and touches nothing, rather
+  than search for a title that holds `-Archive`. Scripts that archived
+  with `chatrm -Archive` need `chatarchive`.
+
+## 0.10.11 — The overlay is `charlie`, in Charlie's colours
+
+- **The overlay's command is `charlie`.** Every switch works as before -
+  `charlie -Stop`, `charlie -Theme light`, `charlie -Print` - and a shell
+  that starts the panel says `charlie started`. `chatoverlay` still works
+  and does the same, and `Get-Help chatoverlay` shows charlie's help.
+- **The dark look is Charlie's.** The panel is wine-black inside a thin
+  gold double line, a gold lozenge and two hairlines at its top left;
+  crimson under the pointer, hot pink for the accent - the settings'
+  choices, the dot of a turn not seen, the unlocked and the sizing edge -
+  ivory text and blush project names. Faint text reads 5:1 over a white
+  desktop, where it read 2.5:1. The states keep their colours; usage
+  within its limits is ivory where it was blue. It is all drawn in code:
+  no image or font is added. Each chat's title is in Windows' own
+  Georgia, in the panel and the console's list. The light look is as it
+  was.
+- **The tray icon's dot is ringed in crimson** in the dark look, and in the
+  icon's near-black as before in the light one; it is drawn again when the
+  look changes.
+- **The console, the settings box, the open chip and the phone setup
+  window take the same colours.** The console has the gold line; the setup
+  window's heading is a serif over a short gold rule.
+- **The reply page and the board, in a phone's dark mode,** are near-black
+  with gold hairlines, a pink accent and serif headings, with a small gold
+  flourish under the board's header; the PC's name there is a size
+  smaller, so a Windows default name still fits a narrow phone. The
+  board's Recent and Older headings read where they were all but
+  invisible; an armed Send keeps its red, with dark text on it (7.6:1,
+  where white read 2.5:1); the dot of a turn not seen takes the accent.
+  Light mode is as it was.
+- **On macOS** the panel takes the new colours and a gold line round it;
+  the rest of the look waits for the panel's first run (DEFERRED.md).
+- **A chat's name is its open button; delete is always on its row as a
+  bin; idle and working are gone from its right.** On Windows a row no
+  longer says `idle`, `working`, `running` or `needs you`: its tile's
+  colour says it. What the tile cannot say stays - `cut off - resets
+  13:00`, `#2 after #1`, a chat's background work. In their place, at the
+  row's right end, is delete as a bin, faint where it cannot delete. Open
+  is the row's project and title: under the pointer they turn the
+  accent's colour, an underline sweeps under them from the left, and the
+  open's glyph slides in at the title's end (an eye, watch, while a
+  queued prompt runs in the chat); pressed, they sit a unit lower. The
+  panel still lets clicks through, so the chip still comes up after a
+  rest on the row - now as that name, drawn exactly over the row's, and
+  the bin over the row's own - and takes the click; **sure?**, **click
+  again** and `opening 3s` show beside the bin, and an armed bin turns
+  red. In the console's list the name lights at once and opens the chat
+  on a click; a click anywhere else on the row picks it, as before.
+  macOS rows are as they were.
+- **An alert is titled with its chat, after a mark for what happened.**
+  Every toast and push was titled `chatq · done`, the chat named only in
+  the text, so telling which chat meant opening it. Now it reads **✅
+  Release notes** over `done · 4m · 2 turns`: ❓ needs input, ❌ failed,
+  ▶️ started, ⏸️ limited, ⚠️ overloaded, ⏳ waiting, 🔐 permission, 💬
+  reply. One whose text names no chat is `📊 Charlie · usage`, `🔔
+  Charlie · test`, `💬 Charlie · reply` and so on, its text as it was: a
+  name goes in the title only where the text already had it, so a new
+  chat queued from the phone still keeps its sealed title out of the
+  push. Your alert command
+  gets the same title and words in `CHATQ_TITLE` and `CHATQ_TEXT`;
+  `alerts.log` keeps the text as it was. The macOS overlay's notification
+  says `Charlie` too.
+- **BREAKING:** titles no longer start `chatq ·`. A Tasker profile that
+  filtered on it matches nothing now: match the event at the start of the
+  text, or, as README's *Reply from Tasker* now does, the reply link.
+
 ## 0.10.10 — Each chat's state on a tile, with a big clock
 
 - **On Windows a row starts on a tile in its state's colour, a big clock

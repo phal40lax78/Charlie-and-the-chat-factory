@@ -328,7 +328,7 @@ function chat {
     Write-Host '  find and delete' -ForegroundColor DarkGray
     Write-Host '  chatfind "text"        find chats by title or message' -ForegroundColor Cyan
     Write-Host '  chatrm <id> | "title"  delete a chat, permanently' -ForegroundColor Cyan
-    Write-Host '  chatrm ... -Archive    put it away instead; chatrestore brings it back' -ForegroundColor Cyan
+    Write-Host '  chatarchive ...        put it away instead; chatrestore brings it back' -ForegroundColor Cyan
     Write-Host '  chatclean              delete ghost chats, list hidden ones again' -ForegroundColor Cyan
     Write-Host '  chatproviders          which tools were found, and where' -ForegroundColor Cyan
     Write-Host '  chatindex              rebuild the tab-completion index' -ForegroundColor Cyan
@@ -341,13 +341,13 @@ function chat {
     Write-Host '  chatnotify -Setup      phone alerts and replies from the phone, in a window' -ForegroundColor Cyan
     Write-Host ''
     Write-Host '  see what is running' -ForegroundColor DarkGray
-    Write-Host '  chatoverlay            every open chat and live usage, always on top' -ForegroundColor Cyan
-    Write-Host '  chatoverlay -Print     the same, once, in this console' -ForegroundColor Cyan
-    Write-Host '  chatoverlay -Theme     dark, light or system; -Opacity 85' -ForegroundColor Cyan
-    Write-Host '  chatoverlay -Width     260 to 800; -Rows 1 to 30 chats shown' -ForegroundColor Cyan
-    Write-Host '  chatoverlay -UsageView lines, or bars with reset countdowns' -ForegroundColor Cyan
-    Write-Host '  chatoverlay -Compact   on: one line a chat; -ChipDelay 400 ms' -ForegroundColor Cyan
-    Write-Host '  chatoverlay -Recent    0 to 20 chats not open listed under them' -ForegroundColor Cyan
+    Write-Host '  charlie                every open chat and live usage, always on top' -ForegroundColor Cyan
+    Write-Host '  charlie -Print         the same, once, in this console' -ForegroundColor Cyan
+    Write-Host '  charlie -Theme         dark, light or system; -Opacity 85' -ForegroundColor Cyan
+    Write-Host '  charlie -Width         260 to 800; -Rows 1 to 30 chats shown' -ForegroundColor Cyan
+    Write-Host '  charlie -UsageView     lines, or bars with reset countdowns' -ForegroundColor Cyan
+    Write-Host '  charlie -Compact       on: one line a chat; -ChipDelay 400 ms' -ForegroundColor Cyan
+    Write-Host '  charlie -Recent        0 to 20 chats not open listed under them' -ForegroundColor Cyan
     Write-Host '  chatconsole            write, queue and continue chats in a window' -ForegroundColor Cyan
     Write-Host ''
     Write-Host '  chatinstall            load these in every new shell (once)' -ForegroundColor DarkGray
@@ -370,8 +370,12 @@ Set-Alias -Name Update-ChatIndex -Value chatindex -Scope Global -Force
 # chatnotify's old name, from when it only served chatq's queue; a profile
 # or a habit that still types it keeps working. Global like the ones above.
 Set-Alias -Name chatqnotify -Value chatnotify -Scope Global -Force
+# charlie's old name, from before the panel was Charlie's; a profile, a
+# habit or the extension that still types it keeps working. Global like
+# the ones above.
+Set-Alias -Name chatoverlay -Value charlie -Scope Global -Force
 
-Register-ArgumentCompleter -CommandName chatfind, chatrm, chatindex -ParameterName Provider -ScriptBlock {
+Register-ArgumentCompleter -CommandName chatfind, chatrm, chatarchive, chatindex -ParameterName Provider -ScriptBlock {
     param($cmd, $param, $word)
     @('claude', 'copilot', 'codex') | Where-Object { $_ -like "$word*" } | ForEach-Object {
         [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
@@ -495,7 +499,7 @@ function Get-ChatCompletionPreview {
 }
 
 $script:ChatTitleCompleter = {
-    # One completer for chatrm, chatfind and chatq. All five parameters, because
+    # One completer for chatrm, chatarchive, chatfind and chatq. All five parameters, because
     # the last one - the switches already typed - is how -All and -AllProjects
     # reach it; with three, Tab offered what the command then refused to match.
     param($cmd, $param, $word, $ast, $bound)
@@ -562,8 +566,8 @@ $script:ChatTitleCompleter = {
         }
 }
 
-# the same titles for all three, under their own parameter names
-Register-ArgumentCompleter -CommandName chatrm -ParameterName Target -ScriptBlock $script:ChatTitleCompleter
+# the same titles for all four, under their own parameter names
+Register-ArgumentCompleter -CommandName chatrm, chatarchive -ParameterName Target -ScriptBlock $script:ChatTitleCompleter
 Register-ArgumentCompleter -CommandName chatfind -ParameterName Text -ScriptBlock $script:ChatTitleCompleter
 Register-ArgumentCompleter -CommandName chatq -ParameterName Target -ScriptBlock $script:ChatTitleCompleter
 
@@ -663,9 +667,10 @@ function Test-ChatPartialTarget {
     # match in instead of running when it is, so the whole title is on screen
     # before anything acts on it. Every uncertain answer is $false: Enter then
     # keeps its ordinary meaning, and chatrm's own confirm still stands behind.
+    # chatarchive's line the same: it picks its chats as chatrm does.
     param([string]$Line)
     try {
-        $m = [regex]::Match($Line, '^\s*chatrm\s+')
+        $m = [regex]::Match($Line, '^\s*chat(rm|archive)\s+')
         if (-not $m.Success) { return $false }
         $arg = ($Line.Substring($m.Length) -replace $script:ChatTailPattern, '').Trim()
         if (-not $arg) { return $false }
@@ -695,7 +700,7 @@ function Test-ChatPartialTarget {
 function Start-ChatCycle {
     # begin a run from whatever has been typed after the command
     param([string]$Line)
-    $m = [regex]::Match($Line, '^\s*chat(rm|find|q)\s+')
+    $m = [regex]::Match($Line, '^\s*chat(rm|archive|find|q)\s+')
     if (-not $m.Success) { return $false }
     $queue = $m.Groups[1].Value -eq 'q'
     $arg = $Line.Substring($m.Length)
@@ -823,7 +828,7 @@ if (-not (Get-Variable -Name ChatNoKeyBindings -ValueOnly -EA SilentlyContinue) 
             [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$pos)
             # not only while cycling: the tail survives an edit, and left on the
             # line "(5d)" would be run as an expression rather than ignored
-            if ($line -match '^\s*chat(rm|find|q)\s') {
+            if ($line -match '^\s*chat(rm|archive|find|q)\s') {
                 $clean = $line -replace $script:ChatTailPattern, ''
                 # chatq goes on past the title (-Prompt ...). The cursor is left
                 # before the tail, but text typed after it would put -Prompt in
@@ -835,7 +840,7 @@ if (-not (Get-Variable -Name ChatNoKeyBindings -ValueOnly -EA SilentlyContinue) 
                 }
                 $script:ChatCycle = $null
 
-                # chatrm only, and only when the argument is part of a title
+                # chatrm and chatarchive only, and only when the argument is part of a title
                 # rather than all of it: fill the title in the way Tab would and
                 # hold the line, so the whole thing is on screen before Enter
                 # can act on it. chatfind is a search and deletes nothing, so it
@@ -844,7 +849,7 @@ if (-not (Get-Variable -Name ChatNoKeyBindings -ValueOnly -EA SilentlyContinue) 
                 # the key unusable, which would be far worse than the eager
                 # delete it exists to prevent
                 try {
-                    if ($line -match '^\s*chatrm\s' -and (Test-ChatPartialTarget $line)) {
+                    if ($line -match '^\s*chat(rm|archive)\s' -and (Test-ChatPartialTarget $line)) {
                         if (Start-ChatCycle $line) { return }
                     }
                 }
