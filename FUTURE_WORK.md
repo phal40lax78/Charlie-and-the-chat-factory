@@ -814,3 +814,24 @@ says, is not known. **To close:** catch one live - a chat whose
 foreground Agent runs a Bash call that asks - then, for an open Agent or
 Workflow call, show `Waits in` and its description, or the row's `detail`
 where it says more than `input needed`.
+
+## A chat's title clicked while VS Code is in front
+
+Clicking a chat's title on the panel, with its VS Code window already in
+front, could leave the chat out of view. 0.10.14's
+[frontChatTab](extension/extension.js) focuses the chat's group when its
+tab is in front there, and logs every other case. Why the chat stayed
+hidden was not seen live, though. A review found two cases it leaves as
+they are:
+- **A tab behind others in its own group** is never brought forward.
+  Claude Code's `editor.open` shows the chat in the side bar when it has
+  no live panel, and making a tab restored over a reload visible would
+  start a second claude on the chat. No API tells a live tab from a
+  restored one.
+- **VS Code can report a background tab as the active one** after its
+  label changes: the main thread re-sends that tab's stale `isActive`.
+  `revealed: its tab in front` is then logged while another tab shows.
+
+**Why it waits:** the cause is unknown until a click that fails is
+logged. **To close:** get the `revealed` line from **Chat Manager: Show
+log** after such a click, then act on that case.

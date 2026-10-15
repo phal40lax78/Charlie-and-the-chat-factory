@@ -581,7 +581,10 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     let revealMode = 'normal';
     // never: the command given never settles
     let never = '';
-    const claudeTab = (sid, label, g) => ({ label, sid, input: new TabInputWebview('claudeVSCodePanel'), group: g || group });
+    // focusStuck: a group focus command that moves nothing
+    let focusStuck = false;
+    // isActive: in front of its own group, as VS Code's Tab has it
+    const claudeTab = (sid, label, g) => ({ label, sid, input: new TabInputWebview('claudeVSCodePanel'), group: g || group, get isActive() { return slot(this.group).act.tab === this; } });
     // the chat's tab put in the first group, and the first tab of it in front
     const frontTab = () => { tabs.push(claudeTab(SID, 'T')); active.tab = tabs[0]; };
     stub.window.tabGroups = {
@@ -606,6 +609,9 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
         if (isOpen) openArgs.push([sid, ...rest]);
         if (never === c) return new Promise(() => { });
         if (fail[c]) { fail[c]--; if (onFail) onFail(c); throw new Error('boom'); }
+        // a group focused by its place, as VS Code's own commands do
+        const fg = /^workbench\.action\.focus(First|Second)EditorGroup$/.exec(c);
+        if (fg) { if (!focusStuck) activeGroup = fg[1] === 'First' ? group : group2; return; }
         if (isOpen) {
             const have = tabs.concat(tabs2).find(t => t.sid === sid);
             if (revealMode === 'nothing') return;
@@ -623,7 +629,7 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     const openT = (x) => ext._openTab(Object.assign({ kind: 'open', sessionId: SID, title: 'T', oldProcess: 'none', hostPids: [] }, x));
     const reset = () => {
         calls.length = 0; asked.length = 0; tabs.length = 0; tabs2.length = 0; active.tab = undefined; active2.tab = undefined; fail = {}; makeLater = 0;
-        revealMode = 'normal'; peek = null; groupsNow = [group]; activeGroup = group; makeIn = group; never = ''; warnAnswer = undefined;
+        revealMode = 'normal'; peek = null; groupsNow = [group]; activeGroup = group; makeIn = group; never = ''; warnAnswer = undefined; focusStuck = false;
         openArgs.length = 0; claudeVer = '2.1.283'; onFail = null;
     };
     // the chat's tab up, and its group - Claude tabs alone - unlocked
@@ -1371,6 +1377,69 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     await settle();
     check('an open the chat has a tab for: that tab brought forward, nothing closed, nothing said',
         o2 === 'revealed' && calls.join() === OPENED && tabs.length === 1 && asked.length === 0, calls.join());
+    // the reveal leaving another group in use - a click on the overlay's
+    // title while VS Code was already the window in front: the chat's group
+    // focused when its tab is in front of it, left when its tab is behind
+    // another there - Claude Code showed the chat elsewhere, and bringing a
+    // tab restored over a reload forward would start a second claude
+    const FOCUS2 = 'workbench.action.focusSecondEditorGroup';
+    const twoGroups = (chatFront) => {
+        reset();
+        logged.length = 0;
+        stub.window.state.focused = true;
+        groupsNow = [group, group2];
+        tabs.push(claudeTab(SID2x, 'X'));
+        active.tab = tabs[0];
+        tabs2.push(note(group2), claudeTab(SID, 'T', group2));
+        active2.tab = chatFront ? tabs2[1] : tabs2[0];
+        revealMode = 'nothing';
+    };
+    twoGroups(true);
+    const fr1 = await openT({ oldProcess: 'live' });
+    check('a revealed tab in front of a group not the one in use: that group focused, and logged',
+        fr1 === 'revealed' && calls.join() === OPEN + ',' + FOCUS2 && activeGroup === group2 && active2.tab === tabs2[1] &&
+        logged.includes('revealed, but in front: X - the chat\'s group, column 2, focused (window focused true)') &&
+        !logged.some(l => /still not in front/.test(l)), fr1 + ' ' + calls.join() + ' | ' + logged.join(' | '));
+    twoGroups(true);
+    focusStuck = true;
+    const fr1b = await openT({ oldProcess: 'live' });
+    const fr1bLogged = logged.slice();
+    twoGroups(true);
+    fail[FOCUS2] = 1;
+    const fr1c = await openT({ oldProcess: 'live' });
+    check('the focus moving nothing, or refused: said in the log, the open still revealed',
+        fr1b === 'revealed' && fr1bLogged.includes('the chat\'s tab still not in front: X') &&
+        fr1c === 'revealed' && logged.includes('bringing the chat\'s tab forward failed: boom'), fr1b + ' ' + fr1c + ' | ' + fr1bLogged.join(' | ') + ' / ' + logged.join(' | '));
+    twoGroups(false);
+    const fr2 = await openT({ oldProcess: 'live' });
+    const fr2Calls = calls.join(), fr2Logged = logged.slice();
+    reset();
+    logged.length = 0;
+    tabs.push(claudeTab(SID2x, 'X'), claudeTab(SID, 'T'));
+    active.tab = tabs[0];
+    revealMode = 'nothing';
+    const fr2b = await openT({ oldProcess: 'live' });
+    const behind = 'revealed, but its tab is behind another in its group - shown elsewhere, the side bar perhaps; left. In front: ';
+    check('a revealed tab behind another in its own group: left - never woken by a command - and logged',
+        fr2 === 'revealed' && fr2Calls === OPEN && activeGroup === group && active2.tab === tabs2[0] &&
+        fr2Logged.includes(behind + 'X (window focused true)') &&
+        fr2b === 'revealed' && calls.join() === OPEN && active.tab === tabs[0] && logged.includes(behind + 'X (window focused true)'),
+        fr2Calls + ' / ' + calls.join() + ' | ' + fr2Logged.join(' | ') + ' / ' + logged.join(' | '));
+    reset();
+    logged.length = 0;
+    tabs.push(claudeTab(SID2x, 'X'));
+    active.tab = tabs[0];
+    revealMode = 'nothing';
+    const fr3 = await openT({ oldProcess: 'live' });
+    const fr3Calls = calls.join(), fr3Logged = logged.slice();
+    reset();
+    tabs.push(claudeTab(SID2x, 'X'), claudeTab(SID, 'T'), claudeTab(SID2, 'T'));
+    active.tab = tabs[0];
+    revealMode = 'nothing';
+    const fr4 = await openT({ oldProcess: 'live' });
+    check('no one tab here reads as the chat - none, or twins: nothing brought forward, and logged',
+        fr3 === 'revealed' && fr3Calls === OPEN && fr3Logged.includes('revealed: no one tab here reads as the chat (window focused true)') &&
+        fr4 === 'revealed' && calls.join() === OPEN && active.tab === tabs[0], fr3Calls + ' / ' + calls.join() + ' | ' + fr3Logged.join(' | '));
     reset();
     aliveSet.add(process.pid);
     logged.length = 0;
@@ -1957,6 +2026,16 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     check('label shared: a stale tab of that label is never closed - stale, and says so; a label of its own is closed and opened again',
         ls1 === 'stale' && !ls1Calls.includes('close:') && ls1Asked[0] === ext._texts.staleTab({ title: 'T' }) &&
         ls2 === 'reopened' && calls.includes('close:only me'), ls1 + ' ' + ls1Calls + ' / ' + ls2 + ' ' + calls.join());
+    // a revealed tab behind another, its label another chat of the folder has: left
+    reset();
+    logged.length = 0;
+    tabs.push(claudeTab(L.a, 'T'), other);
+    active.tab = other;
+    revealMode = 'nothing';
+    const lsOpen = await ext._openTab({ kind: 'open', sessionId: L.a, title: 'T', cwd: projA, home: home3, oldProcess: 'live', hostPids: [] });
+    check('label shared: a revealed tab of that label is not brought forward, and logged',
+        lsOpen === 'revealed' && !calls.some(c => /focus|openEditorAtIndex/.test(c)) && active.tab === other &&
+        logged.includes('revealed: another chat of its folder gives its tab\'s label - left (window focused true)'), lsOpen + ' ' + calls.join() + ' | ' + logged.join(' | '));
     // a deleted chat's tab: its label another chat of the folder has - left,
     // whoever's it is; the label its own - closed
     {

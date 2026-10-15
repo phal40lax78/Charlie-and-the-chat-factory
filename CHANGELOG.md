@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.10.14 — A chat's title brings its group forward, VS Code in front or not
+
+- **Clicking a chat's title on the panel brings its group forward** when
+  its window was already in front. The window came up, but the chat's tab
+  could sit in a group other than the one in use, out of view, though the
+  log said `revealed`. Now, when the open makes no new tab and the chat's
+  tab is in front of its own group, that group is focused.
+- **A tab behind others in its own group is left.** Then Claude Code
+  showed the chat somewhere else, the side bar say, and bringing that tab
+  forward could wake a tab kept over a reload into a second claude on the
+  same chat. So is a tab not surely the chat's: none, two of one label, or
+  a label another chat of its folder has.
+- **Each case is in the log** under **Chat Manager: Show log**, with what
+  was in front and whether the window had focus - `revealed, but its tab
+  is behind another in its group` among them. If a click still leaves the
+  chat out of sight, that line says why.
+
 ## 0.10.13 — What a chat is doing, on a card when you rest on its row
 
 - **Rest on a row and a card says what its chat is doing.** Since 0.10.10

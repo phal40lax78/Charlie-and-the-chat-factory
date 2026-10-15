@@ -750,6 +750,51 @@ async function unlockClaudeGroup(title, before, how) {
     }
 }
 
+// The chat's group to the front, after an open that made no tab. Claude
+// Code's editor.open reveals a panel the chat has, which makes that tab the
+// one in front of its group; a click on the overlay's title while VS Code
+// was already the window in front could leave another group in use, the
+// chat's tab shown but not where you look. So when the chat's one tab is
+// in front of its group but that group is not the one in use, its group is
+// focused. A tab behind others in its own group is left: Claude Code showed
+// the chat elsewhere - the side bar, say - and bringing that tab forward
+// would wake a tab restored over a reload into a second claude process on
+// the chat, the worse mistake. So is a tab not surely the chat's - none, a
+// twin, a label another chat of its folder shares, a chat of no title.
+// Each case is logged with whether the window was focused. 'front',
+// 'brought', 'not brought', 'elsewhere', 'no tab', 'shared' or 'failed'.
+// Never throws.
+const FOCUS_GROUP = ['First', 'Second', 'Third', 'Fourth', 'Fifth', 'Sixth', 'Seventh', 'Eighth'].map(n => 'workbench.action.focus' + n + 'EditorGroup');
+async function frontChatTab(req) {
+    const focused = 'window focused ' + !!(vscode.window.state && vscode.window.state.focused);
+    try {
+        const t = oneTabOf(req.title, allTabs().filter(isClaudeTab));
+        if (!t) { log('revealed: no one tab here reads as the chat (' + focused + ')'); return 'no tab'; }
+        if (activeTab() === t) { log('revealed: its tab in front (' + focused + ')'); return 'front'; }
+        if (await labelShared(req.title, req.cwd, req.sessionId, req.home)) {
+            log('revealed: another chat of its folder gives its tab\'s label - left (' + focused + ')');
+            return 'shared';
+        }
+        const a = activeTab();
+        if (!t.isActive) {
+            log('revealed, but its tab is behind another in its group - shown elsewhere, the side bar perhaps; left. In front: ' + (a ? a.label : '(none)') + ' (' + focused + ')');
+            return 'elsewhere';
+        }
+        const col = t.group && t.group.viewColumn;
+        log('revealed, but in front: ' + (a ? a.label : '(none)') + ' - the chat\'s group, column ' + col + ', focused (' + focused + ')');
+        if (!(col >= 1 && col <= FOCUS_GROUP.length)) { log('its group has no focus command'); return 'not brought'; }
+        await command(FOCUS_GROUP[col - 1]);
+        await sleep(timing.tabSettle);
+        if (activeTab() === t) return 'brought';
+        const now = activeTab();
+        log('the chat\'s tab still not in front: ' + (now ? now.label : '(none)'));
+        return 'not brought';
+    } catch (e) {
+        log('bringing the chat\'s tab forward failed: ' + (e && e.message));
+        return 'failed';
+    }
+}
+
 // The chat in an editor tab of its own. The Claude extension makes a new
 // panel, loaded from disk, when the chat has none - but only reveals one it
 // has, stale. So a tab that was there already, came to the front and carries
@@ -1569,7 +1614,8 @@ async function notListed(req) {
 
 // The open itself, behind the open chip's guards and the picker's: the
 // chat listed where it can be, the open (openCall), a look for a new tab,
-// the group unlocked, and a line in the log ending in why. 'new',
+// a tab only revealed made sure of in front (frontChatTab), the group
+// unlocked, and a line in the log ending in why. 'new',
 // 'revealed', 'failed', 'unlistable', 'held' or 'unmended' - said.
 // viewColumn, prompt: as openCall takes them - a prompt only from a caller
 // sure no panel of the chat is here.
@@ -1581,6 +1627,7 @@ async function openCore(req, before, why, viewColumn, prompt) {
     } else if (!how) {
         await sleep(timing.tabSettle);
         how = (await tabAppeared(before)) ? 'new' : 'revealed';
+        if (how === 'revealed') await frontChatTab(req);
         await unlockClaudeGroup(req.title, before, how);
     }
     log('open ' + (req.sessionId || '').slice(0, 8) + ': ' + how + ' ' + why);
