@@ -229,11 +229,11 @@ $hcRow = {
     [pscustomobject]$r
 }
 $mB = Get-ChatOverlayCardModel (& $hcRow 'busy') $tB $null $hcNowMs
-Check 'at work: NOW, the call going and on what, its clock from when it began; the calls before it, an MCP tool by its own name; your prompt, then Claude''s words - and not whose chat, which its row says' (
+Check 'at work: NOW, the call going and on what, its clock from when it began; the calls before it, an MCP tool by its own name; your prompt, then Claude''s words - and whose chat, its project and title, which its row no longer says' (
     $mB.Label -eq 'NOW' -and $mB.Tone -eq 'busy' -and $mB.Tool -eq 'Bash' -and $mB.What -eq 'git status --short' -and $mB.From -eq (HcMs 0.5) -and
     (@($mB.Steps | ForEach-Object { "$($_.Tool)=$($_.What)" }) -join '|') -eq 'getDiagnostics=|Edit=src/overlay-data.ps1|Grep=Show-ChatOverlayChip' -and
     (@($mB.Turns | ForEach-Object { $_.Who }) -join ',') -eq 'YOU,CLAUDE' -and $mB.Turns[0].Text -eq 'make the card' -and $mB.Turns[1].Text -eq 'Reading the panel first.' -and
-    $mB.Turns[0].At -eq (Format-ChatOverlayCardTime (HcMs 9) $hcNow) -and -not @($mB.PSObject.Properties.Name | Where-Object { $_ -in 'Project', 'Where', 'Title' }).Count) (
+    $mB.Turns[0].At -eq (Format-ChatOverlayCardTime (HcMs 9) $hcNow) -and $mB.Project -eq 'hc' -and $mB.Title -eq 'Card title' -and -not @($mB.PSObject.Properties.Name | Where-Object { $_ -eq 'Where' }).Count) (
     "$($mB.Label) $($mB.Tool) $($mB.What) $($mB.From) / $(@($mB.Steps | ForEach-Object { "$($_.Tool)=$($_.What)" }) -join '|') / $(@($mB.Turns | ForEach-Object { "$($_.Who) $($_.At) $($_.Text)" }) -join ' | ')")
 $mW = Get-ChatOverlayCardModel (& $hcRow 'waiting') $tB $null $hcNowMs
 $mA = Get-ChatOverlayCardModel (& $hcRow 'waiting') (Read-ChatOverlayCardTail (Write-HcChat 'ask' @(
@@ -358,7 +358,11 @@ Check 'the card beside the panel on the side with more room - the left on a tie 
     $pl1.X -eq 1162 -and $pl1.Y -eq 260 -and $pl1.Left -and $pl2.X -eq 408 -and $pl2.Y -eq 260 -and -not $pl2.Left -and $pl3.X -eq 432 -and $pl3.Y -eq 760 -and $pl3.Left -and
     $pl4.X -eq 0 -and $pl4.Y -eq 10 -and $pl5.X -eq -1112 -and $pl5.Y -eq 0 -and -not $pl5.Left) (
     (@($pl1, $pl2, $pl3, $pl4, $pl5) | ForEach-Object { "$($_.X),$($_.Y),$($_.Left)" }) -join ' ')
-Check 'a card for a chat - open, cut off, Recent - and a queued prompt; none for a banner' (
+$pl6 = Get-ChatOverlayCardPlacement @(1500, 200, 380, 300) @(1510, 260, 360, 40) @(330, 280) $hcScr 8 100
+$pl7 = Get-ChatOverlayCardPlacement @(20, 200, 380, 300) @(30, 260, 360, 40) @(330, 280) $hcScr 8 100
+Check 'the card goes past the chip''s icons and words beside the panel, on either side' ($pl6.X -eq 1062 -and $pl6.Left -and $pl7.X -eq 508 -and -not $pl7.Left) "$($pl6.X) $($pl7.X)"
+Check 'a card for a chat - open, cut off, Recent - a queued prompt and a usage gauge; none for a banner; a gauge no chip' (
+    (Test-ChatOverlayCardRow ([pscustomobject]@{ kind = 'usage' })) -and -not @(Get-ChatOverlayChipActions ([pscustomobject]@{ kind = 'usage'; provider = 'Claude' })).Count -and
     (Test-ChatOverlayCardRow ([pscustomobject]@{ kind = 'session' })) -and (Test-ChatOverlayCardRow ([pscustomobject]@{ kind = 'cutoff' })) -and
     (Test-ChatOverlayCardRow ([pscustomobject]@{ kind = 'recent' })) -and (Test-ChatOverlayCardRow ([pscustomobject]@{ kind = 'job' })) -and
     -not (Test-ChatOverlayCardRow ([pscustomobject]@{ kind = 'ask' })) -and -not (Test-ChatOverlayCardRow ([pscustomobject]@{ kind = 'reload' })) -and
@@ -403,6 +407,19 @@ Set-ChatOverlayHidden `$H `$false
     if (`$H.CardWin.Content) { & `$walk `$H.CardWin.Content }
     `$out -join '/'
 }
+# the tags its face's parts carry: the name tagged who, its state's words
+# under it words
+`$tagsOf = {
+    `$out = [System.Collections.Generic.List[string]]::new()
+    `$walk = {
+        param(`$e)
+        if (`$e.Tag -is [string]) { `$out.Add(`$e.Tag) }
+        if (`$e -is [System.Windows.Controls.Border]) { if (`$e.Child) { & `$walk `$e.Child } }
+        elseif (`$e -is [System.Windows.Controls.Panel]) { foreach (`$c in `$e.Children) { & `$walk `$c } }
+    }
+    if (`$H.CardWin.Content) { & `$walk `$H.CardWin.Content }
+    `$out
+}
 # words as ASCII, to say what a failing check saw
 `$esc = { param(`$s) [regex]::Replace([string]`$s, '[^\x20-\x7E]', { param(`$m) '\u{0:x4}' -f [int][char]`$m.Value }) }
 # the pointer comes to rest on the queued prompt's row, which has nothing for
@@ -428,7 +445,9 @@ Update-ChatOverlayChip `$H `$on `$false `$t0.AddMilliseconds(450) `$true
     `$H.CardShape.Body.HorizontalAlignment -eq 'Left' -and (& `$tipIn `$r1)
 `$tailSeen = & `$tailAt
 `$jobW = & `$words
-`$jobSays = `$jobW -like 'QUEUED/queued, sends at 17:00/YOU * */do the thing in full'
+# whose first - its state's words not said again under it, the state line says them
+`$jobTags = @(& `$tagsOf)
+`$jobSays = `$jobW -like 'hc  A queued prompt/QUEUED/queued, sends at 17:00/YOU * */do the thing in full' -and `$jobTags -contains 'who' -and `$jobTags -notcontains 'words'
 # the pointer leaves: the card kept 300 ms, then gone
 `$off = [System.Drawing.Point]::new(-9000, -9000)
 Update-ChatOverlayChip `$H `$on `$false `$t0.AddMilliseconds(600) `$true
@@ -440,7 +459,9 @@ Update-ChatOverlayChip `$H `$off `$false `$t0.AddMilliseconds(1000) `$false
 Show-ChatOverlayChip `$H `$rects[0] `$off
 `$both = `$H.ChipWin.IsVisible -and `$H.CardWin.IsVisible -and `$H.CardKey -eq 's:$hcSid'
 `$sessW = & `$words
-`$says = `$sessW -like 'NOW/*:*/*Bash  git status --short/EARLIER/getDiagnostics/Edit  src/overlay-data.ps1/Grep  Show-ChatOverlayChip/YOU * */make the card/CLAUDE * */Reading the panel first.'
+# whose, and under it what its state says past the tile
+`$sessTags = @(& `$tagsOf)
+`$says = `$sessTags -contains 'who' -and `$sessTags -contains 'words' -and `$sessW -like 'hc  Card title/busy/NOW/*:*/*Bash  git status --short/EARLIER/getDiagnostics/Edit  src/overlay-data.ps1/Grep  Show-ChatOverlayChip/YOU * */make the card/CLAUDE * */Reading the panel first.'
 `$clock = `$H.CardClock -and `$H.CardClock.Text.Text -match '^\d+:\d\d$'
 # the panel's opacity: the card's as it comes up - set by either slider -
 # and as the box's slider moves
@@ -489,7 +510,7 @@ Invoke-ChatOverlayTick
 `$n3 = `$script:ChatOverlayCardReads
 `${function:Invoke-ChatOverlayCycle} = `$cyFn
 `$reW = & `$words
-`$reread = `$H.CardWin.IsVisible -and `$n2 -eq `$n1 -and `$n3 -eq `$n1 + 1 -and `$reW -like 'NOW/working/EARLIER/Bash  git status --short/*/CLAUDE * */Clean tree.' -and -not `$H.CardClock
+`$reread = `$H.CardWin.IsVisible -and `$n2 -eq `$n1 -and `$n3 -eq `$n1 + 1 -and `$reW -like 'hc  Card title/busy/NOW/working/EARLIER/Bash  git status --short/*/CLAUDE * */Clean tree.' -and -not `$H.CardClock
 # none while the settings box is open; a redraw without its row, or the
 # panel hidden, takes it away
 Set-ChatOverlaySettingsOpen `$H `$true
@@ -596,10 +617,10 @@ $cw = "$cardOut" -split '\|'
 $cwx = if ($cw.Count -ge 3 -and $cw[2] -match '^\d+$') { [int64]$cw[2] } else { 0 }
 Check 'the card: never clicked - the mouse goes through it - never takes focus, in neither Alt+Tab nor the taskbar; its title says what it is' (
     (($cwx -band 0x80800A0) -eq 0x80800A0) -and -not ($cwx -band 0x40000) -and $cw[1] -eq 'True') ('0x{0:X} {1}' -f $cwx, "$cardOut")
-Check 'after a rest on a row, not before: a queued prompt''s card, though the chip has nothing there - beside the panel, level with the row, in the row''s words' (
+Check 'after a rest on a row, not before: a queued prompt''s card, though the chip has nothing there - beside the panel, level with the row, whose it is first, in the row''s words' (
     $cw[0] -eq 'True' -and $cw[1] -eq 'True' -and $cw[3] -eq 'True' -and $cw[4] -eq 'True') "$cardOut"
 Check 'the pointer gone: the card kept a moment, then gone' ($cw[5] -eq 'True' -and $cw[6] -eq 'True') "$cardOut"
-Check 'an open chat''s card with its chip: what it does on what and for how long, the calls before, your prompt and Claude''s words - drawn' (
+Check 'an open chat''s card with its chip: whose, and what its state says past the tile; what it does on what and for how long, the calls before, your prompt and Claude''s words - drawn' (
     $cw[7] -eq 'True' -and $cw[8] -eq 'True' -and $cw[9] -eq 'True' -and $cw[10] -eq 'True') "$cardOut"
 Check 'a call''s clock counts from when it began, put right every tick; its transcript read again on a pass only once it grew, and the card says what is new' (
     $cw[18] -eq 'True' -and $cw[11] -eq 'True') "$cardOut"

@@ -367,19 +367,6 @@ $script:ChatCodexHome = Join-Path $sb 'no-codex-here'
 $un = try { @(Update-ChatOverlayUsage (New-ChatOverlayContext) $true) } catch { "threw: $($_.Exception.Message)" }
 $script:ChatCodexHome = $cxWas
 Check 'a machine with no Codex at all still gets Claude''s usage' (@($un | Where-Object { $_.provider -eq 'Claude' }).Count -eq 1 -and -not @($un | Where-Object { $_.provider -eq 'Codex' }).Count) "$un"
-# collapsed: only the providers in use, named once it is not Claude alone
-$cuW = { param($p, $a, $b, $st) [pscustomobject]@{ provider = $p; stale = $st; windows = @([pscustomobject]@{ label = '5h'; percent = $a; resetsAt = $null }, [pscustomobject]@{ label = 'week'; percent = $b; resetsAt = $null }) } }
-$cuClaude = Get-ChatOverlayCompactUsage @((& $cuW 'Claude' 42 18 $false), (& $cuW 'Codex' 0 0 $false))
-$cuCodex = Get-ChatOverlayCompactUsage @((& $cuW 'Claude' 0 0 $false), (& $cuW 'Codex' 7 3 $true))
-$cuBoth = Get-ChatOverlayCompactUsage @((& $cuW 'Claude' 42 18 $false), (& $cuW 'Codex' 7 3 $true))
-$cuNone = Get-ChatOverlayCompactUsage @((& $cuW 'Claude' 0 0 $false))
-$cd = $script:ChatqDot
-Check 'collapsed usage: only providers in use - Claude unnamed alone, Codex named, both named, none empty' (
-    $cuClaude.Text -eq "5h 42% $cd week 18%" -and -not $cuClaude.Stale -and
-    $cuCodex.Text -eq "Codex 5h 7% $cd week 3%" -and $cuCodex.Stale -and
-    $cuBoth.Text -eq "Claude 5h 42% $cd week 18% $cd Codex 5h 7% $cd week 3%" -and -not $cuBoth.Stale -and
-    $cuNone.Text -eq '') "[$($cuClaude.Text)] [$($cuCodex.Text)] [$($cuBoth.Text)] [$($cuNone.Text)]"
-
 # the transcript grew: only the new part is read. The slice set wide: a chat
 # read before is passed over once it runs out, and a slow machine's pass
 # could use it up before the chat's turn
@@ -537,6 +524,22 @@ $rwSays = @((& $rw $wB.stateWords), (& $rw 'needs you'), (& $rw 'running'), (& $
 Check 'a Windows row says only what its tile cannot: a reset, a place in the queue, a detail - never idle, working, running or needs you' (
     ($rwSays -join '|') -eq "||||#2 after #1|cut off - resets $resetSays|$($ri1.stateWords.Substring(0, $ri1.stateWords.LastIndexOf(" $($script:ChatqDot) ")))|asks to run Bash|#3 running|claude - 2h" -and
     $rwSays[6] -like '#1 sends 17:10') ($rwSays -join '|')
+# what the hover card says under the chat's name, the panel's row being its
+# tile alone: the row's words, unless its state line says them already -
+# a cut-off's reset is its CUT OFF line's - and a Recent line none
+$cw = { param($w, $what, $k = 'session') Get-ChatOverlayCardWords ([pscustomobject]@{ kind = $k; stateWords = $w; stateText = "$w 5m" }) ([pscustomobject]@{ What = $what }) }
+$cwSays = @((& $cw $wJ.stateWords ''), (& $cw 'idle' ''), (& $cw $wC.stateWords "resets $resetSays"), (& $cw '#2 sends 17:10' '#2 sends 17:10 tomorrow'),
+    (& $cw 'asks to run Bash' 'git status'), (& $cw 'claude - 2h' '' 'recent'))
+Check 'the card says the row''s words under the name - none the tile says, none its state line says already, none for a Recent line' (
+    ($cwSays -join '|') -eq '#2 after #1||||asks to run Bash|') ($cwSays -join '|')
+# the panel's usage: only the providers with a chat or job open - Recent
+# lines are not open; the snapshot itself keeps every one, for the rest
+$auUse = @('Claude', 'Codex', 'Copilot' | ForEach-Object { [pscustomobject]@{ provider = $_; windows = @() } })
+$au = { param($rows) (@(Select-ChatOverlayActiveUsage ([pscustomobject]@{ header = [pscustomobject]@{ usage = $auUse }; rows = $rows }) | ForEach-Object { $_.provider }) -join ',') }
+$auSays = @((& $au @([pscustomobject]@{ kind = 'session'; provider = 'claude' })), (& $au @([pscustomobject]@{ kind = 'job'; provider = 'codex' }, [pscustomobject]@{ kind = 'cutoff'; provider = 'claude' })),
+    (& $au @()), (& $au $null))
+Check 'the panel''s usage: Claude''s with a Claude chat open, Codex''s with a Codex job, none with nothing open, Copilot''s never - it has no rows' (
+    ($auSays -join '|') -eq 'Claude|Claude,Codex||' -and $auUse.Count -eq 3) ($auSays -join '|')
 Check 'a cut-off''s reset for its clock: the limit''s, none for a 529 or a restart' (
     (Get-ChatOverlayCutOffReset $C[2]) -eq $resetMs -and $null -eq (Get-ChatOverlayCutOffReset $C[3]) -and
     $null -eq (Get-ChatOverlayCutOffReset ([pscustomobject]@{ Why = 'restart'; ResetsAt = $resetAt })))
@@ -944,8 +947,8 @@ charlie -Width 801 *> $null
 charlie -Rows 0 *> $null
 charlie -Rows 31 -Width 500 *> $null
 $wr2 = Get-ChatOverlayConfig
-Check '-Width and -Rows are kept and said; out of range refused, and nothing else on that line saved either' (
-    $wr1.width -eq 460 -and $wr1.maxRows -eq 12 -and ($wrSaid -join '|') -like '*width: 460*' -and ($wrSaid -join '|') -like '*rows: 12 at most*' -and
+Check '-Width and -Rows are kept and said - the width for macOS, the Windows panel as wide as a tile; out of range refused, and nothing else on that line saved either' (
+    $wr1.width -eq 460 -and $wr1.maxRows -eq 12 -and ($wrSaid -join '|') -like '*width: 460 - for macOS; the panel here is as wide as a tile*' -and ($wrSaid -join '|') -like '*rows: 12 at most*' -and
     $wr2.width -eq 460 -and $wr2.maxRows -eq 12) "$($wr1.width) $($wr1.maxRows) / $($wr2.width) $($wr2.maxRows) / $($wrSaid -join '|')"
 # chatoverlay is charlie's old name, from before the panel was Charlie's, and
 # a profile, a habit or the extension may still type it: an alias, the same
@@ -1086,10 +1089,13 @@ $cp2 = & $cpAt @(1524, 0, 380, 400) @(364, 20)
 Check 'the bar of buttons sits in the panel''s top strip, 4 under its top edge and 8 in from its right - at the screen''s top too' (
     $cp1.X -eq 1532 -and $cp1.Y -eq 204 -and $cp2.X -eq 1532 -and $cp2.Y -eq 4) "$($cp1.X),$($cp1.Y) / $($cp2.X),$($cp2.Y)"
 # the panel's, not the screen's: off its left with the panel, and a box
-# wider than a narrow panel's bar sticks out to its left
+# wider than a narrow panel's bar sticks out to its left - to its right
+# by the screen's left edge, the window starting 8 in, with the bar
 $cp3 = & $cpAt @(-300, 200, 380, 400) @(364, 20)
 $cp4 = & $cpAt @(1640, 200, 260, 400) @(280, 168) 'above' 140
-Check 'the bar follows the panel off the screen''s side; a box wider than a narrow panel sticks out to its left' ($cp3.X -eq -292 -and $cp3.Y -eq 204 -and $cp4.X -eq 1612) "$($cp3.X),$($cp3.Y) / $($cp4.X)"
+$cp11 = & $cpAt @(10, 200, 148, 400) @(280, 168) 'above' 140
+Check 'the bar follows the panel off the screen''s side; a box wider than a narrow panel sticks out to its left, or by the screen''s left edge to its right' (
+    $cp3.X -eq -292 -and $cp3.Y -eq 204 -and $cp4.X -eq 1612 -and $cp4.Align -eq 'Right' -and $cp11.X -eq 18 -and $cp11.Align -eq 'Left') "$($cp3.X),$($cp3.Y) / $($cp4.X) $($cp4.Align) / $($cp11.X) $($cp11.Align)"
 # the 140-pixel box: above the panel, its foot 4 over the panel's top - so
 # the bar, at the window's foot, stays at 404 - else under the bar; open,
 # kept on its side while it fits there
@@ -1107,62 +1113,52 @@ $cp9 = Get-ChatOverlayControlsPlacement @(1524, 60, 380, 150) @(364, 228) $cpSho
 $cp10 = Get-ChatOverlayControlsPlacement @(1524, 180, 380, 60) @(364, 228) $cpShort 4 'below' 20 200 4 8
 Check 'a box that fits neither side of the panel goes to the side with more room, so the least of it runs off the screen' (
     $cp9.Side -eq 'below' -and $cp9.Y -eq 64 -and $cp10.Side -eq 'above' -and $cp10.Y -eq -24) "$($cp9.Side) $($cp9.Y) / $($cp10.Side) $($cp10.Y)"
-# the resize handle's drag: width, rows, pointer travel, row height, scale, right edge
-$rz = { param($w, $n, $dx, $dy, $rh, $sc, $right, $col = $false) Get-ChatOverlayResize $w $n $dx $dy $rh $sc $right -Collapsed:$col }
-$rzL = & $rz 380 8 -40 0 36 1 1904
-$rzR = & $rz 380 8 1000 0 36 1 1904
-$rzF = & $rz 380 8 -1000 0 54 1.5 1904
-$rzS = & $rz 380 8 -60 0 54 1.5 1904
-Check 'resize: left widens, right narrows, 260 to 800 - the right edge where it was, at 150% too' (
-    $rzL.Width -eq 420 -and $rzL.Left -eq 1484 -and $rzR.Width -eq 260 -and $rzR.Left -eq 1644 -and $rzF.Width -eq 800 -and $rzF.Left -eq 704 -and
-    $rzS.Width -eq 420 -and $rzS.Left -eq 1274) "$($rzL.Width)@$($rzL.Left) $($rzR.Width)@$($rzR.Left) $($rzF.Width)@$($rzF.Left) $($rzS.Width)@$($rzS.Left)"
-$rzD = & $rz 380 8 0 80 36 1 1904
-$rzU = & $rz 380 8 0 -35 36 1 1904
-$rzU2 = & $rz 380 8 0 -40 36 1 1904
-$rzLo = & $rz 380 8 0 -5000 36 1 1904
-$rzHi = & $rz 380 8 0 5000 36 1 1904
-Check 'resize: a row for each row''s height down, one off for each up, none within the first; 1 to 30' (
-    $rzD.Rows -eq 10 -and $rzD.Steps -eq 2 -and $rzU.Rows -eq 8 -and $rzU.Steps -eq 0 -and $rzU2.Rows -eq 7 -and $rzLo.Rows -eq 1 -and $rzHi.Rows -eq 30 -and $rzD.Width -eq 380) "$($rzD.Rows) $($rzU.Rows)/$($rzU.Steps) $($rzU2.Rows) $($rzLo.Rows) $($rzHi.Rows)"
-$rzC = & $rz 380 8 -20 500 36 1 1904 $true
-$rz0 = & $rz 380 8 0 84 0 1 1904
-$rz0b = & $rz 380 8 0 84 0 2 1904
-Check 'resize: collapsed, width only; a row height not known taken as 42 units, scaled' (
-    $rzC.Width -eq 400 -and $rzC.Rows -eq 8 -and $rzC.Steps -eq 0 -and $rz0.Rows -eq 10 -and $rz0b.Rows -eq 9) "$($rzC.Width) $($rzC.Rows) $($rz0.Rows) $($rz0b.Rows)"
+# the bottom edge's drag: rows, pointer travel down, row height, scale -
+# the width is fixed (Get-ChatOverlayPanelWidth), so nothing says one
+$rz = { param($n, $dy, $rh, $sc, $col = $false) Get-ChatOverlayResize $n $dy $rh $sc -Collapsed:$col }
+$rzD = & $rz 8 80 36 1
+$rzU = & $rz 8 -35 36 1
+$rzU2 = & $rz 8 -40 36 1
+$rzLo = & $rz 8 -5000 36 1
+$rzHi = & $rz 8 5000 36 1
+Check 'resize: a row for each row''s height down, one off for each up, none within the first; 1 to 30 - and no width' (
+    $rzD.Rows -eq 10 -and $rzD.Steps -eq 2 -and $rzU.Rows -eq 8 -and $rzU.Steps -eq 0 -and $rzU2.Rows -eq 7 -and $rzLo.Rows -eq 1 -and $rzHi.Rows -eq 30 -and
+    -not $rzD.PSObject.Properties['Width'] -and -not $rzD.PSObject.Properties['Left']) "$($rzD.Rows) $($rzU.Rows)/$($rzU.Steps) $($rzU2.Rows) $($rzLo.Rows) $($rzHi.Rows)"
+$rzC = & $rz 8 500 36 1 $true
+$rz0 = & $rz 8 84 0 1
+$rz0b = & $rz 8 84 0 2
+Check 'resize: collapsed, nothing changes; a row height not known taken as 42 units, scaled' (
+    $rzC.Rows -eq 8 -and $rzC.Steps -eq 0 -and $rz0.Rows -eq 10 -and $rz0b.Rows -eq 9) "$($rzC.Rows) $($rz0.Rows) $($rz0b.Rows)"
 # 3 rows drawn of 12 open - the screen's foot cut the rest - 8 kept: down
 # never saves fewer than 8
-$rzK = { param($dy) (Get-ChatOverlayResize 380 3 0 $dy 36 1 1904 -Kept 8 -Open 12).Rows }
+$rzK = { param($dy) (Get-ChatOverlayResize 3 $dy 36 1 -Kept 8 -Open 12).Rows }
 Check 'resize from fewer rows drawn than kept: down never below those kept, past them a row a row''s height; up takes one off those drawn' (
     (& $rzK 40) -eq 8 -and (& $rzK 0) -eq 8 -and (& $rzK 10) -eq 8 -and (& $rzK 200) -eq 8 -and (& $rzK 216) -eq 9 -and (& $rzK -40) -eq 2) "$(& $rzK 40) $(& $rzK 0) $(& $rzK 216) $(& $rzK -40)"
-# the panel's edges, by the compass: the side across from the one dragged held
-$ezE = Get-ChatOverlayResize 380 8 40 0 36 1 1904 -Edge 'e' -Left 1524
-$ezE2 = Get-ChatOverlayResize 380 8 -1000 0 36 1 1904 -Edge 'e' -Left 1524
-$ezW = Get-ChatOverlayResize 380 8 -40 200 36 1 1904 -Edge 'w'
-$ezN = Get-ChatOverlayResize 380 8 30 -80 36 1 1904 -Edge 'n'
-$ezN2 = Get-ChatOverlayResize 380 8 0 40 36 1 1904 -Edge 'n'
-$ezS = Get-ChatOverlayResize 380 8 -40 80 36 1 1904 -Edge 's'
-$ezNE = Get-ChatOverlayResize 380 8 60 -80 54 1.5 1904 -Edge 'ne' -Left 1334
-$ezNK = (Get-ChatOverlayResize 380 3 0 -40 36 1 1904 -Kept 8 -Edge 'n').Rows
-Check 'an edge''s drag: the right side widens to the right, its left edge held; the top a row for each row''s height up; a side never the rows, the top or bottom never the width' (
-    $ezE.Width -eq 420 -and $ezE.Left -eq 1524 -and $ezE.Rows -eq 8 -and $ezE2.Width -eq 260 -and $ezE2.Left -eq 1524 -and
-    $ezW.Width -eq 420 -and $ezW.Left -eq 1484 -and $ezW.Rows -eq 8 -and $ezN.Rows -eq 10 -and $ezN.Steps -eq 2 -and $ezN.Width -eq 380 -and
-    $ezN2.Rows -eq 7 -and $ezS.Rows -eq 10 -and $ezS.Width -eq 380 -and $ezNE.Width -eq 420 -and $ezNE.Rows -eq 9 -and $ezNE.Left -eq 1334 -and $ezNK -eq 8) (
-    "e $($ezE.Width)@$($ezE.Left)/$($ezE.Rows) $($ezE2.Width)@$($ezE2.Left) w $($ezW.Width)@$($ezW.Left)/$($ezW.Rows) n $($ezN.Rows)/$($ezN.Width) $($ezN2.Rows) s $($ezS.Rows)/$($ezS.Width) ne $($ezNE.Width)@$($ezNE.Left)/$($ezNE.Rows) kept $ezNK")
+# the top and bottom edges: the one across from the one dragged held
+$ezN = Get-ChatOverlayResize 8 -80 36 1 -Edge 'n'
+$ezN2 = Get-ChatOverlayResize 8 40 36 1 -Edge 'n'
+$ezS = Get-ChatOverlayResize 8 80 36 1 -Edge 's'
+$ezNK = (Get-ChatOverlayResize 3 -40 36 1 -Kept 8 -Edge 'n').Rows
+$ezX = Get-ChatOverlayResize 8 80 36 1 -Edge 'e'
+Check 'an edge''s drag: the top a row for each row''s height up, the bottom down; no other edge sizes anything' (
+    $ezN.Rows -eq 10 -and $ezN.Steps -eq 2 -and $ezN2.Rows -eq 7 -and $ezS.Rows -eq 10 -and $ezNK -eq 8 -and $ezX.Rows -eq 8 -and $ezX.Steps -eq 0) (
+    "n $($ezN.Rows) $($ezN2.Rows) s $($ezS.Rows) kept $ezNK e $($ezX.Rows)")
 # stretched into Recent: 4 rows drawn of 6 open, 4 kept, and 2 Recent lines
 # drawn of the 5 there are, 2 kept - rows 36 pixels, lines 20
-$rzOut = { param($dy) Get-ChatOverlayResize 380 4 0 $dy 36 1 1904 -Kept 4 -Open 6 -RecentDrawn 2 -RecentPool 5 -RecentKept 2 -RecentHeight 20 }
+$rzOut = { param($dy) Get-ChatOverlayResize 4 $dy 36 1 -Kept 4 -Open 6 -RecentDrawn 2 -RecentPool 5 -RecentKept 2 -RecentHeight 20 }
 $rzSay = { param($z) "$($z.Rows)/$($z.Recent) $($z.Steps)/$($z.RecentSteps)" }
 $ro1 = & $rzOut 40
 $ro2 = & $rzOut 72
 $ro3 = & $rzOut 92
 $ro4 = & $rzOut 132
 $ro5 = & $rzOut 5000
-$ro20 = (Get-ChatOverlayResize 380 2 0 5000 36 1 1904 -Open 2 -RecentPool 30 -RecentKept 0 -RecentHeight 20).Recent
+$ro20 = (Get-ChatOverlayResize 2 5000 36 1 -Open 2 -RecentPool 30 -RecentKept 0 -RecentHeight 20).Recent
 Check 'stretched out: the open rows not drawn come first, a row a row''s height; then Recent lines, a line a line''s height; past the pool, nothing more' (
     $ro1.Rows -eq 5 -and $ro1.Recent -eq 2 -and $ro2.Rows -eq 6 -and $ro2.Recent -eq 2 -and $ro3.Rows -eq 6 -and $ro3.Recent -eq 3 -and $ro4.Recent -eq 5 -and
     $ro5.Rows -eq 6 -and $ro5.Recent -eq 5 -and $ro5.Steps -eq 2 -and $ro5.RecentSteps -eq 3 -and $ro20 -eq 20) (
     "$(& $rzSay $ro1) $(& $rzSay $ro2) $(& $rzSay $ro3) $(& $rzSay $ro4) $(& $rzSay $ro5) pool30 $ro20")
 # 3 Recent lines drawn this time
-$rzIn = { param($dy, $e = 's') Get-ChatOverlayResize 380 4 0 $dy 36 1 1904 -Kept 4 -Open 6 -RecentDrawn 3 -RecentPool 5 -RecentKept 3 -RecentHeight 20 -Edge $e }
+$rzIn = { param($dy, $e = 's') Get-ChatOverlayResize 4 $dy 36 1 -Kept 4 -Open 6 -RecentDrawn 3 -RecentPool 5 -RecentKept 3 -RecentHeight 20 -Edge $e }
 $ri1 = & $rzIn -19
 $ri2 = & $rzIn -20
 $ri3 = & $rzIn -60
@@ -1175,7 +1171,7 @@ Check 'stretched in: the Recent lines go first, then rows, never under one; Rece
     $riN.Rows -eq 4 -and $riN.Recent -eq 2) "$(& $rzSay $ri1) $(& $rzSay $ri2) $(& $rzSay $ri3) $(& $rzSay $ri4) $(& $rzSay $ri5) n $(& $rzSay $riN)"
 # 3 rows drawn, all there are, 8 kept; 2 Recent lines drawn of 10 - the
 # screen's foot cut the rest - 5 kept
-$rzKR = { param($dy) Get-ChatOverlayResize 380 3 0 $dy 36 1 1904 -Kept 8 -Open 3 -RecentDrawn 2 -RecentPool 10 -RecentKept 5 -RecentHeight 20 }
+$rzKR = { param($dy) Get-ChatOverlayResize 3 $dy 36 1 -Kept 8 -Open 3 -RecentDrawn 2 -RecentPool 10 -RecentKept 5 -RecentHeight 20 }
 $rk0 = & $rzKR 0
 $rk1 = & $rzKR 20
 $rk4 = & $rzKR 80
@@ -1188,21 +1184,16 @@ Check 'the counts kept: no travel keeps rows and Recent as saved, outward never 
     "$(& $rzSay $rk0) $(& $rzSay $rk1) $(& $rzSay $rk4) $(& $rzSay $rkAll) $(& $rzSay $rkIn) $(& $rzSay $rkRows)")
 # no chat open, 8 kept, 4 Recent lines drawn: back up past them takes no
 # rows, as none shows - maxRows stays 8
-$rkNone = Get-ChatOverlayResize 380 8 0 -400 36 1 1904 -Kept 8 -Open 0 -RecentDrawn 4 -RecentPool 10 -RecentKept 4 -RecentHeight 20
+$rkNone = Get-ChatOverlayResize 8 -400 36 1 -Kept 8 -Open 0 -RecentDrawn 4 -RecentPool 10 -RecentKept 4 -RecentHeight 20
 Check 'with no chat open, travel in past the Recent lines takes no rows - maxRows kept as saved' (
     $rkNone.Rows -eq 8 -and $rkNone.Steps -eq 0 -and $rkNone.Recent -eq 0 -and $rkNone.RecentSteps -eq -4) (& $rzSay $rkNone)
 # the top edge at 150%: rows 54 pixels, lines 30, the Recent header 36
-$gUp = Get-ChatOverlayResize 380 4 0 -168 54 1.5 1904 -Edge 'n' -Open 6 -RecentDrawn 0 -RecentPool 5 -RecentKept 0 -RecentHeight 30 -HeadHeight 36
-$gDown = Get-ChatOverlayResize 380 4 0 60 54 1.5 1904 -Edge 'n' -Open 6 -RecentDrawn 2 -RecentPool 5 -RecentKept 2 -RecentHeight 30 -HeadHeight 36
-$gFold = Get-ChatOverlayResize 380 4 0 -168 54 1.5 1904 -Edge 'n' -Collapsed -Open 6 -RecentPool 5 -RecentKept 0 -RecentHeight 30 -HeadHeight 36
+$gUp = Get-ChatOverlayResize 4 -168 54 1.5 -Edge 'n' -Open 6 -RecentDrawn 0 -RecentPool 5 -RecentKept 0 -RecentHeight 30 -HeadHeight 36
+$gDown = Get-ChatOverlayResize 4 60 54 1.5 -Edge 'n' -Open 6 -RecentDrawn 2 -RecentPool 5 -RecentKept 2 -RecentHeight 30 -HeadHeight 36
+$gFold = Get-ChatOverlayResize 4 -168 54 1.5 -Edge 'n' -Collapsed -Open 6 -RecentPool 5 -RecentKept 0 -RecentHeight 30 -HeadHeight 36
 Check 'Grow, for the top edge''s cap: in WPF units, the rows and lines the travel came to, the Recent header with the first line and without the last; none folded' (
     $gUp.Rows -eq 6 -and $gUp.Recent -eq 2 -and $gUp.Grow -eq 136 -and $gDown.Recent -eq 0 -and $gDown.Rows -eq 4 -and $gDown.Grow -eq -64 -and
     $ezN.Grow -eq 72 -and $gFold.Grow -eq 0 -and $gFold.Rows -eq 4 -and $gFold.Recent -eq 0) "up $(& $rzSay $gUp) $($gUp.Grow) down $(& $rzSay $gDown) $($gDown.Grow) n $($ezN.Grow) fold $($gFold.Grow)"
-$cu = { param($e, $f) Get-ChatOverlayEdgeCursor $e $f }
-Check 'each edge''s cursor: up and down for the top and bottom, sideways for the sides, a diagonal for a corner - sideways for every corner while folded' (
-    (& $cu 'n' $false) -eq 'SizeNS' -and (& $cu 's' $false) -eq 'SizeNS' -and (& $cu 'w' $false) -eq 'SizeWE' -and (& $cu 'e' $false) -eq 'SizeWE' -and
-    (& $cu 'ne' $false) -eq 'SizeNESW' -and (& $cu 'sw' $false) -eq 'SizeNESW' -and (& $cu 'nw' $false) -eq 'SizeNWSE' -and (& $cu 'se' $false) -eq 'SizeNWSE' -and
-    (& $cu 'ne' $true) -eq 'SizeWE' -and (& $cu 'se' $true) -eq 'SizeWE')
 $edR = Get-ChatOverlayEdgesRect @(1524, 200, 380, 400) 5
 Check 'the edges'' window: the panel''s rect, the band''s depth more on every side' (($edR -join ',') -eq '1519,195,390,410' -and $null -eq (Get-ChatOverlayEdgesRect @(1, 2) 5)) ($edR -join ',')
 $capB = Get-ChatOverlayHeightCap 900 ([pscustomobject]@{ X = 0; Y = 40; Width = 1920; Height = 1000 }) 1.5 40 640
@@ -2369,24 +2360,34 @@ $staLoad
 Initialize-ChatOverlayNative
 $staPanel
 `$use = @([pscustomobject]@{ provider = 'Claude'; source = 'live'; stale = `$false; status = '22:22'; windows = @([pscustomobject]@{ label = '5h'; percent = 42; resetsAt = `$null; severity = 'normal'; limited = `$false }) })
-`$rows = @(1..10 | ForEach-Object { [pscustomobject]@{ key = "s:`$_"; kind = 'session'; status = 'idle'; rank = 3; project = 'p'; title = "chat `$_"; prompt = 'x'; stateText = 'idle 1m'; job = `$null } })
+`$rows = @(1..10 | ForEach-Object { [pscustomobject]@{ key = "s:`$_"; kind = 'session'; provider = 'claude'; status = 'idle'; rank = 3; project = 'p'; title = "chat `$_"; prompt = 'x'; stateText = 'idle 1m'; job = `$null } })
 `$H.Ctx.ViewSig = 'a'
 Update-ChatOverlayView `$H ([pscustomobject]@{ header = [pscustomobject]@{ usage = `$use; notes = @() }; rows = `$rows })
 `$t = @(`$H.Stack.Children | Where-Object { `$_ -is [System.Windows.Controls.TextBlock] } | ForEach-Object { `$_.Text })
 `$n10 = `$H.Stack.Children.Count
 `$more = `$t -contains '+2 more ' + [char]0x00B7 + ' 2 idle'
-# usage as a line - name, end, then the windows between - and as bars once
-# the settings box says so
+# usage as a gauge: a thin bar a window, filled to its percent in its
+# colour, no words - the figures are on its card - tagged for that card
 `$u0 = `$H.Stack.Children[0]
-# a TextBlock built of runs has an empty .Text: the runs' own text
-`$lineOk = `$u0 -is [System.Windows.Controls.DockPanel] -and (@(`$u0.Children | ForEach-Object { (@(`$_.Inlines) | ForEach-Object { `$_.Text }) -join '' }) -join '|') -eq 'Claude|22:22|5h 42%'
-Set-ChatOverlayUsageView `$H 'bars'
-`$H.ViewKey = `$null
-Update-ChatOverlayView `$H ([pscustomobject]@{ header = [pscustomobject]@{ usage = `$use; notes = @() }; rows = `$rows })
-# the bars with the name and, under it, when the figure is from
-`$b0 = `$H.Stack.Children[0]
-`$barsOk = (Get-ChatOverlayConfig).usageView -eq 'bars' -and `$b0 -is [System.Windows.Controls.Grid] -and (@(`$b0.Children[0].Children | ForEach-Object { `$_.Text }) -join '|') -eq 'Claude|22:22'
-Set-ChatOverlayUsageView `$H 'lines'
+`$bars = { param(`$g) @(`$g.Children | Where-Object { `$_ -is [System.Windows.Controls.StackPanel] } | ForEach-Object { @(`$_.Children) }) }
+`$mark = { param(`$g) @(`$g.Children | Where-Object { `$_ -is [System.Windows.Controls.TextBlock] } | ForEach-Object { `$_.Text }) -join '' }
+`$bar0 = @(& `$bars `$u0)
+`$lineOk = `$u0 -is [System.Windows.Controls.DockPanel] -and `$u0.Tag.kind -eq 'usage' -and `$u0.Tag.key -eq 'usage:claude' -and (& `$mark `$u0) -eq '' -and
+    `$bar0.Count -eq 1 -and `$bar0[0].Tag -eq 'bar' -and `$bar0[0].Height -eq 4 -and `$bar0[0].ColumnDefinitions[0].Width.Value -eq 42 -and
+    "`$(`$bar0[0].Children[1].Background.Color)" -eq "`$((Get-ChatOverlayBrush 'normal').Color)"
+# two providers open: a mark says whose - Claude, Codex, Copilot all start
+# with C - and a stale figure's bars faint, at the limit or not
+`$use2 = @(`$use[0], [pscustomobject]@{ provider = 'Codex'; source = 'live'; stale = `$true; status = '21:00'; windows = @(
+    [pscustomobject]@{ label = '5h'; percent = 7; resetsAt = `$null; severity = 'normal'; limited = `$false },
+    [pscustomobject]@{ label = 'week'; percent = 100; resetsAt = `$null; severity = 'critical'; limited = `$true }) })
+`$cxRow = [pscustomobject]@{ key = 's:cx'; kind = 'session'; provider = 'codex'; status = 'idle'; rank = 3; project = 'p'; title = 'cx'; prompt = 'x'; stateText = 'idle 1m'; job = `$null }
+`$H.Ctx.ViewSig = 'a2'
+Update-ChatOverlayView `$H ([pscustomobject]@{ header = [pscustomobject]@{ usage = `$use2; notes = @() }; rows = @(`$rows[0], `$cxRow) })
+`$g1 = `$H.Stack.Children[0]
+`$g2 = `$H.Stack.Children[1]
+`$b2 = @(& `$bars `$g2)
+`$barsOk = (& `$mark `$g1) -eq 'Cl' -and (& `$mark `$g2) -eq 'Cx' -and `$g2.Tag.kind -eq 'usage' -and `$b2.Count -eq 2 -and
+    "`$(`$b2[1].Children[1].Background.Color)" -eq "`$((Get-ChatOverlayBrush 'faint').Color)" -and `$b2[1].ColumnDefinitions[1].Width.Value -eq 0
 `$H.Ctx.ViewSig = 'b'
 Update-ChatOverlayView `$H ([pscustomobject]@{ header = [pscustomobject]@{ usage = `$use; notes = @() }; rows = @() })
 `$t = @(`$H.Stack.Children | Where-Object { `$_ -is [System.Windows.Controls.TextBlock] } | ForEach-Object { `$_.Text })
@@ -2436,18 +2437,15 @@ Set-ChatOverlayControlsPlacement `$H
 `$H.Win.UpdateLayout()
 `$ky = `$H.Stack.Children[0].TransformToAncestor(`$H.Win).Transform([System.Windows.Point]::new(0, 0)).Y
 `$clear = `$ky -ge 26 -and `$ky -lt 30 -and (`$cr[1] + `$cr[3]) -le (`$pr[1] + (& `$u `$ky))
-# wider and back: the bar follows of itself (the panel's SizeChanged), its
-# right end 8 in
-Set-ChatOverlayWidth `$H 460
-`$H.Win.UpdateLayout()
-`$H.CtlWin.UpdateLayout()
+# as wide as a tile and the six buttons, never config.json's width: the
+# bar within it, its right end 8 in
 `$pw = [ChatOverlayNative]::GetRect(`$H.Hwnd)
-`$cwd = [ChatOverlayNative]::GetRect(`$H.CtlHwnd)
-`$follows = `$H.Controls.Width -eq 444 -and [Math]::Abs(`$cwd[2] - (& `$u 444)) -le 1 -and [Math]::Abs((`$cwd[0] + `$cwd[2]) - (`$pw[0] + `$pw[2] - (& `$u 8))) -le 1
-Set-ChatOverlayWidth `$H 380
-`$H.Win.UpdateLayout()
-`$H.CtlWin.UpdateLayout()
-`$follows = `$follows -and `$H.Controls.Width -eq 364 -and (([ChatOverlayNative]::GetRect(`$H.CtlHwnd)) -join ',') -eq (`$cr -join ',')
+`$cwd = `$cr
+`$tile = (New-ChatOverlayTile ([pscustomobject]@{ status = 'busy'; kind = 'session'; where = 'window' })).El
+`$tile.Measure([System.Windows.Size]::new([double]::PositiveInfinity, [double]::PositiveInfinity))
+`$follows = `$H.Win.Width -eq (Get-ChatOverlayPanelWidth `$H.Frame) -and `$H.Win.Width -ge `$tile.DesiredSize.Width -and `$H.Win.Width -lt 200 -and
+    `$H.Win.Width -ne [double](Get-ChatOverlayConfig).width -and `$H.Controls.Width -eq (`$H.Win.Width - 16) -and
+    [Math]::Abs((`$cwd[0] + `$cwd[2]) - (`$pw[0] + `$pw[2] - (& `$u 8))) -le 1
 # six buttons, collapse at the left end and close at the corner; the
 # caption's three named as on any window, and none of them the grip: the
 # bar's own part drags, a button's cursor the arrow
@@ -2458,7 +2456,7 @@ Set-ChatOverlayWidth `$H 380
 `$order = (@(`$kids | ForEach-Object { ([string]`$_.ToolTip -split ' ')[0] }) -join ',') -eq 'Collapse,Ask,Settings,Minimize,Maximize:,Close' -and
     `$kids[3].ToolTip -eq 'Minimize to the tray - click the tray icon to show it' -and
     `$kids[4].ToolTip -eq 'Maximize: the console, in the panel''s place - write to a chat, queue, continue; Esc brings the panel back' -and
-    `$H.Controls.ToolTip -like 'Drag to move - drag an edge or corner*' -and `$H.Controls.Cursor -eq `$cur::SizeAll -and
+    `$H.Controls.ToolTip -like 'Drag to move - drag the panel''s top or bottom edge*' -and `$H.Controls.Cursor -eq `$cur::SizeAll -and
     -not @(`$kids | Where-Object { `$_.Cursor -ne `$cur::Arrow }).Count -and `$H.CtlLine.HorizontalAlignment -eq 'Right'
 # a short line, a square and a cross, each 8 units across
 `$gm = `$kids[3].Child.Data.Bounds
@@ -2572,7 +2570,7 @@ Set-ChatOverlayCollapsed `$H `$true
 $wpfOut = Invoke-Sta 'panel-test' $wpf
 $wp = "$wpfOut" -split '\|'
 $ex = if ($wp.Count -ge 5) { [int64]$wp[4] } else { 0 }
-Check 'the panel: 8 rows and "+2 more", or one line when nothing is open' ($wp[0] -eq '11' -and $wp[1] -eq 'True' -and $wp[2] -eq '3' -and $wp[3] -eq 'True') "$wpfOut"
+Check 'the panel: 8 rows and "+2 more", or one line when nothing is open - no usage then, as no chat is' ($wp[0] -eq '11' -and $wp[1] -eq 'True' -and $wp[2] -eq '1' -and $wp[3] -eq 'True') "$wpfOut"
 Check 'shown, a tool window that never activates and lets clicks through, and no taskbar button' ((($ex -band 0x80800A0) -eq 0x80800A0) -and -not ($ex -band 0x40000)) ('0x{0:X}' -f $ex)
 $cex = if ($wp.Count -ge 11) { [int64]$wp[10] } else { 0 }
 Check 'six in a window of their own - minimize and maximize among them - not shown before the panel is' ($wp[5] -eq '6' -and $wp[6] -eq 'False') "$wpfOut"
@@ -2584,17 +2582,17 @@ Check 'minimize hides the panel to the tray, maximize opens the console in its p
 Check 'a press on the bar off its buttons drags the panel; a press on a button never does' ($wp[26] -eq 'True') "$wpfOut"
 Check 'the bar of buttons sits in the panel''s top strip, 4 under its top and 8 in from its right, as wide as the panel less 16, put pass after pass' ($wp[15] -eq 'True') "$wpfOut"
 Check 'the bar shows with the panel and goes with it: to the tray and back, out of a full screen''s way and back' ($wp[27] -eq 'True') "$wpfOut"
-Check 'the bar follows the panel''s width of itself, its right end 8 in' ($wp[28] -eq 'True') "$wpfOut"
+Check 'the panel as wide as a tile, never config.json''s width, the bar within it, its right end 8 in' ($wp[28] -eq 'True') "$wpfOut"
 Check 'the panel''s rows start under the bar, 2 units clear of it' ($wp[29] -eq 'True') "$wpfOut"
 Check 'the panel''s opacity dims the buttons alone - never the bar, its window or the settings box - and again once they are made anew' ($wp[30] -eq 'True') "$wpfOut"
 Check 'the settings box opens above the panel, its foot 4 over the panel''s top edge, the bar where it was' ($wp[16] -eq 'True') "$wpfOut"
 Check 'the pointer check counts the buttons'' window, an open box and its gap to the panel in it' ($wp[21] -eq 'True') "$wpfOut"
 Check 'the box keeps its side while open: under the bar at the screen''s top, still there dragged down, kept open by the pointer check while a button is held, the bar placed for no box once it shuts it, above once opened again' ($wp[22] -eq 'True') "$wpfOut"
 Check 'the refresh icon turns while Claude is being asked' ($wp[18] -eq 'True') "$wpfOut"
-Check 'usage drawn as a line - name, the windows, when it is from - and as bars, with the time under the name, once the settings box says so' ($wp[19] -eq 'True' -and $wp[20] -eq 'True') "$wpfOut"
+Check 'usage drawn as a gauge - a thin bar a window in its colour, no words, tagged for its card - and a mark for whose once two are open, a stale one faint' ($wp[19] -eq 'True' -and $wp[20] -eq 'True') "$wpfOut"
 Check 'the light theme redraws the frame and keeps the settings box open' ($wp[7] -eq '#F2FAFAFB' -and $wp[8] -eq 'True') "$wpfOut"
 Check 'the opacity slider sets the panel''s, and config.json gets it once it rests' ($wp[9] -eq 'True') "$wpfOut"
-Check 'collapsed: one line of counts and usage, and the chevron offers to expand' ($wp[11] -eq '1' -and $wp[12] -eq ('5h 42%/no chats open') -and $wp[13] -eq 'Expand') "$wpfOut"
+Check 'collapsed: one line of counts - no gauge, as no chat is open - and the chevron offers to expand' ($wp[11] -eq '1' -and $wp[12] -eq 'no chats open' -and $wp[13] -eq 'Expand') "$wpfOut"
 
 # the dark look's ornaments (New-ChatOverlayDecor) and its serif titles
 # (Set-ChatOverlaySerif), on the narrowest panel: three idle rows and a
@@ -2630,19 +2628,18 @@ Update-ChatOverlayView `$H ([pscustomobject]@{ header = [pscustomobject]@{ usage
     `$null -eq `$g.Background -and `$null -eq `$D.Line.Background -and `$null -eq `$D.Crest.Background -and
     `$D.Crest.Children.Count -eq 1 -and `$D.Crest.Children[0] -eq `$D.Flourish -and
     `$D.Line.BorderBrush -eq `$gold -and `$D.Flourish.Fill -eq `$gold -and `$D.Flourish.Stroke -eq `$gold -and `$H.Frame.BorderBrush -eq `$gold -and
-    `$D.Line.Visibility -eq 'Visible' -and `$D.Crest.Visibility -eq 'Visible'
+    `$D.Line.Visibility -eq 'Visible' -and `$D.Crest.Visibility -eq 'Collapsed'
 # no room taken: the frame as tall as the stack and its padding and edge
 `$fr = `$H.Frame
 `$chrome = `$fr.Padding.Top + `$fr.Padding.Bottom + `$fr.BorderThickness.Top + `$fr.BorderThickness.Bottom
 `$room = `$D.Line.DesiredSize.Width -eq 0 -and `$D.Line.DesiredSize.Height -eq 0 -and `$D.Crest.DesiredSize.Width -eq 0 -and `$D.Crest.DesiredSize.Height -eq 0 -and
     `$H.Stack.ActualHeight -gt 0 -and [Math]::Abs(`$fr.ActualHeight - (`$H.Stack.ActualHeight + `$chrome)) -lt 0.01
-# the flourish, its stroke counted, left of the first button and in the top
-# strip, above where the rows start
-`$fl = `$D.Flourish
-`$fb = [System.Windows.Rect]::Inflate(`$fl.TransformToAncestor(`$H.Win).TransformBounds(`$fl.Data.Bounds), `$fl.StrokeThickness, `$fl.StrokeThickness)
+# the crest collapsed: the six buttons fill the bar of a panel as wide as
+# them, leaving the flourish no room left of the first
+`$fb = `$null
 `$top = `$H.Stack.TransformToAncestor(`$H.Win).Transform([System.Windows.Point]::new(0, 0)).Y
 `$bar = `$H.Win.Width - `$script:ChatOverlayBarIndent - `$H.CtlButtons.Count * 22
-`$clear = `$H.Win.Width -eq 260 -and `$H.CtlButtons.Count -eq 6 -and `$fb.Right -le `$bar -and `$fb.Left -ge 0 -and `$fb.Top -ge 0 -and `$fb.Bottom -le `$top
+`$clear = `$H.CtlButtons.Count -eq 6 -and `$bar -lt 34 + `$H.Frame.Padding.Left + `$H.Frame.BorderThickness.Left -and `$D.Crest.Visibility -eq 'Collapsed'
 # the frame as drawn, and drawn with the stack alone in it
 `$shot = {
     `$H.Win.UpdateLayout()
@@ -2663,33 +2660,16 @@ Update-ChatOverlayView `$H ([pscustomobject]@{ header = [pscustomobject]@{ usage
     `$H.Frame.Child = `$g
     `$s
 }
-# the titles: a full row's own TextBlock; a compact or Recent line's Run, in
-# the TextBlock that holds that line - each the text of a name
+# the titles: none on the panel, whose rows are tiles alone
+# (Add-ChatOverlayTileRow) - a row's name only in the console's list
 # (New-ChatOverlayRowName)
 `$wraps = { @(`$H.Stack.Children | Where-Object { `$_.Tag -and `$_.Tag -isnot [string] }) }
 `$nameText = { param(`$p) @(@(`$p.Children | Where-Object { `$_.Tag -is [string] -and `$_.Tag -eq 'name' })[-1].Children)[0] }
-`$titlesOf = {
-    foreach (`$w in (& `$wraps)) {
-        `$text = @(`$w.Children | Where-Object { `$_.Tag -is [string] -and `$_.Tag -eq 'text' })
-        if (`$text.Count) { `$t = & `$nameText `$text[0]; @{ El = `$t; Line = `$t } }
-        else {
-            `$ln = @(`$w.Children | Where-Object { `$_.Tag -is [string] -and `$_.Tag -eq 'line' })[0]
-            `$main = & `$nameText `$ln
-            @{ El = @(`$main.Inlines)[-1]; Line = `$main }
-        }
-    }
-}
+`$titlesOf = { foreach (`$w in (& `$wraps)) { @(`$w.Children | Where-Object { `$_.Tag -isnot [string] -or `$_.Tag -ne 'tile' }) } }
 `$unset = { param(`$o, `$p) `$o.ReadLocalValue(`$p) -eq [System.Windows.DependencyProperty]::UnsetValue }
 `$faceP = [System.Windows.Documents.TextElement]::FontFamilyProperty
-# the serif on the title, its line held at the sans's - and a compact line's
-# TextBlock keeps the sans as its own face
 `$serif = [string]`$script:ChatOverlayColors.serif
-`$inSerif = {
-    param(`$x)
-    `$x.El.FontFamily.Source -eq `$serif -and `$x.Line.LineStackingStrategy -eq 'BlockLineHeight' -and `$x.Line.LineHeight -eq `$script:ChatOverlaySansLine -and
-    (`$x.Line -eq `$x.El -or (& `$unset `$x.Line `$faceP))
-}
-# a full row and the Recent line, how tall
+# a tile row and the Recent line, how tall
 `$heights = { `$ws = & `$wraps; @(@(`$ws | Where-Object { [string]`$_.Tag.kind -ne 'recent' })[0].ActualHeight, @(`$ws | Where-Object { [string]`$_.Tag.kind -eq 'recent' })[0].ActualHeight) }
 # a line of the panel's sans, measured
 `$sans = [System.Windows.Controls.TextBlock]::new()
@@ -2699,7 +2679,7 @@ Update-ChatOverlayView `$H ([pscustomobject]@{ header = [pscustomobject]@{ usage
 `$sans.Measure([System.Windows.Size]::new([double]::PositiveInfinity, [double]::PositiveInfinity))
 `$dark1 = & `$shot
 `$tDark = @(& `$titlesOf)
-`$serifOk = `$serif -and `$tDark.Count -eq 4 -and -not @(`$tDark | Where-Object { -not (& `$inSerif `$_) }).Count -and
+`$serifOk = `$serif -and `$tDark.Count -eq 0 -and @(& `$wraps).Count -eq 4 -and
     [Math]::Abs(`$sans.DesiredSize.Height - `$script:ChatOverlaySansLine) -lt 0.001
 `$hDark = & `$heights
 `$darkAlone = & `$alone
@@ -2708,7 +2688,7 @@ Update-ChatOverlayView `$H ([pscustomobject]@{ header = [pscustomobject]@{ usage
 Update-ChatOverlayTheme `$H
 `$light1 = & `$shot
 `$tLight = @(& `$titlesOf)
-`$bare = `$tLight.Count -eq 4 -and -not @(`$tLight | Where-Object { -not (& `$unset `$_.El `$faceP) -or -not (& `$unset `$_.Line ([System.Windows.Controls.TextBlock]::LineHeightProperty)) }).Count
+`$bare = `$tLight.Count -eq 0 -and @(& `$wraps).Count -eq 4
 `$hLight = & `$heights
 `$lightAlone = & `$alone
 `$lightSame = `$light1 -eq `$lightAlone -and `$D.Line.Visibility -eq 'Collapsed' -and `$D.Crest.Visibility -eq 'Collapsed' -and `$H.Frame.BorderBrush -eq (Get-ChatOverlayBrush 'edge')
@@ -2718,12 +2698,8 @@ Update-ChatOverlayTheme `$H
 Update-ChatOverlayTheme `$H
 `$dark2 = & `$shot
 `$asWas = `$lightSame -and `$dark1 -ne `$darkAlone -and (`$dark1 -split '/')[0] -eq (`$darkAlone -split '/')[0] -and `$dark2 -eq `$dark1 -and
-    `$D.Line.Visibility -eq 'Visible' -and `$D.Crest.Visibility -eq 'Visible' -and `$D.Line.BorderBrush -eq (Get-ChatOverlayBrush 'trim')
-# compact rows: the serif on the title's Run there too
-Set-ChatOverlayRowStyle `$H 'compact'
-`$H.Win.UpdateLayout()
-`$tComp = @(& `$titlesOf)
-`$serifOk = `$serifOk -and `$tComp.Count -eq 4 -and -not @(`$tComp | Where-Object { `$_.Line -eq `$_.El -or -not (& `$inSerif `$_) }).Count
+    `$D.Line.Visibility -eq 'Visible' -and `$D.Crest.Visibility -eq 'Collapsed' -and `$D.Line.BorderBrush -eq (Get-ChatOverlayBrush 'trim')
+`$tComp = @()
 # the console's list, which draws its rows the panel's way at its own 12.5:
 # the Recent line's title held at a sans line of that size, as measured, and
 # the line as tall in the dark look as in the light, which holds nothing
@@ -2759,11 +2735,11 @@ $decorOut = Invoke-Sta 'decor-test' $wpfDecor
 $dc = "$decorOut" -split '\|'
 Check 'the dark look''s ornaments: a Grid of the inner line, the crest and the rows'' stack in the frame, none of it hit-testable or painted, the flourish alone in the crest, all in the trim''s gold' ($dc[0] -eq 'True') "$decorOut"
 Check 'the ornaments take no room: nothing desired, and the frame as tall as the rows'' stack and its padding and edge' ($dc.Count -gt 1 -and $dc[1] -eq 'True') "$decorOut"
-Check 'at 260 wide the flourish is clear of the bar''s first button and inside the top strip' ($dc.Count -gt 2 -and $dc[2] -eq 'True') "$decorOut"
+Check 'the flourish stays collapsed: the six buttons leave it no room on a panel as wide as them' ($dc.Count -gt 2 -and $dc[2] -eq 'True') "$decorOut"
 Check 'the light look draws as the frame with the rows'' stack alone; the dark one draws its ornaments, as tall, and again once switched back' ($dc.Count -gt 3 -and $dc[3] -eq 'True') "$decorOut"
-Check 'the dark look''s chat titles are in its serif - full, compact and Recent - each line held at the sans''s, as tall as a sans line measures' ($dc.Count -gt 4 -and $dc[4] -eq 'True') "$decorOut"
-Check 'a full row and a Recent line with no project are as tall in the dark look as in the light' ($dc.Count -gt 5 -and $dc[5] -eq 'True') "$decorOut"
-Check 'the light look sets no face or line height on a title, and draws as it did' ($dc.Count -gt 7 -and $dc[6] -eq 'True' -and $dc[7] -eq 'True') "$decorOut"
+Check 'the panel''s rows draw no title in either look - a tile each, the Recent line''s too - and a sans line measures what titles are held to' ($dc.Count -gt 6 -and $dc[4] -eq 'True' -and $dc[6] -eq 'True') "$decorOut"
+Check 'a tile row and a Recent line are as tall in the dark look as in the light' ($dc.Count -gt 5 -and $dc[5] -eq 'True') "$decorOut"
+Check 'the light look draws as it did' ($dc.Count -gt 7 -and $dc[7] -eq 'True') "$decorOut"
 Check 'the console''s list, at its own 12.5: a dark Recent title in the serif, its line held at a sans line of that size, as tall as in the light look, which holds none' ($dc.Count -gt 9 -and $dc[8] -eq 'True') "$decorOut"
 
 # the tray icon: Charlie with the state's dot, drawn into a NotifyIcon never
@@ -2826,9 +2802,10 @@ Check 'a tooltip past .NET Framework''s 63 characters is taken whole, and a shor
 Check 'the tray icon''s key holds the look''s ring: a look change draws the same colour anew, with a new handle' ($tr.Count -gt 10 -and $tr[9] -eq 'True') "$trayOut"
 Check 'the tray''s ring: crimson in the dark look, the icon''s near-black in the light one, FromArgb(19, 10, 30) as before' ($tr.Count -gt 10 -and $tr[10] -eq 'True') "$trayOut"
 
-# its size: the resize handle, the width and rows sliders, a screen too short
+# its size: the top and bottom edges, the rows slider, a screen too short
 # for the rows, and a reload - shown off every screen, the pointer never
-# read: the drag is handed where it is (-At). config.json put back after.
+# read: the drag is handed where it is (-At). The width fixed, as wide as a
+# tile, whatever config.json says. config.json put back after.
 $wpfSize = @"
 $staLoad
 # no mouse button held and the pointer far off, whatever the real mouse's
@@ -2850,16 +2827,17 @@ Update-ChatOverlayView `$H `$snap
 `$H.Win.UpdateLayout()
 `$more = { @(`$H.Stack.Children | Where-Object { `$_ -is [System.Windows.Controls.TextBlock] -and `$_.Text -like '+* more*' } | ForEach-Object { `$_.Text }) -join '' }
 `$right = { `$r = [ChatOverlayNative]::GetRect(`$H.Hwnd); `$r[0] + `$r[2] }
+`$w0 = `$H.Win.Width
 # no handle and no grip: collapse first, six in all, the bar itself
 # naming the edges
 `$handle = `$H.CtlLine.Children.Count -eq 6 -and `$H.CtlLine.Children[0] -eq `$H.CtlButtons[0] -and `$H.CtlButtons[0].ToolTip -eq 'Collapse to one line' -and
-    `$H.Controls.ToolTip -like 'Drag to move - drag an edge or corner*' -and -not @(`$H.CtlButtons | Where-Object { [string]`$_.ToolTip -like 'Drag*' }).Count -and
-    `$H.CtlButtons[2].ToolTip -eq 'Settings - size, rows, opacity, theme, usage, compact rows, recent chats, cut-off chats' -and
+    `$H.Controls.ToolTip -like 'Drag to move - drag the panel''s top or bottom edge*' -and -not @(`$H.CtlButtons | Where-Object { [string]`$_.ToolTip -like 'Drag*' }).Count -and
+    `$H.CtlButtons[2].ToolTip -eq 'Settings - opacity, rows, theme, recent chats, cut-off chats' -and
     `$H.CtlButtons[5].ToolTip -like 'Close the overlay - it stays closed until you next sign in*'
 # the edges: shown with the pointer, over the panel's rect and 4 units
-# round it, taking clicks but never focus, a cursor each, all but
-# invisible; folded, no top or bottom and the corners sideways; the line
-# along the sides an edge sizes; gone with the pointer, the bar kept
+# round it, taking clicks but never focus, all but invisible; the top and
+# bottom alone, up and down - the width is fixed; folded, none; the line
+# along the side an edge sizes; gone with the pointer, the bar kept
 Show-ChatOverlayEdges `$H `$true
 `$ep = [ChatOverlayNative]::GetRect(`$H.Hwnd)
 `$eOut = [int][Math]::Round(4 * (Get-ChatOverlayScale `$H `$ep -Device))
@@ -2868,39 +2846,38 @@ Show-ChatOverlayEdges `$H `$true
 `$cur = [System.Windows.Input.Cursors]
 `$ec = { param(`$s) `$H.EdgeParts[`$s].Cursor }
 `$edges = `$H.EdgesWin.IsVisible -and (`$eRect -join ',') -eq ((Get-ChatOverlayEdgesRect `$ep `$eOut) -join ',') -and
-    ((`$eex -band 0x8080080) -eq 0x8080080) -and -not (`$eex -band 0x20) -and -not (`$eex -band 0x40000) -and @(`$H.EdgeParts.Keys).Count -eq 8 -and
-    (& `$ec 'n') -eq `$cur::SizeNS -and (& `$ec 'w') -eq `$cur::SizeWE -and (& `$ec 'ne') -eq `$cur::SizeNESW -and (& `$ec 'se') -eq `$cur::SizeNWSE -and
+    ((`$eex -band 0x8080080) -eq 0x8080080) -and -not (`$eex -band 0x20) -and -not (`$eex -band 0x40000) -and
+    (@(`$H.EdgeParts.Keys | Sort-Object) -join ',') -eq 'n,s' -and (& `$ec 'n') -eq `$cur::SizeNS -and (& `$ec 's') -eq `$cur::SizeNS -and
     `$H.EdgeParts['s'].Background.Color.A -eq 1
-Show-ChatOverlayEdgeHint `$H 'ne'
+Show-ChatOverlayEdgeHint `$H 's'
 `$t1 = `$H.EdgesHint.BorderThickness
 Show-ChatOverlayEdgeHint `$H ''
-`$edges = `$edges -and `$t1.Top -eq 2 -and `$t1.Right -eq 2 -and `$t1.Left -eq 0 -and `$t1.Bottom -eq 0 -and `$H.EdgesHint.Visibility -eq 'Hidden'
+`$edges = `$edges -and `$t1.Bottom -eq 2 -and `$t1.Top -eq 0 -and `$t1.Left -eq 0 -and `$t1.Right -eq 0 -and `$H.EdgesHint.Visibility -eq 'Hidden'
 Set-ChatOverlayCollapsed `$H `$true
-Show-ChatOverlayEdgeHint `$H 'ne'
-`$edges = `$edges -and `$H.EdgeParts['n'].Visibility -eq 'Collapsed' -and `$H.EdgeParts['s'].Visibility -eq 'Collapsed' -and `$H.EdgeParts['w'].Visibility -eq 'Visible' -and
-    (& `$ec 'ne') -eq `$cur::SizeWE -and `$H.EdgesHint.BorderThickness.Top -eq 0 -and `$H.EdgesHint.BorderThickness.Right -eq 2
+`$edges = `$edges -and `$H.EdgeParts['n'].Visibility -eq 'Collapsed' -and `$H.EdgeParts['s'].Visibility -eq 'Collapsed'
 Set-ChatOverlayCollapsed `$H `$false
-`$edges = `$edges -and `$H.EdgeParts['n'].Visibility -eq 'Visible' -and (& `$ec 'ne') -eq `$cur::SizeNESW
+`$edges = `$edges -and `$H.EdgeParts['n'].Visibility -eq 'Visible' -and `$H.EdgeParts['s'].Visibility -eq 'Visible'
 Show-ChatOverlayEdges `$H `$false
 `$edges = `$edges -and -not `$H.EdgesWin.IsVisible -and `$H.EdgesHint.Visibility -eq 'Hidden' -and `$H.CtlWin.IsVisible
-# the sliders: whole numbers, their values beside them
+# the sliders: opacity and rows - no width - the rows' whole numbers, its
+# value beside it
 Set-ChatOverlaySettingsOpen `$H `$true
 `$sl = @(`$H.Settings.Child.Children | Where-Object { `$_ -is [System.Windows.Controls.Slider] })
-`$sw = @(`$sl | Where-Object { `$_.Tag -eq 'width' })[0]
 `$sr = @(`$sl | Where-Object { `$_.Tag -eq 'rows' })[0]
-`$sliders = `$sl.Count -eq 3 -and `$sw.Minimum -eq 260 -and `$sw.Maximum -eq 800 -and `$sw.Value -eq 380 -and `$sr.Minimum -eq 1 -and `$sr.Maximum -eq 30 -and `$sr.Value -eq 8 -and
-    `$sw.IsSnapToTickEnabled -and `$sw.TickFrequency -eq 1 -and `$H.WidthText.Text -eq '380' -and `$H.RowsText.Text -eq '8'
+`$sliders = `$sl.Count -eq 2 -and -not @(`$sl | Where-Object { `$_.Tag -eq 'width' }).Count -and `$sr.Minimum -eq 1 -and `$sr.Maximum -eq 30 -and `$sr.Value -eq 8 -and
+    `$sr.IsSnapToTickEnabled -and `$sr.TickFrequency -eq 1 -and `$H.RowsText.Text -eq '8' -and `$null -eq `$H.WidthSlider
+# as wide as a tile and the six buttons, never config.json's 380
+`$wide = `$w0 -eq (Get-ChatOverlayPanelWidth `$H.Frame) -and `$w0 -lt 200 -and `$w0 -ge 6 * 22 + 16
 `$e0 = & `$right
-`$sw.Value = 460.4
-`$wide = `$H.Win.Width -eq 460 -and (& `$right) -eq `$e0 -and `$H.WidthText.Text -eq '460' -and `$H.PendingWidth -eq 460
 `$sr.Value = 4.6
 `$H.Win.UpdateLayout()
-`$fewer = `$sr.IsSnapToTickEnabled -and (Get-ChatOverlayDrawnRows `$H) -eq 5 -and (& `$more) -like '+7 more*' -and `$H.RowsText.Text -eq '5' -and `$H.PendingRows -eq 5
+`$fewer = (Get-ChatOverlayDrawnRows `$H) -eq 5 -and (& `$more) -like '+7 more*' -and `$H.RowsText.Text -eq '5' -and `$H.PendingRows -eq 5 -and `$H.Win.Width -eq `$w0 -and (& `$right) -eq `$e0
 `$H.PendingAt = (Get-Date).AddSeconds(-2)
 Update-ChatOverlayHover
 `$c1 = Get-ChatOverlayConfig
-`$rested = `$c1.width -eq 460 -and `$c1.maxRows -eq 5 -and `$null -eq `$H.PendingWidth -and `$null -eq `$H.PendingRows
-# the handle dragged left 40 units and down two and a half rows
+`$rested = `$c1.width -eq 380 -and `$c1.maxRows -eq 5 -and `$null -eq `$H.PendingRows
+# the bottom edge dragged down two and a half rows - and across, which
+# sizes nothing
 `$H.Win.UpdateLayout()
 `$e1 = & `$right
 `$o = [System.Drawing.Point]::new(100, 100)
@@ -2916,15 +2893,15 @@ Stop-ChatOverlaySizeDrag `$null
 `$c2 = Get-ChatOverlayConfig
 `$st = Read-ChatOverlayState
 `$pr = [ChatOverlayNative]::GetRect(`$H.Hwnd)
-`$dragged = `$held -and `$midW -eq 500 -and `$midN -eq 7 -and `$midE -eq `$e1 -and -not `$H.Dragging -and `$c2.width -eq 500 -and `$c2.maxRows -eq 7 -and
+`$dragged = `$held -and `$midW -eq `$w0 -and `$midN -eq 7 -and `$midE -eq `$e1 -and -not `$H.Dragging -and `$c2.width -eq 380 -and `$c2.maxRows -eq 7 -and
     `$st.x -eq `$pr[0] -and `$st.y -eq `$pr[1]
-# collapsed: width only
+# collapsed: nothing to size
 Set-ChatOverlayCollapsed `$H `$true
 Start-ChatOverlaySizeDrag `$null `$o
 Move-ChatOverlaySizeDrag ([System.Drawing.Point]::new(100 + [int][Math]::Round(20 * `$H.SizeDrag.Px), 900))
 Stop-ChatOverlaySizeDrag `$null
 `$c3 = Get-ChatOverlayConfig
-`$folded = `$c3.width -eq 480 -and `$c3.maxRows -eq 7
+`$folded = `$c3.width -eq 380 -and `$c3.maxRows -eq 7 -and `$H.Win.Width -eq `$w0
 Set-ChatOverlayCollapsed `$H `$false
 # a screen 500 pixels tall: never past its foot, from the top edge (197)
 `$tall = 500
@@ -2933,42 +2910,25 @@ Set-ChatOverlayRowCount `$H 30
 `$px = Get-ChatOverlayScale `$H ([ChatOverlayNative]::GetRect(`$H.Hwnd)) -Device
 `$n = Get-ChatOverlayDrawnRows `$H
 `$cut = `$H.Win.MaxHeight -eq [Math]::Floor(303 / `$px) -and `$n -ge 1 -and `$n -lt 12 -and (& `$more) -like "+`$(12 - `$n) more*" -and `$H.Win.ActualHeight -le `$H.Win.MaxHeight
-# a shell's charlie -Width -Rows: reload, the right edge held
+# a shell's charlie -Width -Rows: reload - the rows taken, the width not
 `$tall = 1020
 Set-ChatOverlayConfig @{ width = 420; maxRows = 4 }
 `$e2 = & `$right
 Invoke-ChatOverlayVerb 'reload'
 `$H.Win.UpdateLayout()
-`$reload = `$H.Win.Width -eq 420 -and (& `$right) -eq `$e2 -and (Get-ChatOverlayDrawnRows `$H) -eq 4
-# the width slider at rest: where the panel's left edge went is kept too
-`$H.WidthSlider.Value = 520
-`$H.PendingAt = (Get-Date).AddSeconds(-2)
-Update-ChatOverlayHover
-`$st3 = Read-ChatOverlayState
-`$pr3 = [ChatOverlayNative]::GetRect(`$H.Hwnd)
-`$restPlace = (Get-ChatOverlayConfig).width -eq 520 -and `$st3.x -eq `$pr3[0] -and `$st3.y -eq `$pr3[1]
-# a reload with the slider still moving: written first, the shell's other setting kept too
-`$H.WidthSlider.Value = 440
-Set-ChatOverlayConfig @{ maxRows = 6 }
+`$reload = `$H.Win.Width -eq `$w0 -and (& `$right) -eq `$e2 -and (Get-ChatOverlayDrawnRows `$H) -eq 4
+# a reload with the rows slider still moving: written first, the shell's
+# other setting kept too
+`$H.RowsSlider.Value = 6
+Set-ChatOverlayConfig @{ recent = 3 }
 Invoke-ChatOverlayVerb 'reload'
 `$c4 = Get-ChatOverlayConfig
-`$st4 = Read-ChatOverlayState
-`$pr4 = [ChatOverlayNative]::GetRect(`$H.Hwnd)
-`$pendReload = `$c4.width -eq 440 -and `$c4.maxRows -eq 6 -and `$H.Win.Width -eq 440 -and `$null -eq `$H.PendingWidth -and
-    `$H.WidthSlider.Value -eq 440 -and `$st4.x -eq `$pr4[0]
-# by the screen's left edge: held there, it grows to the right
-[ChatOverlayNative]::MoveTo(`$H.Hwnd, -3990, 197)
-`$H.WidthSlider.Value = 600
-`$pl = [ChatOverlayNative]::GetRect(`$H.Hwnd)
-`$edgeHeld = `$H.Win.Width -eq 600 -and `$pl[0] -eq -4000 -and (`$pl[0] + `$pl[2]) -gt (-3990 + [int][Math]::Round(440 * `$d.Px))
-`$H.PendingAt = (Get-Date).AddSeconds(-2)
-Update-ChatOverlayHover
-`$edgeHeld = `$edgeHeld -and (Read-ChatOverlayState).x -eq -4000
+`$pendReload = `$c4.maxRows -eq 6 -and `$c4.recent -eq 3 -and `$null -eq `$H.PendingRows -and `$H.RowsSlider.Value -eq 6 -and `$H.Win.Width -eq `$w0
 [ChatOverlayNative]::MoveTo(`$H.Hwnd, -2594, 197)
 Save-ChatOverlayPlace `$H
 # three chats and 8 rows: a row's travel down keeps 8, not the 4 counted
 # from the 3 drawn; up takes one off the 3
-Set-ChatOverlayConfig @{ maxRows = 8 }
+Set-ChatOverlayConfig @{ maxRows = 8; recent = 0 }
 `$H.Ctx.Config = Get-ChatOverlayConfig
 `$snap3 = [pscustomobject]@{ header = [pscustomobject]@{ usage = @(); notes = @() }; rows = @(`$rows | Select-Object -First 3) }
 `$H.Ctx.ViewSig = 'three'
@@ -2992,45 +2952,44 @@ Update-ChatOverlayView `$H `$snap
 `$H.Win.UpdateLayout()
 Set-ChatOverlaySettingsOpen `$H `$false
 Start-ChatOverlaySizeDrag `$null `$o
-Move-ChatOverlaySizeDrag ([System.Drawing.Point]::new(100 - [int][Math]::Round(40 * `$H.SizeDrag.Px), 100 + [int](1.5 * `$H.SizeDrag.RowPx)))
+Move-ChatOverlaySizeDrag ([System.Drawing.Point]::new(100, 100 + [int](1.5 * `$H.SizeDrag.RowPx)))
 Stop-ChatOverlaySizeDrag `$null
-`$wD = [int]`$H.Win.Width
 `$nD = [int](Get-ChatOverlayConfig).maxRows
 Set-ChatOverlaySettingsOpen `$H `$true
-`$synced = `$H.WidthSlider.Value -eq `$wD -and `$H.WidthText.Text -eq "`$wD" -and `$H.RowsSlider.Value -eq `$nD -and `$H.RowsText.Text -eq "`$nD" -and
-    `$null -eq `$H.PendingWidth -and `$null -eq `$H.PendingRows -and `$nD -eq 9
-`$H.WidthSlider.Value = `$wD + 1
-# within a unit: at 125% WPF sizes the window to whole pixels, and says so
-`$synced = `$synced -and [Math]::Abs(`$H.Win.Width - (`$wD + 1)) -lt 1 -and `$H.PendingWidth -eq (`$wD + 1)
+`$synced = `$H.RowsSlider.Value -eq `$nD -and `$H.RowsText.Text -eq "`$nD" -and `$null -eq `$H.PendingRows -and `$nD -eq 9
+`$H.RowsSlider.Value = `$nD + 1
+`$synced = `$synced -and `$H.PendingRows -eq (`$nD + 1)
 `$H.PendingAt = (Get-Date).AddSeconds(-2)
 Update-ChatOverlayHover
-# the settings box: width and rows share a row, and no row is tall, so it
-# goes under a panel at the top of the screen; Style full or compact
+`$synced = `$synced -and (Get-ChatOverlayConfig).maxRows -eq (`$nD + 1)
+# the settings box: five rows - opacity, rows, theme, Recent, Cut off -
+# none tall, so it goes under a panel at the top of the screen; no width,
+# no Style, no Usage
 `$H.Settings.Measure([System.Windows.Size]::new([double]::PositiveInfinity, [double]::PositiveInfinity))
 `$boxH = `$H.Settings.DesiredSize.Height
 `$chipsOf = { param(`$t) @(`$H.Settings.Child.Children | Where-Object { `$_ -is [System.Windows.Controls.StackPanel] -and @(`$_.Children | ForEach-Object { `$_.Tag }) -contains `$t })[0] }
-`$style = & `$chipsOf 'compact'
-`$on = { param(`$p) @(`$p.Children | Where-Object { `$_.Background -eq (Get-ChatOverlayBrush 'accent') } | ForEach-Object { `$_.Tag }) -join ',' }
-`$styleOk = `$style -and (@(`$style.Children | ForEach-Object { `$_.Tag }) -join ',') -eq 'full,compact' -and (& `$on `$style) -eq 'full' -and
-    `$boxH -gt 0 -and `$boxH -le 28 * `$H.Settings.Child.RowDefinitions.Count -and [System.Windows.Controls.Grid]::GetRow(`$style) -eq 4 -and
-    [System.Windows.Controls.Grid]::GetRow(`$H.WidthSlider) -eq [System.Windows.Controls.Grid]::GetRow(`$H.RowsSlider)
-# compact: one line a chat, tighter - a smaller tile, the words at the
-# line's end; full: the tile 36 units tall, the project and the words on
-# the first line, the title under them; the view key alone redraws it
-`$hFull = Get-ChatOverlayRowHeight `$H
-Set-ChatOverlayRowStyle `$H 'compact'
+`$labels = @(`$H.Settings.Child.Children | Where-Object { `$_ -is [System.Windows.Controls.TextBlock] -and [System.Windows.Controls.Grid]::GetColumn(`$_) -eq 0 } | ForEach-Object { `$_.Text }) -join ','
+`$styleOk = -not (& `$chipsOf 'compact') -and -not (& `$chipsOf 'bars') -and [System.Windows.Controls.Grid]::GetRow((& `$chipsOf 'dark')) -eq 2 -and
+    [System.Windows.Controls.Grid]::GetRow((& `$chipsOf '10')) -eq 3 -and [System.Windows.Controls.Grid]::GetRow((& `$chipsOf 'leave')) -eq 4 -and
+    `$H.Settings.Child.RowDefinitions.Count -eq 5 -and `$labels -eq 'Opacity,Rows,Theme,Recent,Cut off' -and
+    `$boxH -gt 0 -and `$boxH -le 28 * `$H.Settings.Child.RowDefinitions.Count -and
+    [System.Windows.Controls.Grid]::GetRow(`$H.OpacitySlider) -eq 0 -and [System.Windows.Controls.Grid]::GetRow(`$H.RowsSlider) -eq 1
+# a row is its tile alone, 36 units tall, one a line, whatever prompts says
+`$rowIs = { param(`$w) `$k = @(`$w.Children); "`$(`$k.Count) `$(`$k[0].Tag) `$(`$k[0].Height) `$(`$w.Margin.Top)" }
+`$tilesOnly = { `$drawn = @(`$H.Stack.Children | Where-Object { Test-ChatOverlayOpenRowElement `$_ }); `$drawn.Count -eq [int]`$H.Ctx.Config.maxRows -and -not @(`$drawn | Where-Object { (& `$rowIs `$_) -ne '1 tile 36 3' }).Count }
+`$H.Ctx.ViewSig = 'ten'
+Update-ChatOverlayView `$H `$snap
 `$H.Win.UpdateLayout()
-`$drawn = @(`$H.Stack.Children | Where-Object { `$_.Tag -and `$_.Tag -isnot [string] })
-`$hComp = Get-ChatOverlayRowHeight `$H
-# a row as drawn: its tile and how tall, then what is beside it
-`$rowIs = { param(`$w) `$k = @(`$w.Children); "`$(`$k.Count) `$(`$k[0].Tag) `$(`$k[0].Height) `$(`$k[1].Tag) `$(`$w.Margin.Top)" }
-`$compact = -not (Get-ChatOverlayConfig).prompts -and `$drawn.Count -eq [int]`$H.Ctx.Config.maxRows -and -not @(`$drawn | Where-Object { (& `$rowIs `$_) -ne '2 tile 21 line 1' }).Count -and
-    `$hComp -lt `$hFull -and (& `$on (& `$chipsOf 'compact')) -eq 'compact'
-Set-ChatOverlayRowStyle `$H 'full'
-# full, beside the tile: the line with the words, then the title alone
-`$fullIs = { param(`$w) `$t = @(@(`$w.Children)[1].Children); "`$(`$t.Count) `$(`$t[0].Tag) `$(@(`$t[0].Children | Where-Object { `$_.Tag -is [string] -and `$_.Tag -eq 'state' }).Count) `$(`$t[1].Tag -eq 'name' -and @(`$t[1].Children)[0].Text -eq `$w.Tag.title)" }
-`$compact = `$compact -and (Get-ChatOverlayConfig).prompts -and @(`$H.Stack.Children | Where-Object { `$_.Tag -and `$_.Tag -isnot [string] -and (& `$rowIs `$_) -eq '2 tile 36 text 3' -and
-            (& `$fullIs `$_) -eq '2 line 1 True' }).Count -eq [int]`$H.Ctx.Config.maxRows
+`$hFull = Get-ChatOverlayRowHeight `$H
+`$compact = (& `$tilesOnly)
+Set-ChatOverlayConfig @{ prompts = `$false }
+`$H.Ctx.Config = Get-ChatOverlayConfig
+`$H.Ctx.ViewSig = 'prompts off'
+Update-ChatOverlayView `$H `$snap
+`$H.Win.UpdateLayout()
+`$compact = `$compact -and (& `$tilesOnly) -and [Math]::Abs((Get-ChatOverlayRowHeight `$H) - `$hFull) -lt 0.01
+Set-ChatOverlayConfig @{ prompts = `$true }
+`$H.Ctx.Config = Get-ChatOverlayConfig
 # where each chat runs, at its tile's left in its state's colour: VS Code,
 # a terminal, a queued prompt's run, a window for one not known; a ring
 # for a job, whatever it carries
@@ -3050,26 +3009,15 @@ Update-ChatOverlayView `$H ([pscustomobject]@{ header = [pscustomobject]@{ usage
             @(`$m.Children)[0].Stroke -eq (Get-ChatOverlayBrush ([string]`$_.Tag.status))) { [string]`$m.Tag } else { 'bad' }
     }) -join ','
 `$where = `$marks -eq 'vscode,terminal,run,window,none'
-# the edges dragged: the right side - wider to the right, the left edge,
-# top and rows where they were; the top - a row for each row's height up,
-# the bottom held, and the place kept
+# the top edge dragged: a row for each row's height up, the bottom held,
+# the width and the place kept
 Set-ChatOverlayConfig @{ width = 380; maxRows = 6 }
 `$H.Ctx.Config = Get-ChatOverlayConfig
-Set-ChatOverlayWidth `$H 380
-# room to its right for the 40 units at any scale: at 125% the panel at
-# -2594 ends 39 px short of the work area's edge, and the drag is kept in it
 [ChatOverlayNative]::MoveTo(`$H.Hwnd, -2800, 400)
 `$H.Ctx.ViewSig = 'edges'
 Update-ChatOverlayView `$H `$snap
 `$H.Win.UpdateLayout()
-`$q0 = [ChatOverlayNative]::GetRect(`$H.Hwnd)
-Start-ChatOverlaySizeDrag `$null `$o 'e'
-Move-ChatOverlaySizeDrag ([System.Drawing.Point]::new(100 + [int][Math]::Round(40 * `$H.SizeDrag.Px), 700))
-Stop-ChatOverlaySizeDrag `$null
-`$H.Win.UpdateLayout()
 `$q1 = [ChatOverlayNative]::GetRect(`$H.Hwnd)
-`$eDrag = `$H.Win.Width -eq 420 -and `$q1[0] -eq `$q0[0] -and `$q1[1] -eq `$q0[1] -and (Get-ChatOverlayConfig).width -eq 420 -and
-    [int]`$H.Ctx.Config.maxRows -eq 6 -and (Get-ChatOverlayDrawnRows `$H) -eq 6
 Start-ChatOverlaySizeDrag `$null `$o 'n'
 Move-ChatOverlaySizeDrag ([System.Drawing.Point]::new(400, 100 - [int](2.5 * `$H.SizeDrag.RowPx)))
 `$qm = [ChatOverlayNative]::GetRect(`$H.Hwnd)
@@ -3077,7 +3025,7 @@ Move-ChatOverlaySizeDrag ([System.Drawing.Point]::new(400, 100 - [int](2.5 * `$H
 Stop-ChatOverlaySizeDrag `$null
 `$H.Win.UpdateLayout()
 `$q2 = [ChatOverlayNative]::GetRect(`$H.Hwnd)
-`$nDrag = `$nMid -eq 8 -and (`$qm[1] + `$qm[3]) -eq (`$q1[1] + `$q1[3]) -and `$qm[1] -lt `$q1[1] -and `$qm[0] -eq `$q1[0] -and `$H.Win.Width -eq 420 -and
+`$nDrag = `$nMid -eq 8 -and (`$qm[1] + `$qm[3]) -eq (`$q1[1] + `$q1[3]) -and `$qm[1] -lt `$q1[1] -and `$qm[0] -eq `$q1[0] -and `$qm[2] -eq `$q1[2] -and `$H.Win.Width -eq `$w0 -and
     (Get-ChatOverlayConfig).maxRows -eq 8 -and (Get-ChatOverlayDrawnRows `$H) -eq 8 -and (`$q2 -join ',') -eq (`$qm -join ',') -and (Read-ChatOverlayState).y -eq `$q2[1]
 # down near the foot of a screen 500 pixels tall, rows cut: the top edge
 # up a row's height brings one back, the rows kept as they were and the
@@ -3105,31 +3053,30 @@ Stop-ChatOverlaySizeDrag `$null
 `$lineOk = `$moreLine -and `$lineH -lt 18 -and [Math]::Abs(`$lineH - `$moreLine.ActualHeight) -lt 0.5
 `$tall = 1020
 [IO.File]::WriteAllText(`$script:ChatqConfigPath, `$cfgWas)
-'{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}|{9}|{10}|{11}|{12}|{13}|{14}|{15}|{16}|{17}|{18}|{19}|{20}' -f `$handle, `$sliders, `$wide, `$fewer, `$rested, `$dragged, `$folded, `$cut, `$reload,
-    `$restPlace, `$pendReload, `$edgeHeld, `$fewDrag, `$synced, (`$styleOk -and `$compact), `$where, `$edges, (`$eDrag -and `$nDrag), `$footDrag, `$lineOk,
-    "line `$lineH/`$(if (`$moreLine) { `$moreLine.ActualHeight }) e0 `$e0 e1 `$e1 mid `$midW/`$midN/`$midE rowpx `$(`$d.RowPx) px `$(`$d.Px) c2 `$(`$c2.width)/`$(`$c2.maxRows) c3 `$(`$c3.width)/`$(`$c3.maxRows) cut `$n max `$(`$H.Win.MaxHeight) h `$(`$H.Win.ActualHeight) more '`$(& `$more)' w `$(`$H.Win.Width) st3 `$(`$st3.x)/`$(`$pr3[0]) c4 `$(`$c4.width)/`$(`$c4.maxRows) edge `$(`$pl -join ',') rows `$down8/`$up2 sync `$wD/`$nD/`$(`$H.WidthSlider.Value) box `$boxH style `$([bool]`$styleOk) compact `$([bool]`$compact) h `$hFull/`$hComp marks `$marks edges `$(`$eRect -join ',') of `$(`$ep -join ',') out `$eOut e `$(`$q0 -join ',') > `$(`$q1 -join ',') n `$nMid `$(`$qm -join ',') > `$(`$q2 -join ',') foot `$f0>`$f1 `$(`$qf -join ',') > `$(`$qg -join ',')"
+'{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}|{9}|{10}|{11}|{12}|{13}|{14}|{15}|{16}|{17}|{18}' -f `$handle, `$sliders, `$wide, `$fewer, `$rested, `$dragged, `$folded, `$cut, `$reload,
+    `$pendReload, `$fewDrag, `$synced, (`$styleOk -and `$compact), `$where, `$edges, `$nDrag, `$footDrag, `$lineOk,
+    "line `$lineH/`$(if (`$moreLine) { `$moreLine.ActualHeight }) w0 `$w0 e0 `$e0 e1 `$e1 mid `$midW/`$midN/`$midE rowpx `$(`$d.RowPx) px `$(`$d.Px) c2 `$(`$c2.width)/`$(`$c2.maxRows) c3 `$(`$c3.width)/`$(`$c3.maxRows) cut `$n max `$(`$H.Win.MaxHeight) h `$(`$H.Win.ActualHeight) more '`$(& `$more)' w `$(`$H.Win.Width) c4 `$(`$c4.maxRows)/`$(`$c4.recent) rows `$down8/`$up2 sync `$nD/`$(`$H.RowsSlider.Value) box `$boxH labels `$labels style `$([bool]`$styleOk) compact `$([bool]`$compact) h `$hFull marks `$marks edges `$(`$eRect -join ',') of `$(`$ep -join ',') out `$eOut n `$nMid `$(`$q1 -join ',') > `$(`$qm -join ',') > `$(`$q2 -join ',') foot `$f0>`$f1 `$(`$qf -join ',') > `$(`$qg -join ',')"
 "@
 $sizeOut = Invoke-Sta 'size-test' $wpfSize
 $sz = "$sizeOut" -split '\|'
-Check 'no resize handle and no grip: collapse first, six in all, the bar''s tooltip naming the edges, and the tooltips of settings and close' ($sz[0] -eq 'True') "$sizeOut"
-Check 'the edges: with the pointer, over the panel and 4 units round it, taking clicks but never focus, a cursor each; folded, no top or bottom; a line along the sides one sizes' ($sz[16] -eq 'True') "$sizeOut"
-Check 'the right side dragged: wider to the right, the left edge held; the top: a row a row''s height up, the bottom held, the place kept' ($sz[17] -eq 'True') "$sizeOut"
-Check 'the top edge by the screen''s foot: a row the foot cut comes back for a row''s travel up, the rows kept, the bottom held but for the one unit kept clear' ($sz[18] -eq 'True') "$sizeOut"
-Check 'the room kept under the rows for the "+N more" line is that line''s height as drawn, measured, not 18 units' ($sz[19] -eq 'True') "$sizeOut"
-Check 'the settings box has width and rows sliders, whole numbers, their values beside them' ($sz[1] -eq 'True') "$sizeOut"
-Check 'the width slider widens the panel with its right edge held; the rows slider snaps and redraws, "+N more" under them' ($sz[2] -eq 'True' -and $sz[3] -eq 'True') "$sizeOut"
-Check 'config.json gets width and rows once the sliders rest' ($sz[4] -eq 'True') "$sizeOut"
-Check 'the bottom-left corner dragged left and down: wider with the right edge held, rows added one a row''s height, kept on release' ($sz[5] -eq 'True') "$sizeOut"
-Check 'collapsed, a corner sets the width only' ($sz[6] -eq 'True') "$sizeOut"
+Check 'no resize handle and no grip: collapse first, six in all, the bar''s tooltip naming the top and bottom edges, and the tooltips of settings and close' ($sz[0] -eq 'True') "$sizeOut"
+Check 'the edges: with the pointer, over the panel and 4 units round it, taking clicks but never focus; the top and bottom alone, up and down; folded, none; a line along the side one sizes' ($sz[14] -eq 'True') "$sizeOut"
+Check 'the top edge dragged: a row a row''s height up, the bottom held, the width and the place kept' ($sz[15] -eq 'True') "$sizeOut"
+Check 'the top edge by the screen''s foot: a row the foot cut comes back for a row''s travel up, the rows kept, the bottom held but for the one unit kept clear' ($sz[16] -eq 'True') "$sizeOut"
+Check 'the room kept under the rows for the "+N more" line is that line''s height as drawn, measured, not 18 units' ($sz[17] -eq 'True') "$sizeOut"
+Check 'the settings box has opacity and rows sliders and no width one, rows in whole numbers, its value beside it' ($sz[1] -eq 'True') "$sizeOut"
+Check 'the panel as wide as a tile and the six buttons, never config.json''s width' ($sz[2] -eq 'True') "$sizeOut"
+Check 'the rows slider snaps and redraws, "+N more" under them, the width and right edge kept' ($sz[3] -eq 'True') "$sizeOut"
+Check 'config.json gets rows once the slider rests, its width left alone' ($sz[4] -eq 'True') "$sizeOut"
+Check 'the bottom edge dragged down - and across: rows added one a row''s height, the width kept, kept on release' ($sz[5] -eq 'True') "$sizeOut"
+Check 'collapsed, an edge sizes nothing' ($sz[6] -eq 'True') "$sizeOut"
 Check 'never past its screen''s foot, from its top edge down: rows it cannot hold are counted on the "+N more" line' ($sz[7] -eq 'True') "$sizeOut"
-Check 'a reload takes width and rows from config.json, the right edge held' ($sz[8] -eq 'True') "$sizeOut"
-Check 'the width slider at rest keeps where the panel''s left edge went, for the next start' ($sz[9] -eq 'True') "$sizeOut"
-Check 'a reload with a slider still moving writes it first: config.json and the panel agree, the shell''s other setting kept' ($sz[10] -eq 'True') "$sizeOut"
-Check 'widened by the screen''s left edge: held there, it grows to the right' ($sz[11] -eq 'True') "$sizeOut"
-Check 'fewer chats than rows: dragged down, the rows kept never drop; up, one off those drawn' ($sz[12] -eq 'True') "$sizeOut"
-Check 'the settings box opened after a drag shows what was dragged to, and a nudge moves on from there' ($sz[13] -eq 'True') "$sizeOut"
-Check 'the settings box: width and rows on one row, Style full or compact; compact draws one line a chat by a smaller tile, and full the title under the project and words' ($sz[14] -eq 'True') "$sizeOut"
-Check 'where a chat runs, at its tile''s left in its state''s colour: a title bar for VS Code, >_ for a terminal, a play triangle for a queued prompt''s run, a bare window for one not known; a ring for a job' ($sz[15] -eq 'True') "$sizeOut"
+Check 'a reload takes rows from config.json and not the width, the right edge held' ($sz[8] -eq 'True') "$sizeOut"
+Check 'a reload with the rows slider still moving writes it first: config.json and the panel agree, the shell''s other setting kept' ($sz[9] -eq 'True') "$sizeOut"
+Check 'fewer chats than rows: dragged down, the rows kept never drop; up, one off those drawn' ($sz[10] -eq 'True') "$sizeOut"
+Check 'the settings box opened after a drag shows what was dragged to, and a nudge moves on from there' ($sz[11] -eq 'True') "$sizeOut"
+Check 'the settings box: five rows - opacity, rows, theme, Recent, Cut off - no width, Style or Usage; each row its tile alone, 36 tall, one a line, prompts on or off' ($sz[12] -eq 'True') "$sizeOut"
+Check 'where a chat runs, at its tile''s left in its state''s colour: a title bar for VS Code, >_ for a terminal, a play triangle for a queued prompt''s run, a bare window for one not known; a ring for a job' ($sz[13] -eq 'True') "$sizeOut"
 
 # the Recent list and the unread dot, drawn - in a process of its own, as a
 # command line holds only so much of the one above
@@ -3164,7 +3111,8 @@ Update-ChatOverlayView `$H `$snapR
 `$rw = @(`$kids | Where-Object { `$_.Tag -and `$_.Tag -isnot [string] -and `$_.Tag.kind -eq 'recent' })
 `$rects = @(Get-ChatOverlayRowRects `$H)
 `$recentOk = `$head.Count -eq 1 -and `$head[0].Text -eq 'Recent' -and `$hi -gt `$kids.IndexOf(@(`$kids | Where-Object { `$_.Tag -and `$_.Tag -isnot [string] -and `$_.Tag.key -eq 's:u2' })[0]) -and
-    `$rw.Count -eq 3 -and -not @(`$rw | Where-Object { `$kids.IndexOf(`$_) -lt `$hi -or (@(`$_.Children | ForEach-Object { `$_.Tag }) -join ',') -ne 'icons,line' -or `$_.Margin.Top -ne 1 }).Count -and
+    `$rw.Count -eq 3 -and -not @(`$rw | Where-Object { `$kids.IndexOf(`$_) -lt `$hi -or (@(`$_.Children | ForEach-Object { `$_.Tag }) -join ',') -ne 'tile' -or `$_.Margin.Top -ne 1 -or
+            (@(@(`$_.Children)[0].Child.Children | ForEach-Object { `$_.GetType().Name }) -join ',') -ne 'Ellipse,TextBlock' -or @(@(`$_.Children)[0].Child.Children)[1].Text -ne `$_.Tag.stateText }).Count -and
     (Get-ChatOverlayDrawnRows `$H) -eq 2 -and @(`$rects | Where-Object { `$_.Key -like 'recent:*' -and (Test-ChatOverlayRowOpenable `$_.Row) }).Count -eq 3
 `$dotOf = {
     param(`$k)
@@ -3190,7 +3138,7 @@ Update-ChatOverlayView `$H ([pscustomobject]@{ header = [pscustomobject]@{ usage
 `$chipOk = `$chipKept -and -not `$H.ChipKey
 # the settings box's Recent row: off, 5 or 10, the one in force filled
 `$rcChips = & `$chipsOf '10'
-`$rcFirst = `$rcChips -and (@(`$rcChips.Children | ForEach-Object { `$_.Tag }) -join ',') -eq 'off,5,10' -and (& `$on `$rcChips) -eq '5' -and [System.Windows.Controls.Grid]::GetRow(`$rcChips) -eq 5
+`$rcFirst = `$rcChips -and (@(`$rcChips.Children | ForEach-Object { `$_.Tag }) -join ',') -eq 'off,5,10' -and (& `$on `$rcChips) -eq '5' -and [System.Windows.Controls.Grid]::GetRow(`$rcChips) -eq 3
 # and the list built afresh at once: a pass run there and then, drawn
 `$rcCycle = `$H.Ctx.Cycle
 Set-ChatOverlayRecentChoice `$H '10'
@@ -3234,7 +3182,6 @@ Update-ChatOverlayView `$H ([pscustomobject]@{ header = [pscustomobject]@{ usage
 `$script:ChatOverlayWorkAreaSeam = { param(`$r) [pscustomobject]@{ X = -4000; Y = 0; Width = 1920; Height = 1020 } }
 Set-ChatOverlayConfig @{ width = 380; maxRows = 8; recent = 3 }
 `$H.Ctx.Config = Get-ChatOverlayConfig
-Set-ChatOverlayWidth `$H 380
 [ChatOverlayNative]::MoveTo(`$H.Hwnd, -2594, 197)
 `$pool = @(1..8 | ForEach-Object { [pscustomobject]@{ key = "recent:`$(& `$gid `$_)"; kind = 'recent'; provider = 'claude'; status = 'recent'; project = 'q'; title = "pool `$_"; sessionId = (& `$gid `$_); cwd = '$sb'; since = 1; stateText = "`${_}h" } })
 `$snapP = [pscustomobject]@{ header = [pscustomobject]@{ usage = @(); notes = @() }; counts = [pscustomobject]@{ idle = 2 }; rows = `$ur; recent = @(`$pool | Select-Object -First 3); recentMore = @(`$pool | Select-Object -Skip 3) }
@@ -3333,7 +3280,7 @@ Stop-ChatOverlaySizeDrag `$null
 "@
 $recentOut = Invoke-Sta 'recent-test' $wpfRecent
 $rz2 = "$recentOut" -split '\|'
-Check 'Recent under the open rows: a faint header, a compact line each the open chip takes, none counted as a row' ($rz2[0] -eq 'True') "$recentOut"
+Check 'Recent under the open rows: a faint header, a line each - a dot and how long ago - the open chip takes, none counted as a row' ($rz2[0] -eq 'True') "$recentOut"
 Check 'a row that finished a turn unseen has the accent dot on its tile''s top right corner; the others none' ($rz2[1] -eq 'True') "$recentOut"
 Check 'collapsed: no Recent, and the one line says "1 new"' ($rz2[2] -eq 'True') "$recentOut"
 Check 'the chip on a recent line keeps it through a redraw, and goes when it does' ($rz2[3] -eq 'True') "$recentOut"
@@ -3350,8 +3297,7 @@ Check 'the top edge by the screen''s foot: a Recent line the foot cut comes back
 # ground, a queued job's dashes, the ghost under the lit digits, the mark
 # for where a chat runs, the shape each character lights; the clocks as
 # built, then moved by the timer's tick, but not while the panel is
-# hidden; every tile as wide, full or compact, so every title starts in
-# one column
+# hidden; every tile as wide, full or compact, and in one column
 $wpfTile = @"
 $staLoad
 `$cfgWas = [IO.File]::ReadAllText(`$script:ChatqConfigPath)
@@ -3445,21 +3391,20 @@ Invoke-ChatOverlayTick
 `$next = `$H.Timer.Interval.TotalMilliseconds
 `$ticked = & `$says
 `$tickOk = `$hid -eq ' 2h05' -and `$ticked -match '^ 0h05, 0h59, 3h05,-1h30,-0h12,--:--, 0h01, 5d10$' -and `$next -ge 250 -and `$next -le 1250
-# as wide and as tall, whatever the mark or state; the titles in one column
-`$colOf = { param(`$ws) @(`$ws | ForEach-Object { [Math]::Round(@(`$_.Children)[1].TranslatePoint([System.Windows.Point]::new(0, 0), `$H.Stack).X, 2) }) }
+# as wide and as tall, whatever the mark or state, and in one column
+`$colOf = { param(`$ws) @(`$ws | ForEach-Object { [Math]::Round(@(`$_.Children)[0].TranslatePoint([System.Windows.Point]::new(0, 0), `$H.Stack).X, 2) }) }
 `$same = { param(`$a) `$a.Count -and -not @(`$a | Where-Object { `$_ -ne `$a[0] }).Count }
 `$wF = @(`$wraps | ForEach-Object { (& `$tileOf `$_).ActualWidth })
 `$hF = @(`$wraps | ForEach-Object { (& `$tileOf `$_).ActualHeight })
 `$cF = & `$colOf `$wraps
 `$fullOk = `$wF[0] -gt 0 -and (& `$same `$wF) -and (& `$same `$cF) -and `$hF[0] -eq 36 -and (& `$same `$hF)
-Set-ChatOverlayRowStyle `$H 'compact'
-`$H.Win.UpdateLayout()
-`$wrapsC = & `$wrapsOf
-`$wC = @(`$wrapsC | ForEach-Object { (& `$tileOf `$_).ActualWidth })
-`$hC = @(`$wrapsC | ForEach-Object { (& `$tileOf `$_).ActualHeight })
-`$cC = & `$colOf `$wrapsC
-`$compactOk = `$wrapsC.Count -eq 8 -and `$wC[0] -gt 0 -and `$wC[0] -lt `$wF[0] -and (& `$same `$wC) -and (& `$same `$cC) -and `$hC[0] -eq 21 -and (& `$same `$hC) -and
-    (& `$says) -match '^ 0h05, 0h59, 2h05,-1h30,-0h12,--:--, 0h01, 5d10$'
+# the console list's -Compact tile, each measured alone
+`$inf = [System.Windows.Size]::new([double]::PositiveInfinity, [double]::PositiveInfinity)
+`$tilesC = @(`$tr | ForEach-Object { `$ct = (New-ChatOverlayTile `$_ -Compact).El; `$ct.Measure(`$inf); `$ct })
+`$wC = @(`$tilesC | ForEach-Object { `$_.DesiredSize.Width })
+`$hC = @(`$tilesC | ForEach-Object { `$_.DesiredSize.Height })
+`$cC = @()
+`$compactOk = `$wC.Count -eq 8 -and `$wC[0] -gt 0 -and `$wC[0] -lt `$wF[0] -and (& `$same `$wC) -and `$hC[0] -eq 21 -and (& `$same `$hC)
 [IO.File]::WriteAllText(`$script:ChatqConfigPath, `$cfgWas)
 '{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}' -f (`$ground -eq '38,1A,-,38,-d,-d,1A,-'), (-not `$segBad.Count), (`$marks -eq 'vscode:1,terminal:1,run:2,none:1,none:1,none:1,none:2,window:1'),
     (-not `$glyphBad.Count), `$builtOk, `$tickOk, `$fullOk, `$compactOk,
@@ -3473,8 +3418,8 @@ Check 'a tile''s mark by where the chat runs - VS Code, a terminal, a queued pro
 Check 'a clock''s characters: a blank lights nothing, a minus the middle bar alone, the separator two dots or a small h or d' ($tl[3] -eq 'True') "$tileOut"
 Check 'the clocks as drawn: hours and minutes, at work, waiting or idle - no seconds; past 99 hours days and hours; down to a reset or a send; dashes for a job with no time' ($tl[4] -eq 'True') "$tileOut"
 Check 'the timer''s tick moves each clock to now, none while the panel is hidden, and sets when the next tick comes' ($tl[5] -eq 'True') "$tileOut"
-Check 'every full tile as wide and 36 units tall, whatever its mark or state, so every title starts in one column' ($tl[6] -eq 'True') "$tileOut"
-Check 'compact, every tile as wide, narrower than full and 21 units tall, each with its clock, the titles in one column' ($tl[7] -eq 'True') "$tileOut"
+Check 'every panel tile as wide and 36 units tall, whatever its mark or state, all in one column' ($tl[6] -eq 'True') "$tileOut"
+Check 'the console''s compact tile: every one as wide, narrower than the panel''s and 21 units tall' ($tl[7] -eq 'True') "$tileOut"
 
 # the console, a mode of the panel's own window: the panel shown on a screen
 # of the test's own, off every real one, then turned into the console -
@@ -3496,7 +3441,7 @@ $staPanel
 Remove-Item -LiteralPath `$script:ChatConsoleStatePath -Force -EA SilentlyContinue
 `$H.Placed = `$true
 `$H.Ctx.ViewSig = 'con'
-# full rows on the panel: the console's are compact whatever it has
+# the panel's rows tiles alone: the console's one line each, whatever prompts says
 `$H.Ctx.Config.prompts = `$true
 `$H.Win.Show()
 [ChatOverlayNative]::ApplyExStyle(`$H.Hwnd, `$H.Locked)
@@ -3545,9 +3490,9 @@ Complete-ChatConsoleIndexRead `$H
 `$idxRead = `$idxStarted -and -not `$C.IndexRead -and @(`$C.Index).Count -gt 0 -and @(`$C.Index).Count -eq @(Get-ChatIndex).Count -and `$C.IndexStamp -eq (Get-ChatIndexStamp)
 `$idxSay = "`$idxStarted `$(@(`$C.Index).Count) `$(`$C.IndexStamp)"
 `$kinds = (@(`$C.ChatItems | ForEach-Object Kind | Sort-Object -Unique) -join ',')
-# each chat drawn as the panel draws it - its tile in its state's colour,
-# where it runs, the unread dot on it, its state words, project and title -
-# in the console's list compact, on the panel full
+# each chat's tile as the panel draws it - in its state's colour, where it
+# runs, the unread dot on it - and in the console's list its state words,
+# project and title beside it, which the panel leaves to the hover card
 `$rowSays = {
     param(`$wrap)
     `$all = [System.Collections.Generic.List[object]]::new()
@@ -3570,8 +3515,8 @@ Complete-ChatConsoleIndexRead `$H
             else { "`$(`$_.GetType().Name):`$(`$_.Tag)" }
         }) -join ';'
 }
-# a row's tile and what is beside it: compact, the one line; full, the
-# project and words over the title
+# a row's tile and what is beside it: in the console the one line; on the
+# panel nothing
 `$shapeOf = { param(`$w) `$k = @(`$w.Children); "`$(`$k.Count) `$(`$k[0].Height) `$(`$k[1].Tag)" }
 `$itemOf = { param(`$id) @(`$C.Chats.Children | Where-Object { `$_.Tag -and `$_.Tag -isnot [string] -and `$_.Tag.Id -eq `$id })[0] }
 `$wrapOf = { param(`$b) @(`$b.Child.Children)[-1].Children[0] }
@@ -3580,8 +3525,9 @@ Complete-ChatConsoleIndexRead `$H
 `$recB = @(`$C.Chats.Children | Where-Object { `$_.Tag -and `$_.Tag -isnot [string] -and `$_.Tag.Kind -eq 'recent' })[0]
 `$recWrap = if (`$recB) { & `$wrapOf `$recB }
 `$rowSay = "console [`$(& `$rowSays `$cardWrap)] `$(& `$shapeOf `$cardWrap) panel [`$(& `$rowSays `$panWrap)] `$(& `$shapeOf `$panWrap) recent [`$(if (`$recWrap) { & `$lineSays `$recWrap })] `$(`$recWrap.Tag.status)"
-`$rowsOk = `$cardWrap.Tag -eq `$snap0.rows[0] -and (& `$shapeOf `$cardWrap) -eq '2 21 line' -and (& `$shapeOf `$panWrap) -eq '2 36 text' -and
-    (& `$rowSays `$cardWrap) -eq (& `$rowSays `$panWrap) -and (& `$rowSays `$cardWrap) -eq "vscode;`$((Get-ChatOverlayBrush 'idle').Color);new:True;idle 1m;A Card" -and
+`$rowsOk = `$cardWrap.Tag -eq `$snap0.rows[0] -and (& `$shapeOf `$cardWrap) -eq '2 21 line' -and (& `$shapeOf `$panWrap) -eq '1 36 ' -and
+    (& `$rowSays `$cardWrap) -eq "vscode;`$((Get-ChatOverlayBrush 'idle').Color);new:True;idle 1m;A Card" -and
+    (& `$rowSays `$panWrap) -eq "vscode;`$((Get-ChatOverlayBrush 'idle').Color);new:True;;" -and
     `$recWrap -and `$recWrap.Tag.status -eq 'recent' -and `$recWrap.Children.Count -eq 1 -and
     (& `$lineSays `$recWrap) -like "dot::`$((Get-ChatOverlayBrush 'recent').Color);*"
 # the list's clocks its own, one a tile, moved every tick while the console
@@ -3885,19 +3831,21 @@ Invoke-ChatOverlayVerb 'show'
 & `$round 'unlocked'
 `$roundOk = -not `$script:roundBad.Count -and `$H.Win.IsVisible -and -not `$H.Locked -and `$H.Collapsed
 # The panel's place kept around the console. A slider not yet at rest is
-# kept as it turns into the console, the panel's place with it; one met in
-# the console's mode keeps no place - the rect is the console's.
+# kept as it turns into the console; the rows slider moves no edge, so no
+# place goes with it, and one met in the console's mode keeps none either
+# - the rect is the console's.
 `$pr = [ChatOverlayNative]::GetRect(`$H.Hwnd)
 `$H.State.x = -1
-`$H.PendingWidth = [int]`$H.Ctx.Config.width
+`$H.PendingRows = [int]`$H.Ctx.Config.maxRows
 `$H.PendingAt = Get-Date
 Enter-ChatOverlayConsoleMode `$H
 `$dropOk = `$dropOk -and `$null -ne `$H.Con.Jobs -and `$H.Con.Chats.Children.Count -and `$H.Con.Queue.Children.Count
-`$placeOk = `$null -eq `$H.PendingWidth -and `$H.State.x -eq `$pr[0] -and `$H.State.y -eq `$pr[1]
-`$H.PendingWidth = [int]`$H.Ctx.Config.width
+`$placeOk = `$null -eq `$H.PendingRows -and `$H.State.x -eq -1
+`$H.PendingRows = [int]`$H.Ctx.Config.maxRows
 `$null = Get-ChatOverlayPending `$H
-`$placeOk = `$placeOk -and `$H.State.x -eq `$pr[0]
-# a width a reload set meanwhile: the right edge held, and kept
+`$placeOk = `$placeOk -and `$null -eq `$H.PendingRows -and `$H.State.x -eq -1
+# a width other than the one it left with - as on a screen of another
+# scale: the right edge held, and kept
 `$H.PanelWas.Width = `$H.PanelWas.Width + 100
 Exit-ChatOverlayConsoleMode `$H
 `$wr = [ChatOverlayNative]::GetRect(`$H.Hwnd)
@@ -4451,7 +4399,7 @@ $staPanel
 `$script:ChatOverlayWorkAreaSeam = { param(`$r) [pscustomobject]@{ X = `$farX - 1000; Y = 0; Width = 1920; Height = 1020 } }
 Set-ChatOverlayHidden `$H `$false
 [ChatOverlayNative]::MoveTo(`$H.Hwnd, `$farX, 197)
-`$qRow = { param(`$k, `$t) [pscustomobject]@{ key = `$k; kind = 'session'; status = 'idle'; rank = 3; project = 'p'; title = `$t; prompt = 'x'; stateText = 'idle 1m'; job = `$null } }
+`$qRow = { param(`$k, `$t) [pscustomobject]@{ key = `$k; kind = 'session'; provider = 'claude'; status = 'idle'; rank = 3; project = 'p'; title = `$t; prompt = 'x'; stateText = 'idle 1m'; job = `$null } }
 `$qSnap = { param(`$a, `$b) [pscustomobject]@{ header = [pscustomobject]@{ usage = @(); notes = @() }; counts = [pscustomobject]@{ idle = 2 }; rows = @((& `$qRow 's:q1' `$a), (& `$qRow 's:q2' `$b)) } }
 `$H.Ctx.ViewSig = 'quick'
 Update-ChatOverlayView `$H (& `$qSnap 'one' 'two')
@@ -4517,34 +4465,9 @@ Invoke-ChatOverlayTick
 Invoke-ChatOverlayTick
 `$tickOk = `$H.ControlsShown -and `$H.Tick -eq 5 -and `$p0 -eq 0 -and `$p1 -eq 0 -and `$script:PlaceCalls -eq 1
 `${function:Set-ChatOverlayControlsPlacement} = `$pcFn
-# The reset time after a percent, set in place, takes a line off the usage
-# line as it goes: in a panel at its cap - its floor of about one row, the
-# screen's foot right under its top - the rows move up with the panel's
-# size the same, and their rects are worked out again. The time is made
-# long enough to wrap at any width or font.
-`$script:ChatOverlayWorkAreaSeam = { param(`$r) [pscustomobject]@{ X = `$farX - 1000; Y = 0; Width = 1920; Height = 217 } }
-`$u = [pscustomobject]@{ provider = 'Claude'; stale = `$false; status = 'now'; windows = @(
-        [pscustomobject]@{ label = '5h'; percent = 42; limited = `$false; severity = 'normal'; resetsAt = (ConvertTo-ChatOverlayMs ((Get-Date).AddHours(2))) }) }
-`$uSnap = [pscustomobject]@{ header = [pscustomobject]@{ usage = @(`$u); notes = @() }; counts = [pscustomobject]@{ idle = 2 }; rows = @((& `$qRow 's:q1' 'one'), (& `$qRow 's:q2' 'two')) }
-`$H.Ctx.ViewSig = 'quick capped'
-Update-ChatOverlayView `$H `$uSnap
-`$H.Clocks[0].Block.Text = ' resets' + (' 21:44' * 40)
-`$H.Win.UpdateLayout()
-`$c1 = @(Get-ChatOverlayRowRects `$H)
-`$cHeld = `$null -ne `$H.RowRects
-`$cKey = "`$(@([ChatOverlayNative]::GetRect(`$H.Hwnd)) -join ',')|`$(`$H.Win.ActualWidth)|`$(`$H.Win.ActualHeight)"
-`$H.Clocks[0].At = ConvertTo-ChatOverlayMs ((Get-Date).AddMinutes(-1))
-Update-ChatOverlayView `$H `$uSnap
-`$H.Win.UpdateLayout()
-`$c2 = @(Get-ChatOverlayRowRects `$H)
-`$cSame = `$cKey -eq "`$(@([ChatOverlayNative]::GetRect(`$H.Hwnd)) -join ',')|`$(`$H.Win.ActualWidth)|`$(`$H.Win.ActualHeight)"
-`$H.RowRects = `$null
-`$c3 = @(Get-ChatOverlayRowRects `$H)
-`$shiftOk = `$cHeld -and `$cSame -and `$H.Clocks[0].Block.Text -eq '' -and `$c1.Count -ge 1 -and `$c2.Count -eq `$c1.Count -and `$c3.Count -eq `$c1.Count -and
-    `$c2[0].Rect[1] -lt `$c1[0].Rect[1] -and (`$c2[0].Rect -join ',') -eq (`$c3[0].Rect -join ',') -and (`$c2[0].Line -join ',') -eq (`$c3[0].Line -join ',')
 [IO.File]::WriteAllText(`$script:ChatqConfigPath, `$cfgWas)
-'{0}|{1}|{2}|{3}|{4}|{5}' -f `$typesOk, `$rectsOk, `$farOk, `$tickOk, `$shiftOk,
-    "types `$typesOk rects `$kept/`$moved/`$cleared `$(@(`$r4 | ForEach-Object { `$_.Row.title }) -join ',') at `$(`$r1[0].Rect -join ',') > `$(`$r3[0].Rect -join ',') far `$t0/`$t1/`$t2 '`$(`$H.ChipUnder)' `$(`$H.ChipLastPos) tick `$(`$H.Tick) `$p0/`$p1/`$(`$script:PlaceCalls) shift `$cHeld/`$cSame '`$(`$H.Clocks[0].Block.Text)' `$(`$c1[0].Rect -join ',') > `$(`$c2[0].Rect -join ',') fresh `$(`$c3[0].Rect -join ',')"
+'{0}|{1}|{2}|{3}|{4}' -f `$typesOk, `$rectsOk, `$farOk, `$tickOk,
+    "types `$typesOk rects `$kept/`$moved/`$cleared `$(@(`$r4 | ForEach-Object { `$_.Row.title }) -join ',') at `$(`$r1[0].Rect -join ',') > `$(`$r3[0].Rect -join ',') far `$t0/`$t1/`$t2 '`$(`$H.ChipUnder)' `$(`$H.ChipLastPos) tick `$(`$H.Tick) `$p0/`$p1/`$(`$script:PlaceCalls)"
 "@
 $quickOut = Invoke-Sta 'quick-test' $wpfQuick
 $qk = "$quickOut" -split '\|'
@@ -4552,7 +4475,6 @@ Check 'one compile at the start for every type the overlay uses: one assembly, t
 Check 'the rows'' rects kept: the same until the panel moves - then moved with it - or the rows are drawn anew' ($qk.Count -gt 1 -and $qk[1] -eq 'True') "$quickOut"
 Check 'a pointer check far from the panel only marks it off, nothing worked out; a slider not at rest gets the whole check, the bar''s place worked out once for it - again where the bar''s width was behind the panel''s' ($qk.Count -gt 2 -and $qk[2] -eq 'True') "$quickOut"
 Check 'every fifth tick places the bar over the panel, not mid-drag or mid-resize by it' ($qk.Count -gt 3 -and $qk[3] -eq 'True') "$quickOut"
-Check 'the rows'' rects worked out again as the reset time takes a line off the usage line, in a panel at its cap whose size stays' ($qk.Count -gt 4 -and $qk[4] -eq 'True') "$quickOut"
 # a compile that fails takes nothing down: said in the log, and each type
 # then comes in on its own - the panel's at once, the rest where used
 $typesBroken = @"

@@ -816,7 +816,7 @@ one again.
   runs the continue as it wakes; a cut-off only seen more than 30 minutes
   after its reset waits for you.
 - **Typing in the chat as it runs:** a chat open in VS Code is held 5
-  minutes past the reset, and its row says so all the time. Anything you
+  minutes past the reset, and its card says so all the time. Anything you
   send first makes it skip. Then the run takes the chat's tab's place, as
   any queued prompt's does ([the handover](#a-queued-run-takes-the-tabs-place)) -
   and waits while that tab is in front of you.
@@ -1690,44 +1690,49 @@ charlie -Print          # the same, once, in this console
 
 `chatoverlay`, the panel's old name, still works and does the same.
 
-![The overlay, in the dark look - a wine-black panel inside gold lines, the chats' titles in a serif: a usage line for Claude - five-hour window at 100% in red with its reset, weekly at 46% - and one for Copilot's chat and code quotas, each ending with the time of its figure; then four chats, each on a bordered tile with a seven-segment clock in its state's colour - one amber, waiting on input for 3:09, and one green, working for 1:09, each carrying a queued prompt; one grey, idle for 30 hours; and a dashed purple one, its clock in dashes, for a prompt queued behind the others for a chat that is not open](docs/demo-overlay.png)
+![The overlay, in the dark look - a narrow wine-black panel, as wide as a tile, inside gold lines: Claude's usage gauge - two thin bars and no words, the five-hour window full in red, the weekly under half - and the next queued prompt's time under it; then four chats, each a bordered tile alone with a seven-segment clock in its state's colour - one amber, waiting on input for 3 minutes; one green, working for 1; one grey, idle for 30 hours; and a dashed purple one, its clock in dashes, for a prompt queued for a chat that is not open](docs/demo-overlay.png)
 
-A small panel in the top-right corner that stays above other windows:
+A small panel in the top-right corner that stays above other windows - on
+Windows no wider than a chat's tile, about 150 units:
 
-- **Usage at the top, live.** A line each for Claude, Codex and Copilot, as the
-  collapsed panel has it: `Claude  5h 41% · week 74% · Fable week 2%   22:22`.
-  Claude's five-hour and weekly windows, and one model's weekly window once it
-  is used; Codex's weekly (and five-hour, on a paid plan); Copilot's monthly
-  chat and code quotas, or premium requests on a paid plan. A percent turns
-  amber or red as Claude's own usage view would colour it, and each line ends
-  with when its figure is from. The window you wait on says when it
+- **Usage at the top, live.** Claude's five-hour and weekly windows, and one
+  model's weekly window once it is used; Codex's weekly (and five-hour, on a
+  paid plan); Copilot's monthly chat and code quotas, or premium requests on
+  a paid plan. On Windows each is a gauge: a thin bar a window, filled to
+  its percent, amber or red as Claude's own usage view would colour it -
+  red at the limit, faint for a figure gone stale - and no words. Rest the
+  pointer on it and its card comes up: each window's bar, percent and a
+  countdown to its reset, and when the figure is from. With two providers
+  open, a mark at the left says whose: `Cl`, `Cx`, `Cp`. The panel shows
+  only the providers with a chat or job open now: Claude's while any chat
+  is, Codex's while a Codex job is queued or runs, and Copilot's, which has
+  no rows, not at all - collapsed too. On macOS and in `charlie -Print` it
+  is a line each, `Claude  5h 41% · week 74% · Fable week 2%   22:22`,
+  ending with when its figure is from; the window you wait on says when it
   resets - `5h 100% resets 13:00` - the latest reset of those at their
-  limit, in red, else the 5 h window's; the time goes once it passes, and
-  a narrow panel wraps the line rather than hiding a window. The settings
-  box switches to **bars** - a bar and a reset countdown per window, the
-  same few words under each name - and back.
-- **Every open Claude chat:** project and title, in the colour of what it is
-  doing. Amber is waiting on you (a permission prompt, say) and goes
-  to the top; green is working; grey is idle. On Windows a row starts on a
-  tile in that colour, its border drawn in it, with a big seven-segment
+  limit, in red, else the 5 h window's, and the time goes once it passes.
+  `charlie -UsageView bars` makes those a bar and a reset countdown per
+  window, and every provider shows there.
+- **Every open Claude chat,** in the colour of what it is doing. Amber is
+  waiting on you (a permission prompt, say) and goes to the top; green is
+  working; grey is idle. On Windows a row is a tile in that colour alone,
+  one a line, its border drawn in it, with a big seven-segment
   clock lit in it over the faint ghost of every segment: how long the chat
   has worked, waited on you or sat idle, in hours and minutes (`0h05`,
   `2h05`), moving by the minute; days and hours past 99 hours (`4d07`). A
   tile whose chat needs you - amber, or cut off - has its ground washed in
-  its colour, one at work a little, the rest none. Its words, at the right
-  end of the project's line, say only what the tile cannot: never `idle`,
+  its colour, one at work a little, the rest none. The chat's project,
+  title and words are on [its card](#the-overlay), which a rest on the row
+  brings up. The words say only what the tile cannot: never `idle`,
   `working`, `running` or `needs you`, which its colour says, but a
   cut-off's reset, a queued prompt's place, what a chat waits on or works
-  at - with no age, since the clock tells that. The title has the line
-  under them. Project and title are the row's **open**: under the pointer
-  they turn into a button ([Open a chat from its row](#the-overlay)). At
-  the row's very right, centred on it, is **delete** as a small bin,
-  always there. With compact rows
-  (**Style**) project, title and words share one line, by a smaller tile -
-  one line a chat. No row there shows what you typed; [its
-  card](#the-overlay) does, while you rest on the row. On macOS and in
-  `charlie -Print` a row has a dot in its colour instead, its age in its
-  words and its newest prompt under it - none with compact rows. A chat
+  at - with no age, since the clock tells that. The tile is the row's
+  **open**: under the pointer a ring lights round it ([Open a chat from
+  its row](#the-overlay)), and the chip that rings it has **delete** as a
+  small bin. No row there shows what you typed; the card does. On macOS
+  and in `charlie -Print` a row is its project and title by a dot in its
+  colour, its age in its words and its newest prompt under it - none with
+  compact rows (`charlie -Compact on`). A chat
   open in two windows is one row. A VS Code Claude tab with no process
   behind it - one a window's reload brought back, say - is an idle row too, not a Recent line. A tab
   carries no session id, so
@@ -1740,9 +1745,9 @@ A small panel in the top-right corner that stays above other windows:
 - **Work a chat sent to the background counts as working.** The turn that
   starts a workflow, a background agent or a background command ends at
   once, and Claude calls the chat idle while the work goes on. Its row stays
-  green and says what is running and for how long: `workflow 12m`,
+  green, and what is running and for how long is said: `workflow 12m`,
   `2 agents 3m`, `shell 5m`, or `background` for a mix - on Windows the
-  words alone, as the tile's clock counts the time. It is judged as
+  words alone, on its card, as the tile's clock counts the time. It is judged as
   [Reloading safely](#reloading-safely) judges it, in any folder, with
   background commands added: a shell counts while one of Claude's own shells
   still runs under the chat's `claude` process, so one ended from the task
@@ -1778,29 +1783,29 @@ A small panel in the top-right corner that stays above other windows:
   one with no answer in 60 seconds leaves it. A new turn, or its session ending, clears it too. The
   overlay keeps it in memory only, so a restart clears every dot, and
   reading the chat in VS Code clears none.
-- **Chats the limit cut off,** in orange, just under those waiting on you:
-  `cut off - resets 13:00`, or `529 - waits for Claude`. The tile's clock
+- **Chats the limit cut off,** in orange, just under those waiting on you,
+  their cards saying `cut off - resets 13:00`, or `529 - waits for Claude`. The tile's clock
   counts down to the reset (`-1h30`), and once that is past - or with none
   to wait for, as for a 529 - up from when it was cut off. One no window has
   open gets a row of its own: from the transcripts of the last week while
   its reset is ahead or under 12 hours ago, or while the cut-off is under
   12 hours old. A continue you queued for it takes the row's place. The
   console's Continue, or `chatq <title> -Continue`, queues one. With
-  [auto-continue](#auto-continue) on, the row says what it does with the
+  [auto-continue](#auto-continue) on, its card says what it does with the
   chat, in few words - `#12 auto 13:01` (a continue queued, and when it
   goes: that continue stays on the orange row), `resets 13:00 · never`,
   `· terminal`, `· skipped` (its continue taken back, or left at the
   ask), `· failed`, `· stopped`, `· by hand` (too old, or a reset days
-  out) - the same in full in the words' tooltip, the chip's, the console
-  and `charlie -Print`. Every tile is as wide, whatever its mark or
-  clock, so every title starts at one column.
+  out) - under its name, and the same in full in the chip's tooltip; in the
+  console and `charlie -Print` on its row. Every tile is as wide, whatever its mark or
+  clock.
 - **The ask, once the limit is over:** a banner at the foot of the header,
   `limit over at 13:00 · 3 chats it cut off can continue`, with a dot in
   the cut-off orange. Rest on it for its chip - **continue 3** or **leave
   them** - which comes and arms as the open chip does; its tooltip lists
   the chats, and those left to a terminal. Which chats, and what an
   answer writes: [When the limit is over](#when-the-limit-is-over).
-- **The queue.** A queued prompt rides on its chat's row (`#3 sends 13:01`), or
+- **The queue.** A queued prompt rides on its chat's row (`#3 sends 13:01` on its card), or
   has a purple row of its own when that chat is not open, its tile's border
   dashed and its clock counting down to when it sends (`-0h12`) - dashes
   (`--:--`) when its words name no time, as `after #2` or `waits for a
@@ -1813,7 +1818,8 @@ A small panel in the top-right corner that stays above other windows:
   turns its row amber - until you go on in that chat yourself, which answers
   it ([Needs input](#when-it-sends)).
 - **Recent,** under all of those, faint: the newest Claude chats not open,
-  one line each - project, title, how long ago - five by default, and
+  one line each - a dot and how long ago, the project and title on its
+  card - five by default, and
   more as [the panel is stretched](#the-overlay) past its open chats. Each
   opens as a tab from its chip, as an open row does. A side transcript, an
   empty one, and a chat whose folder is gone are never listed - a folder
@@ -1913,12 +1919,12 @@ bar is drawn all but clear, so nothing hides the rows' look, and the
 panel's opacity fades its buttons with the panel. The rows below it let
 clicks through as before.
 
-**Resize it by its edges**, as any window: rest the pointer on the panel -
+**Resize it by its top or bottom edge**: rest the pointer on the panel -
 or on the bar, or just outside its edge - for a moment and the edges come;
 a pointer just passing over on its way to the window underneath brings up
-none. Then a side for the width, the top or bottom for the height, or a
-corner for both. The pointer turns to that edge's arrows, and a line in the
-accent colour marks the side it sizes. Outward, the top or bottom first brings in the
+none. The width is fixed - as wide as a tile - so the sides and corners
+size nothing. The pointer turns to the up-and-down arrows, and a line in
+the accent colour marks the side it sizes. Outward, the edge first brings in the
 open chats not drawn yet - past the row count, or cut by the screen's
 foot - a row for each row's height of travel; once every open chat shows,
 it adds Recent chats, newest first, a line for each line's height, up to
@@ -1930,8 +1936,8 @@ top edge grows the panel upward over its bottom, and by the screen's foot
 brings back the rows, then the Recent lines, the foot had cut. Dragged
 outward, it never ends with fewer rows, or Recent lines, than were set,
 even with fewer chats open; with no chat open, dragging in takes Recent
-lines away and leaves the row count as it was. Collapsed, the sides and
-corners size the width alone. As you let go, the width, the row count
+lines away and leaves the row count as it was. Collapsed, there are no
+edges. As you let go, the row count
 (`maxRows`) and the Recent count (`recent`) are kept in `config.json`,
 each only if it changed, and the panel's place in `overlay-state.json`.
 `recent` is one setting: the console's Recent list, `charlie -Print`
@@ -1942,26 +1948,25 @@ the window underneath.
 The buttons, left to right, ending in minimize, maximize and × as on any
 window's caption:
 - **collapse** (a chevron): folds the panel to one line - how many chats wait,
-  work or sit idle, and Claude's usage - and back;
+  work or sit idle, wrapped to the panel's width - with the usage gauges
+  under it, and back;
 - **refresh** (a circular arrow): asks Claude, Codex and Copilot for usage
-  now. It turns while it asks, and the end of Claude's line reads
-  `asking...`, then `checked 22:22:01` - or why it did not ask. Codex is
+  now. It turns while it asks, and Claude's gauge's card - the gauge drawn
+  while a Claude chat is open - reads `asking...`, then `checked 22:22:01`
+  - or why it did not ask. Codex is
   asked through `codex app-server`, a wait after a failure lifted; with
   `-CodexUsage off`, or no answer yet, its figure is what Codex wrote on
   its last run (`last run Mar 13`), and moves only when Codex runs;
-- **settings** (two sliders): a box of seven rows - opacity on a slider;
-  **Width** (260-800) and **Rows** (1-30) side by side on sliders; the
-  theme as Dark, Light or System (System follows Windows' own light or dark
-  mode); usage as Lines or Bars; **Style**, full or compact rows;
-  **Recent**, off, 5 or 10 - a count a stretch set to anything else
-  lights none of them; and **Cut off**, Continue, Ask or Leave -
-  whether the chats the limit cut off are [continued by
-  themselves](#auto-continue), [asked about](#when-the-limit-is-over) once
-  it is over, or only marked (`autoContinue`). A slider applies as it moves - the width with
-  the right edge held, and the panel kept on its screen, growing to the
-  right by the screen's left edge - and `config.json` gets it a moment
-  after it rests. Opened, the sliders show the size the panel has now,
-  whatever changed it. The box opens above the panel, its right end at
+- **settings** (two sliders): a box of five rows - **Opacity** and
+  **Rows** (1-30) on sliders; the theme as Dark, Light or System (System
+  follows Windows' own light or dark mode); **Recent**, off, 5 or 10 - a
+  count a stretch set to anything else lights none of them; and **Cut
+  off**, Continue, Ask or Leave - whether the chats the limit cut off are
+  [continued by themselves](#auto-continue), [asked
+  about](#when-the-limit-is-over) once it is over, or only marked
+  (`autoContinue`). A slider applies as it moves, and `config.json` gets
+  it a moment after it rests. Opened, the sliders show what the panel has
+  now, whatever changed it. The box opens above the panel, its right end at
   the bar's, where the screen has room for it there, else under the bar,
   over the rows; it keeps that side while it is open, and shuts once the
   pointer has been off both the panel and the box for 0.7 s. On a screen
@@ -1980,23 +1985,22 @@ shows and hides with the panel - to the tray and back, out of a full
 screen's way and back, gone while the panel is the console - and the edges
 go when the pointer leaves.
 
-**Open a chat from its row.** On a Claude row, or a Recent line, the
-project and title are the **open** and the bin at its right end is
-**delete**, but the panel lets clicks through, so they take none
-themselves. Move onto the row and rest the pointer there for a moment -
-400 ms, or what `charlie -ChipDelay` set - and the chip comes up over
-them, in a window of its own like the buttons, taking no focus, in
-neither Alt+Tab nor the taskbar: the name drawn again exactly over the
-row's turns into a button - the accent's colour, an underline sweeping
-under it from the left, the open's glyph sliding in at the title's end
-(an eye, **watch**, while a queued prompt runs in the chat) - and the bin
-comes over the row's own, lit under the pointer. A pointer sweeping
+**Open a chat from its row.** On a Claude row the tile is the **open**,
+and on a Recent line its dot and age, but the panel lets clicks through,
+so they take none themselves. Move onto the row and rest the pointer
+there for a moment - 400 ms, or what `charlie -ChipDelay` set - and the
+chip comes up over it, in a window of its own like the buttons, taking
+no focus, in neither Alt+Tab nor the taskbar: a ring lights round the
+tile in the accent's colour, its tooltip saying what a click does - open
+the chat, or **watch** its run while a queued prompt runs in it - and
+**delete**, a small bin, comes just outside the panel beside the row, on
+the side the card takes - the card goes out past it - lit under the
+pointer. A pointer sweeping
 across brings up nothing, and it shows once per visit to a row. Where it
 came up under the pointer, a click in its first 300 ms does not count - it
 was on its way to what is under the panel before the chip could be seen -
 and **click again** shows beside the bin; one after that counts, as does
-any once the pointer has been off it. A name pressed sits a unit lower
-until let go. From the click on, the chip counts `opening 3s` beside the
+any once the pointer has been off it. From the click on, the chip counts `opening 3s` beside the
 bin, and a
 line at the foot of the panel, under every row, says
 `opening '<title>' in VS Code - 3s`, then `opened '<title>'` for 5 s, or
@@ -2038,7 +2042,8 @@ the same for all but a plain open. Clicked, it:
   the VS Code that is running, else the one on PATH, else where VS Code's
   installers put it; `CHATQ_CODE` overrides all three. Nothing moves the
   pointer, types or activates a window;
-- on a chat a queued prompt is running in, is an eye, **watch**, and opens the
+- on a chat a queued prompt is running in, is **watch** - an eye in the
+  console, the ring's tooltip on the panel - and opens the
   run's [live view](#a-queued-run-takes-the-tabs-place) instead - in the
   window its run took the tab of, else the one on its folder - and brings
   that window forward the same way. A tab would load the chat part way
@@ -2049,12 +2054,13 @@ the same for all but a plain open. Clicked, it:
 [auto-continue](#auto-continue) is set to: **don't continue** while a
 continue it queued waits - it removes that continue, and this cut-off is
 not queued again - else **continue**, which queues one you asked for. With
-auto-continue off or asking, the row keeps its plain `cut off - resets
+auto-continue off or asking, its card keeps the plain `cut off - resets
 13:00` words, and **continue** is still there. A chat a terminal's
 `claude` holds gets no **continue**, in any mode: Claude Code's own wait
 continues it there, and a continue queued too would be a second writer.
-On a full row they sit on the title's line, under the row's words; with
-compact rows, left of them. Their tooltip says the words in full. A click
+They sit past the bin, outside the panel on the card's side, never over
+the tile. Their tooltip says the
+card's words in full. A click
 counts only when it goes down and up on the same chip - the banner's two
 answers too - and neither takes a chat's unread dot away. The tray says
 what was done.
@@ -2068,8 +2074,11 @@ is open, the panel is folded to one line or being dragged, or the
 console is up. Like the chip it takes no focus and is in neither Alt+Tab
 nor the taskbar, and the mouse goes through it: it is read, never
 clicked. It has the panel's look and opacity, and is shaped as a speech
-bubble with its tail at the row's middle: the row names the chat, so the
-card does not. It says:
+bubble with its tail at the row's middle. It says:
+- whose it is, the row being its tile alone: the chat's project, bold in
+  the project colour, and its title, two lines at most; under them, dim,
+  what the row's words say that the line below does not - a queued
+  prompt's place, say - then a rule;
 - what the chat does now, under a word in its state's colour: **NOW**
   and the tool call at work - `Bash  git status --short`, a file by its
   path from the chat's folder - with a clock for how long that call has
@@ -2100,8 +2109,10 @@ longer, up to 4 MB - and again on the panel's 2 s pass only while it
 shows and the transcript grew. A Codex job's card has its prompt alone:
 its rollout is not read. macOS has no card.
 
-**Delete a chat from its row.** Wherever a row's name opens it, it has
-**delete**, the bin, at its right end - `chatrm` without the typing. The first
+**Delete a chat from its row.** Wherever a row opens its chat - the
+panel's tile, the console's name - it has **delete**, the bin: beside
+the panel for a tile, at the row's right end in the console - `chatrm`
+without the typing. The first
 click only asks: the bin turns red and **sure?** shows beside it for 4
 seconds, and a second click on it deletes the chat and what it leaves
 behind, as `chatrm` does. The second half of a double-click is no answer.
@@ -2164,7 +2175,7 @@ overlay asks Claude's usage endpoint itself, the same one `/usage` asks:
 The endpoint is meant for a `/usage` opened now and then. Asked once a minute,
 it refused after about an hour, and then said to wait 48 minutes. When it
 says how long to wait, the overlay waits that long and says so (`13:25, retry
-14:13` at the end of Claude's line), refresh or not, since asking early only
+14:13` under Claude's name on its gauge's card), refresh or not, since asking early only
 earns another refusal. The last live figure and that wait survive a
 restart. Meanwhile it shows the newest figure it has: its own last answer, or
 Claude Code's cached one, with its age.
@@ -2234,26 +2245,26 @@ leaves them to `autoContinue`, as a reload's. The tray's **Continue chats
 a VS Code crash cut off** sets it.
 
 ```powershell
-charlie -Width 460 -Rows 12   # wider, and up to 12 chats before "+N more"
-charlie -Compact on           # one line a chat
+charlie -Rows 12              # up to 12 chats before "+N more"
+charlie -Compact on           # no prompt lines (macOS, -Print)
 charlie -ChipDelay 250        # the open chip and card after a 250 ms rest
 charlie -Recent 10            # ten chats not open under the rest; 0 for none
 ```
 
 | key | default | |
 |---|---|---|
-| `width` | 380 | pixels at 100% scaling, 260–800; the panel's sides, the settings box, or `charlie -Width 460`. The side not dragged stays put - the right edge, for the box and the command |
+| `width` | 380 | macOS: pixels at 100% scaling, 260–800; `charlie -Width 460`. The Windows panel is as wide as a tile, whatever this says |
 | `maxRows` | 8 | 1–30; the rest become `+3 more · 2 idle`, and so do the rows that would run past the screen's bottom from wherever the panel sits. The panel's top or bottom edge (kept as you let go), the settings box, or `charlie -Rows 12` |
 | `opacity` | 0.94 | 0.3–1; the settings box's slider, or `charlie -Opacity 85` |
-| `theme` | `dark` | `dark` is Charlie's look: wine-black with gold lines, ivory text, crimson under the pointer and hot pink for the accent, the chats' titles in a serif; `light` is the plain one, and `system` follows the OS; `charlie -Theme system` |
-| `prompts` | `true` | `false`: compact rows, one line a chat - on Windows a smaller tile, the state at the line's end; on macOS and in `-Print` no prompt lines, good for screen sharing. Named from when every full row showed its prompt. The settings box's Style, or `charlie -Compact on` |
+| `theme` | `dark` | `dark` is Charlie's look: wine-black with gold lines, ivory text, crimson under the pointer and hot pink for the accent, the chats' titles in a serif in the console; `light` is the plain one, and `system` follows the OS; `charlie -Theme system` |
+| `prompts` | `true` | `false`: compact rows - on macOS and in `-Print` no prompt lines, one line a chat, good for screen sharing. The Windows panel's row is its tile alone either way. Named from when every full row showed its prompt. `charlie -Compact on` |
 | `chipDelayMs` | 400 | 100–3000; how long the pointer rests on a row before its open chip and card come; `charlie -ChipDelay 250` |
 | `recent` | 5 | 0–20; how many chats not open the Recent list shows, 0 for none - in the panel, the console, `-Print` and the phone board alike; the panel's top or bottom edge stretched past the open chats (kept as you let go), the settings box (off, 5, 10), or `charlie -Recent 10` |
 | `hotkey` | `Ctrl+Alt+Shift+O` | `charlie -Hotkey Ctrl+Win+F9`; `none` for no key |
 | `consoleHotkey` | `Ctrl+Alt+Shift+Q` | opens the console, or brings it forward when another window covers it; again while it is in front, the panel; `charlie -ConsoleHotkey none` for no key |
 | `cutOff` | `true` | `false`: no cut-off rows; the scan for them still runs while `autoContinue` asks, or auto-continue is on for anything, and stops with all off |
 | `autoStart` | `true` on Windows, `false` on macOS | with every new shell and VS Code window; `charlie -AutoStart off`, or **Chat Manager: Overlay: start by itself...** in VS Code's command palette |
-| `usageView` | `lines` | `bars` for a bar and reset countdown per window; the settings box, or `charlie -UsageView bars` |
+| `usageView` | `lines` | macOS and `-Print`: `bars` for a bar and reset countdown per window; `charlie -UsageView bars`. The Windows panel draws a gauge, its figures on its card, whatever this says |
 | `liveUsage` | `true`, `false` on macOS | `charlie -LiveUsage off` |
 | `copilotUsage` | `true` | `charlie -CopilotUsage off`: no Copilot line, and `gh` never run for it |
 | `codexUsage` | `true` | `charlie -CodexUsage off`: Codex's line only from its rollouts, and `codex app-server` never started for it |
@@ -2319,7 +2330,7 @@ back. While the folder picker is open over the console, or its header is being
 dragged, those wait until it is closed or let go.
 
 **On the left, the chats**, with a search over titles and projects, each drawn
-as the panel draws its compact rows - the tile, with where it runs and its
+on one line by a smaller tile than the panel's - the tile, with where it runs and its
 clock, project and title, what its state says past the tile, the unread dot,
 the **delete** bin - on one line, the one picked with an accent bar at its
 left. Here they take the click themselves, with no chip: project and title

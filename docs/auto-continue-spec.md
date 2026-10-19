@@ -731,7 +731,7 @@ Nothing is written outside `data/`.
   `cwd` still gets its auto chip. [New-ChatOverlayChipContent](../src/overlay-windows.ps1)
   already draws from that list, each chip with its own tooltip and arming.
 
-**The settings box** has a seventh row since 0.9.0, **Cut off**, with
+**The settings box** has had a row since 0.9.0, **Cut off** - its fifth since 0.10.17 - with
 **Ask** and **Leave** ([Set-ChatOverlayAutoChoice](../src/overlay-windows.ps1)).
 This mode makes it three chips, **Continue**, **Ask** and **Leave**, once
 `"on"` exists; what follows is written for that row:
@@ -739,10 +739,8 @@ This mode makes it three chips, **Continue**, **Ask** and **Leave**, once
 ```
  ┌ settings ──────────────────────────────┐
  │ Opacity  ───────────●────────    94%   │
- │ Width    ─────●───  380  Rows ──●── 8  │
+ │ Rows     ─────────●──────────     8    │
  │ Theme    [Dark] [Light] [System]       │
- │ Usage    [Lines] [Bars]                │
- │ Style    [Full] [Compact]              │
  │ Recent   [Off] [5] [10]                │
  │ Cut off  [Continue] [Ask] [Leave]      │
  └────────────────────────────────────────┘

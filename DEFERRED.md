@@ -1644,6 +1644,12 @@ the tile ([Get-ChatOverlayRowWords](src/overlay-windows.ps1)), and the
 Mac panel draws no delete bin on a row
 ([New-ChatOverlayRowIcons](src/overlay-windows.ps1)) nor turns its name
 into the open button ([New-ChatOverlayRowName](src/overlay-windows.ps1)).
+Since 0.10.17 the Windows panel's row is its tile alone
+([Add-ChatOverlayTileRow](src/overlay-windows.ps1)) and it shows only the
+usage of providers with a chat or job open
+([Select-ChatOverlayActiveUsage](src/overlay-windows.ps1)); these three
+keep project, title and every provider's usage, and `prompts`
+(`charlie -Compact`) is theirs alone - the Windows panel ignores it.
 
 **Why deferred:** the ask was the Windows panel's state at a glance. The
 Mac panel has never run (S24 in TESTING.md), and new drawing in untested

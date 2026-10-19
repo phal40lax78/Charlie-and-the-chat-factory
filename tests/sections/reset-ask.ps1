@@ -515,7 +515,7 @@ $staLoad
 `$script:RaErr = @()
 trap { `$script:RaErr += "`$(`$_.Exception.Message) @ `$(`$_.InvocationInfo.ScriptLineNumber)"; continue }
 `$cfgWas = [IO.File]::ReadAllText(`$script:ChatqConfigPath)
-Set-ChatOverlayConfig @{ width = 380; maxRows = 8; prompts = `$true; recent = 0; hotkey = 'none'; consoleHotkey = 'none'; usageView = 'lines' }
+Set-ChatOverlayConfig @{ width = 380; maxRows = 8; prompts = `$true; recent = 0; hotkey = 'none'; consoleHotkey = 'none' }
 `$script:ChatqSpawn = { `$true }
 `$script:ChatConsoleNoSync = `$true
 `$script:RaBalloons = [System.Collections.Generic.List[object]]::new()
@@ -533,53 +533,65 @@ Set-ChatOverlayHidden `$H `$false
 `$runsOf = { param(`$el) @(@(`$el.Children) | ForEach-Object { (@(`$_.Inlines) | ForEach-Object { `$_.Text }) -join '' }) -join '|' }
 `$draw = { param(`$snap, `$sig) `$H.Ctx.ViewSig = `$sig; `$H.ViewKey = `$null; Update-ChatOverlayView `$H `$snap; `$H.Win.UpdateLayout() }
 `$midOf = { param(`$line) @(`$line.Children | Where-Object { `$_ -is [System.Windows.Controls.TextBlock] -and `$_.TextWrapping -eq [System.Windows.TextWrapping]::Wrap })[0] }
-# the usage line: when 5h resets, after its percent - a clock that goes once the time has passed
+# the usage gauge's card: each window's percent and a countdown to its
+# reset that ticks - "reset" once the time has passed - and its name with
+# when the figure is from; the gauge drawn while a Claude chat is open
+# (Select-ChatOverlayActiveUsage)
+`$uRow = [pscustomobject]@{ key = 's:u'; kind = 'session'; provider = 'claude'; status = 'idle'; rank = 3; project = 'p'; title = 'u'; prompt = 'x'; stateText = 'idle 1m'; job = `$null }
 `$r5 = (Get-Date).AddMinutes(90)
 `$w5 = [pscustomobject]@{ label = '5h'; percent = 42; resetsAt = (& `$ms `$r5); severity = 'normal'; limited = `$false }
 `$wk = [pscustomobject]@{ label = 'week'; percent = 50; resetsAt = (& `$ms (Get-Date).AddDays(3)); severity = 'normal'; limited = `$false }
 `$use = @([pscustomobject]@{ provider = 'Claude'; source = 'live'; stale = `$false; status = '22:22'; windows = @(`$w5, `$wk) })
-& `$draw ([pscustomobject]@{ header = [pscustomobject]@{ usage = `$use; notes = @() }; rows = @() }) 'u1'
-`$line1 = & `$runsOf `$H.Stack.Children[0]
-`$run1 = @((& `$midOf `$H.Stack.Children[0]).Inlines | Where-Object { `$_.Text -like ' resets *' })
-`$clock = @(`$H.Clocks | Where-Object { `$_.Kind -eq 'at' })
-`$usageOk = `$line1 -eq ('Claude|22:22|5h 42% resets ' + (& `$hm `$r5) + ' ' + `$dot + ' week 50%') -and `$run1.Count -eq 1 -and `$run1[0].Foreground -eq (Get-ChatOverlayBrush 'dim') -and
-    `$clock.Count -eq 1 -and `$clock[0].Block -eq `$run1[0]
-`$clock[0].At = & `$ms (Get-Date).AddMinutes(-1)
+& `$draw ([pscustomobject]@{ header = [pscustomobject]@{ usage = `$use; notes = @() }; rows = @(`$uRow) }) 'u1'
+if (-not `$H.CardWin) { New-ChatOverlayCardWindow `$H }
+`$cardOf = { param(`$g) New-ChatOverlayCardContent `$H ([pscustomobject]@{ Usage = `$g.Tag.usage }); `$H.CardShape.Body.Child.Children[0] }
+`$textsOf = { param(`$el) @(`$el.Children | Where-Object { `$_ -is [System.Windows.Controls.TextBlock] }) }
+`$gz = `$H.Stack.Children[0]
+`$ug = & `$cardOf `$gz
+`$ut = @(& `$textsOf `$ug | ForEach-Object { `$_.Text })
+`$usageOk = `$gz.Tag.kind -eq 'usage' -and (@(`$ug.Children[0].Children | ForEach-Object { `$_.Text }) -join '|') -eq 'Claude|22:22' -and `$ut.Count -eq 6 -and
+    `$ut[0] -eq '5h' -and `$ut[1] -eq '42%' -and `$ut[2] -like '1h *m' -and `$ut[3] -eq 'week' -and `$ut[4] -eq '50%' -and `$ut[5] -eq (Format-ChatOverlayReset `$wk.resetsAt) -and
+    `$H.Clocks.Count -eq 2 -and [object]::ReferenceEquals(`$H.Clocks[0].Block, @(& `$textsOf `$ug)[2])
+`$H.Clocks[0].At = & `$ms (Get-Date).AddMinutes(-1)
 Update-ChatOverlayClock `$H
-`$usageOk = `$usageOk -and `$run1[0].Text -eq ''
-# a week at its limit: its reset, not 5h's, in the limit's colour
-`$rw = (Get-Date).AddDays(2)
+`$usageOk = `$usageOk -and @(& `$textsOf `$ug)[2].Text -eq 'reset'
+# a week at its limit: on the gauge its bar in the limit's colour, and on
+# the card each percent
 `$w5l = [pscustomobject]@{ label = '5h'; percent = 100; resetsAt = (& `$ms (Get-Date).AddMinutes(60)); severity = 'critical'; limited = `$true }
-`$wkl = [pscustomobject]@{ label = 'week'; percent = 100; resetsAt = (& `$ms `$rw); severity = 'critical'; limited = `$true }
-& `$draw ([pscustomobject]@{ header = [pscustomobject]@{ usage = @([pscustomobject]@{ provider = 'Claude'; source = 'live'; stale = `$false; status = '22:22'; windows = @(`$w5l, `$wkl) }); notes = @() }; rows = @() }) 'u2'
-`$line2 = & `$runsOf `$H.Stack.Children[0]
-`$run2 = @((& `$midOf `$H.Stack.Children[0]).Inlines | Where-Object { `$_.Text -like ' resets *' })
-`$weekOk = `$line2 -eq ('Claude|22:22|5h 100% ' + `$dot + ' week 100% resets ' + (& `$hm `$rw)) -and `$run2.Count -eq 1 -and `$run2[0].Foreground -eq (Get-ChatOverlayBrush 'critical')
+`$wkl = [pscustomobject]@{ label = 'week'; percent = 100; resetsAt = (& `$ms (Get-Date).AddDays(2)); severity = 'critical'; limited = `$true }
+& `$draw ([pscustomobject]@{ header = [pscustomobject]@{ usage = @([pscustomobject]@{ provider = 'Claude'; source = 'live'; stale = `$false; status = '22:22'; windows = @(`$w5l, `$wkl) }); notes = @() }; rows = @(`$uRow) }) 'u2'
+`$gz2 = `$H.Stack.Children[0]
+`$fills = @(@(`$gz2.Children | Where-Object { `$_ -is [System.Windows.Controls.StackPanel] })[0].Children | ForEach-Object { `$_.Children[1].Background })
+`$pc = @(& `$textsOf (& `$cardOf `$gz2) | Where-Object { `$_.Text -eq '100%' })
+`$weekOk = `$fills.Count -eq 2 -and -not @(`$fills | Where-Object { `$_ -ne (Get-ChatOverlayBrush 'critical') }).Count -and
+    `$pc.Count -eq 2 -and -not @(`$pc | Where-Object { `$_.Foreground -ne (Get-ChatOverlayBrush 'critical') }).Count
+Hide-ChatOverlayCard `$H
 # the banner: last in the header, after the notes and in place of the ask's own
 `$askAt = (Get-Date).AddMinutes(-20)
 `$ask = [pscustomobject]@{ count = 3; resetsAt = (& `$ms `$askAt); keys = @('a5_1', 'a5_2', 'a5_3'); titles = @('T one', 'T two', 'T three'); left = @('T four - open in a terminal; its own claude continues it') }
 `$notes = @([pscustomobject]@{ text = 'next queued prompt: 17:10'; tone = 'dim' }, [pscustomobject]@{ text = 'limit over at 12:00 - 3 chats it cut off can continue'; tone = 'warn'; kind = 'ask' })
-`$rows = @(1..2 | ForEach-Object { [pscustomobject]@{ key = "s:`$_"; kind = 'session'; status = 'idle'; rank = 3; project = 'p'; title = "chat `$_"; prompt = 'x'; stateText = 'idle 1m'; job = `$null } })
+`$rows = @(1..2 | ForEach-Object { [pscustomobject]@{ key = "s:`$_"; kind = 'session'; provider = 'claude'; status = 'idle'; rank = 3; project = 'p'; title = "chat `$_"; prompt = 'x'; stateText = 'idle 1m'; job = `$null } })
 `$snapA = [pscustomobject]@{ header = [pscustomobject]@{ usage = `$use; notes = `$notes; ask = `$ask }; counts = [pscustomobject]@{ idle = 2; cutOff = 3 }; rows = `$rows }
 & `$draw `$snapA 'a1'
 `$kids = @(`$H.Stack.Children)
 `$ban = @(`$kids | Where-Object { `$_.Tag -and `$_.Tag -isnot [string] -and `$_.Tag.key -eq 'ask' })
 `$bi = if (`$ban.Count) { `$kids.IndexOf(`$ban[0]) } else { -1 }
 `$bl = if (`$ban.Count) { `$ban[0].Children[0] } else { `$null }
-`$btexts = @(`$bl.Children | Where-Object { `$_ -is [System.Windows.Controls.TextBlock] } | ForEach-Object { `$_.Text })
+`$btexts = @(`$bl.Children | Where-Object { `$_ -is [System.Windows.Controls.TextBlock] } | ForEach-Object { (@(`$_.Inlines) | ForEach-Object { `$_.Text }) -join '' })
 `$rects = @(Get-ChatOverlayRowRects `$H)
 `$bannerOk = `$ban.Count -eq 1 -and `$ban[0].Tag.kind -eq 'ask' -and (@(`$ban[0].Tag.keys) -join ',') -eq 'a5_1,a5_2,a5_3' -and `$bl.Tag -eq 'line' -and
-    (`$btexts -contains ('limit over at ' + (& `$hm `$askAt) + ' ' + `$dot + ' 3 chats it cut off can continue')) -and (`$btexts -contains 'continue?') -and
+    (`$btexts -contains ('limit over at ' + (& `$hm `$askAt) + ' ' + `$dot + ' 3 chats it cut off can continue continue?')) -and
     `$bi -gt 0 -and `$kids[`$bi + 1] -is [System.Windows.Controls.Border] -and `$kids[`$bi - 1].Text -eq 'next queued prompt: 17:10' -and
     -not @(`$kids | Where-Object { `$_ -is [System.Windows.Controls.TextBlock] -and `$_.Text -like 'limit over*' }).Count -and
     (Get-ChatOverlayDrawnRows `$H) -eq 2 -and @(`$rects | Where-Object { `$_.Key -eq 'ask' }).Count -eq 1 -and
     "`$(`$ban[0].ToolTip)" -eq "T one``nT two``nT three``nT four - open in a terminal; its own claude continues it"
 `$bannerSay = "banner `$(`$ban.Count) at `$bi texts [`$(`$btexts -join '/')] drawn `$(Get-ChatOverlayDrawnRows `$H) rects `$(@(`$rects | ForEach-Object { `$_.Key }) -join ',')"
-# collapsed: the one line counts them apart, and says when 5h resets
+# collapsed: the one line counts them apart, and the gauge under it
 Set-ChatOverlayCollapsed `$H `$true
 `$one = @(`$H.Stack.Children[0].Children | Where-Object { `$_ -is [System.Windows.Controls.TextBlock] } | ForEach-Object { `$_.Text }) -join '/'
+`$fold2 = `$H.Stack.Children.Count -eq 2 -and `$H.Stack.Children[1].Tag.kind -eq 'usage'
 Set-ChatOverlayCollapsed `$H `$false
-`$foldOk = `$one -eq ('5h 42% resets ' + (& `$hm `$r5) + ' ' + `$dot + ' week 50%/3 can continue ' + `$dot + ' 2 idle')
+`$foldOk = `$one -eq ('3 can continue ' + `$dot + ' 2 idle') -and `$fold2
 # the chip on the banner: its two answers; on a Claude row: open and delete
 `$e = @(`$rects | Where-Object { `$_.Key -eq 'ask' })[0]
 Show-ChatOverlayChip `$H `$e
@@ -618,7 +630,7 @@ Reset-ChatOverlayDeleteArm `$H
 # tooltip, lit under the pointer, and a click on it opens, not picks
 `$nRow = [pscustomobject]@{ key = 's:n'; kind = 'session'; provider = 'claude'; sessionId = '$idCard'; cwd = '$projA'; status = 'idle'; rank = 3; project = 'pn'; title = 'named'; stateText = 'idle 1m'; job = `$null }
 `$conList = [System.Windows.Controls.StackPanel]::new()
-Add-ChatOverlayRow `$conList `$nRow ([pscustomobject]@{ prompts = `$false }) `$null -Live
+Add-ChatOverlayRow `$conList `$nRow `$null -Live
 `$nameEl = @(@(`$conList.Children[0].Children | Where-Object { `$_.Tag -eq 'line' })[0].Children | Where-Object { `$_.Tag -is [string] -and `$_.Tag -eq 'name' })[0]
 `$openedRow = `$null
 `$openWas = `${function:Invoke-ChatOverlayOpen}
@@ -634,14 +646,14 @@ Add-ChatOverlayRow `$conList `$nRow ([pscustomobject]@{ prompts = `$false }) `$n
     `$script:openedRow.key -eq 's:n' -and `$script:picked -eq 0 -and @(`$nameEl.Children | Where-Object { `$_.Tag -eq 'underline' }).Count -eq 1 -and @(`$nameEl.Children | Where-Object { `$_.Tag -eq 'arrow' }).Count -eq 1
 `$chipOpen = `$chipOpen -and `$conName
 `$script:ChatOverlayHost = `$hostWas
-# the settings box's seventh row: Cut off, Ask or Leave
+# the settings box's fifth row: Cut off, Ask or Leave
 Set-ChatOverlaySettingsOpen `$H `$true
 `$chipsOf = { param(`$t) @(`$H.Settings.Child.Children | Where-Object { `$_ -is [System.Windows.Controls.StackPanel] -and @(`$_.Children | ForEach-Object { `$_.Tag }) -contains `$t })[0] }
 `$on = { param(`$p) @(`$p.Children | Where-Object { `$_.Background -eq (Get-ChatOverlayBrush 'accent') } | ForEach-Object { `$_.Tag }) -join ',' }
 `$cut = & `$chipsOf 'leave'
-`$lab = @(`$H.Settings.Child.Children | Where-Object { `$_ -is [System.Windows.Controls.TextBlock] -and [System.Windows.Controls.Grid]::GetRow(`$_) -eq 6 -and [System.Windows.Controls.Grid]::GetColumn(`$_) -eq 0 })[0]
+`$lab = @(`$H.Settings.Child.Children | Where-Object { `$_ -is [System.Windows.Controls.TextBlock] -and [System.Windows.Controls.Grid]::GetRow(`$_) -eq 4 -and [System.Windows.Controls.Grid]::GetColumn(`$_) -eq 0 })[0]
 `$setOk = `$cut -and (@(`$cut.Children | ForEach-Object { `$_.Tag }) -join ',') -eq 'continue,ask,leave' -and (@(`$cut.Children | ForEach-Object { `$_.Child.Text }) -join ',') -eq 'Continue,Ask,Leave' -and
-    (& `$on `$cut) -eq 'ask' -and [System.Windows.Controls.Grid]::GetRow(`$cut) -eq 6 -and `$lab.Text -eq 'Cut off' -and "`$(`$lab.ToolTip)" -like 'A chat the usage limit cuts off: Continue sends it*Ask says so*' -and
+    (& `$on `$cut) -eq 'ask' -and [System.Windows.Controls.Grid]::GetRow(`$cut) -eq 4 -and `$lab.Text -eq 'Cut off' -and "`$(`$lab.ToolTip)" -like 'A chat the usage limit cuts off: Continue sends it*Ask says so*' -and
     "`$(`$cut.Children[1].ToolTip)" -like 'Once the limit is over*' -and "`$(`$cut.Children[2].ToolTip)" -like 'Only mark them*'
 `$H.Ctx.CutAt = Get-Date
 Set-ChatOverlayAutoChoice `$H 'leave'
@@ -749,18 +761,18 @@ Invoke-ChatOverlayAskAnswer `$H 'leave' @('a5a5ffff-0000-4000-8000-00000000ffff_
 Invoke-ChatOverlayVerb 'stop'
 [IO.File]::WriteAllText(`$script:ChatqConfigPath, `$cfgWas)
 '{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}|{9}|{10}|{11}|{12}|{13}' -f `$usageOk, `$weekOk, `$bannerOk, `$foldOk, `$chipAsk, `$chipOpen, `$setOk, `$balloonOk, `$newsOk, `$conOk, `$answerOk,
-    (`$script:RaErr -join ' / '), ("line1 [`$line1] line2 [`$line2] `$bannerSay fold [`$one] `$setSay news [`$newsSay] con [`$conAsk] [`$conNone] [`$conStale] `$answerSay" -replace '\|', '/'), `$trayOk
+    (`$script:RaErr -join ' / '), ("card [`$(`$ut -join ',')] fills `$(`$fills.Count) pc `$(`$pc.Count) `$bannerSay fold [`$one] `$setSay news [`$newsSay] con [`$conAsk] [`$conNone] [`$conStale] `$answerSay" -replace '\|', '/'), `$trayOk
 "@
 $raOut = Invoke-Sta 'reset-ask-test' $raWpf
 $ra = "$raOut" -split '\|'
 $raSay = if ($ra.Count -ge 13) { "$($ra[11]) | $($ra[12])" } else { "$raOut" }
-Check 'the usage line: " resets HH:mm" after 5h''s percent, dim - a clock that goes once the time has passed' ($ra[0] -eq 'True') $raSay
-Check 'a week at its limit: its reset shown, not 5h''s, in the limit''s colour' ($ra.Count -gt 1 -and $ra[1] -eq 'True') $raSay
+Check 'the usage gauge''s card: each window''s percent and a countdown to its reset - "reset" once it has passed - its name and when the figure is from' ($ra[0] -eq 'True') $raSay
+Check 'windows at their limit: the gauge''s bars and the card''s percents in the limit''s colour' ($ra.Count -gt 1 -and $ra[1] -eq 'True') $raSay
 Check 'the banner: last in the header after the notes, in place of the ask''s note - tagged for the chip, its titles and those left as its tooltip, no row counted' ($ra.Count -gt 2 -and $ra[2] -eq 'True') $raSay
-Check 'collapsed: "N can continue" counted apart, and when 5h resets' ($ra.Count -gt 3 -and $ra[3] -eq 'True') $raSay
+Check 'collapsed: "N can continue" counted apart, and the gauge under the line' ($ra.Count -gt 3 -and $ra[3] -eq 'True') $raSay
 Check 'the chip on the banner: continue N and leave them, each its own tip' ($ra.Count -gt 4 -and $ra[4] -eq 'True') $raSay
 Check 'the chip on a Claude row: delete as an icon, room beside it to say things; delete''s first click turns the bin red and says sure?, a reset takes both back; greyed on a chat at work; the console''s bin, its only icon, red through a rebuild of its list; the console''s project and title a hand with the open''s tooltip, a click there opening the chat and picking nothing'($ra.Count -gt 5 -and $ra[5] -eq 'True') $raSay
-Check 'the settings box''s seventh row: Cut off, Ask or Leave, the one in force filled; Leave saves off at config.json''s top level, and a fresh look follows' ($ra.Count -gt 6 -and $ra[6] -eq 'True') $raSay
+Check 'the settings box''s fifth row: Cut off, Ask or Leave, the one in force filled; Leave saves off at config.json''s top level, and a fresh look follows' ($ra.Count -gt 6 -and $ra[6] -eq 'True') $raSay
 Check 'balloons go through Show-ChatOverlayBalloon: cut to 250, what a click means kept' ($ra.Count -gt 7 -and $ra[7] -eq 'True') $raSay
 Check 'a new ask is ballooned once - title, count, three titles and the rest counted - then what an answer did' ($ra.Count -gt 8 -and $ra[8] -eq 'True') $raSay
 Check 'the console: the Cut off header says the ask while it is pending, with Leave them beside Continue all; an answer to an ask gone stays in the console and says the chats changed' ($ra.Count -gt 9 -and $ra[9] -eq 'True') $raSay

@@ -3399,28 +3399,6 @@ function Format-ChatOverlayTooltip {
     return $t
 }
 
-function Get-ChatOverlayCompactUsage {
-    # The collapsed panel's usage, at the right of its one line: each
-    # provider in use - some window above 0%, the rule the phone alert's
-    # footer keeps (Get-ChatqAlertFooter) - with its first two windows and
-    # when its reset window resets. Claude alone goes unnamed, as it always
-    # did; Codex, or two at once, carry their names. Text '' when none is in
-    # use; Stale when every one shown is.
-    param([object[]]$Usage)
-    $on = @(@($Usage) | Where-Object { $_ -and @(@($_.windows) | Where-Object { $_ -and [int]$_.percent -gt 0 }).Count })
-    $named = $on.Count -gt 1 -or ($on.Count -eq 1 -and $on[0].provider -ne 'Claude')
-    $d = " $($script:ChatqDot) "
-    $text = @(foreach ($u in $on) {
-            $resets = Get-ChatOverlayResetWindow @($u.windows)
-            $ws = @($u.windows | Select-Object -First 2 | ForEach-Object {
-                    $t = if ($resets -and $_.label -eq $resets) { Format-ChatOverlayResetAt $_.resetsAt } else { '' }
-                    "$($_.label) $($_.percent)%$(if ($t) { " resets $t" })"
-                }) -join $d
-            if ($named) { "$($u.provider) $ws" } else { $ws }
-        }) -join $d
-    [pscustomobject]@{ Text = $text; Stale = [bool]($on.Count -and -not @($on | Where-Object { -not $_.stale }).Count) }
-}
-
 # Deferred: DEFERRED.md "Row tiles on macOS, in -Print and on the phone's board"
 function Write-ChatOverlayPrint {
     # charlie -Print: one pass, drawn in the console. Linux's only view,
@@ -3852,8 +3830,8 @@ function Get-ChatOverlayCardModel {
     <#
     What a row's hover card shows (New-ChatOverlayCardContent), from the row,
     its transcript's tail (Read-ChatOverlayCardTail; $null for none) and the
-    prompts known for it (Get-ChatOverlayCardSource). Its row, which the
-    card points at, says whose it is. Pure.
+    prompts known for it (Get-ChatOverlayCardSource). Pure.
+      Project, Title         whose it is: the panel's row is a tile alone
       Label, Tone            the state line's word - NOW, WAITS, RUNNING,
                              FINISHED, STOPPED, CUT OFF, QUEUED - and the
                              palette key its colour is
@@ -3935,6 +3913,7 @@ function Get-ChatOverlayCardModel {
         if ($turns.Count -and $you.At -and $Tail.ReplyAt -and [int64]$you.At -gt [int64]$Tail.ReplyAt) { $turns.Insert(0, $c) } else { $turns.Add($c) }
     }
     return [pscustomobject]@{
+        Project = [string](Get-ChatField $Row 'project'); Title = [string](Get-ChatField $Row 'title')
         Label = $label; Tone = $tone; Tool = $tool; What = [string]$what; From = $from; At = $at
         Steps = @($steps | Select-Object -First 3); Tasks = $tasks; Turns = $turns.ToArray()
     }

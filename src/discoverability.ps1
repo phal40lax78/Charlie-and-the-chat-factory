@@ -344,9 +344,9 @@ function chat {
     Write-Host '  charlie                every open chat and live usage, always on top' -ForegroundColor Cyan
     Write-Host '  charlie -Print         the same, once, in this console' -ForegroundColor Cyan
     Write-Host '  charlie -Theme         dark, light or system; -Opacity 85' -ForegroundColor Cyan
-    Write-Host '  charlie -Width         260 to 800; -Rows 1 to 30 chats shown' -ForegroundColor Cyan
-    Write-Host '  charlie -UsageView     lines, or bars with reset countdowns' -ForegroundColor Cyan
-    Write-Host '  charlie -Compact       on: one line a chat; -ChipDelay 400 ms' -ForegroundColor Cyan
+    Write-Host '  charlie -Rows          1 to 30 chats shown' -ForegroundColor Cyan
+    Write-Host '  charlie -UsageView     lines, or bars with reset countdowns (macOS, -Print)' -ForegroundColor Cyan
+    Write-Host '  charlie -Compact       on: no prompt lines (macOS, -Print); -ChipDelay 400 ms' -ForegroundColor Cyan
     Write-Host '  charlie -Recent        0 to 20 chats not open listed under them' -ForegroundColor Cyan
     Write-Host '  chatconsole            write, queue and continue chats in a window' -ForegroundColor Cyan
     Write-Host ''

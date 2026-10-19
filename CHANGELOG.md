@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.10.17 — Clocks alone on a narrow panel
+
+- **A chat's row on the Windows panel is its tile alone,** one a line:
+  where it runs and its clock, in its state's colour, 36 units tall.
+  Project, title and the row's words went to the hover card, which a
+  rest on the row brings up as before; a glance at the panel is how long
+  each chat has worked, waited or sat idle.
+- **The panel is as wide as a tile.** About 150 units, the bar of six
+  buttons just fitting, where it was 380 with the right half empty - so
+  the dark look's gold lozenge, which sat left of them, is gone. Its
+  width is no longer a setting there: the sides and corners no longer
+  drag, only the top and bottom, for rows and then Recent lines.
+  `charlie -Width` and config.json's `width` stay, for macOS, and say
+  so when set on Windows. Words that no longer fit on
+  one line - a note, "+N more", the collapsed line, a banner - wrap.
+- **Usage is a gauge.** One thin bar a window, the 5h over the weekly,
+  filled to its percent in its colour - the limit's at the limit, faint
+  when stale - with no words. A rest on it brings up its card: each
+  window's bar, percent and a countdown to its reset, and when the
+  figure is from. With two providers open a mark says whose (Cl, Cx,
+  Cp), all three starting with C. The collapsed panel draws the same
+  gauges under its line, and their cards come up there too.
+- **Usage only for what is open.** A provider's gauge shows only while a
+  chat or job of it is open: Claude's with any chat, Codex's while a
+  Codex job is queued or runs, Copilot's - which has no rows - not at
+  all; with no chat open, none, and the refresh button's `checked` with
+  it. macOS, `charlie -Print`, the console, the phone and the alerts
+  are unchanged, and keep `usageView`.
+- **The card says whose chat it is.** Its first lines are the project,
+  bold in the project colour, and the title, two lines at most; under
+  them, dim, what the row's words say that the card's state line does
+  not - a queued prompt's place, say - then a rule.
+- **A Recent line is a dot and how long ago,** its project and title on
+  its card too.
+- **The open is a ring.** The chip rings the tile in the accent's colour
+  where it used to draw the name again as a button. The bin, and a
+  cut-off's continue, hang just outside the panel on the side the card
+  takes, and the card goes out past them.
+- **The settings box: five rows.** Opacity, rows, theme, Recent and Cut
+  off - Style, width and Usage gone. Wider than the panel, it hangs out
+  to the left, or to the right by the screen's left edge.
+  `charlie -Compact` and `prompts` stay, for macOS and `-Print`; the
+  Windows panel draws the same whichever is set. The console's list keeps its one-line rows.
+
 ## 0.10.16 — The native watcher runs the queue, PowerShell a step at a time
 
 - **chatqd runs the watcher's loop itself - for a developer, for now.**

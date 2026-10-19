@@ -957,7 +957,7 @@ function Update-ChatConsoleHeader {
 function Get-ChatConsoleChatItems {
     # what the list shows: cut off first, then open in VS Code, then recent -
     # each chat once, as the snapshot and the index have it. Row is what the
-    # panel's row builder draws it from (Add-ChatOverlayRow): the snapshot's
+    # list's row builder draws it from (Add-ChatOverlayRow): the snapshot's
     # own row, or one made for a recent chat of the index's.
     param($H)
     $C = $H.Con
@@ -1097,11 +1097,10 @@ function Update-ChatConsoleChats {
 
 function New-ChatConsoleChatItem {
     <#
-    One chat in the list, drawn as the panel draws it (Add-ChatOverlayRow,
-    compact) - its tile, where it runs and its clock, project and title,
-    what its state says past the tile, the unread dot, delete - so a chat
-    looks the same in both; here its project and title, lit under the
-    pointer, open it, and delete takes the click itself (-Live). The clock
+    One chat in the list (Add-ChatOverlayRow) - its tile, where it runs and
+    its clock, as the panel's, then project and title, what its state says
+    past the tile, the unread dot, delete; its project and title, lit under
+    the pointer, open it, and delete takes the click itself (-Live). The clock
     goes in the list's own RowClocks, which every tick moves. Around it,
     what only the console has: a click anywhere else on it makes it the one
     written to, the one picked has the accent's bar at its left
@@ -1140,7 +1139,7 @@ function New-ChatConsoleChatItem {
         [void]$g.Children.Add($cb)
     }
     $txt = [System.Windows.Controls.StackPanel]::new()
-    Add-ChatOverlayRow $txt $Item.Row ([pscustomobject]@{ prompts = $false }) $C.RowClocks $C.SansLine -Live
+    Add-ChatOverlayRow $txt $Item.Row $C.RowClocks $C.SansLine -Live
     [void]$g.Children.Add($txt)
     $b.Child = $g
     $b.add_MouseEnter({ param($s, $e) if ($s.Background -eq [System.Windows.Media.Brushes]::Transparent) { $s.Background = Get-ChatOverlayBrush 'hover' } })

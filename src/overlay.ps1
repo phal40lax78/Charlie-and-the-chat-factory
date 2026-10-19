@@ -166,10 +166,11 @@ function charlie {
     .DESCRIPTION
     Each open chat is a row: project, title, and whether it is working
     (green), waiting on you (amber, at the top), or idle (grey). On Windows
-    the row starts on a tile in that colour: a mark for where the chat is
+    the row is a tile in that colour alone: a mark for where the chat is
     open, over a seven-segment clock - how long it has worked, waited or
-    sat idle, or how long until it resets or sends. On macOS and with
-    -Print its newest prompt is under it instead.
+    sat idle, or how long until it resets or sends; its project and title
+    are on the card a rest on it brings up. On macOS and with -Print its
+    newest prompt is under it instead.
     Chats the limit cut off are orange, with when it resets; once it is
     over, the panel says how many it cut off and continues them if you say
     so (chatq -AutoContinue off only marks them). Queued prompts
@@ -181,7 +182,10 @@ function charlie {
     Under them, on Windows, a faint Recent list: the newest chats not open,
     each openable as a tab like an open one. Usage sits at the top, a line
     for each of Claude, Codex and Copilot, each ending with when its figure
-    is from - or as bars with a countdown to each reset. Claude's is asked
+    is from - or as bars with a countdown to each reset. On Windows the
+    panel is only as wide as a tile, and usage is a thin bar a window for
+    those with a chat or job open now, its figures on the card a rest on
+    it brings up. Claude's is asked
     live from its usage endpoint every five minutes while a chat works,
     every fifteen while all are idle, and on the refresh button; Copilot's
     through the GitHub CLI (gh) every fifteen; Codex's from
@@ -192,14 +196,12 @@ function charlie {
     Clicks go through it and it never takes focus. On Windows a bar along
     its top strip is the exception: shown with the panel, it takes the
     mouse, so hold it anywhere off its buttons to drag the panel. Its
-    buttons are collapse to one line, refresh usage, settings (width, rows,
-    opacity, theme, usage as lines or bars, full or compact rows, how many
-    recent chats, and whether chats the limit cut off are asked about or
-    only marked), then, as on any window, minimize (to the tray - the tray
-    icon shows it again), maximize (the console, chatconsole) and close.
-    Rest the pointer on the panel and its edges come, to drag as any
-    window's (the sides for width, the top and bottom for rows and then
-    recent chats, the corners for both). The hotkey (Ctrl+Alt+Shift+O) or
+    buttons are collapse to one line, refresh usage, settings (opacity,
+    rows, theme, how many recent chats, and whether chats the limit cut
+    off are asked about or only marked), then, as on any window, minimize
+    (to the tray - the tray icon shows it again), maximize (the console,
+    chatconsole) and close. Rest the pointer on the panel and its top and
+    bottom edges come, to drag for rows and then recent chats. The hotkey (Ctrl+Alt+Shift+O) or
     the tray menu unlocks the whole panel to drag; it locks again by itself
     two minutes after the pointer leaves. Windows and macOS (untested);
     elsewhere -Print shows the same in the console. chatoverlay is the old
@@ -227,11 +229,11 @@ function charlie {
     .PARAMETER Opacity
     How opaque the panel is, 0.3 to 1 - or as a percent, 30 to 100.
     .PARAMETER Width
-    How wide the panel is, 260 to 800 (380 by default) - in pixels at 100% scaling.
+    How wide the panel is on macOS, 260 to 800 (380 by default) - in pixels at 100% scaling. The Windows panel is as wide as a tile.
     .PARAMETER Rows
     How many chat rows it shows at most, 1 to 30 (8 by default); the rest are counted on a line of their own.
     .PARAMETER Compact
-    on: one line a chat - on Windows a smaller tile, the chat's state at the line's end; on macOS and with -Print no newest prompt under it. off (the default): on Windows a taller tile, the title under the project and the state; on macOS and with -Print the prompt line too.
+    on: one line a chat, no newest prompt under it - on macOS and with -Print. off (the default): the prompt line too. The Windows panel's row is its tile alone either way.
     .PARAMETER ChipDelay
     How long the pointer rests on a chat's row before its open chip comes, in milliseconds: 100 to 3000, 400 by default.
     .PARAMETER Recent
@@ -241,7 +243,7 @@ function charlie {
     .PARAMETER ConsoleHotkey
     The key that opens the console: Ctrl+Alt+Shift+Q by default, none for no key.
     .PARAMETER UsageView
-    lines (the default): usage as one line a provider. bars: a bar and a reset countdown per window.
+    On macOS and with -Print - lines (the default): usage as one line a provider. bars: a bar and a reset countdown per window. The Windows panel draws a thin bar per window, its figures on its card.
     .PARAMETER CopilotUsage
     off: no Copilot line, and gh is never run for it.
     .PARAMETER CodexUsage
@@ -253,7 +255,7 @@ function charlie {
     .EXAMPLE
     charlie -Theme system -Opacity 85
     .EXAMPLE
-    charlie -Width 460 -Rows 12
+    charlie -Rows 12
     .EXAMPLE
     charlie -Compact on -ChipDelay 250
     .EXAMPLE
@@ -308,8 +310,8 @@ function charlie {
     if ($CopilotUsage) { $set.copilotUsage = ($CopilotUsage -eq 'on') }
     if ($CodexUsage) { $set.codexUsage = ($CodexUsage -eq 'on') }
     # compact is prompts off: the name from when full rows showed the prompt
-    # everywhere - on macOS and in -Print they still do; on Windows full is
-    # the taller tile (Add-ChatOverlayRow)
+    # everywhere - on macOS and in -Print they still do; the Windows panel's
+    # row is its tile alone whichever (Add-ChatOverlayTileRow)
     if ($Compact) { $set.prompts = ($Compact -eq 'off') }
     if ($PSBoundParameters.ContainsKey('Opacity')) {
         $o = if ($Opacity -gt 1) { $Opacity / 100 } else { $Opacity }
@@ -354,12 +356,12 @@ function charlie {
         if ($set.ContainsKey('consoleHotkey')) { Write-Host "  console hotkey: $($set.consoleHotkey)" -ForegroundColor Green }
         if ($set.ContainsKey('theme')) { Write-Host "  theme: $($set.theme)" -ForegroundColor Green }
         if ($set.ContainsKey('opacity')) { Write-Host "  opacity: $([int]($set.opacity * 100))%" -ForegroundColor Green }
-        if ($set.ContainsKey('width')) { Write-Host "  width: $($set.width)" -ForegroundColor Green }
+        if ($set.ContainsKey('width')) { Write-Host "  width: $($set.width)$(if ($script:ChatqIsWindows) { ' - for macOS; the panel here is as wide as a tile' })" -ForegroundColor Green }
         if ($set.ContainsKey('maxRows')) { Write-Host "  rows: $($set.maxRows) at most" -ForegroundColor Green }
-        if ($set.ContainsKey('prompts')) { Write-Host "  compact rows: $Compact$(if ($Compact -eq 'on') { ' - one line a chat' } elseif ($script:ChatqIsWindows) { ' - each on a taller tile, its title under its project and state' } else { ' - each with its newest prompt' })" -ForegroundColor Green }
+        if ($set.ContainsKey('prompts')) { Write-Host "  compact rows: $Compact$(if ($script:ChatqIsWindows) { ' - for -Print; the panel''s row is its tile alone either way' } elseif ($Compact -eq 'on') { ' - one line a chat' } else { ' - each with its newest prompt' })" -ForegroundColor Green }
         if ($set.ContainsKey('chipDelayMs')) { Write-Host "  open chip: after a $($set.chipDelayMs) ms rest on a row" -ForegroundColor Green }
         if ($set.ContainsKey('recent')) { Write-Host "  recent chats: $(if ($set.recent) { "the newest $($set.recent) not open, under the open ones" } else { 'off' })" -ForegroundColor Green }
-        if ($set.ContainsKey('usageView')) { Write-Host "  usage as $($set.usageView)" -ForegroundColor Green }
+        if ($set.ContainsKey('usageView')) { Write-Host "  usage as $($set.usageView)$(if ($script:ChatqIsWindows) { ' - for -Print; the panel draws a thin bar a window' })" -ForegroundColor Green }
         if ($set.ContainsKey('copilotUsage')) { Write-Host "  Copilot usage: $CopilotUsage$(if ($CopilotUsage -eq 'on') { ' - through the GitHub CLI, gh, when it is logged in' })" -ForegroundColor Green }
         if ($set.ContainsKey('codexUsage')) { Write-Host "  Codex usage asked live: $CodexUsage$(if ($CodexUsage -eq 'on') { ' - through codex app-server, no turn spent' } else { ' - from what Codex wrote on its last run only' })" -ForegroundColor Green }
         if ($alive) { Send-ChatOverlayCommand 'reload' }

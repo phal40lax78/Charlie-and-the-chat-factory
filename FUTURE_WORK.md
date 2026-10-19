@@ -818,7 +818,8 @@ where it says more than `input needed`.
 
 ## A chat's title clicked while VS Code is in front
 
-Clicking a chat's title on the panel, with its VS Code window already in
+Opening a chat from the panel - its title before 0.10.17, its tile since -
+with its VS Code window already in
 front, could leave the chat out of view. 0.10.14's
 [frontChatTab](extension/extension.js) focuses the chat's group when its
 tab is in front there, and logs every other case. Why the chat stayed
