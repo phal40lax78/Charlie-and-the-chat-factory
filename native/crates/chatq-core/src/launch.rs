@@ -352,10 +352,27 @@ impl Identity {
     /// The path as `Get-Item`'s FullName gives it: made absolute, separators
     /// and `..` resolved (GetFullPathNameW on Windows, as .NET calls it), so
     /// a root passed with forward slashes is the same binary to PS and Rust.
+    /// Off Windows `std::path::absolute` keeps `..`, so it is dropped here by
+    /// text, symlinks left alone, as .NET's GetFullPath drops it there.
     // Deferred: DEFERRED.md "A relative CHATQ_CHATQD"
     // Deferred: DEFERRED.md "A CHATQ_CHATQD in 8.3 short names"
     pub fn of(path: &Path) -> Option<Identity> {
         let full = std::path::absolute(path).ok()?;
+        #[cfg(not(windows))]
+        let full = {
+            use std::path::{Component, PathBuf};
+            let mut n = PathBuf::new();
+            for c in full.components() {
+                match c {
+                    Component::ParentDir => {
+                        n.pop();
+                    }
+                    Component::CurDir => {}
+                    c => n.push(c.as_os_str()),
+                }
+            }
+            n
+        };
         let m = fs::metadata(&full).ok()?;
         let t: chrono::DateTime<chrono::Utc> = m.modified().ok()?.into();
         Some(Identity {

@@ -1042,7 +1042,7 @@ Cwd  = $HOME
   - `<target>` is the `bin/` folder name of §4.5, not the compiled triple: `x86_64-pc-windows-msvc` on Windows, and `universal-apple-darwin` from both Apple slices, though each slice is built for its own triple.
   - That catches the most common failures before anything waits on them: a missing exec bit, a signature killed at exec on Apple Silicon, a wrong architecture, an AV block, a missing DLL, a version mismatch.
   - A pass is cached in `D/native/verified.json`. A failure is a strike, and this launch goes to PS.
-  - The identity's path is the full path as `Get-Item`'s `FullName` gives it (GetFullPathNameW: absolute, `/` and `..` resolved; Rust `std::path::absolute`), compared case-blind as `-eq` does. A new pass replaces any entry for the same path, so the file holds one entry per path.
+  - The identity's path is the full path as `Get-Item`'s `FullName` gives it (GetFullPathNameW: absolute, `/` and `..` resolved; Rust [Identity.of](crates/chatq-core/src/launch.rs): `std::path::absolute`, and off Windows, where that keeps `..`, `..` dropped by text as .NET's GetFullPath does, symlinks left alone), compared case-blind as `-eq` does. A new pass replaces any entry for the same path, so the file holds one entry per path.
 - **Fuse.** `D/native/fuse.json` holds `{version, strikes:[{at, why, pid}], alerted}`. A strike is recorded when:
   1. preflight fails;
   2. `Start-Process` throws for the native exe (strike, and this launch goes to PS). chatqd's own launch counts a failed `CreateProcessW`, or a `ResumeThread` that fails (the child is then terminated), as `start failed`, and deletes the `pending.json` it wrote for that child, so one failure is one strike;

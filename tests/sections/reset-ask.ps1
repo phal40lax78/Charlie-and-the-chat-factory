@@ -533,10 +533,10 @@ Set-ChatOverlayHidden `$H `$false
 `$runsOf = { param(`$el) @(@(`$el.Children) | ForEach-Object { (@(`$_.Inlines) | ForEach-Object { `$_.Text }) -join '' }) -join '|' }
 `$draw = { param(`$snap, `$sig) `$H.Ctx.ViewSig = `$sig; `$H.ViewKey = `$null; Update-ChatOverlayView `$H `$snap; `$H.Win.UpdateLayout() }
 `$midOf = { param(`$line) @(`$line.Children | Where-Object { `$_ -is [System.Windows.Controls.TextBlock] -and `$_.TextWrapping -eq [System.Windows.TextWrapping]::Wrap })[0] }
-# the usage gauge's card: each window's percent and a countdown to its
-# reset that ticks - "reset" once the time has passed - and its name with
-# when the figure is from; the gauge drawn while a Claude chat is open
-# (Select-ChatOverlayActiveUsage)
+# the usage gauge's card: one line, numbers alone - its name, each
+# window's percent, the 5h one's reset time, gone once that time has
+# passed, and when the figure is from; the gauge drawn while a Claude chat
+# is open (Select-ChatOverlayActiveUsage)
 `$uRow = [pscustomobject]@{ key = 's:u'; kind = 'session'; provider = 'claude'; status = 'idle'; rank = 3; project = 'p'; title = 'u'; prompt = 'x'; stateText = 'idle 1m'; job = `$null }
 `$r5 = (Get-Date).AddMinutes(90)
 `$w5 = [pscustomobject]@{ label = '5h'; percent = 42; resetsAt = (& `$ms `$r5); severity = 'normal'; limited = `$false }
@@ -545,26 +545,32 @@ Set-ChatOverlayHidden `$H `$false
 & `$draw ([pscustomobject]@{ header = [pscustomobject]@{ usage = `$use; notes = @() }; rows = @(`$uRow) }) 'u1'
 if (-not `$H.CardWin) { New-ChatOverlayCardWindow `$H }
 `$cardOf = { param(`$g) New-ChatOverlayCardContent `$H ([pscustomobject]@{ Usage = `$g.Tag.usage }); `$H.CardShape.Body.Child.Children[0] }
-`$textsOf = { param(`$el) @(`$el.Children | Where-Object { `$_ -is [System.Windows.Controls.TextBlock] }) }
+`$inlinesOf = { param(`$el) @((& `$midOf `$el).Inlines) }
 `$gz = `$H.Stack.Children[0]
 `$ug = & `$cardOf `$gz
-`$ut = @(& `$textsOf `$ug | ForEach-Object { `$_.Text })
-`$usageOk = `$gz.Tag.kind -eq 'usage' -and (@(`$ug.Children[0].Children | ForEach-Object { `$_.Text }) -join '|') -eq 'Claude|22:22' -and `$ut.Count -eq 6 -and
-    `$ut[0] -eq '5h' -and `$ut[1] -eq '42%' -and `$ut[2] -like '1h *m' -and `$ut[3] -eq 'week' -and `$ut[4] -eq '50%' -and `$ut[5] -eq (Format-ChatOverlayReset `$wk.resetsAt) -and
-    `$H.Clocks.Count -eq 2 -and [object]::ReferenceEquals(`$H.Clocks[0].Block, @(& `$textsOf `$ug)[2])
+`$ut = @(`$ug.Children | Where-Object { `$_ -is [System.Windows.Controls.TextBlock] } | ForEach-Object { if (`$_.TextWrapping -eq [System.Windows.TextWrapping]::Wrap) { (@(`$_.Inlines) | ForEach-Object { `$_.Text }) -join '' } else { `$_.Text } })
+`$resetRun = @(& `$inlinesOf `$ug | Where-Object { `$_.Text -like ' resets *' })
+`$usageOk = `$gz.Tag.kind -eq 'usage' -and `$ug -is [System.Windows.Controls.DockPanel] -and @(`$ug.Children | Where-Object { `$_ -is [System.Windows.Controls.Grid] }).Count -eq 0 -and
+    (`$ut -join '|') -eq "Claude|22:22|5h 42% resets `$(& `$hm `$r5) `$dot week 50%" -and
+    `$H.Clocks.Count -eq 1 -and `$resetRun.Count -eq 1 -and [object]::ReferenceEquals(`$H.Clocks[0].Block, `$resetRun[0])
 `$H.Clocks[0].At = & `$ms (Get-Date).AddMinutes(-1)
 Update-ChatOverlayClock `$H
-`$usageOk = `$usageOk -and @(& `$textsOf `$ug)[2].Text -eq 'reset'
+`$ut2 = (@(& `$inlinesOf `$ug) | ForEach-Object { `$_.Text }) -join ''
+`$usageOk = `$usageOk -and `$ut2 -eq "5h 42% `$dot week 50%"
+`$ut += `$ut2
 # a week at its limit: on the gauge its bar in the limit's colour, and on
-# the card each percent
+# the card each percent and the reset - the latest of a window at its limit
 `$w5l = [pscustomobject]@{ label = '5h'; percent = 100; resetsAt = (& `$ms (Get-Date).AddMinutes(60)); severity = 'critical'; limited = `$true }
 `$wkl = [pscustomobject]@{ label = 'week'; percent = 100; resetsAt = (& `$ms (Get-Date).AddDays(2)); severity = 'critical'; limited = `$true }
 & `$draw ([pscustomobject]@{ header = [pscustomobject]@{ usage = @([pscustomobject]@{ provider = 'Claude'; source = 'live'; stale = `$false; status = '22:22'; windows = @(`$w5l, `$wkl) }); notes = @() }; rows = @(`$uRow) }) 'u2'
 `$gz2 = `$H.Stack.Children[0]
 `$fills = @(@(`$gz2.Children | Where-Object { `$_ -is [System.Windows.Controls.StackPanel] })[0].Children | ForEach-Object { `$_.Children[1].Background })
-`$pc = @(& `$textsOf (& `$cardOf `$gz2) | Where-Object { `$_.Text -eq '100%' })
+`$runs2 = @(& `$inlinesOf (& `$cardOf `$gz2))
+`$pc = @(`$runs2 | Where-Object { `$_.Text -eq '100%' })
+`$rl = @(`$runs2 | Where-Object { `$_.Text -like ' resets *' })
 `$weekOk = `$fills.Count -eq 2 -and -not @(`$fills | Where-Object { `$_ -ne (Get-ChatOverlayBrush 'critical') }).Count -and
-    `$pc.Count -eq 2 -and -not @(`$pc | Where-Object { `$_.Foreground -ne (Get-ChatOverlayBrush 'critical') }).Count
+    `$pc.Count -eq 2 -and -not @(`$pc | Where-Object { `$_.Foreground -ne (Get-ChatOverlayBrush 'critical') }).Count -and
+    `$rl.Count -eq 1 -and `$rl[0].Text -eq " resets `$(& `$hm ([DateTimeOffset]::FromUnixTimeMilliseconds(`$wkl.resetsAt).LocalDateTime))" -and `$rl[0].Foreground -eq (Get-ChatOverlayBrush 'critical')
 Hide-ChatOverlayCard `$H
 # the banner: last in the header, after the notes and in place of the ask's own
 `$askAt = (Get-Date).AddMinutes(-20)
@@ -766,8 +772,8 @@ Invoke-ChatOverlayVerb 'stop'
 $raOut = Invoke-Sta 'reset-ask-test' $raWpf
 $ra = "$raOut" -split '\|'
 $raSay = if ($ra.Count -ge 13) { "$($ra[11]) | $($ra[12])" } else { "$raOut" }
-Check 'the usage gauge''s card: each window''s percent and a countdown to its reset - "reset" once it has passed - its name and when the figure is from' ($ra[0] -eq 'True') $raSay
-Check 'windows at their limit: the gauge''s bars and the card''s percents in the limit''s colour' ($ra.Count -gt 1 -and $ra[1] -eq 'True') $raSay
+Check 'the usage gauge''s card: one line, numbers alone, no bar - its name, each window''s percent, the 5h one''s reset time, gone once it has passed, and when the figure is from' ($ra[0] -eq 'True') $raSay
+Check 'windows at their limit: the gauge''s bars, and on the card the percents and the latest reset of a window at its limit, in the limit''s colour' ($ra.Count -gt 1 -and $ra[1] -eq 'True') $raSay
 Check 'the banner: last in the header after the notes, in place of the ask''s note - tagged for the chip, its titles and those left as its tooltip, no row counted' ($ra.Count -gt 2 -and $ra[2] -eq 'True') $raSay
 Check 'collapsed: "N can continue" counted apart, and the gauge under the line' ($ra.Count -gt 3 -and $ra[3] -eq 'True') $raSay
 Check 'the chip on the banner: continue N and leave them, each its own tip' ($ra.Count -gt 4 -and $ra[4] -eq 'True') $raSay

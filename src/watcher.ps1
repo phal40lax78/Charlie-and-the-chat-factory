@@ -1816,7 +1816,7 @@ function Find-ChatqNativeStrikes {
 # Deferred: DEFERRED.md "A CHATQ_CHATQD in 8.3 short names"
 function Get-ChatqNativeIdentity {
     # a binary as preflight knows it: its full path as FullName gives it -
-    # absolute, / and .. resolved, as launch.rs's std::path::absolute does -
+    # absolute, / and .. resolved, as launch.rs's Identity.of does -
     # its size and its LastWriteTimeUtc
     param([string]$Path)
     $it = Get-Item -LiteralPath $Path -Force -EA SilentlyContinue

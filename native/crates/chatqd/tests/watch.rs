@@ -6,7 +6,7 @@
 //! back as it came and answers as the case's stub.json says.
 
 use chatq_core::fsx::{lock_held, try_lock};
-use chatq_core::launch::encode_command;
+use chatq_core::launch::{Identity, encode_command};
 use chatq_core::paths::Paths;
 use chatq_core::time::stamp_utc;
 use serde_json::{Value, json};
@@ -607,10 +607,7 @@ fn restart_respawns_native_after_preflight() {
     assert_eq!(s[0]["engine"], "native");
     // chatqd names the binary as Identity::of resolves it, whatever separators
     // a --target-dir gave CARGO_BIN_EXE
-    let bin = std::path::absolute(BIN)
-        .unwrap()
-        .to_string_lossy()
-        .into_owned();
+    let bin = Identity::of(Path::new(BIN)).unwrap().path;
     assert_eq!(s[0]["exe"], bin);
     let script = r.p.loader().to_string_lossy().into_owned();
     assert_eq!(

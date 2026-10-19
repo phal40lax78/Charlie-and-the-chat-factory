@@ -1701,8 +1701,9 @@ Windows no wider than a chat's tile, about 150 units:
   a paid plan. On Windows each is a gauge: a thin bar a window, filled to
   its percent, amber or red as Claude's own usage view would colour it -
   red at the limit, faint for a figure gone stale - and no words. Rest the
-  pointer on it and its card comes up: each window's bar, percent and a
-  countdown to its reset, and when the figure is from. With two providers
+  pointer on it and its card comes up: the usage line, numbers alone -
+  each window's percent, when one resets (the latest of a window at its
+  limit, else the 5h one) and when the figure is from. With two providers
   open, a mark at the left says whose: `Cl`, `Cx`, `Cp`. The panel shows
   only the providers with a chat or job open now: Claude's while any chat
   is, Codex's while a Codex job is queued or runs, and Copilot's, which has
@@ -2175,7 +2176,7 @@ overlay asks Claude's usage endpoint itself, the same one `/usage` asks:
 The endpoint is meant for a `/usage` opened now and then. Asked once a minute,
 it refused after about an hour, and then said to wait 48 minutes. When it
 says how long to wait, the overlay waits that long and says so (`13:25, retry
-14:13` under Claude's name on its gauge's card), refresh or not, since asking early only
+14:13` at the end of Claude's line on its gauge's card), refresh or not, since asking early only
 earns another refusal. The last live figure and that wait survive a
 restart. Meanwhile it shows the newest figure it has: its own last answer, or
 Claude Code's cached one, with its age.

@@ -2822,8 +2822,8 @@ function New-ChatOverlayCardContent {
     held to two lines, the panel's row being its tile alone - and under
     them what its state says that the state line does not
     (Get-ChatOverlayCardWords), then a rule. A usage gauge's card, -M's
-    Usage, is its provider's bars instead (Add-ChatOverlayUsage): each
-    window's percent and reset countdown, and when the figure is from.
+    Usage, is its provider's line instead (Add-ChatOverlayUsage): each
+    window's percent, one reset time, and when the figure is from.
     What the chat does or waits on,
     under its state's word in that state's colour - a tool call at work
     with a clock for how long (Update-ChatOverlayCardClock) - the calls
@@ -2853,7 +2853,8 @@ function New-ChatOverlayCardContent {
     $s = [System.Windows.Controls.StackPanel]::new()
     $frame.Child = $s
     $H.CardClock = $null
-    # the bars' countdowns, which every tick moves (Update-ChatOverlayClock)
+    # the usage line's reset time, which a tick takes off once it has
+    # passed (Update-ChatOverlayClock)
     $H.Clocks = [System.Collections.Generic.List[object]]::new()
     if (Get-ChatField $M 'Usage') {
         Add-ChatOverlayUsage $H $s $M.Usage
@@ -3510,8 +3511,8 @@ function Add-ChatOverlayGauge {
     across the panel, filled to its percent in the server's colour for it,
     critical at the limit, faint for a figure gone stale. -Letter: more
     than one provider on the panel, so a mark at the left says whose (Cl,
-    Cx, Cp). No words: the percents, when each window resets and when the
-    figure is from are on its hover card (Add-ChatOverlayUsage), which a
+    Cx, Cp). No words: the percents, when it resets and when the figure
+    is from are on its hover card (Add-ChatOverlayUsage), which a
     rest on it brings up. Tagged with a row of kind usage for that
     (Test-ChatOverlayCardRow); it has no chip (Get-ChatOverlayChipActions)
     and is no chat row (Test-ChatOverlayOpenRowElement).
@@ -3559,67 +3560,54 @@ function Add-ChatOverlayGauge {
 }
 
 function Add-ChatOverlayUsage {
-    # The bars, on a usage gauge's hover card (New-ChatOverlayCardContent):
-    # a row per usage window - window, a bar in the server's colour for it,
-    # the percent, and a reset countdown that ticks every second
-    # ($H.Clocks, Update-ChatOverlayClock) - and beside them the provider's
-    # name with, under it, when its figure is from
-    # (Get-ChatOverlayUsageStatus).
+    # A usage gauge's hover card (New-ChatOverlayCardContent): its provider
+    # in one line, numbers alone - the gauge it hovers over is the bar. The
+    # name, each window and its percent - plain text, warning and worse in
+    # the server's colour for it - and at the end when the figure is from.
+    # After one window's percent, when it resets (Get-ChatOverlayResetWindow:
+    # the latest reset of a window at its limit, else the 5h one's), as a
+    # clock time that goes once it has passed (Update-ChatOverlayClock). It
+    # wraps rather than trims, so a long line takes a second rather than
+    # hiding a window.
     param($H, $Panel, $Usage)
-    $ws = @($Usage.windows)
-    $g = [System.Windows.Controls.Grid]::new()
-    $g.Margin = [System.Windows.Thickness]::new(0, 1, 0, 3)
-    foreach ($cw in 92, 62, 0, 38, 66) {
-        $cd = [System.Windows.Controls.ColumnDefinition]::new()
-        $cd.Width = if ($cw) { [System.Windows.GridLength]::new($cw) } else { [System.Windows.GridLength]::new(1, [System.Windows.GridUnitType]::Star) }
-        $g.ColumnDefinitions.Add($cd)
-    }
-    foreach ($w in $ws) { $g.RowDefinitions.Add([System.Windows.Controls.RowDefinition]::new()) }
+    $line = [System.Windows.Controls.DockPanel]::new()
+    $line.LastChildFill = $true
+    $line.Margin = [System.Windows.Thickness]::new(0, 1, 0, 1)
     $tone = if ($Usage.stale) { 'faint' } else { 'text' }
-    $who = [System.Windows.Controls.StackPanel]::new()
-    [void]$who.Children.Add((New-ChatOverlayText ([string]$Usage.provider) $tone -Bold))
-    if ($Usage.status) { [void]$who.Children.Add((New-ChatOverlayText ([string]$Usage.status) 'faint' 10.5 -Trim)) }
-    [System.Windows.Controls.Grid]::SetRowSpan($who, [Math]::Max(1, $ws.Count))
-    [void]$g.Children.Add($who)
-    $row = 0
-    foreach ($w in $ws) {
-        $cells = @((New-ChatOverlayText $w.label 'dim' -Trim))
-        $pct = [Math]::Max(0.0, [Math]::Min(100.0, [double]$w.percent))
-        $bar = [System.Windows.Controls.Grid]::new()
-        $bar.Height = 5
-        $bar.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
-        $bar.Margin = [System.Windows.Thickness]::new(2, 1, 8, 0)
-        foreach ($share in $pct, (100 - $pct)) {
-            $cd = [System.Windows.Controls.ColumnDefinition]::new()
-            $cd.Width = [System.Windows.GridLength]::new($share, [System.Windows.GridUnitType]::Star)
-            $bar.ColumnDefinitions.Add($cd)
+    $name = New-ChatOverlayText ([string]$Usage.provider) $tone -Bold
+    $name.Width = 56
+    [System.Windows.Controls.DockPanel]::SetDock($name, [System.Windows.Controls.Dock]::Left)
+    $end = New-ChatOverlayText ([string]$Usage.status) 'faint' 11
+    $end.Margin = [System.Windows.Thickness]::new(8, 0, 0, 0)
+    $end.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
+    [System.Windows.Controls.DockPanel]::SetDock($end, [System.Windows.Controls.Dock]::Right)
+    $mid = [System.Windows.Controls.TextBlock]::new()
+    $mid.TextWrapping = [System.Windows.TextWrapping]::Wrap
+    $resets = Get-ChatOverlayResetWindow @($Usage.windows)
+    $first = $true
+    foreach ($w in @($Usage.windows)) {
+        if (-not $first) { $sep = [System.Windows.Documents.Run]::new(" $($script:ChatqDot) "); $sep.Foreground = Get-ChatOverlayBrush 'faint'; $mid.Inlines.Add($sep) }
+        $first = $false
+        $l = [System.Windows.Documents.Run]::new("$($w.label) ")
+        $l.Foreground = Get-ChatOverlayBrush 'dim'
+        $mid.Inlines.Add($l)
+        $p = [System.Windows.Documents.Run]::new("$($w.percent)%")
+        $p.FontWeight = [System.Windows.FontWeights]::SemiBold
+        # normal reads as plain text; only warning and worse take a colour
+        $p.Foreground = Get-ChatOverlayBrush $(if ($Usage.stale) { 'faint' } elseif ($w.limited) { 'critical' } elseif ($w.severity -in 'warning', 'critical') { [string]$w.severity } else { 'text' })
+        $mid.Inlines.Add($p)
+        if ($resets -and $w.label -eq $resets -and $w.resetsAt) {
+            $t = Format-ChatOverlayResetAt $w.resetsAt
+            $r = [System.Windows.Documents.Run]::new($(if ($t) { " resets $t" } else { '' }))
+            $r.Foreground = Get-ChatOverlayBrush $(if ($w.limited) { 'critical' } else { 'dim' })
+            $mid.Inlines.Add($r)
+            $H.Clocks.Add(@{ Block = $r; At = $w.resetsAt })
         }
-        $track = [System.Windows.Controls.Border]::new()
-        $track.CornerRadius = [System.Windows.CornerRadius]::new(2.5)
-        $track.Background = Get-ChatOverlayBrush 'track'
-        [System.Windows.Controls.Grid]::SetColumnSpan($track, 2)
-        $fill = [System.Windows.Controls.Border]::new()
-        $fill.CornerRadius = [System.Windows.CornerRadius]::new(2.5)
-        $fill.Background = Get-ChatOverlayBrush $(if ($Usage.stale) { 'faint' } else { [string]$w.severity })
-        [void]$bar.Children.Add($track)
-        [void]$bar.Children.Add($fill)
-        $cells += $bar
-        $p = New-ChatOverlayText "$($w.percent)%" $(if ($w.limited) { 'critical' } else { $tone }) -Bold
-        $p.TextAlignment = [System.Windows.TextAlignment]::Right
-        $cells += $p
-        $r = New-ChatOverlayText (Format-ChatOverlayReset $w.resetsAt) 'dim' 11
-        $r.TextAlignment = [System.Windows.TextAlignment]::Right
-        $r.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
-        $cells += $r
-        if ($w.resetsAt) { $H.Clocks.Add(@{ Block = $r; At = $w.resetsAt }) }
-        for ($i = 0; $i -lt $cells.Count; $i++) {
-            [System.Windows.Controls.Grid]::SetColumn($cells[$i], $i + 1)
-            [System.Windows.Controls.Grid]::SetRow($cells[$i], $row)
-            [void]$g.Children.Add($cells[$i])
-        }
-        $row++
     }
-    [void]$Panel.Children.Add($g)
+    [void]$line.Children.Add($name)
+    [void]$line.Children.Add($end)
+    [void]$line.Children.Add($mid)
+    [void]$Panel.Children.Add($line)
 }
 
 function Get-ChatOverlaySegPoints {
@@ -4401,7 +4389,7 @@ function Update-ChatOverlayView {
     <#
     Redraw the panel from a snapshot, but only when what it shows changed -
     the rows carry their ages, so at least once a minute. In between, only
-    the reset countdowns move, and every tick the rows' clocks
+    the usage card's reset time goes once passed, and every tick the rows' clocks
     (Update-ChatOverlayRowClocks), each row's in $H.RowClocks as drawn.
     Usage only for the providers a row is open for
     (Select-ChatOverlayActiveUsage), each a gauge (Add-ChatOverlayGauge);
@@ -4680,10 +4668,15 @@ function Add-ChatOverlayCompact {
 }
 
 function Update-ChatOverlayClock {
-    # The countdowns of the bars on a usage gauge's card (Add-ChatOverlayUsage)
+    # The reset time on a usage gauge's card (Add-ChatOverlayUsage), which
+    # goes once that time has passed
     param($H)
     $now = Get-Date
-    foreach ($c in @($H.Clocks)) { $c.Block.Text = Format-ChatOverlayReset $c.At $now }
+    foreach ($c in @($H.Clocks)) {
+        $t = Format-ChatOverlayResetAt $c.At -Now $now
+        $new = if ($t) { " resets $t" } else { '' }
+        if ($c.Block.Text -cne $new) { $c.Block.Text = $new }
+    }
 }
 
 function Get-ChatOverlayPlacement {

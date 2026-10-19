@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.10.18 — The usage card in numbers
+
+- **A usage gauge's card is one line of numbers again,** as the usage
+  line read before 0.10.17: the provider, each window's percent - plain,
+  amber or red as before - one reset time, the latest of a window at its
+  limit else the 5h one's, and when the figure is from. The bars it drew
+  repeated the gauge under it; the time goes once it has passed.
+- **chatqd on macOS knows a binary named with `..` as the same one.**
+  Off Windows Rust's `std::path::absolute` keeps `..`, where PowerShell's
+  FullName drops it, so the preflight record could hold one binary twice;
+  [Identity.of](native/crates/chatq-core/src/launch.rs) now drops it by
+  text there, symlinks left alone. Windows names nothing differently.
+  0.10.17's tag never published: this check failed on macOS.
+
 ## 0.10.17 — Clocks alone on a narrow panel
 
 - **A chat's row on the Windows panel is its tile alone,** one a line:
