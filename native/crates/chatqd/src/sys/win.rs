@@ -2,18 +2,22 @@
 
 use super::Kind;
 use std::io;
-use windows::Win32::Foundation::{CloseHandle, HANDLE};
+use std::time::Duration;
+use windows::Win32::Foundation::{CloseHandle, FILETIME, HANDLE, WAIT_OBJECT_0};
 use windows::Win32::System::Power::{ES_CONTINUOUS, ES_SYSTEM_REQUIRED, SetThreadExecutionState};
 use windows::Win32::System::Threading::{
-    CREATE_NEW_CONSOLE, CREATE_SUSPENDED, CreateProcessW, GetExitCodeProcess, OpenProcess,
-    PROCESS_INFORMATION, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
-    QueryFullProcessImageNameW, ResumeThread, STARTF_USESHOWWINDOW, STARTUPINFOW, TerminateProcess,
+    CREATE_NEW_CONSOLE, CREATE_SUSPENDED, CreateProcessW, GetCurrentProcess, GetExitCodeProcess,
+    GetProcessTimes, OpenProcess, PROCESS_CREATION_FLAGS, PROCESS_INFORMATION, PROCESS_NAME_WIN32,
+    PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW, ResumeThread,
+    STARTF_USESHOWWINDOW, STARTUPINFOW, TerminateProcess, WaitForSingleObject,
 };
 use windows::Win32::UI::WindowsAndMessaging::{MSG, PM_NOREMOVE, PeekMessageW, SW_HIDE};
 use windows::core::{HSTRING, PCWSTR, PWSTR};
 
 const STILL_ACTIVE: u32 = 259;
 const ERROR_ACCESS_DENIED: i32 = 5;
+/// .NET ticks at 1601-01-01, the FILETIME epoch.
+const FILETIME_TICKS: i64 = 504_911_232_000_000_000;
 
 /// A GUI-subsystem process started with feedback shows the "app starting"
 /// cursor for 5 s unless it looks at its message queue once (SPEC 4.1).
@@ -92,19 +96,16 @@ fn close(h: HANDLE) {
     let _ = unsafe { CloseHandle(h) };
 }
 
-/// Starts `cmdline` in `cwd`, suspended, and calls `before_run` with its pid
-/// before it runs a single instruction: a native launch writes pending.json
-/// there, so the child's ack (deleting it) can never come first. A PS watcher
-/// gets its own hidden console, as `Start-Process -WindowStyle Hidden` gives
-/// it; chatqd needs none.
-pub fn launch(
-    kind: Kind,
+/// `CreateProcessW` of `exe args` in `cwd`. `console` gives the child its
+/// own hidden console, as `Start-Process -WindowStyle Hidden` gives a PS
+/// watcher. The caller closes both handles in the answer.
+fn create(
     exe: &str,
     args: &[String],
     cwd: &str,
-    _log_dir: &str,
-    before_run: &mut dyn FnMut(u32),
-) -> io::Result<u32> {
+    mut flags: PROCESS_CREATION_FLAGS,
+    console: bool,
+) -> io::Result<PROCESS_INFORMATION> {
     let mut line: Vec<u16> = super::command_line(exe, args)
         .encode_utf16()
         .chain([0])
@@ -114,8 +115,7 @@ pub fn launch(
         cb: size_of::<STARTUPINFOW>() as u32,
         ..Default::default()
     };
-    let mut flags = CREATE_SUSPENDED;
-    if kind == Kind::Ps {
+    if console {
         flags |= CREATE_NEW_CONSOLE;
         si.dwFlags = STARTF_USESHOWWINDOW;
         si.wShowWindow = SW_HIDE.0 as u16;
@@ -138,6 +138,22 @@ pub fn launch(
         )
     }
     .map_err(|e| io::Error::from_raw_os_error(e.code().0 & 0xFFFF))?;
+    Ok(pi)
+}
+
+/// Starts `cmdline` in `cwd`, suspended, and calls `before_run` with its pid
+/// before it runs a single instruction: a native launch writes pending.json
+/// there, so the child's ack (deleting it) can never come first. A PS watcher
+/// gets its own hidden console; chatqd needs none.
+pub fn launch(
+    kind: Kind,
+    exe: &str,
+    args: &[String],
+    cwd: &str,
+    _log_dir: &str,
+    before_run: &mut dyn FnMut(u32),
+) -> io::Result<u32> {
+    let pi = create(exe, args, cwd, CREATE_SUSPENDED, kind == Kind::Ps)?;
     before_run(pi.dwProcessId);
     // SAFETY: the thread handle is the suspended main thread just created.
     let resumed = unsafe { ResumeThread(pi.hThread) } != u32::MAX;
@@ -155,4 +171,52 @@ pub fn launch(
         Some(e) => Err(e),
         None => Ok(pi.dwProcessId),
     }
+}
+
+/// A helper step's process (SPEC 3.6), its handle kept for the exit code.
+/// Not in a job object, so it outlives chatqd as a PS watcher's run does.
+pub struct Waited(HANDLE);
+
+/// Starts a helper step: `exe args` in `cwd` with its own hidden console,
+/// the PS watcher's own window (SPEC 3.6 "Window"). Not [launch], whose
+/// suspend-and-ack belongs to watcher launches.
+pub fn spawn_waited(exe: &str, args: &[String], cwd: &str) -> io::Result<Waited> {
+    let pi = create(exe, args, cwd, PROCESS_CREATION_FLAGS(0), true)?;
+    close(pi.hThread);
+    Ok(Waited(pi.hProcess))
+}
+
+impl Waited {
+    /// Waits up to `timeout` for the step to end: its exit code as .NET's
+    /// `ExitCode` reads it, or None while it still runs.
+    pub fn wait(&mut self, timeout: Duration) -> Option<i32> {
+        let ms = u32::try_from(timeout.as_millis()).unwrap_or(u32::MAX);
+        // SAFETY: self.0 is the live process handle CreateProcessW gave.
+        if unsafe { WaitForSingleObject(self.0, ms) } != WAIT_OBJECT_0 {
+            return None;
+        }
+        let mut code = 0u32;
+        // SAFETY: as above; code is a valid out pointer.
+        unsafe { GetExitCodeProcess(self.0, &mut code) }.ok()?;
+        Some(code as i32)
+    }
+}
+
+impl Drop for Waited {
+    fn drop(&mut self) {
+        close(self.0);
+    }
+}
+
+/// chatqd's own start time as .NET UTC ticks: the creation FILETIME from
+/// `GetProcessTimes`, the source of .NET's `Process.StartTime` (SPEC 3.6).
+pub fn own_start_ticks() -> io::Result<i64> {
+    let mut times = [FILETIME::default(); 4];
+    let [created, exited, kernel, user] = &mut times;
+    // SAFETY: the pseudo handle needs no closing; all four are valid out
+    // pointers.
+    unsafe { GetProcessTimes(GetCurrentProcess(), created, exited, kernel, user) }
+        .map_err(|e| io::Error::from_raw_os_error(e.code().0 & 0xFFFF))?;
+    let ft = (u64::from(times[0].dwHighDateTime) << 32) | u64::from(times[0].dwLowDateTime);
+    Ok(FILETIME_TICKS + ft as i64)
 }

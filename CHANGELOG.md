@@ -1,5 +1,69 @@
 # Changelog
 
+## 0.10.16 — The native watcher runs the queue, PowerShell a step at a time
+
+- **chatqd runs the watcher's loop itself - for a developer, for now.**
+  Where a build is there (see 0.10.15), chatqd no longer hands a queued
+  job to a PowerShell watcher. It lists the queue, works out what is due and
+  when, waits, keeps the machine awake, writes the board and takes
+  `chatqrun -Now`, as the PowerShell watcher does (native/SPEC.md 7, M2).
+  Each piece of PowerShell work - a job's run, a limit scan, an alert, the
+  held summary, the auto-continue scan, the stray sweep, a usage
+  heads-up, the repair after a crash - goes to a short-lived PowerShell,
+  a *step*, that does that one thing through `src/native-step.ps1` and
+  exits. No build ships yet, so no install changes.
+- **Between steps only chatqd waits.** A step costs about 0.4 s and 100
+  MB while it runs, and runs only on a pass where the PowerShell watcher
+  would do that work too: the held summary outside quiet hours and not
+  within 5 minutes of a failed try, the stray sweep only when the queue
+  folder may hold a stray, a heads-up not already in
+  `usage-alerts.json`. What a real wait and a real night cost is
+  TESTING.md's S57, not yet run.
+- **The phone's reply window still goes to a PowerShell watcher,** which
+  listens until M3. chatqd now hands it what it knows - the limits it
+  saw, its last probes and scans, the questions asked from the phone, the
+  heads-ups and summary already sent - in `data/native/handoff.json`, the
+  PowerShell-only caches in `carry.clixml`, so that watcher does not
+  probe, scan or push again what chatqd just did. With replies on, an
+  answerable alert opens the window, so most picks still end in that
+  handoff.
+- **A job run under chatqd names chatqd.** The job's `runnerPid`,
+  `run-state`, `state.json` and `watcher.pid` all name chatqd's pid, as
+  they named the PowerShell watcher's, and `permit.log` and `ask.log` tag
+  their lines with it, so VS Code and the repair see the run as live
+  while chatqd is. A step whose chatqd is gone ends itself at its next
+  look, within about 10 s, and the next watcher marks its job
+  `interrupted`, as after a watcher killed mid-run.
+- **A pick that fails fails its job, once.** A pick step that does not
+  start, does not load, dies or answers badly: `watcher.log` says
+  `#<seq> error: helper step <reason>`, the job ends failed as `chatq
+  error: helper step <reason>` with its `failed` alert, and the next pass
+  goes on. A job removed meanwhile stays removed. A block scan, held
+  summary or ask check whose step fails counts as tried, so it waits its
+  interval rather than costing a step every pass.
+- **Where chatqd differs** is in native/SPEC.md 8: a pick reads its job
+  again, so one removed or no longer queued in the step's 0.4 s start is
+  skipped where PowerShell would run it; and the PowerShell watcher a
+  handoff starts runs the auto scan and the stray sweep on its first
+  pass, since those timers are not carried.
+- **A job its own id does not find is set aside, in both watchers.** A
+  second job file holding the same id - a copy made by hand - or a blank
+  id made the pick look for the job, find nothing and return, and the
+  next pass pick it again at once: no wait in the PowerShell watcher, a
+  step of 0.4 s and 100 MB a pass under chatqd. Now the loop passes it
+  over, leaves its files as they are, and says once in `watcher.log`
+  which files hold that id; the rest of the queue runs.
+- **The PowerShell watcher is unchanged** but for that. With no chatqd
+  build, or `"watcher": "ps"`, it runs as before: the seams it gained for
+  steps stay unset there. M0's `hold` test seam is gone, since chatqd now
+  waits for real.
+- **Checks.** A self-test section of its own runs every step op, the
+  watch state through JSON and back, the carry, a step's death with its
+  parent, and an audit that classes every variable a step reaches;
+  chatqd's own loop replays `timers.json`; and with a build, the same
+  jobs run under the PowerShell watcher and under chatqd must leave the
+  same logs, job files, `state.json` and board (TESTING.md).
+
 ## 0.10.15 — A shell opens light
 
 - **The profile line loads a small part of the tool, and the rest on first

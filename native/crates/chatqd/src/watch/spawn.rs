@@ -26,7 +26,7 @@ fn env(name: &str) -> Option<String> {
 
 /// `$HOME`, never the caller's folder: Windows will not delete or rename a
 /// folder a long-lived process is in.
-fn home(ctx: &Ctx) -> String {
+pub(super) fn home(ctx: &Ctx) -> String {
     let var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
     env(var).unwrap_or_else(|| ctx.p.root.clone())
 }

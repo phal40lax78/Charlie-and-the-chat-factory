@@ -844,10 +844,14 @@ milestones, and 0.10.15 has the first two. M0 is the build, the lock, the
 engine's choice and the fuse, with the PowerShell watcher taking over
 every pass that has work. M1 is `chatq-core`, the contract both engines
 share, and 19 more vector files, made by the PowerShell side and checked
-by a Rust runner under both editions. So neither saves anything yet in
-real use; made to wait under its test seam, M0 measured 1.1 MB private
-where the PowerShell watcher sits at about 104. After them: M2 the loop
-with PowerShell steps, M3 listening - where
+by a Rust runner under both editions. Made to wait under its test seam,
+M0 measured 1.1 MB private where the PowerShell watcher sits at about
+104. 0.10.16 has M2: chatqd runs the loop itself, each piece of
+PowerShell work a short-lived step, and hands over to a PowerShell
+watcher only while the phone's reply window is open - with replies on,
+after nearly every pick, so the gain shows mainly with replies off until
+M3. What it saves on a real night is TESTING.md's S57, not yet run.
+After it: M3 listening - where
 `reply.listen always` stops costing a PowerShell all day - M4 the lane
 gate, M5 runs, M6 alerts, M7 the rest and native by default; M8 the
 question hook and the permission bridge as small native programs
@@ -858,8 +862,8 @@ them is not planned. **Why it waits:** each milestone is its own
 release, checked as the SPEC says before the next. **To close:** the
 milestones in order.
 
-M1's vectors do not reach four things a later milestone ports, so that
-milestone's checks have to:
+M1's vectors do not reach three things a later milestone ports, so that
+milestone's checks have to, and M2 leaves one replay to M3:
 - **The tick inside a run** (M5): the heartbeat save, the in-run reply
   poll and the quick ask-landed look are an `$onTick` closure built inside
   [Invoke-ChatqJob](src/watcher.ps1). Only their constants are pinned
@@ -870,14 +874,11 @@ milestone's checks have to:
 - **A run's state back in PowerShell** (M5): the stream state chatqd will
   hand the post-run step is rebuilt in PowerShell only in the vector
   generator ([Test-NvStreamStateRebuild](tests/vectors/stream-state.ps1)).
-- **The respawn after `queue empty`** (M2): a watcher leaving an empty
-  queue starts another when a shell's alert opened the reply window just
-  as it let go of the lock ([Invoke-ChatqWatchLoop](src/watcher.ps1);
-  chatqd's exit does the same through
-  [spawn::respawn](native/crates/chatqd/src/watch/spawn.rs)). No timers
-  case reaches it - a stub that answers once per pass cannot be both shut
-  and open - so nothing checks the two engines agree there, short of a
-  harness stub that answers per call.
+- **The listening cases of `timers.json`** (M3): chatqd's replay
+  ([timers_replay.rs](native/crates/chatqd/src/watch/timers_replay.rs))
+  runs the five cases with `openPasses` only up to their first open pass,
+  where M2 hands over to the PowerShell watcher. Once chatqd listens,
+  their passes after it must replay too.
 - **Where polling got to** (M3): [wire::poll_batch](native/crates/chatq-core/src/wire.rs)
   says what to save ([wire::Save](native/crates/chatq-core/src/wire.rs)),
   but [replystate.rs](native/crates/chatq-core/src/replystate.rs) does not
@@ -961,6 +962,35 @@ does not keep, and the start through `nohup` in
 exists yet. **Why it waits:** no Mac here (Tier 2). **To close:**
 [native/SPEC.md](native/SPEC.md) M0's Tier 2 - build, sign and run
 chatqd on a Mac - then [TESTING.md](TESTING.md)'s S55 there.
+
+## A heads-up step that keeps failing
+
+chatqd's soon gate (native/SPEC.md 3.6) launches a `soon` step for each
+due usage heads-up not yet sent. A step that does not start, or dies
+inside [Send-ChatqUsageSoon](src/phone-extras.ps1), records nothing, so
+the next pass launches it again - about 0.4 s and 100 MB a pass, until
+the reset is past. Unlike a failed block scan, held summary or ask check
+(SPEC 8, "A failed step records its attempt"), recording it as sent
+would lose the alert. **Why it waits:** it needs a step that cannot run
+at all; Send-ChatqUsageSoon itself never throws, and none has been seen.
+**To close:** a retry wait of its own for a failed soon step, kept in
+`W` like `ChatqSummaryTriedAt`, with a `timers.json` case.
+
+## A job saved over its twin's file
+
+0.10.16 passes over a job its own id does not find
+([Test-ChatqJobFound](src/watcher.ps1)), but two paths still write by
+id, to `<id>.json`. A `-Now` wake clears a deferral with `Save-ChatqJob
+-Existing`, so for a duplicated id the PowerShell watcher writes the
+copy it read over its twin's file, where chatqd's `jobs::clear_defer`
+reads `<id>.json` again and clears that field alone - the two watchers
+differ there. And a job in a file not named `<id>.json`, with no twin, is
+found but never saved: [Invoke-ChatqJob](src/watcher.ps1)'s deferral or
+end lands in a file that is not there, so its pick may come round each
+pass. **Why it waits:** found in the 0.10.16 fix's review; neither seen
+in use, the second not reproduced. **To close:** skip what
+Test-ChatqJobFound rejects in the wake, and save a job to the file it was
+read from.
 
 ## A wait days out keeps the machine awake
 

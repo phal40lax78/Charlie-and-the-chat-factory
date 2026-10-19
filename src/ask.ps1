@@ -304,7 +304,7 @@ function Write-ChatqAskLog {
     # data/logs/ask.log, rolled at 1 MB: the hook's side of every question
     param([string]$Text)
     try {
-        Add-ChatqLogLine 'ask.log' "[$PID] $($Text -replace '[\r\n]+', ' ')"
+        Add-ChatqLogLine 'ask.log' "[$(Get-ChatqRunnerPid)] $($Text -replace '[\r\n]+', ' ')"
     }
     catch {}
 }

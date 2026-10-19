@@ -4,6 +4,7 @@ mod awake;
 #[path = "loop.rs"]
 mod looping;
 mod spawn;
+mod step;
 mod wait;
 
 use crate::seams::Seams;
@@ -11,13 +12,14 @@ use crate::{VERSION, sys};
 use awake::KeepAwake;
 use chatq_core::culture::Culture;
 use chatq_core::fsx::{save_text, try_lock};
+use chatq_core::json::to_pretty;
 use chatq_core::launch::{ack_pending, record_strike, write_last};
 use chatq_core::log::add_log_line;
 use chatq_core::paths::Paths;
 use chatq_core::state::WatchState;
 use chatq_core::time::Flavour;
 use chrono::Utc;
-use looping::Exit;
+use looping::{Exit, Host};
 use std::fs::{self, File};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::process::ExitCode;
@@ -95,11 +97,12 @@ fn take_lock(p: &Paths) -> Option<File> {
     None
 }
 
-/// Step exchanges and the PS cache a step left behind (SPEC 4.5): no step
-/// can be running before this chatqd has the lock, and none from M0 on
-/// reads them.
+/// Step exchanges, the PS cache a step left behind and a handoff no PS
+/// watcher took (SPEC 4.5): no step can be running before this chatqd has
+/// the lock, and nothing reads them across a chatqd's start.
 fn sweep_leftovers(p: &Paths) {
     let _ = fs::remove_file(p.native_file("carry.clixml"));
+    let _ = fs::remove_file(p.handoff());
     let Ok(rd) = fs::read_dir(p.native_dir()) else {
         return;
     };
@@ -168,8 +171,11 @@ pub fn run(args: Args) -> ExitCode {
         started_at: chatq_core::time::stamp_utc(Utc::now()),
         ..Default::default()
     };
-    let mut awake = KeepAwake::default();
-    let exit = match catch_unwind(AssertUnwindSafe(|| looping::run(&ctx, &mut w, &mut awake))) {
+    let mut host = looping::Live::new(&ctx);
+    let exit = match catch_unwind(AssertUnwindSafe(|| {
+        looping::start(&ctx, &mut w);
+        looping::run(&mut host, &mut w)
+    })) {
         Ok(e) => e,
         Err(_) => {
             // the hook has logged it; a panic is a strike, and the PS
@@ -181,11 +187,14 @@ pub fn run(args: Args) -> ExitCode {
     };
 
     // the PS loop's finally
-    awake.set(false);
+    host.awake(false);
     let _ = fs::remove_file(p.pid());
     w.current = None;
     w.next = None;
     w.listening = false;
+    if matches!(exit, Exit::Handoff(_)) {
+        write_handoff(&ctx, &w);
+    }
     save_state(&ctx, &w);
     let state = match exit {
         Exit::Empty => "empty",
@@ -208,15 +217,7 @@ pub fn run(args: Args) -> ExitCode {
         }
         Exit::Restart => spawn::respawn(&ctx),
         Exit::Empty => {
-            // A shell that sent an answerable alert just as this watcher
-            // left saw it alive and started none. Never over a stop.
-            let cfg = chatq_core::config::read_config(&p.config(), ctx.fl);
-            if !p.stop().exists()
-                && chatq_core::gates::reply_open(&cfg, &p.replies(), Utc::now(), ctx.fl)
-            {
-                ctx.wlog(
-                    "a phone alert went out as this watcher left - starting another to listen",
-                );
+            if looping::listen_after_empty(&mut host) {
                 spawn::respawn(&ctx);
             }
         }
@@ -229,4 +230,60 @@ pub fn run(args: Args) -> ExitCode {
 pub fn save_state(ctx: &Ctx, w: &WatchState) {
     // the text native/vectors/state.json pins
     let _ = save_text(&ctx.p.state(), &w.to_text(ctx.pid, VERSION, Utc::now()));
+}
+
+/// D/native/handoff.json (SPEC 4.4): W and its caches, for the PS watcher a
+/// handoff starts to carry on with. carry.clixml stays beside it. Written
+/// before the state save, so a state.json saying `handoff` finds it there.
+fn write_handoff(ctx: &Ctx, w: &WatchState) {
+    let _ = save_text(&ctx.p.handoff(), &to_pretty(&w.to_handoff(ctx.pid)));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn a_handoff_leaves_w_for_the_ps_watcher() {
+        let r = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/test-data/chatqd-handoff");
+        let _ = fs::remove_dir_all(&r);
+        let root = r.to_string_lossy().into_owned();
+        let ctx = Ctx {
+            p: Paths::new(&root),
+            pid: 4242,
+            fl: Flavour::Desktop,
+            culture: Culture::invariant(),
+            seams: Seams::default(),
+            args: Args {
+                root,
+                script: "x.ps1".into(),
+                ps: "ps.exe".into(),
+                culture: None,
+            },
+        };
+        let mut w = WatchState {
+            started_at: "2026-10-18T01:02:03.0000000Z".into(),
+            ..Default::default()
+        };
+        w.add_usage_sent("claude|session|x");
+        fs::create_dir_all(ctx.p.native_dir()).unwrap();
+        fs::write(ctx.p.native_file("carry.clixml"), "<Objs/>").unwrap();
+        write_handoff(&ctx, &w);
+        let v: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(ctx.p.handoff()).unwrap()).unwrap();
+        assert_eq!(v["v"], 1);
+        assert_eq!(v["watcherPid"], 4242);
+        assert_eq!(v["w"]["handoff"], true);
+        let back = WatchState::from_w(&v["w"]).unwrap();
+        assert_eq!(back.usage_sent(), ["claude|session|x"]);
+        assert!(
+            ctx.p.native_file("carry.clixml").exists(),
+            "the carry stays"
+        );
+        // and the next chatqd's start takes both away
+        sweep_leftovers(&ctx.p);
+        assert!(!ctx.p.handoff().exists());
+        assert!(!ctx.p.native_file("carry.clixml").exists());
+    }
 }

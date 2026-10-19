@@ -4,6 +4,9 @@
 #   replyOpen    Test-ChatqReplyOpen: is the watcher to keep listening?
 #   held         Test-ChatqHeldWaiting: held.jsonl, or a held-*.sending a
 #                sender claimed more than 10 minutes ago
+#   heldSummary  Send-ChatqHeldSummary as far as its claim: something held,
+#                its last failed push 5 minutes old or more, and now outside
+#                quiet hours (Get-ChatqQuietHours, Test-ChatqQuietNow)
 #   auto         Test-ChatqAutoWanted: the switch on, or a chat set to always
 #   soon         Send-ChatqUsageSoon's gate: the time the loop wakes for a
 #                soon alert, which lanes are due one now (the process's own
@@ -93,6 +96,21 @@ function Write-NvGatesFile {
     elseif ($In.PSObject.Properties[$Text]) { Write-NvGatesText $Path ([string]$In.$Text) }
 }
 
+function New-NvGatesHeldFiles {
+    # an input's files in data/, aged against the clock: {name, ageSeconds},
+    # or {name, dir: true} for a folder
+    param([string]$Dir, $In)
+    foreach ($f in (Get-NvGatesList $In 'files')) {
+        $path = Join-Path $Dir ([string]$f.name)
+        if ($f.PSObject.Properties['dir'] -and $f.dir) { $null = New-Item -ItemType Directory -Path $path -Force }
+        else {
+            Write-NvGatesText $path ''
+            $at = [datetime]::SpecifyKind((Get-Date).ToUniversalTime(), [System.DateTimeKind]::Utc).AddSeconds(-[int]$f.ageSeconds)
+            [System.IO.File]::SetLastWriteTimeUtc($path, $at)
+        }
+    }
+}
+
 function Get-NvGatesSoonKey {
     # Send-ChatqUsageSoon's key for a lane and its reset
     param($Entry)
@@ -107,7 +125,7 @@ function Get-NvGatesSorted {
     return , $a
 }
 
-Register-NvVector -Name 'gates' -About 'The watcher loop''s cheap gates, each run as the loop runs it against a data/ of its own. replyOpen: Test-ChatqReplyOpen (src/phone.ps1). held: Test-ChatqHeldWaiting (src/phone-extras.ps1), files aged against the clock. auto: Test-ChatqAutoWanted (src/auto-continue.ps1). soon: Send-ChatqUsageSoon (src/phone-extras.ps1) with the alert stubbed: next is the time the loop wakes for a soon alert, due the lanes whose key the process records now (sentBefore: already recorded), send those that then go (fileHas: already in data/usage-alerts.json), alerts how many were sent. route: SPEC 1.4, whether Send-ChatqAlert registers the alert as answerable (New-ChatqReplyAlert called), every gate before it held open; links is Get-ChatqReplyConfig''s Links, secrets opened with protected ones all failing. pollSeconds: Get-ChatqReplyPollSeconds (src/phone-down.ps1). listenText: Get-ChatqReplyListenText (src/phone-down.ps1) under a culture, with its time separator. A file is read as the tool reads it, so a zoneless stamp is UTC to 5.1 and the zone''s wall clock to pwsh 7.' -Cases {
+Register-NvVector -Name 'gates' -About 'The watcher loop''s cheap gates, each run as the loop runs it against a data/ of its own. replyOpen: Test-ChatqReplyOpen (src/phone.ps1). held: Test-ChatqHeldWaiting (src/phone-extras.ps1), files aged against the clock. heldSummary: Send-ChatqHeldSummary (src/phone-extras.ps1) with its claim stubbed, due when it gets that far: something held, the last failed push (triedSecondsAgo) 5 minutes old or more, now outside quiet hours on the local clock. auto: Test-ChatqAutoWanted (src/auto-continue.ps1). soon: Send-ChatqUsageSoon (src/phone-extras.ps1) with the alert stubbed: next is the time the loop wakes for a soon alert, due the lanes whose key the process records now (sentBefore: already recorded), send those that then go (fileHas: already in data/usage-alerts.json, sent at 08:00 or at its value; fileText: the file as it is), alerts how many were sent. route: SPEC 1.4, whether Send-ChatqAlert registers the alert as answerable (New-ChatqReplyAlert called), every gate before it held open; links is Get-ChatqReplyConfig''s Links, secrets opened with protected ones all failing. pollSeconds: Get-ChatqReplyPollSeconds (src/phone-down.ps1). listenText: Get-ChatqReplyListenText (src/phone-down.ps1) under a culture, with its time separator. A file is read as the tool reads it, so a zoneless stamp is UTC to 5.1 and the zone''s wall clock to pwsh 7.' -Cases {
     $india = 'India Standard Time'
     $lima = 'SA Pacific Standard Time'
     $open = [ordered]@{ openUntil = '2026-10-15T09:30:00.0000000Z' }
@@ -177,6 +195,54 @@ Register-NvVector -Name 'gates' -About 'The watcher loop''s cheap gates, each ru
     New-NvGatesCase 'held: a sending dated ahead of the clock' 'held' ([ordered]@{ files = @([ordered]@{ name = 'held-1.sending'; ageSeconds = -3600 }) })
     New-NvGatesCase 'held: one old sending among fresh ones' 'held' ([ordered]@{ files = @([ordered]@{ name = 'held-1.sending'; ageSeconds = 30 }, [ordered]@{ name = 'held-2.sending'; ageSeconds = 900 }) })
     New-NvGatesCase 'held: a sending in a subfolder' 'held' ([ordered]@{ files = @([ordered]@{ name = 'sub/held-1.sending'; ageSeconds = 660 }) })
+
+    # --- heldSummary -------------------------------------------------------
+    # Send-ChatqHeldSummary's returns before its claim: something held, the
+    # last failed push 5 minutes old or more, now outside quiet hours
+    $held = @([ordered]@{ name = 'held.jsonl'; ageSeconds = 5 })
+    $qh = { param($From, $To) [ordered]@{ quietHours = [ordered]@{ from = $From; to = $To } } }
+    New-NvGatesCase 'heldSummary: nothing held' 'heldSummary' ([ordered]@{ config = [ordered]@{}; files = @() })
+    New-NvGatesCase 'heldSummary: held, no quiet hours' 'heldSummary' ([ordered]@{ config = [ordered]@{}; files = $held })
+    New-NvGatesCase 'heldSummary: a sending claimed 11 minutes ago' 'heldSummary' ([ordered]@{ config = [ordered]@{}; files = @([ordered]@{ name = 'held-1.sending'; ageSeconds = 660 }) })
+    New-NvGatesCase 'heldSummary: inside quiet hours' 'heldSummary' ([ordered]@{ config = (& $qh '08:00' '10:00'); files = $held })
+    New-NvGatesCase 'heldSummary: inside quiet hours, nothing held' 'heldSummary' ([ordered]@{ config = (& $qh '08:00' '10:00'); files = @() })
+    New-NvGatesCase 'heldSummary: quiet hours ending now' 'heldSummary' ([ordered]@{ config = (& $qh '07:00' '09:00'); files = $held })
+    New-NvGatesCase 'heldSummary: quiet hours starting now' 'heldSummary' ([ordered]@{ config = (& $qh '09:00' '10:00'); files = $held })
+    New-NvGatesCase 'heldSummary: quiet hours a second ahead' 'heldSummary' ([ordered]@{ config = (& $qh '09:01' '10:00'); files = $held; now = '2026-10-15T09:00:59.0000000Z' })
+    New-NvGatesCase 'heldSummary: quiet hours later today' 'heldSummary' ([ordered]@{ config = (& $qh '22:00' '23:00'); files = $held })
+    New-NvGatesCase 'heldSummary: past midnight, inside in the morning' 'heldSummary' ([ordered]@{ config = (& $qh '22:00' '10:00'); files = $held })
+    New-NvGatesCase 'heldSummary: past midnight, inside in the evening' 'heldSummary' ([ordered]@{ config = (& $qh '22:00' '07:00'); files = $held; now = '2026-10-15T23:30:00.0000000Z' })
+    New-NvGatesCase 'heldSummary: past midnight, outside' 'heldSummary' ([ordered]@{ config = (& $qh '22:00' '07:00'); files = $held })
+    New-NvGatesCase 'heldSummary: past midnight, at midnight' 'heldSummary' ([ordered]@{ config = (& $qh '22:00' '07:00'); files = $held; now = '2026-10-16T00:00:00.0000000Z' })
+    New-NvGatesCase 'heldSummary: from 00:00' 'heldSummary' ([ordered]@{ config = (& $qh '00:00' '10:00'); files = $held })
+    New-NvGatesCase 'heldSummary: to 00:00' 'heldSummary' ([ordered]@{ config = (& $qh '08:00' '00:00'); files = $held })
+    New-NvGatesCase 'heldSummary: from equal to to is off' 'heldSummary' ([ordered]@{ config = (& $qh '09:00' '09:00'); files = $held })
+    New-NvGatesCase 'heldSummary: a from of 8:00 is off' 'heldSummary' ([ordered]@{ config = (& $qh '8:00' '10:00'); files = $held })
+    New-NvGatesCase 'heldSummary: a from of 24:00 is off' 'heldSummary' ([ordered]@{ config = (& $qh '24:00' '10:00'); files = $held })
+    New-NvGatesCase 'heldSummary: a to of 09:60 is off' 'heldSummary' ([ordered]@{ config = (& $qh '08:00' '09:60'); files = $held })
+    New-NvGatesCase 'heldSummary: a from with seconds is off' 'heldSummary' ([ordered]@{ config = (& $qh '08:00:00' '10:00'); files = $held })
+    New-NvGatesCase 'heldSummary: a from and a space is off' 'heldSummary' ([ordered]@{ config = (& $qh '08:00 ' '10:00'); files = $held })
+    New-NvGatesCase 'heldSummary: a from and a newline' 'heldSummary' ([ordered]@{ config = (& $qh "08:00`n" '10:00'); files = $held })
+    New-NvGatesCase 'heldSummary: a from as a number is off' 'heldSummary' ([ordered]@{ config = (& $qh 800 '10:00'); files = $held })
+    New-NvGatesCase 'heldSummary: a from as a list of one' 'heldSummary' ([ordered]@{ config = (& $qh @('08:00') '10:00'); files = $held })
+    New-NvGatesCase 'heldSummary: no to is off' 'heldSummary' ([ordered]@{ config = [ordered]@{ quietHours = [ordered]@{ from = '08:00' } }; files = $held })
+    New-NvGatesCase 'heldSummary: FROM and TO in capitals' 'heldSummary' ([ordered]@{ config = [ordered]@{ quietHours = [ordered]@{ FROM = '08:00'; TO = '10:00' } }; files = $held })
+    New-NvGatesCase 'heldSummary: QUIETHOURS in capitals' 'heldSummary' ([ordered]@{ config = [ordered]@{ QUIETHOURS = [ordered]@{ from = '08:00'; to = '10:00' } }; files = $held })
+    New-NvGatesCase 'heldSummary: quietHours as a list of one' 'heldSummary' ([ordered]@{ config = [ordered]@{ quietHours = @([ordered]@{ from = '08:00'; to = '10:00' }) }; files = $held })
+    New-NvGatesCase 'heldSummary: quietHours as a list of two is off' 'heldSummary' ([ordered]@{ config = [ordered]@{ quietHours = @([ordered]@{ from = '08:00'; to = '10:00' }, [ordered]@{ from = '08:00'; to = '10:00' }) }; files = $held })
+    New-NvGatesCase 'heldSummary: quietHours as a string is off' 'heldSummary' ([ordered]@{ config = [ordered]@{ quietHours = '08:00-10:00' }; files = $held })
+    New-NvGatesCase 'heldSummary: quietHours false is off' 'heldSummary' ([ordered]@{ config = [ordered]@{ quietHours = $false }; files = $held })
+    New-NvGatesCase 'heldSummary: quietHours empty is off' 'heldSummary' ([ordered]@{ config = [ordered]@{ quietHours = [ordered]@{} }; files = $held })
+    New-NvGatesCase 'heldSummary: inside quiet hours east of UTC' 'heldSummary' ([ordered]@{ config = (& $qh '14:00' '15:00'); files = $held }) $india 330
+    New-NvGatesCase 'heldSummary: UTC quiet hours, east of UTC' 'heldSummary' ([ordered]@{ config = (& $qh '08:00' '10:00'); files = $held }) $india 330
+    New-NvGatesCase 'heldSummary: past midnight, west of UTC' 'heldSummary' ([ordered]@{ config = (& $qh '22:00' '06:00'); files = $held }) $lima -300
+    New-NvGatesCase 'heldSummary: tried 4 minutes ago' 'heldSummary' ([ordered]@{ config = [ordered]@{}; files = $held; triedSecondsAgo = 240 })
+    New-NvGatesCase 'heldSummary: tried 4 minutes 59 ago' 'heldSummary' ([ordered]@{ config = [ordered]@{}; files = $held; triedSecondsAgo = 299 })
+    New-NvGatesCase 'heldSummary: tried 5 minutes ago' 'heldSummary' ([ordered]@{ config = [ordered]@{}; files = $held; triedSecondsAgo = 300 })
+    New-NvGatesCase 'heldSummary: tried an hour ago' 'heldSummary' ([ordered]@{ config = [ordered]@{}; files = $held; triedSecondsAgo = 3600 })
+    New-NvGatesCase 'heldSummary: tried ahead of the clock' 'heldSummary' ([ordered]@{ config = [ordered]@{}; files = $held; triedSecondsAgo = -60 })
+    New-NvGatesCase 'heldSummary: tried an hour ago, inside quiet hours' 'heldSummary' ([ordered]@{ config = (& $qh '08:00' '10:00'); files = $held; triedSecondsAgo = 3600 })
+    New-NvGatesCase 'heldSummary: config.json with a comment' 'heldSummary' ([ordered]@{ configText = ('{' + "`n" + '  // nights' + "`n" + '  "quietHours": {"from": "08:00", "to": "10:00"}' + "`n" + '}'); files = $held })
 
     # --- auto --------------------------------------------------------------
     $always = [ordered]@{ chats = [ordered]@{ c1 = [ordered]@{ auto = 'always' } } }
@@ -274,6 +340,16 @@ Register-NvVector -Name 'gates' -About 'The watcher loop''s cheap gates, each ru
             blocked = @($eight, [ordered]@{ lane = 'codex'; until = '2026-10-15T09:05:00.0000000Z'; at = '2026-10-15T08:00:00.0000000Z'; type = 'limit' })
         })
     New-NvGatesCase 'soon: a reset 2 hours out, west of UTC' 'soon' ([ordered]@{ config = [ordered]@{}; blocked = @($two); jobs = @($claude) }) $lima -300
+    # data/usage-alerts.json as Get-ChatqUsageAlertState reads it: only a key
+    # whose value is a time is there
+    New-NvGatesCase 'soon: in data/usage-alerts.json in other letters' 'soon' ([ordered]@{ config = [ordered]@{}; blocked = @($eight); jobs = @($claude); fileHas = @([ordered]@{ lane = 'CLAUDE'; until = '2026-10-15T09:08:00.0000000Z' }) })
+    New-NvGatesCase 'soon: in data/usage-alerts.json with no time' 'soon' ([ordered]@{ config = [ordered]@{}; blocked = @($eight); jobs = @($claude); fileHas = @([ordered]@{ lane = 'claude'; until = '2026-10-15T09:08:00.0000000Z'; value = 'not a date' }) })
+    New-NvGatesCase 'soon: in data/usage-alerts.json as null' 'soon' ([ordered]@{ config = [ordered]@{}; blocked = @($eight); jobs = @($claude); fileHas = @([ordered]@{ lane = 'claude'; until = '2026-10-15T09:08:00.0000000Z'; value = $null }) })
+    New-NvGatesCase 'soon: in data/usage-alerts.json as an empty string' 'soon' ([ordered]@{ config = [ordered]@{}; blocked = @($eight); jobs = @($claude); fileHas = @([ordered]@{ lane = 'claude'; until = '2026-10-15T09:08:00.0000000Z'; value = '' }) })
+    New-NvGatesCase 'soon: in data/usage-alerts.json for another reset' 'soon' ([ordered]@{ config = [ordered]@{}; blocked = @($eight); jobs = @($claude); fileHas = @([ordered]@{ lane = 'claude'; until = '2026-10-15T09:09:00.0000000Z' }) })
+    New-NvGatesCase 'soon: data/usage-alerts.json not JSON' 'soon' ([ordered]@{ config = [ordered]@{}; blocked = @($eight); jobs = @($claude); fileText = 'not json' })
+    New-NvGatesCase 'soon: data/usage-alerts.json empty' 'soon' ([ordered]@{ config = [ordered]@{}; blocked = @($eight); jobs = @($claude); fileText = '' })
+    New-NvGatesCase 'soon: data/usage-alerts.json a list of one' 'soon' ([ordered]@{ config = [ordered]@{}; blocked = @($eight); jobs = @($claude); fileText = '[{"s|claude|29867588":"2026-10-15T08:00:00.0000000Z"}]' })
 
     # --- route -------------------------------------------------------------
     $key = Get-NvGatesKey
@@ -353,16 +429,22 @@ Register-NvVector -Name 'gates' -About 'The watcher loop''s cheap gates, each ru
                         return [ordered]@{ open = [bool](Test-ChatqReplyOpen) }
                     }
                     'held' {
-                        foreach ($gtF in (Get-NvGatesList $In 'files')) {
-                            $gtPath = Join-Path $gtDir ([string]$gtF.name)
-                            if ($gtF.PSObject.Properties['dir'] -and $gtF.dir) { $null = New-Item -ItemType Directory -Path $gtPath -Force }
-                            else {
-                                Write-NvGatesText $gtPath ''
-                                $gtAt = [datetime]::SpecifyKind((Get-Date).ToUniversalTime(), [System.DateTimeKind]::Utc).AddSeconds(-[int]$gtF.ageSeconds)
-                                [System.IO.File]::SetLastWriteTimeUtc($gtPath, $gtAt)
-                            }
-                        }
+                        New-NvGatesHeldFiles $gtDir $In
                         return [ordered]@{ waiting = [bool](Test-ChatqHeldWaiting) }
+                    }
+                    'heldSummary' {
+                        Write-NvGatesFile $script:ChatqConfigPath $In 'config' 'configText'
+                        New-NvGatesHeldFiles $gtDir $In
+                        # Send-ChatqHeldSummary as the loop calls it, its claim
+                        # stubbed: due is that it got as far as the claim
+                        $gtClaim = @{ N = 0 }
+                        function Invoke-ChatqLocked { $gtClaim.N++; $null }
+                        $gtWas = @{ Tried = $script:ChatqSummaryTriedAt; Sending = $script:ChatqSendingSummary }
+                        $script:ChatqSummaryTriedAt = if ($In.PSObject.Properties['triedSecondsAgo']) { (Get-Date).AddSeconds(-[int]$In.triedSecondsAgo) } else { $null }
+                        $script:ChatqSendingSummary = $false
+                        try { $null = Send-ChatqHeldSummary }
+                        finally { $script:ChatqSummaryTriedAt = $gtWas.Tried; $script:ChatqSendingSummary = $gtWas.Sending }
+                        return [ordered]@{ due = ($gtClaim.N -gt 0) }
                     }
                     'auto' {
                         Write-NvGatesFile $script:ChatqConfigPath $In 'config' 'configText'
@@ -387,14 +469,16 @@ Register-NvVector -Name 'gates' -About 'The watcher loop''s cheap gates, each ru
                         $null = New-Item -ItemType Directory -Path $script:ChatqQueueDir -Force
                         foreach ($gtJ in (Get-NvGatesList $In 'jobs')) { Write-NvGatesText (Join-Path $script:ChatqQueueDir "$($gtJ.id).json") (ConvertTo-NvJson $gtJ) }
                         $gtQueued = @(Get-ChatqJobs | Where-Object { $_.state -eq 'queued' })
-                        $gtHad = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+                        # data/usage-alerts.json: fileHas's keys, each sent at 08:00
+                        # unless it names its value, or fileText as it is
                         $gtFile = [ordered]@{}
                         foreach ($gtX in (Get-NvGatesList $In 'fileHas')) {
-                            $gtKey = Get-NvGatesSoonKey $gtX
-                            $gtFile[$gtKey] = '2026-10-15T08:00:00.0000000Z'
-                            [void]$gtHad.Add($gtKey)
+                            $gtFile[(Get-NvGatesSoonKey $gtX)] = if ($gtX.PSObject.Properties['value']) { $gtX.value } else { '2026-10-15T08:00:00.0000000Z' }
                         }
                         if ($gtFile.Count) { Write-NvGatesText $script:ChatqUsageAlertPath (ConvertTo-NvJson $gtFile) }
+                        elseif ($In.PSObject.Properties['fileText']) { Write-NvGatesText $script:ChatqUsageAlertPath ([string]$In.fileText) }
+                        $gtHad = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+                        foreach ($gtKey in @((Get-ChatqUsageAlertState).Keys)) { [void]$gtHad.Add($gtKey) }
                         $gtSent = @{}
                         $gtBefore = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
                         foreach ($gtX in (Get-NvGatesList $In 'sentBefore')) {

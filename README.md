@@ -870,8 +870,12 @@ display still turns off, and a closed lid still sleeps a laptop).
 A native watcher, chatqd, is on its way ([native/SPEC.md](native/SPEC.md)),
 and no build of it ships yet. A developer's build in
 `bin/<version>/<target>/` beside `data/`, or one `CHATQ_CHATQD` names, is
-started in the PowerShell watcher's place, and for now hands every job to
-a PowerShell watcher. A build that fails three times in a day is set
+started in the PowerShell watcher's place, and runs the queue itself: it
+waits, wakes and writes the board on its own, and starts a short-lived
+PowerShell for each piece of work - a run, a limit scan, an alert - that
+does that one thing and exits. While the phone's reply window is open it
+hands over to a PowerShell watcher, which listens, with what it knows in
+`data/native/handoff.json`. A build that fails three times in a day is set
 aside for that version, with one `failed` alert, until
 `data/native/fuse.json` is deleted. `"watcher": "ps"` in
 `data/config.json` keeps the PowerShell watcher; `CHATQ_ENGINE` set to

@@ -1,11 +1,18 @@
-//! macOS (and any Unix chatqd is built on): caffeinate, nohup, kill(pid, 0).
+//! macOS: caffeinate, nohup, kill(pid, 0), proc_pidinfo. Other Unixes lack
+//! the last.
 //! Windows can lint it (`cargo clippy --target aarch64-apple-darwin`, with
 //! that target added); only the native-macos CI leg builds and runs it.
 
 use super::Kind;
 use std::fs::{self, File};
 use std::io;
+use std::os::unix::process::ExitStatusExt;
 use std::process::{Child, Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
+
+/// .NET ticks at 1970-01-01.
+const UNIX_TICKS: i64 = 621_355_968_000_000_000;
 
 /// No message queue on Unix.
 pub fn peek_message() {}
@@ -77,4 +84,58 @@ pub fn launch(
         .spawn()?;
     before_run(child.id());
     Ok(child.id())
+}
+
+/// A helper step's process (SPEC 3.6).
+pub struct Waited(Child);
+
+/// Starts a helper step: `exe args` in `cwd`, stdio on null. Not [launch],
+/// which truncates D/logs/watcher.out and .err for watcher launches only.
+pub fn spawn_waited(exe: &str, args: &[String], cwd: &str) -> io::Result<Waited> {
+    Command::new(exe)
+        .args(args)
+        .current_dir(cwd)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map(Waited)
+}
+
+impl Waited {
+    /// Waits up to `timeout` for the step to end: its exit code as .NET's
+    /// `ExitCode` reads it (128 + the signal for a killed one), or None
+    /// while it still runs.
+    pub fn wait(&mut self, timeout: Duration) -> Option<i32> {
+        let end = Instant::now() + timeout;
+        loop {
+            match self.0.try_wait() {
+                Ok(Some(s)) => return s.code().or(s.signal().map(|n| 128 + n)),
+                Ok(None) if Instant::now() < end => thread::sleep(Duration::from_millis(50)),
+                _ => return None,
+            }
+        }
+    }
+}
+
+/// chatqd's own start time as .NET UTC ticks: `proc_pidinfo`'s start, the
+/// source of .NET's `Process.StartTime` (SPEC 3.6).
+pub fn own_start_ticks() -> io::Result<i64> {
+    // SAFETY: proc_bsdinfo is plain integers and bytes, so all-zero is valid.
+    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+    let size = size_of::<libc::proc_bsdinfo>() as libc::c_int;
+    // SAFETY: info is a writable buffer of exactly size bytes.
+    let n = unsafe {
+        libc::proc_pidinfo(
+            std::process::id() as libc::c_int,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            (&raw mut info).cast(),
+            size,
+        )
+    };
+    if n != size {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(UNIX_TICKS + info.pbi_start_tvsec as i64 * 10_000_000 + info.pbi_start_tvusec as i64 * 10)
 }

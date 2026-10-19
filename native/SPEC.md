@@ -1,6 +1,6 @@
 # chatqd: the native watcher (SPEC)
 
-Status: revision 2, with M0 corrections found while reading the PS sources for M0 (2026-10-15; listed in §8 "M0 corrections"). Revision 2 answers both critiques. Each gap is either fixed in the section it belongs to, or explained in §8 under "Review items not taken as proposed". M0 and M1 are built, in ChatVersion `0.10.15` (§7): where a section names a module, it says what that module does; the rest is the plan for M2 on.
+Status: revision 2, with M0 corrections found while reading the PS sources for M0 (2026-10-15; listed in §8 "M0 corrections"). Revision 2 answers both critiques. Each gap is either fixed in the section it belongs to, or explained in §8 under "Review items not taken as proposed". M0 and M1 are built, in ChatVersion `0.10.15`, and M2 in `0.10.16` (§7): where a section names a module, it says what that module does; the rest is the plan for M3 on. Revision 3 (2026-10-18) writes M2's step contract into §2.4, §3.6, §4.4, §4.5, §6.5 and §8, with your six decisions of 2026-10-18 (§8 "M2 contract notes").
 Owner folder: `native/` (new, top level). Binary: `chatqd` (`chatqd.exe` on Windows).
 
 The name `chatqd` follows the `chatq*` command family and the Unix habit of naming a daemon with a `d`. It is one multicall binary: `chatqd watch` now, and later `chatqd ask-hook` and `chatqd permit` (milestone M8). That means one file to sign, one hash for antivirus reputation, and one download per platform.
@@ -62,7 +62,7 @@ Rows are in the loop's own order. Start-up first, then one pass, then exit.
 | Timers start at `MinValue` | `$autoAt`, `$strayAt` | port M0. **Both the auto scan and the stray sweep run on the first pass**, then every 5 min and 6 h (§2.10) |
 | `stop` flag at the loop top → log `stop requested`, break | | port M0 |
 | `restart` flag (not in foreground) → log `a newer copy was installed - handing over`, handoff=true, respawn after exit | | port M0 (respawn decision, §4.2) |
-| `wake` flag: mtime change; `now` honoured only under 5 min old; `Send-ChatqWake 'seen'`; clear blocked/lastAllowed/outage; stamp scannedAt per queued lane; clear `deferUntil` with `Save-ChatqJob -Existing`; log `woken: -Now` | | port M0 (mtime, now, seen); job writes M2. The word is read with `Get-Content -Raw`, trimmed, and compared with `-eq`, so case is ignored and a read failure counts as `''`. The freshness test is `(UtcNow - LastWriteTimeUtc).TotalMinutes -lt 5`, so a wake file dated in the future is fresh too. **Until M2, a fresh `now` found while any job is queued is left unread**: no `seen`, no W change, then the handoff. The PS watcher starts with `$wakeSeen` null and takes it on its first pass, with the `scannedAt` stamps and `deferUntil` writes chatqd cannot yet make. Taken by chatqd and handed over, it would be lost |
+| `wake` flag: mtime change; `now` honoured only under 5 min old; `Send-ChatqWake 'seen'`; clear blocked/lastAllowed/outage ([WatchState::clear_for_wake](native/crates/chatq-core/src/state.rs)); stamp scannedAt per queued lane; clear `deferUntil` with `Save-ChatqJob -Existing`; log `woken: -Now` | | port M0 (mtime, now, seen); job writes M2. The word is read with `Get-Content -Raw`, trimmed, and compared with `-eq`, so case is ignored and a read failure counts as `''`. The freshness test is `(UtcNow - LastWriteTimeUtc).TotalMinutes -lt 5`, so a wake file dated in the future is fresh too. **Until M2, a fresh `now` found while any job is queued is left unread**: no `seen`, no W change, then the handoff. The PS watcher starts with `$wakeSeen` null and takes it on its first pass, with the `scannedAt` stamps and `deferUntil` writes chatqd cannot yet make. Taken by chatqd and handed over, it would be lost |
 | Held-summary check | [Test-ChatqHeldWaiting](src/phone-extras.ps1): `held.jsonl` exists, or a `held-*.sending` file whose LastWriteTime is over 10 min old ([Get-ChatqStaleSending](src/phone-extras.ps1)) | gate port M0 (the M0 handoff rule needs it: true means a handoff); [Send-ChatqHeldSummary](src/phone-extras.ps1) helper `held`, keep until M6 |
 | Reply window open? Log `replies closed` on the close | [Test-ChatqReplyOpen](src/phone.ps1) | port **M0**: the M0 handoff rule, the empty-exit recheck and the post-exit respawn all ask it. Its `-eq $true` tests (`reply.on`, `standing`) follow PowerShell's comparison, so `true`, the string `"true"` in any case and any number equal to 1 all pass. Vector `reply-open.json` (in `gates.json`) |
 | Poll cadence: 6 s hot / 15 s open / 20 s otherwise | [Get-ChatqReplyPollSeconds](src/phone-down.ps1) | port M3 |
@@ -73,13 +73,14 @@ Rows are in the loop's own order. Start-up first, then one pass, then exit.
 | List queued jobs, in order | [Get-ChatqJobs](src/queue.ps1) | port M0 (count), M2 (full sort) |
 | Listening-only branch: when not yet listening or a poll acted, keep-awake off, `current`/`next` null, `listening:true`, save state, board, log `listening for phone replies <text>`; wait one poll interval only if nothing was polled | | port M3 (text from [Get-ChatqReplyListenText](src/phone-down.ps1)); the board while listening is a `board` step (§1.1 board row) |
 | Empty queue: keep-awake off, save state, board, recheck queue, recheck window, log `queue empty`, exit | | port M0, with only the trivial board: [Write-ChatqBoard](src/alerts.ps1) with no job `queued`, `running`, `needs-input` or `failed`, no `done`/`skipped` job ended in the last 2 days, and no lane in `W.blocked` (until in the future) or `W.outage` writes `# chatq`, a blank line, `chatq · 0 queued · watcher running · updated <HH:mm:ss in the culture>`, a blank line, `_nothing queued_`, each line ending in `Environment.NewLine`. Anything else on the board means a handoff in M0 (golden `board/empty.md`) |
+| Per queued job: pass over one its own id does not find (a second job file holds the id, or the id is blank or finds another job), with no step and nothing written; the first time its id is met, log `<file>, <file>: the id '<id>' does not find one job - left queued, not run, until that is put right` | [Test-ChatqJobFound](src/watcher.ps1) ([Find-ChatqJob](src/queue.ps1) `-Exact` over the whole queue), [Get-ChatqJobFiles](src/queue.ps1) | port M2 ([jobs::found_by_id](native/crates/chatq-core/src/jobs.rs), [jobs::files_with_id](native/crates/chatq-core/src/jobs.rs)). Before, the pick found nothing and the next pass picked the same job at once, with no wait: under chatqd a `pick` step a pass, forever. The files are named, not written: a write by id could land in the twin's file |
 | Per queued job: refresh the lane's block (every 10 min) | [Update-ChatqBlock](src/watcher.ps1) → [Get-ChatqClaudeBlock](src/queue.ps1) / [Get-ChatqCodexBlock](src/queue.ps1) | gate port M2 (the 10 min `scannedAt` rule); the scan: helper `block`, **keep** (§8 risk 3) |
 | Due time | [Get-ChatqDueTime](src/watcher.ps1); `nextAt` defaults to now+15 min | port M2 |
 | Keep awake on pick, or when a wait is ≤ 6 h | [Set-ChatqKeepAwake](src/watcher.ps1) | port M0 |
 | Mark the job being alerted about | `$script:ChatqAlertJob = "#<seq>"` | port M2: passed to every step that can alert |
 | Probe gate | [Confirm-ChatqAllowed](src/watcher.ps1), [Enter-ChatqOutage](src/watcher.ps1), [Test-ChatqOutageOver](src/watcher.ps1), [Send-ChatqOutageReminder](src/watcher.ps1), [Block-ChatqLogin](src/watcher.ps1), [Get-ChatqClaudeStatus](src/queue.ps1) | helper (inside `pick`) M2 → M4: the state machine and the status page are native; the probe process ([Invoke-ChatqProbe](src/queue.ps1), [Get-ChatqCodexLiveLimit](src/queue.ps1)) and its block fallbacks: helper `probe`, **keep** (§1.2) |
 | Run one job | [Invoke-ChatqJob](src/watcher.ps1) | helper `pick` M2–M4; M5 split three ways (§3.8) |
-| One job's error must not end the watcher: `#<seq> error: <msg> @ <first ScriptStackTrace frame>`, fail the job with `chatq error: <msg>` if queued or running, `failed` alert | the `catch` around the pick | the catch moves into a PS function shared by both engines (`Invoke-ChatqPick`, §3.6), so the step logs the identical line. chatqd's own line applies only when a step dies with no output (§3.6 Failure) |
+| One job's error must not end the watcher: `#<seq> error: <msg> @ <first ScriptStackTrace frame>`, fail the job with `chatq error: <msg>` if queued or running, `failed` alert | the `catch` around the pick | the catch moves into a PS function shared by both engines (`Invoke-ChatqPick`, §3.6), so the step logs the identical line. chatqd's own line, and its pick-failure write (§2.4), apply only when a `pick` step ends without a good answer: it did not start, did not load, exited with no answer, or answered `ok:false` (§3.6 Failure) |
 | Usage "soon" alert and its wake time | [Send-ChatqUsageSoon](src/phone-extras.ps1), every pass that found nothing due | gate port M2 (vector `usage-soon.json`): the native gate computes the wake time, and a `soon` step runs only when an alert is due. Alert port M6 |
 | Usage "reset" alert | [Send-ChatqUsageReset](src/phone-extras.ps1), called in Confirm on allowed | helper `usage-reset` from M4 (Confirm goes native) → port M6 |
 | `state.json` save: when not listening, after a poll, or at least every 30 s | [Save-ChatqWatchState](src/watcher.ps1) | port M0 |
@@ -227,7 +228,8 @@ Paths are relative to the tool root `R` (`$script:ChatRoot`); `D = R/data`. Ever
   3. The edition's grammar runs under the stack guard, and the value comes back in `serde_json` form, keys in order. The top level is not unrolled here; [json::ps_return](native/crates/chatq-core/src/json.rs) does that where the caller's `return` would.
   - **`repaired`**: what Read-ChatqJson read differs from the file as written. That is a byte that did not decode, a byte dropped at the end (5.1), or a lone surrogate escape. A U+FFFD the file itself holds is no repair.
   - **`lossy`**: the value holds a number JSON cannot. A `NaN`, `Infinity` or `-Infinity` (and pwsh 7's `1e400`) is held as its `[string]` text, which `if`, `[string]` and `[int]` treat as PS treats the double. A pwsh 7 BigInteger past a double's range is held as its digits. Written back, either would be a string.
-  - A file that is `repaired` or `lossy` is **never rewritten by chatqd**. A write chatqd would make to it goes through a `job-write` step ([Save-ChatqJob](src/queue.ps1) `-Existing`), so the .NET value keeps what PS read, a lone surrogate included. One line goes to `chatqd.log` per file.
+  - A file that is `repaired` or `lossy` is **never rewritten by chatqd**. A write chatqd would make to it goes through a `job-write` step ([Save-ChatqJob](src/queue.ps1) `-Existing`), so the .NET value keeps what PS read, a lone surrogate included. So does a job file that holds a list rather than one job object, which Save-ChatqJob writes back as the one job. One line goes to `chatqd.log` per file.
+  - A string a job file spells `"\/Date(...)\/"`, as 5.1's `ConvertTo-Json` writes a DateTime, is written back so by chatqd ([jobs::fail_job](native/crates/chatq-core/src/jobs.rs), [jobs::clear_defer](native/crates/chatq-core/src/jobs.rs)): it is the one spelling 5.1 reads as a date, and `serde_json` would drop the escapes.
   - Paths inside JSON are strings and follow the same rule. File names chatqd itself lists (`D/queue/*.json`) are chatq-made ASCII ids; anything else is skipped as [Get-ChatqJobs](src/queue.ps1) would skip it.
 - **The flavour each read takes.** A data file is read as the PowerShell chatqd stands in for reads it. `--ps` names the flavour ([Flavour::from_exe](native/crates/chatq-core/src/time.rs)), and [fsx::read_json](native/crates/chatq-core/src/fsx.rs), [config::read_config](native/crates/chatq-core/src/config.rs) and [jobs::read_jobs](native/crates/chatq-core/src/jobs.rs) take it, for `state.json`, `auto-continue.json`, `config.json`, the queue's jobs and the reply window's look at `replies.json` ([gates::reply_open](native/crates/chatq-core/src/gates.rs)). So under pwsh 7 a `config.json` with comments and trailing commas reads as the PS watcher reads it; under 5.1 it reads as empty, as Get-ChatqConfig gives. `read_config` unrolls a top-level list as Get-ChatqConfig hands it on: `ps_return`, then once more for its own `return $c`. The exceptions:
   - the launch records in `D/native/` (pending, last, verified, fuse) are always read as 5.1 reads them ([launch::RECORDS](native/crates/chatq-core/src/launch.rs)), whichever PowerShell or chatqd decides, so a decision never turns on who makes it (DEFERRED.md "data/native records read as 5.1 reads them");
@@ -271,7 +273,7 @@ Paths are relative to the tool root `R` (`$script:ChatRoot`); `D = R/data`. Ever
 | `D/stop` | Existence | `chatqrun -Stop` | watcher: delete, then exit; mid-run it also cancels the run (`byStop`, §3.8) |
 | `D/restart` | Existence | `chatinstall`, `install.ps1` | watcher (not foreground): delete, then handoff |
 | `D/wake` | ASCII `poke` \| `now` \| `seen` and a newline; **mtime** is the signal | [Send-ChatqWake](src/watcher.ps1) | watcher; `now` honoured only when `UtcNow - LastWriteTimeUtc < 5 min`. The watcher writes `seen` after taking a `now` |
-| `D/queue/<id>.json` | Job object (many fields). chatqd itself touches only `deferUntil` (the `-Now` wake) through Update-only writes. Everything else is written by steps | shells, overlay, extension, watcher | everyone |
+| `D/queue/<id>.json` | Job object (many fields). chatqd itself writes only two things, both Update-only (a file removed meanwhile stays removed): `deferUntil` set to null by the `-Now` wake (only on a job whose `deferUntil` is set, as `if ($j.deferUntil)` writes; [jobs::clear_defer](native/crates/chatq-core/src/jobs.rs)), and the pick-failure fields below. A file read `repaired` or `lossy` (§2.2) is never written by chatqd: the same change goes through a `job-write` step. Everything else is written by steps | shells, overlay, extension, watcher | everyone |
 | `D/queue/<id>.cancel` | Existence | `chatqrm`/cancel | watcher, mid-run and in repair |
 | `D/queue.md` | Board text, lines ending in `Environment.NewLine` | [Write-ChatqBoard](src/alerts.ps1) | humans, extension link |
 | `D/run-state` | JSON ([Write-ChatRunState](src/chatrm.ps1)), `runnerPid` = the lock holder's pid (§3.6) | watcher (steps, keep) | extension handover, `runIsLive` |
@@ -281,6 +283,22 @@ Paths are relative to the tool root `R` (`$script:ChatRoot`); `D = R/data`. Ever
 | `D/permit/<jobId>/*.req.json`, `*.sent.json`, `mcp.json`, `settings.json` | As [src/permit.ps1](src/permit.ps1) writes them | bridge, steps | chatqd from M5 lists `*.req.json` and reads `rid`, `answer`, `withdrawn` and the mtime for its gate (§3.8) |
 | `D/held.jsonl`, `D/held-*.sending`, `usage-alerts.json`, `auto-continue.json`, `auto/`, `ask/`, `outbox/` | As their owners write them | PS owners | chatqd reads `held.jsonl` existence and `held-*.sending` mtimes (M2), `usage-alerts.json` keys (the soon gate) and `auto-continue.json` (the auto gate); the rest only through steps |
 | `D/native/…` | §4.5 | chatqd and steps | chatqd, steps, the launcher |
+
+**The pick-failure write** (`jobs::fail_job`). A `pick` step that ends without a good answer (§3.6 "Failure") is failed by chatqd as the loop's own catch in [Invoke-ChatqWatchLoop](src/watcher.ps1) fails a job, through [Complete-ChatqJob](src/watcher.ps1) and [Set-ChatqJobState](src/queue.ps1). `<reason>` is one of §3.6's four: `did not start`, `did not load (exit 3)`, `exited <code> with no answer`, `failed: <error>`. `<seq>` and `<title>` are `[string]` of the job's `seq` and `title` ([json::to_ps_string](native/crates/chatq-core/src/json.rs)), empty when absent. In `watcher.log` (item 1) `<seq>` is the job as chatqd listed it for the pick, as the loop logs `$pick.seq`, so the line is written even when the job is gone; in `jobs.log` and the alert (items 4 and 5) both come from chatqd's re-read (item 2), as the loop's `$j`. `·` is `$script:ChatqDot`, U+00B7.
+
+1. Always: `watcher.log` gets `#<seq> error: helper step <reason>` ([Write-ChatqWatchLog](src/watcher.ps1)'s form).
+2. The job is read again by id. Only if it is there and its `state` is `queued` or `running` (case-blind, as `-in` compares) is anything written. Otherwise nothing more happens: no write, no `jobs.log` line, no alert.
+3. The write, Update-only (§8 "A pick failure is written Update-only, and its alert waits for the write"), in this order (a field the job lacks is added at the end, as `Set-ChatqProp` adds it):
+   - `result` = `{"kind":"failed","reason":"chatq error: helper step <reason>"}`;
+   - `endedAt` = UTC `o` now ([Get-ChatqStamp](src/queue.ps1));
+   - `endLen` = the length in bytes of the file the job's `path` names, as a JSON integer, or null when `path` is empty or names no file;
+   - `runnerPid` = null;
+   - `state` = `failed`;
+   - `history` = the old list plus `{"at":"<UTC o>","state":"failed","why":"chatq error"}`. A null `history` gives `[null, {…}]`, since PS's `@($Job.history)` holds one `$null`; a scalar one is a list of one. A job with **no** `history` property is not written at all, so it gets no `jobs.log` line and no alert (PS still alerts; §8 "A pick failure is written Update-only, and its alert waits for the write"): Set-ChatqJobState assigns `$Job.history` without Set-ChatqProp, which throws on a property a ConvertFrom-Json object lacks, and the loop's `catch {}` swallows it before the save. A `job-write` `complete` on such a job fails the same way.
+4. Only if the file was written: `jobs.log` gets `#<seq> failed - chatq error · <title>` ([Write-ChatqJobLog](src/queue.ps1)'s form). A title that is empty leaves the line ending in `· `.
+5. Only if the file was written: the `failed` alert goes through an `alert` step, with text `<title> · chatq error: helper step <reason>` and priority 2 (§3.6 "Failure").
+
+If the re-read file is `repaired` or `lossy`, steps 3 and 4 are done by a `job-write` step with `complete` (§3.6 ops), and its `saved` result stands for "was written".
 
 **Job order** ([Get-ChatqJobs](src/queue.ps1)), sort keys in order:
 
@@ -493,8 +511,10 @@ native/
   crates/
     chatq-core/           lib: every contract in section 2, no I/O policy
       src/lib.rs          #![deny(unsafe_code)], the module list
-      src/paths.rs        R and D, every file name in 2.4 and 4.5 as a const with its PS symbol
-      src/fsx.rs          atomic save/update, read-with-retry, Open-ChatqLock, watcher lock
+      src/paths.rs        R and D, every file name in 2.4 and 4.5 as a const with its PS symbol, the
+                          step files and src/native-step.ps1 (3.6)
+      src/fsx.rs          atomic save/update (Update-ChatqText), read-with-retry, Open-ChatqLock,
+                          watcher lock
       src/json.rs         the one JSON grammar per edition, the file read, [string], lookups (2.2)
       src/utf8.rs         UTF-8 decoding with replacement, as each .NET decodes (2.2, 2.6)
       src/jsonl.rs        a run's stdout: StreamReader's line split, the .jsonl log bytes (2.3, 2.6)
@@ -502,11 +522,14 @@ native/
                           and the JSON dates of 2.2), zones
       src/culture.rs      the --culture block, HH:mm with the separator, N0 grouping
       src/log.rs          Add-ChatqLogLine, alerts.log line, Write-ChatqReplyLog
-      src/jobs.rs         Get-ChatqJobs read+sort, the -Now deferUntil write
-      src/state.rs        Save/Restore-ChatqWatchState
+      src/jobs.rs         Get-ChatqJobs read+sort, the -Now deferUntil write, the pick-failure write
+                          (2.4)
+      src/state.rs        Save/Restore-ChatqWatchState, W's fields and caches, the w codec and
+                          handoff.json (3.6, 4.4)
       src/config.rs       read config.json (no lock, never written)
       src/gates.rs        Get-ChatqDueTime, Update-ChatqBlock's 10 min rule, Test-ChatqHeldWaiting,
-                          the Send-ChatqUsageSoon gate, Test-ChatqAutoWanted, the alert route (1.4)
+                          the Send-ChatqUsageSoon gate, Test-ChatqAutoWanted, the alert route (1.4),
+                          the held and soon pre-gates (3.6)
       src/timers.rs       the loop's timers (2.10) as a pure schedule over a pass's clock
       src/idle.rs         Get-ChatqIdleSeconds's reading of ioreg (macOS)
       src/stream.rs       Update-ChatqClaudeState / Update-ChatqCodexState, the two regexes (2.9)
@@ -527,21 +550,25 @@ native/
       src/vector.rs       vector dpapi <hex> | vector local-stamps (6.1)
       src/seams.rs        CHATQ_NATIVE_SEAMS (6.5)
       src/watch/mod.rs    `chatqd watch`: its arguments, start-up and exit around the loop, the state save
-      src/watch/loop.rs   Invoke-ChatqWatchLoop, as far as M0 goes
+      src/watch/loop.rs   Invoke-ChatqWatchLoop (M2): its control flow and gates, through a Host trait
+      src/watch/step.rs   PowerShell helper steps: In, the launch, the wait, Out (3.6)
+      src/watch/timers_replay.rs  test only: timers.json through loop.rs on a fake Host, and the
+                          loop's failure paths and soon pre-gate on the same Host
       src/watch/wait.rs   Wait-ChatqUntil, flag files
       src/watch/awake.rs  Set-ChatqKeepAwake
       src/watch/spawn.rs  the watcher started after a handoff or a respawn (4.2, 4.4)
       src/sys/mod.rs      every OS call chatqd makes, and so every unsafe block
-      src/sys/win.rs      CreateProcessW, SetThreadExecutionState, the process probes, PeekMessageW
-      src/sys/mac.rs      caffeinate, nohup, kill(pid, 0); Windows can lint it, only native-macos
-                          CI builds and runs it
-      tests/watch.rs      the built chatqd against throwaway roots, every launch through the spawn seam
+      src/sys/win.rs      CreateProcessW, SetThreadExecutionState, the process probes, PeekMessageW,
+                          a step's spawn-and-wait, own start time (GetProcessTimes)
+      src/sys/mac.rs      caffeinate, nohup, kill(pid, 0), proc_pidinfo; Windows can lint it, only
+                          native-macos CI builds and runs it
+      tests/watch.rs      the built chatqd against throwaway roots, every launch through the spawn seam,
+                          every step against a stub native-step.ps1 under a real PowerShell
 ```
 
 Planned for later milestones, not yet in the tree:
 
 ```
-    chatqd/src/watch/step.rs   PowerShell helper steps (3.6, M2)
     chatqd/src/watch/reply.rs  poll, triage, junk path (3.7, M3)
     chatqd/src/watch/lane.rs   Confirm-ChatqAllowed's state machine, outage, status page (M4)
     chatqd/src/watch/run.rs    the run plan, Invoke-ChatqProcess, the mid-run tick (3.8, M5)
@@ -549,7 +576,7 @@ Planned for later milestones, not yet in the tree:
     chatqd/src/http.rs         ureq Agent per burst, timeouts, proxy resolution, seams (M3)
     chatqd/src/ipc/            pipe / socket server (M8)
     sys/win.rs, sys/mac.rs     taskkill and the child tree, GetLastInputInfo and ioreg idle, toast
-                               (WinRT) and osascript, proxy (WinHTTP, system-configuration), start time
+                               (WinRT) and osascript, proxy (WinHTTP, system-configuration)
     chatqd/build.rs            Windows version resource and manifest (4.8)
     crates/fake-cli/           test-only bin (publish = false): plays claude/codex stream fixtures (M5)
 ```
@@ -678,7 +705,14 @@ A helper step is one PowerShell process that loads the loader as the watcher doe
 ```
 
 - `-ExecutionPolicy Bypass` is required, because `-File` honours policy. The command line is built by `argline.rs` (MSVCRT quoting).
-- The script dot-sources the loader inside `try { } catch { exit 3 }`, removes `env:PSExecutionPolicyPreference`, applies the seams (§6.5), then calls `Invoke-ChatqNativeStep`.
+- **`<n>`** counts launch attempts in this chatqd's life, from 1. A launch that fails still uses up its number. chatqd's start sweeps `step-*.json`, so a number is never reused against a leftover file.
+- **`-Watcher`** is chatqd's pid. **`-WatcherStart`** is chatqd's own start time as .NET UTC ticks (100 ns since 0001-01-01), as `(Get-Process -Id <pid>).StartTime.ToUniversalTime().Ticks` reads it (`sys::own_start_ticks`):
+  - Windows: the creation FILETIME from `GetProcessTimes`, plus `504911232000000000`;
+  - macOS: `proc_pidinfo`'s start `tv_sec`/`tv_usec`, as `621355968000000000 + tv_sec·10^7 + tv_usec·10`.
+- **`-Seams`** is passed only when `CHATQ_NATIVE_SEAMS` is set, with its value.
+- **No timeout.** A `pick` may run for hours. chatqd waits in 2 s slices. A `stop` file seen meanwhile is logged once (`stop seen while step <n> (<op>) runs`) and left for the loop top, as the PS watcher sees it only between jobs.
+- **Environment.** Inherited from chatqd unchanged, `CHATQ_WATCHER=1` included. chatqd adds nothing and removes nothing. The script removes `env:PSExecutionPolicyPreference` itself.
+- The script dot-sources the loader inside `try { } catch { exit 3 }`, removes `env:PSExecutionPolicyPreference`, applies the seams (§6.5), sets the step seams (below, "State ownership and pids"), then calls `Invoke-ChatqNativeStep -In <In> -Out <Out>`.
 - **Window.** Exactly the PS watcher's environment: a new console, hidden (`CREATE_NEW_CONSOLE`, `STARTF_USESHOWWINDOW`, `SW_HIDE`), cwd `$HOME`. `CREATE_NO_WINDOW` is **not** used for steps (§8 "Review items"): code a step runs touches the console. Examples are the 5.1 `[Console]::InputEncoding` swap in [Start-ChatqProcess](src/queue.ps1) and `$Host.UI.RawUI` in [Get-ChatqWidth](src/alerts.ps1), and they must see what they see today. Runs that chatqd spawns itself use `CREATE_NO_WINDOW`, as .NET does (§2.6).
 - `src/native-step.ps1` joins the payload lists of [install.ps1](install.ps1), `chatinstall` and [extension/build.js](extension/build.js). It is not a loader part.
 
@@ -686,44 +720,115 @@ A helper step is one PowerShell process that loads the loader as the watcher doe
 
 ```
 { "v":1, "op":"<name>", "watcherPid":n, "startedAt":"<o>", "alertJob":"#<seq>"|null,
-  "w":{ native-owned W fields, shared caches }, "args":{…} }
+  "w":{ native-owned W fields, "caches":{ shared caches } }, "args":{…} }
 ```
+
+- `watcherPid` equals `-Watcher`. `startedAt` equals `w.startedAt`, chatqd's start stamp.
+- `In.startedAt` and every string in `args` are read under the `w` encoding's **Strings** rule (below), so a pwsh 7 step holds `ChatqWatcherStartedAt` as the text chatqd sent, not as the `[datetime]` its `ConvertFrom-Json` makes of it.
+- `alertJob` becomes `$script:ChatqAlertJob` for the step's life, which [Send-ChatqAlert](src/alerts.ps1) hands on as `CHATQ_JOB`. It is `#<seq>` for `pick` and for a failed pick's `alert`, and null for every other op, as the loop sets it only around its pick.
+
+**The exchange, in order.**
+
+1. chatqd writes `In` atomically (`fsx` as [Save-ChatqText](src/queue.ps1) writes: UTF-8, no BOM, written aside and swapped in), then launches the step.
+2. `Invoke-ChatqNativeStep` reads `In` with [Read-ChatqJson](src/queue.ps1). A missing file, `v` other than 1, an op it does not know, or (in step 3) a `w` that does not decode under the schema below gives `Out` `ok:false` with error `bad step input`, and nothing else is done: no op, and no `carry.clixml` export, so the carry is left as it was.
+3. It checks the parent ("Parent death", below), then decodes `w` into a fresh [New-ChatqWatchState](src/watcher.ps1) and the `$script:` caches (`ConvertFrom-ChatqStepW`), then imports `carry.clixml` when it exists. `$W.CutCache` is `@{}` when the carry has none.
+4. It runs the op inside `try`. A throw gives `ok:false` with `error` = `<Exception.Message> @ <first line of ScriptStackTrace>`, the loop's own form.
+5. It exports `carry.clixml` whether the op threw or not, encodes `W` and the caches (`ConvertTo-ChatqStepW`), and writes `Out` with [Save-ChatqText](src/queue.ps1) and `ConvertTo-Json -Depth 12`:
+
+   ```
+   { "v":1, "ok":true, "error":null, "w":{…}, "result":{…} }
+   { "v":1, "ok":false, "error":"<text>", "w":null, "result":null }
+   ```
+
+   An encode that throws (a field the schema cannot carry, below) becomes `ok:false` with that error. Then the step exits 0.
+6. chatqd reads `Out` with [fsx::read_json](native/crates/chatq-core/src/fsx.rs) in its `--ps` flavour. It deletes `In` and `Out` after every step, whatever the outcome, a launch that failed included. A good answer has `v` 1, `ok` a bool, and with `ok:true` a `w` object holding every key of the schema below that decodes under it, and a `result` object holding every field its op's row names; with `ok:false` an `error` string.
+7. On `ok:true` chatqd replaces its whole `W`, caches included, with `Out.w`, then acts on `result`. On anything else, "Failure" below applies.
 
 **What crosses, and how.** Every `$script:` variable and `$W` key a step's code reads or writes is in exactly one class. The audit test (below) enforces this.
 
 | Class | Members | Carrier |
 |---|---|---|
 | **Native-owned W** | `blocked`, `lastAllowed`, `probeFails`, `scannedAt`, `outage`, `authAlerted`, `current`, `next`, `handoff`, `listening`, `startedAt` | `w` JSON in and out; chatqd's copy is authoritative between steps |
-| **Shared caches** (chatqd reads or schedules on them) | `ChatqReplyHandled`, `ChatqReplySeen`, `ChatqAskSent` (rid → `{Rid, At, ToolUseId, Answers (ordered), Transcript, SessionId, Title}`), `ChatqReplyJunkLog` (stage → `{At, Count}`), `ChatqReplyPolledAt`, `ChatqReplyErrAt`, `ChatqReplyBadIdAt`, `ChatqReplySavedAt` | `w` JSON in and out. A DateTime travels as UTC `o` and comes back `.ToLocalTime()`, Kind Local, so `(Get-Date) - $e.At` is unchanged. An ordered dictionary comes back `[ordered]` |
-| **PS-only caches** (nothing native reads them) | `CutCache` (`$W`), `ChatqBoardCutCache`, `ChatqCliVersions`, `ChatqAskAliveCache`, `ChatqBoardCache`, `ChatqPermitAsked`, `ChatqAutoCache`, and every other process-lifetime cache the audit finds | `D/native/carry.clixml`: `Import-Clixml` at step start, `Export-Clixml` at the end. Deleted by chatqd at its start, so its lifetime is chatqd's, as a cache's lifetime is the PS watcher's |
-| **Recomputed** | values a function rebuilds each call | none |
+| **Shared caches** (chatqd reads, schedules on or writes them) | `ChatqReplyHandled`, `ChatqReplySeen`, `ChatqAskSent`, `ChatqReplyJunkLog`, `ChatqReplyPolledAt`, `ChatqReplyErrAt`, `ChatqReplyBadIdAt`, `ChatqReplySavedAt`, `ChatqUsageSent`, `ChatqSummaryTriedAt` | `w.caches` in and out. Shapes in the cache table below |
+| **PS-only caches** (nothing native reads them) | `CutCache` (`$W`), `ChatqBoardCutCache`, `ChatqCliVersions`, `ChatqAskAliveCache`, `ChatqBoardCache`, `ChatqPermitAsked`, `ChatqAutoCache`, and every other process-lifetime cache the audit finds | `D/native/carry.clixml`: `Import-Clixml` at step start, `Export-Clixml` at the end. Its content is PS-private: chatqd never reads it. Deleted by chatqd at its start, so its lifetime is chatqd's, as a cache's lifetime is the PS watcher's; kept at a handoff for the PS watcher (§4.4) |
+| **Recomputed** | values a function rebuilds each call; `ChatqSendingSummary`, which is `$false` in every fresh step, as it is between calls in the PS watcher; `ChatqLastAlertError` | none |
 | **Constant** | regexes, tables, paths | none |
 
 The audit also **round-trips every carried variable**. The type after import must equal the type before. A `List[datetime]` that comes back an `ArrayList`, or a hashtable that comes back a `PSObject`, fails the test and must declare a converter in `Invoke-ChatqNativeStep`.
 
-The op runs; then `Out` is written atomically as `{ "v":1, "ok":true|false, "error":"…", "w":{…}, "result":{…} }`, and the step exits 0.
+**The `w` encoding.** One schema for `In.w`, `Out.w` and `handoff.json`'s `w` (§4.4). `ConvertTo-ChatqStepW` and `ConvertFrom-ChatqStepW` in [src/watcher.ps1](src/watcher.ps1) and `state::to_w`/`from_w` in chatq-core are its two ends. `w` holds exactly the eleven native-owned keys and `caches`, nothing else; `$W.CutCache` goes to the carry, not here.
 
-**Ops, each a thin wrapper over existing code.**
+- **Every map is a list of pairs**, `[{"k":"<key>","v":<value>}, …]`, never a JSON object. Keys can be empty (the lane of a job with no `provider` is `""`, and [Update-ChatqBlock](src/watcher.ps1) stamps `scannedAt['']`), and `Answers` keys can differ only by case. 5.1's `ConvertFrom-Json` throws on either as an object name (§2.2).
+  - PS emits a list for zero and one pair as well. chatqd refuses anything else as a bad answer.
+  - Pair order is kept as received by both ends. It matters only in `Answers`, which is ordered.
+  - Keys compare as a PS hashtable compares them, case-blind ([json::ieq](native/crates/chatq-core/src/json.rs)), except in `Answers`, which is ordinal. When chatqd sets a key, it replaces the value of the pair whose key matches, else appends a pair. When it drops a key, it removes that pair.
+- **Entry objects carry `"_type"`**: `"psobject"` or `"hashtable"`. The decoder builds that type (`[pscustomobject]` or `@{}`) and the encoder writes the type it finds. chatqd keeps the tag it received. The only entries chatqd makes are the ones it restores from `state.json` at its start, and it builds those exactly as [Restore-ChatqWatchState](src/watcher.ps1) does: `blocked` as `psobject`, `outage` as `hashtable`. Field names inside an entry compare case-blind, as both a `[pscustomobject]`'s properties and a `@{}`'s keys do; each end keeps the spelling it received.
+- **Present and absent.** A property present with a null value travels as null. A property absent from an entry stays absent; `blocked`'s `At` (added by `Add-Member` only where known) and `outage`'s `Reminded` and `AutoJob` are often absent.
+- **Dates** (the fields the tables mark Date) travel as UTC `o` strings or null. The encoder writes `.ToUniversalTime().ToString('o')`; the decoder reads with [ConvertTo-ChatqDate](src/queue.ps1), so a Date comes back Kind Local, as every writer below stores it, and `(Get-Date) - $e.At`, `-lt` and `.ToString('HH:mm')` give what they gave.
+- **int** fields are JSON integers, decoded `[int]`. **bool** fields are JSON booleans.
+- **Strings.** pwsh 7's `ConvertFrom-Json` makes a `[datetime]` of a string shaped like an ISO stamp (§2.2). The decoder turns one found where the schema says string back into text: `.ToUniversalTime().ToString('o')` for Kind Utc, `.ToString('o')` otherwise. That is exact for `next` and `startedAt`, which are UTC `o`; for free text shaped like a stamp (a title, an answer) it is §2.2's accepted pwsh 7 drift.
+- **A named field holding another scalar** than its type (a string in an int field, say) travels as that scalar, and the decoder keeps it as is: a type's conversion (Date, int) applies only to a value of that type's JSON form. A DateTime is a Date wherever it is found in a Date field. chatqd carries such an entry unchanged but reads it as no entry when a Date it needs is not one (`blocked`'s `Until`; `outage`'s `Since`, `LastProbe` and `NextCheck`), as it reads a null entry ([state::from_w](native/crates/chatq-core/src/state.rs)).
+- **A field the tables do not name** travels as the JSON scalar it is (string, number, bool, null), unchanged. A DateTime, list or object there makes `ConvertTo-ChatqStepW` throw `bad step state: <key>.<field>`, so a new field fails the step fixtures instead of travelling half-typed.
 
-| op | Body | When chatqd runs it |
+`w`'s native-owned keys, each traced to the code that writes it:
+
+| Key | Value | Entry | Written by (PS) | chatqd |
+|---|---|---|---|---|
+| `blocked` | map lane → null, or `{Until: Date, Type: string\|null, Source: string\|null, At: Date (may be absent)}` | `psobject` | [Update-ChatqBlock](src/watcher.ps1): the scan's entry as [Get-ChatqClaudeBlock](src/queue.ps1) (`Source` `transcript`), [Read-ChatqUsageCache](src/queue.ps1) (`usage cache`) and [Get-ChatqCodexBlock](src/queue.ps1) (`rollout`) build it, dropped when `lastAllowed[lane]` is set and the entry has no `At` or an earlier one, else kept when its `Until` is later than the lane's. [Confirm-ChatqAllowed](src/watcher.ps1): allowed → null; limited → `{Until, Type, Source='probe'}` plus `At`; probe failed → `{Until=now+5·min(n,6) min, Type='probe failed', Source=<probe error>}`. [Block-ChatqLogin](src/watcher.ps1): `{Until=now+15 min, Type='login needed', Source=<what the CLI said>}`. [Invoke-ChatqJob](src/watcher.ps1) on a limit: `{Until, Type, Source='run'}` plus `At`. [Restore-ChatqWatchState](src/watcher.ps1): `{Until, Type, Source}`, only for an `until` still ahead, plus `At` when `at` was saved | reads `Until`, `Type`, `At` for the due time and the soon gate; restores it from `state.json`; the `-Now` wake makes it empty |
+| `outage` | map lane → null, or `{Since: Date, Attempts: int, Status: string\|null, Alerted: bool, Reminded: bool, LastProbe: Date, NextCheck: Date, AutoJob: string\|null}` | `hashtable` | [Enter-ChatqOutage](src/watcher.ps1) (made without `Reminded` and `AutoJob`, then `AutoJob` null and `Attempts` counted up); [Send-ChatqOutageReminder](src/watcher.ps1) sets `Reminded`; [Enter-ChatqAutoOutage](src/auto-continue.ps1) makes a whole entry with `AutoJob` a job id, and [Clear-ChatqAutoOutage](src/auto-continue.ps1) sets the lane's entry null; [Confirm-ChatqAllowed](src/watcher.ps1) → null when the lane is back; [Restore-ChatqWatchState](src/watcher.ps1) (`LastProbe` defaults to `Since`, `NextCheck` to now, `AutoJob` `[string]`, so `""` for none) | reads it for the due time; restores it; the wake makes it empty |
+| `lastAllowed` | map key → Date or null. Keys are `<lane>` and `<lane>\|<model>` ([Get-ChatqRunModel](src/queue.ps1)) | | [Confirm-ChatqAllowed](src/watcher.ps1): both keys now when allowed (a fresh `<lane>\|<model>` is reused for 3 min), the lane's null when limited; [Block-ChatqLogin](src/watcher.ps1) the lane's null; [Invoke-ChatqJob](src/watcher.ps1) resets the `<lane>\|*` keys on a limit | the wake makes it empty |
+| `probeFails` | map lane → int or null | | [Confirm-ChatqAllowed](src/watcher.ps1): counted on a failed probe, 0 when allowed | carries it |
+| `scannedAt` | map lane → Date or null | | [Update-ChatqBlock](src/watcher.ps1) stamps now after a scan | reads it for the 10 min rule; stamps now for each queued job's lane at the wake, as the loop does, and for a failed `block` step ("Failure") |
+| `authAlerted` | map lane → bool or null | | [Block-ChatqLogin](src/watcher.ps1) true; [Confirm-ChatqAllowed](src/watcher.ps1) false when allowed; [Restore-ChatqWatchState](src/watcher.ps1) true | restores it (`state.json` lists the true lanes) |
+| `current` | string (a job id) or null | | [Invoke-ChatqJob](src/watcher.ps1) sets it and clears it; the pick catch clears it | sends null; `state.json` |
+| `next` | string, UTC `o`, or null. A string, not a Date | | the loop: `$nextAt.ToUniversalTime().ToString('o')` | sets it as the loop does |
+| `startedAt` | string, UTC `o` | | the loop, once: [Get-ChatqStamp](src/queue.ps1) | its own start stamp; never changed by a step |
+| `handoff`, `listening` | bool | | the loop | false in every `In` of M2 (listening hands off; `handoff` is set only on the way out) |
+
+`w.caches` holds all ten keys, always:
+
+| Key | Value | chatqd |
 |---|---|---|
-| `repair` | Repair-ChatqInterrupted, then `$W.CutCache = @{}` | once, at start |
-| `pick` (M2–M4) | `Invoke-ChatqPick`: the loop's own `try { Confirm-ChatqAllowed; Invoke-ChatqJob } catch { #<seq> error: <msg> @ <frame>; fail; alert }`, moved verbatim into a function the PS loop also calls | a due job |
-| `block` | Update-ChatqBlock for each lane named | the native 10 min rule says due |
-| `probe` (M4+) | `Get-ChatqLaneProbe`: the process half of Confirm-ChatqAllowed, refactored out of it unchanged (Codex: [Get-ChatqCodexLiveLimit](src/queue.ps1), then the exec probe; Claude: the `-p` probe; `-NoModel` retry; the limited fallback to Get-ChatqClaude/CodexBlock) | the native gate needs a probe |
-| `usage-reset` (M4–M5) | Send-ChatqUsageReset | the native gate says allowed after limited |
-| `auto-outage` (M4+) | Enter-ChatqAutoOutage / Clear-ChatqAutoOutage | an outage transition |
-| `auto` | Invoke-ChatqWatchAutoScan `$W` | the 5 min timer and Test-ChatqAutoWanted |
-| `stray` | Clear-ChatqStrayFiles and its log line | the 6 h timer |
-| `soon` | Send-ChatqUsageSoon | the native gate says an alert is due |
-| `held` | Send-ChatqHeldSummary | Test-ChatqHeldWaiting (native) is true |
-| `reply` | the poll body over a fetched batch (§3.7) | a batch holds a candidate |
-| `ask-landed` | Test-ChatqAskLanded [-Quick] | the oldest `ChatqAskSent.At` is 20 s old |
-| `board` | Write-ChatqBoard | a board write while `listening` |
-| `alert` | Send-ChatqAlert with the given args | an alert that would register (§1.4), or any alert before M6 |
-| `toast` (M6) | Show-ChatqToast | the WinRT toast failed |
-| `job-write` | Save-ChatqJob -Existing with the given field changes | a native write to a file read lossily (§2.2) |
-| M5: `pre-run`, `run-started`, `permit-tick`, `post-run`, `run-ps` | §3.8 | §3.8 |
+| `ChatqReplyHandled`, `ChatqReplySeen` ([src/phone.ps1](src/phone.ps1), [src/phone-board.ps1](src/phone-board.ps1)) | map tag or nonce → `true` | carries them |
+| `ChatqAskSent` ([Invoke-ChatqAskReply](src/ask.ps1)) | map rid → `hashtable` `{Rid: string, At: Date, ToolUseId: string, Answers, Transcript: string, SessionId: string, Title: string}` (each string may be null). `Answers` is a map question → answer text, decoded as `New-Object System.Collections.Specialized.OrderedDictionary ([StringComparer]::Ordinal)`, as [ConvertTo-ChatqAskAnswers](src/ask.ps1) builds it, or null | reads every `At` for the ask-landed gate; drops entries for a failed `ask-landed` step |
+| `ChatqReplyJunkLog` ([src/phone.ps1](src/phone.ps1)) | map stage → `hashtable` `{At: Date, Count: int}` | carries it |
+| `ChatqReplyPolledAt`, `ChatqReplyErrAt`, `ChatqReplyBadIdAt`, `ChatqReplySavedAt` ([src/phone.ps1](src/phone.ps1)) | Date or null | carries them (M3 reads them) |
+| `ChatqUsageSent` ([Send-ChatqUsageSoon](src/phone-extras.ps1)) | map soon key → `true` | reads the keys for the soon gate; adds keys the gate finds already sent |
+| `ChatqSummaryTriedAt` ([Send-ChatqHeldSummary](src/phone-extras.ps1)) | Date or null | reads it for the held gate; sets now for a failed `held` step |
+
+At chatqd's start every map is an empty list and every Date null, which decodes to what the parts declare at load (`@{}` and `$null`).
+
+**Ops, each a thin wrapper over existing code.** `args` and `result` are JSON objects. A result field is always present.
+
+| op | args | result | Body | When chatqd runs it |
+|---|---|---|---|---|
+| `repair` | `{}` | `{}` | [Repair-ChatqInterrupted](src/watcher.ps1), then `$W.CutCache = @{}` | once, at start, after the restore, when [gates::repair_due](native/crates/chatq-core/src/gates.rs) |
+| `pick` (M2–M4) | `{jobId}` | `{gone: bool}` | [Find-ChatqJob](src/queue.ps1) `jobId -Exact`. No job, or a `state` other than `queued` (case-blind, as `-ne 'queued'` compares): `{gone:true}`, and nothing else is done (no log line, no probe, no `W` change). Else `Invoke-ChatqPick $W $job`: the loop's own `try { if (Confirm-ChatqAllowed $W $pick) { Invoke-ChatqJob $W $pick } } catch { #<seq> error: <msg> @ <frame>; fail; alert }`, moved verbatim into a function the PS loop also calls; `{gone:false}` | the loop's pick: the first queued job, in [Get-ChatqJobs](src/queue.ps1) order, with no due time, past any its own id does not find (§1.1). chatqd turns keep-awake on first; afterwards, gone or not, it saves state, writes the board and starts the next pass, as the loop does after its pick |
+| `block` | `{jobIds: [id]}`; M2 sends exactly one | `{}` | for each id, [Find-ChatqJob](src/queue.ps1) `-Exact`; a job found goes to [Update-ChatqBlock](src/watcher.ps1) `$W $job`, a job not found is skipped | in the loop's walk over the queued jobs, just before a job's due check (never for a job passed over as its id does not find it, §1.1), when [gates::rescan_due](native/crates/chatq-core/src/gates.rs) holds for its lane's `scannedAt` |
+| `probe` (M4+) | §7 M4 | | `Get-ChatqLaneProbe`: the process half of Confirm-ChatqAllowed, refactored out of it unchanged (Codex: [Get-ChatqCodexLiveLimit](src/queue.ps1), then the exec probe; Claude: the `-p` probe; `-NoModel` retry; the limited fallback to Get-ChatqClaude/CodexBlock) | the native gate needs a probe |
+| `usage-reset` (M4–M5) | §7 M4 | | Send-ChatqUsageReset | the native gate says allowed after limited |
+| `auto-outage` (M4+) | §7 M4 | | Enter-ChatqAutoOutage / Clear-ChatqAutoOutage | an outage transition |
+| `auto` | `{}` | `{}` | `$null = Invoke-ChatqWatchAutoScan $W` | the 5 min timer fired (it is advanced whether a step runs or not, first pass included) and [gates::auto_wanted](native/crates/chatq-core/src/gates.rs) |
+| `stray` | `{}` | `{removed: n}` | `$swept = @(try { Clear-ChatqStrayFiles } catch { })`, then, when n > 0, the loop's `watcher.log` line `removed <n> stray file(s) and folder(s) from data/queue` | the 6 h timer fired (advanced either way, first pass included) and [gates::stray_maybe](native/crates/chatq-core/src/gates.rs) |
+| `soon` | `{}` | `{soonAt: UTC o \| null}` | `$queued = @(Get-ChatqJobs \| Where-Object { $_.state -eq 'queued' })`, then `$soonAt = Send-ChatqUsageSoon $W $queued` | a pass with no pick, when the soon pre-gate (below) leaves a due key. chatqd's wait is the earliest of its own `nextAt`, the gate's `next` and `soonAt` |
+| `held` | `{}` | `{sent: bool}` | [Send-ChatqHeldSummary](src/phone-extras.ps1) | the held pre-gate (below) |
+| `reply` | §3.7 | | the poll body over a fetched batch (§3.7) | a batch holds a candidate |
+| `ask-landed` | `{quick: false}` | `{}` | [Test-ChatqAskLanded](src/ask.ps1), `-Quick` when `quick` | `ChatqAskSent` is not empty and its oldest `At` is at least 20 s old ([timers::ask_landed_due](native/crates/chatq-core/src/timers.rs)), as the function skips younger entries itself |
+| `board` | `{}` | `{}` | Write-ChatqBoard | a board write while `listening` (M3) |
+| `alert` | `{event, text, priority, jobId, loud, quick, noReply, usageKind}`: `jobId` and `usageKind` string or null, the rest as [Send-ChatqAlert](src/alerts.ps1)'s parameters of those names | `{sent: bool}` | `$job` = Find-ChatqJob `jobId -Exact` when `jobId` is set, else null; then `Send-ChatqAlert $event $text $priority -Loud:$loud -Job $job -Quick:$quick -NoReply:$noReply -UsageKind $usageKind`; `sent` = `[bool]` of its return | M2: only a failed pick's alert. Later: an alert that would register (§1.4), or any alert before M6 |
+| `toast` (M6) | §7 M6 | | Show-ChatqToast | the WinRT toast failed |
+| `job-write` | `{jobId, set: {field: value, …}}` or `{jobId, complete: {state, why, result}}` | `{saved: bool}` | Find-ChatqJob `jobId -Exact`; none → `saved:false`. `set`: `Set-ChatqProp` per field in the order given, then `Save-ChatqJob -Existing`. `complete`: only when the job's `state` is `queued` or `running`, `Complete-ChatqJob $job $state $result $why -Existing`; else `saved:false` | a write chatqd would make to a file read `repaired` or `lossy` (§2.2): in M2 the wake's `{deferUntil: null}` and a pick failure's `complete` (§2.4) |
+| M5: `pre-run`, `run-started`, `permit-tick`, `post-run`, `run-ps` | §3.8 | §3.8 | §3.8 | §3.8 |
+
+**Pre-gates.** chatqd runs a step only where the PS function would do something. Each gate is the function's own early return, ported:
+
+- **held**: `gates::held_summary_due`. [Test-ChatqHeldWaiting](src/phone-extras.ps1) ([gates::held_waiting](native/crates/chatq-core/src/gates.rs)); and not inside quiet hours now ([Get-ChatqQuietHours](src/phone-extras.ps1) and [Test-ChatqQuietNow](src/phone-extras.ps1) on the config, local time; a bad clock or from equal to to reads as off; a window may run past midnight); and `ChatqSummaryTriedAt` null or at least 5 min old. These are [Send-ChatqHeldSummary](src/phone-extras.ps1)'s returns before its claim. `ChatqSendingSummary` is always false between steps.
+- **soon**: [gates::usage_soon](native/crates/chatq-core/src/gates.rs) over `W.blocked`, the queued jobs and the `ChatqUsageSent` keys. Its `next` joins `nextAt`. Each due key already in `data/usage-alerts.json` (`gates::soon_already_sent`, case-blind) is added to `ChatqUsageSent` natively, as [Send-ChatqUsageSoon](src/phone-extras.ps1) records a key that [Use-ChatqUsageAlertState](src/phone-extras.ps1) finds there. "Already in" is what [Get-ChatqUsageAlertState](src/phone-extras.ps1) keeps: a top-level name whose value [ConvertTo-ChatqDate](src/queue.ps1) parses. A missing, empty, unreadable or unparsable file holds no keys. chatqd reads it with no lock, in its `--ps` flavour, since it only reads. Any other due key means a `soon` step.
+- **stray**: [gates::stray_maybe](native/crates/chatq-core/src/gates.rs): with no file or folder that could be stray, the sweep would find nothing.
+- **auto**: [gates::auto_wanted](native/crates/chatq-core/src/gates.rs): [Invoke-ChatqWatchAutoScan](src/auto-continue.ps1) returns 0 at once otherwise.
+- **ask-landed**, **block** and **repair**: as the table says.
+
+They run in the loop's order (§1.1), on chatqd's real clock (§8 "M2 contract notes").
 
 **State ownership and pids.**
 
@@ -732,25 +837,67 @@ The op runs; then `Out` is written atomically as `{ "v":1, "ok":true|false, "err
   - From M2, the job's `runnerPid`, `run-state.runnerPid`, `watcher.pid` and `state.pid` all name the lock holder.
   - The extension's `runIsLive`/`runningJobFor` and the repair agree with the lock.
   - If the step dies while chatqd lives, chatqd fails the job (Failure, below), so no job stays `running` behind a live pid.
-- **`$PID` audit.** The audit test lists every `$PID` in the functions a step reaches. Each must be classed as *watcher identity* (through the seams above), or *own process*, which is correct as the step's pid. Examples of own process: `(Get-Process -Id $PID).Path` in [Invoke-ChatqAlertCommand](src/alerts.ps1), [Get-ChatqPermitLaunch](src/permit.ps1) and the outbox launch, which name the PS flavour and equal `--ps`; and `"$p.$PID"` temporary names in [src/overlay-data.ps1](src/overlay-data.ps1). An unclassed `$PID` fails the test.
+- **The step seams**, all declared `$null` in [src/queue.ps1](src/queue.ps1)'s seam block: [Invoke-ChatqNativeStep](src/watcher.ps1) sets `ChatqWatcherPid` = `In.watcherPid`, `ChatqWatcherStartedAt` = `In.startedAt` and `ChatqRunnerPid` = `In.watcherPid` as it reads `In`, and `src/native-step.ps1` sets `ChatqStepParent` = the parent test below, built from `-Watcher` and `-WatcherStart`. In the PS watcher all four stay `$null`, so every site keeps today's `$PID`.
+- **`$PID` audit.** The audit test lists every `$PID` in the functions a step reaches. Each must be classed as *watcher identity* (through the seams above), or *own process*, which is correct as the step's pid. An unclassed `$PID` fails the test. The sites today:
+
+| Site | What it names | Class | From M2 |
+|---|---|---|---|
+| [Save-ChatqWatchState](src/watcher.ps1) | `state.json` `pid` (and `startedAt`) | watcher identity | `ChatqWatcherPid` / `ChatqWatcherStartedAt` when set |
+| [Repair-ChatqInterrupted](src/watcher.ps1) | the `runnerPid -eq $PID` skip | watcher identity | `Get-ChatqRunnerPid` |
+| [Invoke-ChatqJob](src/watcher.ps1) | the job's `runnerPid` | watcher identity | `Get-ChatqRunnerPid` |
+| [Write-ChatRunState](src/chatrm.ps1) | `run-state` `runnerPid` | watcher identity | `Get-ChatqRunnerPid` |
+| [Write-ChatqPermitLog](src/permit.ps1) | the `[<pid>]` tag of a `permit.log` line | watcher identity | `Get-ChatqRunnerPid` |
+| [Write-ChatqAskLog](src/ask.ps1) | the `[<pid>]` tag of an `ask.log` line | watcher identity | `Get-ChatqRunnerPid` (the hook process sets no seam, so it keeps its own pid) |
+| [Invoke-ChatqAlertCommand](src/alerts.ps1), [Get-ChatqPermitLaunch](src/permit.ps1), [Get-ChatqOutboxLaunch](src/phone.ps1), [Get-ChatqAskHookCommand](src/ask.ps1), [Get-ChatqWatcherLaunch](src/watcher.ps1), [Get-ChatOverlayLaunch](src/overlay.ps1) | `(Get-Process -Id $PID).Path`: the PowerShell to launch with, which equals `--ps` | own process | unchanged |
+| [Receive-ChatOverlayCommands](src/overlay-data.ps1) | the `"$p.$PID"` name a file is taken under | own process | unchanged |
+| [Invoke-ChatOverlayCycle](src/overlay-data.ps1) | `overlay.json` `pid`: the overlay host running the cycle | own process | unchanged |
+| [Start-ChatqAskHook](src/ask.ps1) | `hookPid`: the hook process | own process | unchanged |
+| [Get-ChatqRunnerPid](src/queue.ps1) | its `$PID` fallback when `ChatqRunnerPid` is unset | watcher identity | new in M2: the seam when set |
+| [Invoke-ChatqProcess](src/queue.ps1) | the parent check's `Stop-Process -Id $PID` | own process | new in M2: the step ends itself |
+
+Not reached from any op, so outside the audit's list; if the reach analysis ever finds one, it fails: [Invoke-ChatqWatchLoop](src/watcher.ps1) (`watcher.pid` and its `watcher <pid> started`/`stopped` lines, which chatqd writes itself), [Set-ChatqKeepAwake](src/watcher.ps1) (`caffeinate -w`, `systemd-inhibit … --pid`; chatqd keeps itself awake), the overlay hosts' pid files and lines in [src/overlay-windows.ps1](src/overlay-windows.ps1) and [src/overlay-mac.ps1](src/overlay-mac.ps1), and [src/ask-hook.ps1](src/ask-hook.ps1), which is not a loader part.
 
 **Parent death.**
 
-- A step checks its parent at every op boundary and in every [Invoke-ChatqProcess](src/queue.ps1) `$check` (runs and probes), through a seam `$script:ChatqStepParent`.
-- The parent is alive only if a process with pid `-Watcher` exists **and** its start time equals `-WatcherStart` within 1 s. That is `(Get-Process -Id).StartTime`, which .NET reads from `GetProcessTimes` on Windows and `proc_pidinfo` on macOS, the same sources chatqd uses for its own value.
+- A step checks its parent at every op boundary and in every [Invoke-ChatqProcess](src/queue.ps1) `$check` (runs and probes), through the seam `$script:ChatqStepParent`.
+- The parent is alive only if a process with pid `-Watcher` exists **and** its start time equals `-WatcherStart` within 1 s: `[math]::Abs((Get-Process -Id $Watcher).StartTime.ToUniversalTime().Ticks - $WatcherStart) -le 10000000`. .NET reads `StartTime` from `GetProcessTimes` on Windows and `proc_pidinfo` on macOS, the same sources chatqd uses for its own value (Launch, above). No such process, or a start time that cannot be read, counts as dead.
 - If the parent is dead or the pid was reused, the step ends itself at once with `Stop-Process -Id $PID -Force`. No `finally`, no cleanup.
 - That leaves exactly what a killed PS watcher leaves today: the CLI orphaned and running, the job `running` with a dead `runnerPid`, and the next watcher's repair marking it `interrupted - the watcher stopped mid-run; chatqrun <seq> sends it again`.
 - chatqd does not kill a step on its own exit. On Windows the step is not in a kill-on-close job object, deliberately, so the orphaning semantics match.
 
-**Failure.** A step that ends with no `Out`, `ok:false` without a result, or exit 3 (did not load):
+**Failure.** Every step ends in exactly one outcome, tried in this order:
 
-- For `pick`, `pre-run` and `post-run`, PS's own catch did not run, so chatqd does the nearest thing:
-  - log `#<seq> error: helper step <reason>` to `watcher.log`, where reason is `exited <code> with no answer` or `did not load (exit 3)`;
-  - fail the job `chatq error: helper step <reason>` if it is still `queued` or `running` (Update-only);
-  - send the `failed` alert through a fresh `alert` step, or log to `chatqd.log` if even that fails.
-  - This is the one line chatqd writes that PS never wrote. Today's equivalent is the PS watcher itself dying, which writes nothing (§8 "Deliberate differences").
-- Any other op logs its failure to `chatqd.log` only, as the PS function's own catch would have swallowed it.
-- `W` is left as it was before the step. The loop continues.
+| Outcome | When | `<reason>` |
+|---|---|---|
+| did not start | the launch itself failed: `In` could not be written, chatqd's own start time could not be read, or `CreateProcessW` or `spawn` returned an error ([step::run](native/crates/chatqd/src/watch/step.rs)) | `did not start` |
+| Ok | `Out` is a good answer with `ok:true`, whatever the exit code | none |
+| failed | `Out` is a good answer with `ok:false` | `failed: <error>` |
+| did not load | no good answer, exit code 3 | `did not load (exit 3)` |
+| no answer | no good answer, any other exit code | `exited <code> with no answer` |
+
+`<code>` is the exit code as a signed decimal: Windows' `GetExitCodeProcess` value as an `i32` (so `-1073741510` for a closed console), and on macOS the code, or 128 plus the signal number for a process a signal ended.
+
+`chatqd.log` gets, per step:
+
+- `step <n> <op> exited <code> after <ms> ms` for every step that started, `<ms>` from launch to exit;
+- `step <n> <op>: helper step did not start (<OS error text>)` for a launch that failed;
+- `step <n> <op>: helper step <reason>` for every other outcome but Ok;
+- `stop seen while step <n> (<op>) runs`, at most once per step.
+
+When the outcome is not Ok:
+
+- `W` is left as it was before the step, caches included, with `current` null. `Out.w` is never taken in part.
+- **`pick`** (and from M5 `pre-run` and `post-run`): PS's own catch did not run, so chatqd does the nearest thing, the pick-failure write of §2.4: the `watcher.log` line, the job failed if it is still `queued` or `running`, and only if that write happened the `failed` alert, through a fresh `alert` step with args `{event:'failed', text:'<title> · chatq error: helper step <reason>', priority:2, jobId:<id>, loud:false, quick:false, noReply:false, usageKind:null}` and `alertJob` `#<seq>`. If that step is not Ok either, `chatqd.log` gets `the failed alert for #<seq> did not go: helper step <reason>` (that step's reason). Then chatqd goes on as after any pick: save state, board, next pass.
+- **A failed step whose gate still holds records its attempt** (your decision 3 of 2026-10-18), so the next pass does not run it again at once. chatqd checks the op's pre-gate again right after the step; `W` is as before, so only the files can have moved it (a `held` step that sent its summary and then died has left no `held.jsonl`). While the gate holds, chatqd records what the PS function records when it tries and fails:
+  - `block`: `scannedAt[<lane>]` = now for the lane of each job named, as [Update-ChatqBlock](src/watcher.ps1) stamps after its scan;
+  - `held`: `ChatqSummaryTriedAt` = now, as [Send-ChatqHeldSummary](src/phone-extras.ps1) sets on a failed push;
+  - `ask-landed`: every `ChatqAskSent` entry whose `At` was at least 20 s old at the step's launch is dropped, as [Test-ChatqAskLanded](src/ask.ps1) drops each one before it looks.
+- Nothing is recorded for the rest:
+  - `auto` and `stray`: their timers moved at launch, as the loop moves them before the call;
+  - `soon`: [Send-ChatqUsageSoon](src/phone-extras.ps1) never throws, and when its lock or save fails it records nothing either, so the next pass tries again in both engines (§8 "M2 contract notes");
+  - `repair`: run once, as the PS watcher runs it once;
+  - `alert` and `job-write`: the line in `chatqd.log` is all. A wake's `deferUntil` that a `job-write` failed to clear stays set, as a failed `Save-ChatqJob -Existing` leaves it in PS.
+- The loop continues. The `watcher.log` line of a failed pick is the one line chatqd writes that PS never wrote; today's equivalent is the PS watcher itself dying, which writes nothing (§8 "Deliberate differences").
 
 **Audit test (Tier 0).** A self-test check parses every function a step op reaches. It uses the same reach analysis the self-test already runs for `$chatRoles` in [tests/sections/find-delete.ps1](tests/sections/find-delete.ps1). It lists:
 
@@ -941,6 +1088,15 @@ Cwd  = $HOME
   4. Log one line to `chatqd.log`: `handing over to the PowerShell watcher: <reason>`.
 
   The PS watcher logs `carrying on from the watcher before it`, as on a restart today.
+- **What a handoff carries** (from M2; your decision 6 of 2026-10-18). A handoff mid-life, today the reply window opening, carries chatqd's whole `W` and its caches to the PS watcher, so it does not repeat a probe, a scan, an ask check or a soon alert chatqd already made.
+  - **Writer.** chatqd, on `Exit::Handoff` only (a reply window, or a panic), before step 2's state save: `D/native/handoff.json` = `{"v":1, "watcherPid":<chatqd pid>, "w":{…}}`, `w` in §3.6's encoding with `handoff` true. Written atomically, like `In`. `carry.clixml` is left in place.
+  - **Not on a restart.** `Exit::Restart` (the `restart` file, an engine switch) writes no `handoff.json`, so the next watcher, of either engine, restores from `state.json` alone, as a PS watcher after a PS restart does.
+  - **Reader.** [Restore-ChatqWatchState](src/watcher.ps1), only when `state.handoff` is true and `D/native/handoff.json` exists. It is taken only if `v` is 1 and `watcherPid` equals `state.pid`. It is decoded with `ConvertFrom-ChatqStepW` into a fresh W and fresh caches first, so a file that does not decode is ignored whole. Then:
+    - taken: `blocked`, `lastAllowed`, `probeFails`, `scannedAt`, `outage` and `authAlerted` come from it, in place of the `state.json` restore; the ten caches are set; `carry.clixml` is imported, as a step imports it. `current`, `next`, `startedAt`, `handoff` and `listening` are not taken: they are the new watcher's own;
+    - not taken: the `state.json` restore runs as today.
+  - Either way, once it has looked at a `handoff.json`, it deletes `handoff.json` and `carry.clixml`.
+  - chatqd's start sweeps `handoff.json` with the step files and the carry (§4.5), so a file no PS watcher took never outlives the next chatqd.
+  - The auto and stray timers are not carried: the PS watcher runs both on its first pass, as after any restart (§8 "Deliberate differences").
 - **PS → chatqd.** Only through `restart` (engine switch, install) and the normal respawns, which go through the decision. There is no ping-pong: from M3 on, chatqd handles everything through steps and never hands back by itself except on panic.
 
 ### 4.5 data/ layout additions
@@ -949,7 +1105,9 @@ Cwd  = $HOME
 R/bin/<version>/<target>/chatqd(.exe)    shipped payload, beside src/ (not runtime data)
 R/src/native-step.ps1                    shipped step entry (3.6)
 D/native/step-<n>.in.json|.out.json      step exchange; deleted after each step; leftovers swept at start
-D/native/carry.clixml                    PS-only caches across steps (3.6); deleted at chatqd start
+D/native/carry.clixml                    PS-only caches across steps (3.6); deleted at chatqd start, kept at a handoff
+D/native/handoff.json                    {v, watcherPid, w}: W and caches for the PS watcher at a handoff (4.4);
+                                         deleted by its reader and at chatqd start
 D/native/run-<jobId>.stdin|.err          a run's prompt and stderr spool (2.6); deleted by post-run
 D/native/pending.json                    the last native launch not yet acked: {pid, version, at} (4.2)
 D/native/last.json                       the lock holder's record: {pid, version, engine, state, at} (4.2)
@@ -1113,7 +1271,7 @@ There are 20 files. Nineteen are made by PowerShell, each by `tests/vectors/<nam
 | `watcher-launch.json` | [Get-ChatqWatcherLaunch](src/watcher.ps1)'s PowerShell branch, `{psExe, script, logDir, claude, codex}` → `{exe, args, command}`, the log path as Windows PowerShell's `Join-Path` makes it (§2.7) |
 | `jobs-order.json` | [Get-ChatqJobs](src/queue.ps1) order for fixture queues, ties as each edition's unstable sort leaves them (§2.4); [Get-ChatqLane](src/watcher.ps1) |
 | `due.json` | [Get-ChatqDueTime](src/watcher.ps1), [Update-ChatqBlock](src/watcher.ps1)'s skip rules |
-| `gates.json` | [Test-ChatqHeldWaiting](src/phone-extras.ps1), [Test-ChatqAutoWanted](src/auto-continue.ps1), the [Send-ChatqUsageSoon](src/phone-extras.ps1) gate (fires or not, wake time), the alert route (§1.4), [Test-ChatqReplyOpen](src/phone.ps1), [Get-ChatqReplyPollSeconds](src/phone-down.ps1), [Get-ChatqReplyListenText](src/phone-down.ps1) |
+| `gates.json` | [Test-ChatqHeldWaiting](src/phone-extras.ps1), the held pre-gate ([Send-ChatqHeldSummary](src/phone-extras.ps1)'s quiet hours and 5-minute retry wait, [gates::held_summary_due](native/crates/chatq-core/src/gates.rs)), [Test-ChatqAutoWanted](src/auto-continue.ps1), the [Send-ChatqUsageSoon](src/phone-extras.ps1) gate (fires or not, wake time, and the keys already in `usage-alerts.json`, [gates::soon_already_sent](native/crates/chatq-core/src/gates.rs)), the alert route (§1.4), [Test-ChatqReplyOpen](src/phone.ps1), [Get-ChatqReplyPollSeconds](src/phone-down.ps1), [Get-ChatqReplyListenText](src/phone-down.ps1) |
 | `timers.json` | Fixed-clock pass sequences → which timers fire: auto and stray on pass 1 then 5 min/6 h, block per lane per 10 min, heartbeat 60 s, ask-landed at 20 s, the 30 s board/state rule, keep-awake, the run, each wait's length. This replaces, for chatqd, the source-text check of the auto scan in [tests/sections/auto-continue.ps1](tests/sections/auto-continue.ps1), which stays for the PS loop |
 | `state.json` | [Save-ChatqWatchState](src/watcher.ps1) → [Restore-ChatqWatchState](src/watcher.ps1) round trips, both directions between engines |
 | `reply-state.json` | [Use-ChatqReplyState](src/phone.ps1) and [Save-ChatqReplyState](src/phone.ps1): a file, the junk-only change or `lastPolledAt` alone, now and `reply.hours` → the file written (key set, every prune), or the throw and whether the file was left; and the files chatqd refuses to write back (§2.2) |
@@ -1140,12 +1298,12 @@ New in `tests/sections/native.ps1`:
 
 1. **Vectors.** Regenerate and diff (always).
 2. **Engine decision.** `Get-ChatqWatcherEngine` across config, env, missing or non-executable binary, preflight pass/fail, every strike kind, blown fuse and Linux, through the `$script:ChatqSpawn` seam (always).
-3. **Step protocol.** `Invoke-ChatqNativeStep` for each op against fixtures, including:
+3. **Step protocol**, in a section of its own, [tests/sections/native-step.ps1](tests/sections/native-step.ps1). `Invoke-ChatqNativeStep` for each op against fixtures, including:
    - the `state.json` pid seam and the runner pid seam;
    - parent-death self-termination (a fake parent pid that exits; a reused pid with a wrong start time);
    - the `$script:`/`$W`/`$PID` audit and round-trips (§3.6);
    - the `pick` catch line equal to the PS loop's;
-   - the parent-name audit (§5.6).
+   - the parent-name audit (§5.6), from M5: DEFERRED.md "The parent-name audit".
 4. **The contract harness** (§6.5), when a chatqd binary is present (CI provides one).
 
 ### 6.3 Rust tests
@@ -1197,17 +1355,24 @@ The existing legs stay. Two Rust legs run beside them; every run step of both is
 
 The PS tests reach about 40 in-process seams: `$script:ChatqReplyPollSeam`, `ChatqNtfySeam`, `ChatqJoinSeam`, `ChatqToastSeam`, `ChatqIdleSeam`, `ChatqDownSeam`, `ChatqFooterSeam`, `ChatqClockSeam`, `ChatqHeldKickSeam`, `ChatqExtHomeSeam`, `ChatqStatusUrl` (a file path allowed), `ChatqSpawn`, `ChatParentSeam`, `ChatqAliveSeam`, `ChatqAskAliveSeam`, `ChatqPermitExeSeam`, `ChatqHookTimeoutSec` and others. A separate process cannot reach them, so they cross by file.
 
-- **The seams file.** `CHATQ_NATIVE_SEAMS=<path>`, a JSON object. chatqd honours:
-  - `clock` (fixed or offset);
-  - `ntfyBase` (poll and publish base URL) and `capture` (a directory: every publish, Join call, toast and spawn is written there as JSON instead of happening);
-  - `joinBase`, `statusUrl` (URL or file);
-  - `idleSeconds`;
-  - `spawn` (record launches instead of starting them, as `ChatqSpawn` does). Each launch goes to `<capture>/spawn-<n>.json` as `{engine, exe, args, cmdline, command, cwd}`, `command` being the decoded PS command for a PS launch and null for a native one;
-  - `alive` (override liveness answers);
-  - `panic` (M0 test only): the first pass panics, so §4.1 item 8's strike, `finally` and handoff are tested;
-  - `hold` (M0 only, minutes): an empty queue waits that long in [Wait-ChatqUntil](src/watcher.ps1)'s loop, then exits as usual. M0 has no real wait (§7 M0), and this is how its wait, `stop` and `wake` mid-wait, keep-awake and memory are tested. Never set in a release launch; gone from M2, whose waits are real.
+- **The seams file.** `CHATQ_NATIVE_SEAMS=<path>`, a JSON object, read as pwsh 7 reads it (§2.2). Each honoured seam is logged to `chatqd.log`. The same path goes to every step (`-Seams`) and to a PS watcher chatqd starts. `src/native-step.ps1` maps each name onto `$script:` seam variables by the table below, before the op runs, and so does the harness's PS-watcher launch. The handover timings and process-table seams are therefore set inside steps exactly as the PS tests set them today. A name the table does not list is ignored.
 
-  Each honoured seam is logged to `chatqd.log`. The same path goes to every step (`-Seams`) and to a PS watcher chatqd starts. `src/native-step.ps1` maps each name onto the matching `$script:` seam variable, and so does the harness's PS-watcher launch. The handover timings and process-table seams are therefore set inside steps exactly as the PS tests set them today.
+  | Name | Value | chatqd itself (M2) | `$script:` variable a step sets |
+  |---|---|---|---|
+  | `capture` | a directory | with `spawn`, its own launch records | recorders that write a JSON file there instead of the call happening: [`ChatqToastSeam`](src/alerts.ps1) `{param($Title,$Text)}` → `toast-<n>.json` `{title, text}`; [`ChatqNtfySeam`](src/alerts.ps1) `{param($server,$body,$headers)}` → `ntfy-<n>.json` `{server, body, headers}`; [`ChatqJoinSeam`](src/alerts.ps1) `{param($url)}` → `join-<n>.json` `{url}`, returning `$null` (no error); [`ChatqDownSeam`](src/phone-down.ps1) `{param($Method,$Url,$Headers,$Body)}` → `down-<n>.json` `{method, url, headers, body}`, returning `$null`; [`ChatqLiveSendSeam`](src/phone.ps1) `{param($o)}` → `live-<n>.json` `{alert}` |
+  | `spawn` | `true` (needs `capture`) | records its launches instead of starting them, as `ChatqSpawn` does: `<capture>/spawn-<n>.json` = `{engine, exe, args, cmdline, command, cwd}`, `command` being the decoded PS command for a PS launch and null for a native one | [`ChatqSpawn`](src/watcher.ps1) `{param($l)}` → `spawn-<n>.json` `{engine, exe, args, command}` from `$l`'s `Engine`, `Exe`, `Args` and `Command`, returning `$true` |
+  | `clock` | an ISO stamp, or a number of seconds | not honoured in M2 (§8 "M2 contract notes") | [`ChatqClockSeam`](src/phone-extras.ps1) = [ConvertTo-ChatqDate](src/queue.ps1) of the stamp, or `(Get-Date).AddSeconds(<n>)` at the step's start; [Get-ChatqNow](src/phone-extras.ps1) then gives it |
+  | `statusUrl` | a URL, or a file path (anything not `^https?://`) | not used: no native status call in M2 | [`ChatqStatusUrl`](src/queue.ps1) |
+  | `idleSeconds` | a number | not used in M2 | [`ChatqIdleSeam`](src/alerts.ps1) = `[double]<n>` |
+  | `alive` | a bool | not used in M2 | [`ChatqAliveSeam`](src/live-chats.ps1) = `{ param($Entry) <bool> }` and [`ChatqAskAliveSeam`](src/ask.ps1) = `{ param($Req) <bool> }` |
+  | `ntfyBase` | a base URL | not used in M2 (M3's poll) | [`ChatqReplyServer`](src/phone.ps1), the reply server used when config names none. Publishes are captured anyway |
+  | `joinBase` | | | none: Join's URL is a literal in [Get-ChatqJoinUrl](src/alerts.ps1), with no variable to set. Join calls are captured under `capture` instead |
+  | `handoverOff` | a bool | | [`ChatHandoverOff`](src/core.ps1), so [Test-ChatqHandoverOn](src/watcher.ps1) says no and no step drives VS Code |
+  | `panic` | a bool | M0 test only: the first pass panics, so §4.1 item 8's strike, `finally` and handoff are tested | none |
+
+  - `<n>` in a capture file name is the first number from 1 whose file does not exist, the file created with create-new, so chatqd and steps never share one.
+  - Each record is written by `ConvertTo-Json -Depth 8` (chatqd: `serde_json`), so `body` and `headers` are as that serialises them.
+  - M0's `hold` seam is gone: M2 waits for real, and its waits, `stop` and `wake` mid-wait are tested by the harness's own cases.
 - **The harness** (`native.ps1` item 4). Each case is a fixture `D` plus a seams file plus a scripted event list: queue a job, touch `wake` with `now`, post to the fake ntfy, write a cancel file, advance the clock. Every case runs twice: once with the PS watcher (`Invoke-ChatqWatchLoop` in a child, seams applied) and once with chatqd. The comparison, with stamps and pids masked, covers:
   - `watcher.log`, `alerts.log`, `replies.log` and `jobs.log` line for line;
   - the job files and `state.json` semantically;
@@ -1282,6 +1447,8 @@ Each milestone is shippable on its own, behind the engine switch, with `ps` the 
 
 ### M2: Native loop, PowerShell steps
 
+**Status.** Built, in ChatVersion 0.10.16, to the step contract of §2.4, §3.6, §4.4, §6.5 and §8 "M2 contract notes". Tier 0 passes: `cargo test` (with `timers.json` replayed through the loop) and both PowerShells' self-test, the twin run included. Tier 1 is TESTING.md's S57, not yet run, so the memory while waiting and the steps an hour are not measured yet. Tier 2 is S57 on a Mac, after M0's. The parent-name audit waits for M5 (DEFERRED.md "The parent-name audit"), and the listening cases of `timers.json` for M3 (FUTURE_WORK.md "The rest of the tool in Rust").
+
 **Delivers.**
 
 - chatqd runs the whole [Invoke-ChatqWatchLoop](src/watcher.ps1) control flow itself:
@@ -1293,7 +1460,7 @@ Each milestone is shippable on its own, behind the engine switch, with `ps` the 
   - [Write-ChatqBoard](src/alerts.ps1) natively when not listening;
   - the per-pick error path through `Invoke-ChatqPick`.
 - Through steps: `repair`, `block`, `pick`, `auto`, `stray`, `soon`, `held`, `ask-landed`, `alert`, `job-write`.
-- No handoff for queued jobs any more. An open reply window still hands off: listening is M3.
+- No handoff for queued jobs any more. An open reply window still hands off, carrying `W` and the caches through `handoff.json` (§4.4): listening is M3.
 - PS side:
   - `Invoke-ChatqNativeStep`, `src/native-step.ps1`, `Invoke-ChatqPick` (the loop now calls it too);
   - the `state.json` pid seam and `Get-ChatqRunnerPid`;
@@ -1302,12 +1469,13 @@ Each milestone is shippable on its own, behind the engine switch, with `ps` the 
 
 **Check.**
 
-- **Tier 0.** `native.ps1` item 3 and the harness's job cases through `pick`; the board goldens; `timers.json`; `gates.json`.
+- **Tier 0.** `native.ps1` item 3 and the harness's job cases through `pick`; the board goldens; `timers.json`, both ways: [chatq-core/tests/timers_vectors.rs](native/crates/chatq-core/tests/timers_vectors.rs) and chatqd's [timers_replay](native/crates/chatqd/src/watch/timers_replay.rs) through the real loop, a case whose reply window opens checked up to its handoff until M3; `gates.json`.
 - **Tier 1.**
   - A real Claude job and a real Codex job queued behind a real limit overnight. `watcher.log` diffs clean against a PS night by the harness's masking.
   - `chatqrun -Now` mid-wait.
   - Kill chatqd mid-run: the step ends itself within 5 s, the CLI finishes or orphans, and the next watcher logs `interrupted`.
   - Memory while waiting; step count and peak per hour, recorded.
+- **Tier 2.** On a Mac: a job picked through a step under `pwsh`, the step's reading of chatqd's start (`proc_pidinfo`) equal to `-WatcherStart`, and a step whose chatqd is killed ending itself.
 
 ### M3: Native listening
 
@@ -1439,8 +1607,17 @@ Out of this SPEC's scope.
 - **Image name** `chatqd` and the run's parent (risk 7).
 - **`taskkill.exe`** is run from `%SystemRoot%\System32` by absolute path. PS resolves the bare name through PATH. The two differ only if PATH puts another `taskkill.exe` ahead of System32, which is a planted-binary case worth closing.
 - **`.jsonl` lines keep flowing during a mid-run step.** PS stops reading stdout while `onTick` runs (a 20 s push stalls the stream). chatqd's reader keeps logging, and `claude` is never back-pressured. Content and order are identical; only arrival timing differs, in the tail's favour.
-- **`#<seq> error: helper step <reason>`** with no `@ <frame>`, only when a step process dies without answering. The PS equivalent is the watcher process dying, which logs nothing at all.
+- **`#<seq> error: helper step <reason>`** with no `@ <frame>` unless the reason is `failed: <error>`, only when a pick step does not answer well: it did not start, did not load, died, or threw outside Invoke-ChatqPick's own catch. The PS equivalent is the watcher process dying, which logs nothing at all.
 - **Handle inheritance** is narrowed to the three pipes for runs (§2.6). .NET inherits every inheritable handle, and the watcher owns none it means to pass on.
+- **The pick and block steps read the job again.** chatqd lists the queue, then the step finds the job by id. A `pick` skips a job removed, or no longer `queued`, in between (`{gone:true}`); a `block` step skips only a removed one, since [Update-ChatqBlock](src/watcher.ps1) reads nothing of the job but its lane, and scans for a changed one with the job as re-read. The PS loop goes on with the copy it listed: it probes and runs a job its user just removed or changed, or scans for it. The gap is the step's start, about 0.4 s.
+- **Timers are not carried on a handoff.** `handoff.json` carries `W` and the caches (§4.4), not chatqd's auto (5 min) and stray (6 h) timers or its board time. The PS watcher runs the auto scan and the stray sweep on its first pass, as every PS watcher does after a restart.
+- **The soon prune-save is skipped once per key.** When every due soon key is already in `data/usage-alerts.json`, chatqd adds it to `ChatqUsageSent` with no step, so [Use-ChatqUsageAlertState](src/phone-extras.ps1)'s [Save-ChatqUsageAlertState](src/phone-extras.ps1), which prunes old keys on every save, does not run for it. The file is pruned at its next save by anyone: a soon alert that goes, or the overlay's heads-ups. A key the prune drops names a reset long past or a window long gone, so no gate asks for it again.
+- **A pick failure is written Update-only, and its alert waits for the write** (§2.4). The PS catch calls [Complete-ChatqJob](src/watcher.ps1) without `-Existing`, so a job file removed in that instant comes back, failed; and it sends the alert even when that write threw. chatqd never brings a removed job back, and alerts only for a job it failed.
+- **A handoff carries more than a PS restart does.** `handoff.json` carries `lastAllowed`, `probeFails`, `scannedAt` and the caches (ask entries, reply dedupe sets, soon keys, the summary's last try), which a PS watcher handing over to a PS watcher drops. So the PS watcher that takes over from chatqd mid-life does not repeat a probe chatqd made under 3 min ago, a scan under 10 min ago, an ask check or a soon alert. Your decision 6: these handoffs happen mid-life, when the reply window opens, where dropping them would repeat pushes.
+- **The auto, stray and rescan timers read the pass's start time.** chatqd fires them on the `now` it took at the top of the pass. The PS loop reads Get-Date at each test, so its later tests drift by however long the steps before them in that pass took. A timer can fire one pass apart between the engines when a pass's steps straddle its due time. Nothing reads when a timer fired, only that it did.
+- **The reply window is asked at the top of the pass.** chatqd hands over to the PS watcher when [Test-ChatqReplyOpen](src/phone.ps1) holds as a pass begins. A held summary whose push opens the window is handed over at the next pass, within the 30 s a wait lasts at most, where the PS loop asks the window after the summary and polls it in the same pass.
+- **The soon gate's wake time past a failed lock.** On the failure path only: when [Use-ChatqUsageAlertState](src/phone-extras.ps1) throws on its lock or save, [Send-ChatqUsageSoon](src/phone-extras.ps1)'s catch ends its walk over the lanes, so the PS loop wakes only for the lanes it reached. chatqd takes the wake time from the native gate, over every lane. Either way nothing is recorded and the alert is tried again on the next pass.
+- **A failed step records its attempt** (§3.6 "Failure"): `block` stamps `scannedAt`, `held` sets `ChatqSummaryTriedAt`, `ask-landed` drops its due entries. In the PS watcher the same fault is a throw: from [Update-ChatqBlock](src/watcher.ps1) or [Test-ChatqAskLanded](src/ask.ps1), which the loop calls outside any `try`, it ends the watcher; inside [Send-ChatqHeldSummary](src/phone-extras.ps1) its own `catch` takes it. A step retried every pass would cost 0.4 s and 100 MB a pass; recorded, it waits as a success would.
 
 ### Review items not taken as proposed
 
@@ -1467,6 +1644,32 @@ Each is fixed in the section named. None is a decision of yours yet.
 - **The fuse's alert** comes from a PS decision call, and a strike's launch is the call's own (§4.2).
 - **Zoneless stamps** differ by flavour (§2.2); **curly quotes** are doubled in the launch (§2.7).
 - **New formats**: `verified.json`, `fuse.json`'s `alerted` (§4.5), the capture spawn record (§6.5).
+
+### M2 contract notes (2026-10-18)
+
+Your decisions of 2026-10-18, where the contract carries them:
+
+1. M2 ships as `0.10.16`; the version moves only in M2's last, versioned commit.
+2. The harness runs each job case twice, once per engine, and compares (§6.5 "The harness").
+3. A failed step whose gate still holds records its attempt (§3.6 "Failure").
+4. A step that cannot be launched is reason `did not start` (§3.6 "Failure"; §2.4 for a pick).
+5. The parent-name audit (§5.6) waits for M5, as §5.6 already says: DEFERRED.md "The parent-name audit".
+6. A mid-life handoff carries `W` and the caches through `handoff.json` and `carry.clixml` (§4.4).
+
+Where the contract departs from the earlier text, from reading the PS sources:
+
+- **Maps travel as pair lists**, not JSON objects (§3.6 "The `w` encoding"): an empty lane key and `Answers` keys that differ only by case would each make 5.1's `ConvertFrom-Json` throw.
+- **`Answers` comes back ordinal**: an `OrderedDictionary` with `[StringComparer]::Ordinal`, as [ConvertTo-ChatqAskAnswers](src/ask.ps1) builds it, not `[ordered]`, which is case-blind and would merge two questions.
+- **`ntfyBase` maps to `ChatqReplyServer`**, the reply server's default; publishes are captured whatever their server. **`joinBase` maps to nothing**: Join's URL is a literal with no variable, and `capture` takes every Join call anyway (§6.5).
+- **`job-write` has a second shape**, `complete`, for a pick failure on a file chatqd may not write (§2.4).
+- **The failed alert needs the failure written** (§8 "Deliberate differences").
+- **`ok:false`** is a reason of its own, `failed: <error>`, beside the two the earlier text named.
+- **Two of M2's job cases run under chatqd alone** (§6.5 "The harness"), as the PS watcher has no counterpart to run. A pick step killed mid-run: chatqd's failure write is compared with [Complete-ChatqJob](src/watcher.ps1) and the loop's failed alert, run on a twin of the job file the step left. A pick that opens the reply window: only chatqd hands over, so the PS watcher it would start is started on its `handoff.json` and must carry on from it.
+
+Open, for review:
+
+- **A `soon` step that keeps failing runs every pass** until the reset is past, since neither engine records a failed soon attempt. It needs a step that does not start or dies inside [Send-ChatqUsageSoon](src/phone-extras.ps1), which never throws. Recording it as sent would lose the alert; leaving it costs one step a pass while it lasts (FUTURE_WORK.md "A heads-up step that keeps failing").
+- **chatqd does not honour the `clock` seam in M2.** Its gates run on the real clock while a step's [Get-ChatqNow](src/phone-extras.ps1) follows the seam. A harness case that moves the clock into or out of quiet hours can see chatqd skip a `held` step the PS watcher would run. Such cases set no `clock` in M2.
 
 ### Open questions for you
 

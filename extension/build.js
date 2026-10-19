@@ -62,8 +62,9 @@ function build() {
     };
     for (const p of parts) copyPart(p, 'the loader lists src/' + p + '.ps1, which is not there');
     // files beside the parts that the loader does not load: the question
-    // hook's launcher, which Claude Code starts on its own (src/ask.ps1)
-    for (const extra of ['ask-hook']) copyPart(extra, 'src/' + extra + '.ps1 is not there');
+    // hook's launcher, which Claude Code starts on its own (src/ask.ps1),
+    // and the helper step chatqd starts (native/SPEC.md 3.6)
+    for (const extra of ['ask-hook', 'native-step']) copyPart(extra, 'src/' + extra + '.ps1 is not there');
     copy(path.join(root, 'CHANGELOG.md'), path.join(here, 'CHANGELOG.md'));
     copy(path.join(root, 'LICENSE'), path.join(here, 'LICENSE'));
     for (const md of ['README.md', 'CHANGELOG.md']) {

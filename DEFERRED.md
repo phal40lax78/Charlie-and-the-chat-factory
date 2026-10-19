@@ -2624,6 +2624,29 @@ becomes a chore. **To close:** `stage.ps1 [-Target <triple>]` building
 with `native/.cargo/config.toml` and copying into
 `bin/<ChatVersion>/<triple>/`.
 
+## The parent-name audit
+
+**Scope:** native/SPEC.md 5.6 plans a Tier 0 check that lists every
+process-name and parent-chain test in `src/` -
+[Test-ChatqAskHookAlive](src/ask.ps1),
+[Test-ChatVsCodeOwned](src/live-chats.ps1),
+[Get-ChatParentProcess](src/live-chats.ps1),
+[Test-ChatqClaudeProcess](src/watcher.ps1) and the rest it names - fails
+on a new one, and runs the chain tests against a fake chain with a
+`chatqd` link. 0.10.16 has no such check: the `$script:`/`$W`/`$PID`
+audit in `tests/sections/native-step.ps1` classes variables, not names.
+
+**Why deferred:** decided 2026-10-18 for M5. In M2 to M4 a run's CLI
+still has a `powershell` for a parent - the step's, where it was the
+watcher's - and chatqd is one link further up, where the watcher's own
+starter was, which no test names. Only M5, where chatqd starts the CLI
+itself, makes `chatqd` the parent a name test reads.
+
+**Revisit when:** M5 starts, before chatqd launches a run, or if any
+check in `src/` starts keying on the watcher's own image. **To close:**
+the audit SPEC 5.6 describes, in `tests/sections/native-step.ps1` beside
+the variable audit, and SPEC 7 M5's Tier 0 item.
+
 ## pwsh 7's JSON constructors
 
 **Scope:** Newtonsoft reads a `new Name(args)` constructor where a value

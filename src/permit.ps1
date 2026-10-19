@@ -201,7 +201,7 @@ function Write-ChatqPermitLog {
     # data/logs/permit.log, rolled at 1 MB: the bridge's side of every request
     param([string]$Text)
     try {
-        Add-ChatqLogLine 'permit.log' "[$PID] $($Text -replace '[\r\n]+', ' ')"
+        Add-ChatqLogLine 'permit.log' "[$(Get-ChatqRunnerPid)] $($Text -replace '[\r\n]+', ' ')"
     }
     catch {}
 }

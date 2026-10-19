@@ -1,5 +1,5 @@
 {
-  "about": "The watcher loop's cheap gates, each run as the loop runs it against a data/ of its own. replyOpen: Test-ChatqReplyOpen (src/phone.ps1). held: Test-ChatqHeldWaiting (src/phone-extras.ps1), files aged against the clock. auto: Test-ChatqAutoWanted (src/auto-continue.ps1). soon: Send-ChatqUsageSoon (src/phone-extras.ps1) with the alert stubbed: next is the time the loop wakes for a soon alert, due the lanes whose key the process records now (sentBefore: already recorded), send those that then go (fileHas: already in data/usage-alerts.json), alerts how many were sent. route: SPEC 1.4, whether Send-ChatqAlert registers the alert as answerable (New-ChatqReplyAlert called), every gate before it held open; links is Get-ChatqReplyConfig's Links, secrets opened with protected ones all failing. pollSeconds: Get-ChatqReplyPollSeconds (src/phone-down.ps1). listenText: Get-ChatqReplyListenText (src/phone-down.ps1) under a culture, with its time separator. A file is read as the tool reads it, so a zoneless stamp is UTC to 5.1 and the zone's wall clock to pwsh 7.",
+  "about": "The watcher loop's cheap gates, each run as the loop runs it against a data/ of its own. replyOpen: Test-ChatqReplyOpen (src/phone.ps1). held: Test-ChatqHeldWaiting (src/phone-extras.ps1), files aged against the clock. heldSummary: Send-ChatqHeldSummary (src/phone-extras.ps1) with its claim stubbed, due when it gets that far: something held, the last failed push (triedSecondsAgo) 5 minutes old or more, now outside quiet hours on the local clock. auto: Test-ChatqAutoWanted (src/auto-continue.ps1). soon: Send-ChatqUsageSoon (src/phone-extras.ps1) with the alert stubbed: next is the time the loop wakes for a soon alert, due the lanes whose key the process records now (sentBefore: already recorded), send those that then go (fileHas: already in data/usage-alerts.json, sent at 08:00 or at its value; fileText: the file as it is), alerts how many were sent. route: SPEC 1.4, whether Send-ChatqAlert registers the alert as answerable (New-ChatqReplyAlert called), every gate before it held open; links is Get-ChatqReplyConfig's Links, secrets opened with protected ones all failing. pollSeconds: Get-ChatqReplyPollSeconds (src/phone-down.ps1). listenText: Get-ChatqReplyListenText (src/phone-down.ps1) under a culture, with its time separator. A file is read as the tool reads it, so a zoneless stamp is UTC to 5.1 and the zone's wall clock to pwsh 7.",
   "cases": [
     {
       "name": "replyOpen: no reply block",
@@ -805,6 +805,516 @@
         "files": [{"name": "sub/held-1.sending", "ageSeconds": 660}]
       },
       "expect": {"waiting": false}
+    },
+    {
+      "name": "heldSummary: nothing held",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "files": []
+      },
+      "expect": {"due": false}
+    },
+    {
+      "name": "heldSummary: held, no quiet hours",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}]
+      },
+      "expect": {"due": true}
+    },
+    {
+      "name": "heldSummary: a sending claimed 11 minutes ago",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "files": [{"name": "held-1.sending", "ageSeconds": 660}]
+      },
+      "expect": {"due": true}
+    },
+    {
+      "name": "heldSummary: inside quiet hours",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"quietHours": {"from": "08:00", "to": "10:00"}},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}]
+      },
+      "expect": {"due": false}
+    },
+    {
+      "name": "heldSummary: inside quiet hours, nothing held",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"quietHours": {"from": "08:00", "to": "10:00"}},
+        "files": []
+      },
+      "expect": {"due": false}
+    },
+    {
+      "name": "heldSummary: quiet hours ending now",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"quietHours": {"from": "07:00", "to": "09:00"}},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}]
+      },
+      "expect": {"due": true}
+    },
+    {
+      "name": "heldSummary: quiet hours starting now",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"quietHours": {"from": "09:00", "to": "10:00"}},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}]
+      },
+      "expect": {"due": false}
+    },
+    {
+      "name": "heldSummary: quiet hours a second ahead",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:59.0000000Z",
+        "config": {"quietHours": {"from": "09:01", "to": "10:00"}},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}]
+      },
+      "expect": {"due": true}
+    },
+    {
+      "name": "heldSummary: quiet hours later today",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"quietHours": {"from": "22:00", "to": "23:00"}},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}]
+      },
+      "expect": {"due": true}
+    },
+    {
+      "name": "heldSummary: past midnight, inside in the morning",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"quietHours": {"from": "22:00", "to": "10:00"}},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}]
+      },
+      "expect": {"due": false}
+    },
+    {
+      "name": "heldSummary: past midnight, inside in the evening",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T23:30:00.0000000Z",
+        "config": {"quietHours": {"from": "22:00", "to": "07:00"}},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}]
+      },
+      "expect": {"due": false}
+    },
+    {
+      "name": "heldSummary: past midnight, outside",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"quietHours": {"from": "22:00", "to": "07:00"}},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}]
+      },
+      "expect": {"due": true}
+    },
+    {
+      "name": "heldSummary: past midnight, at midnight",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-16T00:00:00.0000000Z",
+        "config": {"quietHours": {"from": "22:00", "to": "07:00"}},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}]
+      },
+      "expect": {"due": false}
+    },
+    {
+      "name": "heldSummary: from 00:00",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"quietHours": {"from": "00:00", "to": "10:00"}},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}]
+      },
+      "expect": {"due": false}
+    },
+    {
+      "name": "heldSummary: to 00:00",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"quietHours": {"from": "08:00", "to": "00:00"}},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}]
+      },
+      "expect": {"due": false}
+    },
+    {
+      "name": "heldSummary: from equal to to is off",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"quietHours": {"from": "09:00", "to": "09:00"}},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}]
+      },
+      "expect": {"due": true}
+    },
+    {
+      "name": "heldSummary: a from of 8:00 is off",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"quietHours": {"from": "8:00", "to": "10:00"}},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}]
+      },
+      "expect": {"due": true}
+    },
+    {
+      "name": "heldSummary: a from of 24:00 is off",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"quietHours": {"from": "24:00", "to": "10:00"}},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}]
+      },
+      "expect": {"due": true}
+    },
+    {
+      "name": "heldSummary: a to of 09:60 is off",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"quietHours": {"from": "08:00", "to": "09:60"}},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}]
+      },
+      "expect": {"due": true}
+    },
+    {
+      "name": "heldSummary: a from with seconds is off",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"quietHours": {"from": "08:00:00", "to": "10:00"}},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}]
+      },
+      "expect": {"due": true}
+    },
+    {
+      "name": "heldSummary: a from and a space is off",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"quietHours": {"from": "08:00 ", "to": "10:00"}},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}]
+      },
+      "expect": {"due": true}
+    },
+    {
+      "name": "heldSummary: a from and a newline",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"quietHours": {"from": "08:00\n", "to": "10:00"}},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}]
+      },
+      "expect": {"due": false}
+    },
+    {
+      "name": "heldSummary: a from as a number is off",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"quietHours": {"from": 800, "to": "10:00"}},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}]
+      },
+      "expect": {"due": true}
+    },
+    {
+      "name": "heldSummary: a from as a list of one",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"quietHours": {"from": ["08:00"], "to": "10:00"}},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}]
+      },
+      "expect": {"due": false}
+    },
+    {
+      "name": "heldSummary: no to is off",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"quietHours": {"from": "08:00"}},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}]
+      },
+      "expect": {"due": true}
+    },
+    {
+      "name": "heldSummary: FROM and TO in capitals",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"quietHours": {"FROM": "08:00", "TO": "10:00"}},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}]
+      },
+      "expect": {"due": false}
+    },
+    {
+      "name": "heldSummary: QUIETHOURS in capitals",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"QUIETHOURS": {"from": "08:00", "to": "10:00"}},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}]
+      },
+      "expect": {"due": false}
+    },
+    {
+      "name": "heldSummary: quietHours as a list of one",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"quietHours": [{"from": "08:00", "to": "10:00"}]},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}]
+      },
+      "expect": {"due": false}
+    },
+    {
+      "name": "heldSummary: quietHours as a list of two is off",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"quietHours": [{"from": "08:00", "to": "10:00"}, {"from": "08:00", "to": "10:00"}]},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}]
+      },
+      "expect": {"due": true}
+    },
+    {
+      "name": "heldSummary: quietHours as a string is off",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"quietHours": "08:00-10:00"},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}]
+      },
+      "expect": {"due": true}
+    },
+    {
+      "name": "heldSummary: quietHours false is off",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"quietHours": false},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}]
+      },
+      "expect": {"due": true}
+    },
+    {
+      "name": "heldSummary: quietHours empty is off",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"quietHours": {}},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}]
+      },
+      "expect": {"due": true}
+    },
+    {
+      "name": "heldSummary: inside quiet hours east of UTC",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "India Standard Time",
+        "utcOffsetMinutes": 330,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"quietHours": {"from": "14:00", "to": "15:00"}},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}]
+      },
+      "expect": {"due": false}
+    },
+    {
+      "name": "heldSummary: UTC quiet hours, east of UTC",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "India Standard Time",
+        "utcOffsetMinutes": 330,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"quietHours": {"from": "08:00", "to": "10:00"}},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}]
+      },
+      "expect": {"due": true}
+    },
+    {
+      "name": "heldSummary: past midnight, west of UTC",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "SA Pacific Standard Time",
+        "utcOffsetMinutes": -300,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"quietHours": {"from": "22:00", "to": "06:00"}},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}]
+      },
+      "expect": {"due": false}
+    },
+    {
+      "name": "heldSummary: tried 4 minutes ago",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}],
+        "triedSecondsAgo": 240
+      },
+      "expect": {"due": false}
+    },
+    {
+      "name": "heldSummary: tried 4 minutes 59 ago",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}],
+        "triedSecondsAgo": 299
+      },
+      "expect": {"due": false}
+    },
+    {
+      "name": "heldSummary: tried 5 minutes ago",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}],
+        "triedSecondsAgo": 300
+      },
+      "expect": {"due": true}
+    },
+    {
+      "name": "heldSummary: tried an hour ago",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}],
+        "triedSecondsAgo": 3600
+      },
+      "expect": {"due": true}
+    },
+    {
+      "name": "heldSummary: tried ahead of the clock",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}],
+        "triedSecondsAgo": -60
+      },
+      "expect": {"due": false}
+    },
+    {
+      "name": "heldSummary: tried an hour ago, inside quiet hours",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"quietHours": {"from": "08:00", "to": "10:00"}},
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}],
+        "triedSecondsAgo": 3600
+      },
+      "expect": {"due": false}
+    },
+    {
+      "name": "heldSummary: config.json with a comment",
+      "input": {
+        "fn": "heldSummary",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "configText": "{\n  // nights\n  \"quietHours\": {\"from\": \"08:00\", \"to\": \"10:00\"}\n}",
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}]
+      },
+      "expectByEdition": {"Desktop": {"due": true}, "Core": {"due": false}}
     },
     {
       "name": "auto: the switch on",
@@ -2204,6 +2714,177 @@
         "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
       },
       "expect": {"next": "2026-10-15T10:50:00.0000000Z", "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: in data/usage-alerts.json in other letters",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T09:08:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}],
+        "fileHas": [{"lane": "CLAUDE", "until": "2026-10-15T09:08:00.0000000Z"}]
+      },
+      "expect": {"next": null, "due": ["s|claude|29867588"], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: in data/usage-alerts.json with no time",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T09:08:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}],
+        "fileHas": [{"lane": "claude", "until": "2026-10-15T09:08:00.0000000Z", "value": "not a date"}]
+      },
+      "expect": {"next": null, "due": ["s|claude|29867588"], "send": ["s|claude|29867588"], "alerts": 1}
+    },
+    {
+      "name": "soon: in data/usage-alerts.json as null",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T09:08:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}],
+        "fileHas": [{"lane": "claude", "until": "2026-10-15T09:08:00.0000000Z", "value": null}]
+      },
+      "expect": {"next": null, "due": ["s|claude|29867588"], "send": ["s|claude|29867588"], "alerts": 1}
+    },
+    {
+      "name": "soon: in data/usage-alerts.json as an empty string",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T09:08:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}],
+        "fileHas": [{"lane": "claude", "until": "2026-10-15T09:08:00.0000000Z", "value": ""}]
+      },
+      "expect": {"next": null, "due": ["s|claude|29867588"], "send": ["s|claude|29867588"], "alerts": 1}
+    },
+    {
+      "name": "soon: in data/usage-alerts.json for another reset",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T09:08:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}],
+        "fileHas": [{"lane": "claude", "until": "2026-10-15T09:09:00.0000000Z"}]
+      },
+      "expect": {"next": null, "due": ["s|claude|29867588"], "send": ["s|claude|29867588"], "alerts": 1}
+    },
+    {
+      "name": "soon: data/usage-alerts.json not JSON",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T09:08:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}],
+        "fileText": "not json"
+      },
+      "expect": {"next": null, "due": ["s|claude|29867588"], "send": ["s|claude|29867588"], "alerts": 1}
+    },
+    {
+      "name": "soon: data/usage-alerts.json empty",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T09:08:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}],
+        "fileText": ""
+      },
+      "expect": {"next": null, "due": ["s|claude|29867588"], "send": ["s|claude|29867588"], "alerts": 1}
+    },
+    {
+      "name": "soon: data/usage-alerts.json a list of one",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T09:08:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}],
+        "fileText": "[{\"s|claude|29867588\":\"2026-10-15T08:00:00.0000000Z\"}]"
+      },
+      "expectByEdition": {
+        "Desktop": {"next": null, "due": ["s|claude|29867588"], "send": ["s|claude|29867588"], "alerts": 1},
+        "Core": {"next": null, "due": ["s|claude|29867588"], "send": [], "alerts": 0}
+      }
     },
     {
       "name": "route: no reply block",

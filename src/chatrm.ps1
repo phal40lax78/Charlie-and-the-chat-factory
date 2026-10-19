@@ -1976,7 +1976,7 @@ function Write-ChatRunState {
         hostPids   = [int[]]@($Run.HostPids | Where-Object { $_ })
         oldProcess = $(if ($Run.OldProcess) { [string]$Run.OldProcess } else { 'none' })
         handoverId = $(if ($Run.HandoverId) { [string]$Run.HandoverId } else { $null })
-        runnerPid  = $PID
+        runnerPid  = (Get-ChatqRunnerPid)
         away       = $Run.Away
         beside     = $(if ($Run.Beside) { [string]$Run.Beside } else { $null })
         # the run goes in with Ultracode, and at a session-only level, as the

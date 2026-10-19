@@ -64,8 +64,11 @@ function Save-ChatqWatchState {
         }
     }
     $auth = @(foreach ($k in @($W.authAlerted.Keys)) { if ($W.authAlerted[$k]) { $k } })
+    # a helper step of chatqd names chatqd, the watcher that holds the lock
+    $wPid = if ($script:ChatqWatcherPid) { $script:ChatqWatcherPid } else { $PID }
+    $wAt = if ($script:ChatqWatcherStartedAt) { $script:ChatqWatcherStartedAt } else { $W.startedAt }
     $s = [ordered]@{
-        pid = $PID; version = $script:ChatVersion; startedAt = $W.startedAt; heartbeat = (Get-ChatqStamp)
+        pid = $wPid; version = $script:ChatVersion; startedAt = $wAt; heartbeat = (Get-ChatqStamp)
         current = $W.current; next = $W.next; blocked = $blocked; outage = $outage; authAlerted = $auth
         # set by a watcher handing over to a newer copy of itself, so the one it
         # starts carries on from here instead of from nothing
@@ -84,6 +87,26 @@ function Restore-ChatqWatchState {
     param($W)
     $s = Get-ChatqState
     if (-not $s.handoff) { return $false }
+    # chatqd handing over mid-life leaves its whole watch state, the shared
+    # caches and the carry (native/SPEC.md 4.4): taken in place of what
+    # state.json keeps when it is its own and decodes whole, else ignored,
+    # and gone either way once looked at
+    $hp = Get-ChatqNativeFile 'handoff.json'
+    if ([System.IO.File]::Exists($hp)) {
+        $h = Read-ChatqJson $hp
+        $hPid = if ($h) { Get-ChatqNativeInt $h.watcherPid } else { $null }
+        $d = $null
+        if ($h -and (Get-ChatqNativeInt $h.v) -eq 1 -and $null -ne $hPid -and $hPid -eq (Get-ChatqNativeInt $s.pid)) {
+            $d = try { ConvertFrom-ChatqStepW $h.w } catch { $null }
+        }
+        if ($d) {
+            foreach ($k in 'blocked', 'lastAllowed', 'probeFails', 'scannedAt', 'outage', 'authAlerted') { $W[$k] = $d.W[$k] }
+            foreach ($n in $script:ChatqStepCaches.Keys) { Set-Variable -Name $n -Scope Script -Value $d.Caches[$n] }
+            Import-ChatqStepCarry $W
+        }
+        Remove-Item -LiteralPath $hp, (Get-ChatqNativeFile 'carry.clixml') -Force -EA SilentlyContinue
+        if ($d) { return $true }
+    }
     if ($s.blocked) {
         foreach ($p in $s.blocked.PSObject.Properties) {
             $u = ConvertTo-ChatqDate $p.Value.until
@@ -343,7 +366,7 @@ function Repair-ChatqInterrupted {
     # reused the number. Say so, and never send it again on its own: it may
     # have done half its work.
     foreach ($j in @(Get-ChatqJobs | Where-Object { $_.state -eq 'running' })) {
-        if ($j.runnerPid -eq $PID) { continue }
+        if ($j.runnerPid -eq (Get-ChatqRunnerPid)) { continue }
         $cancel = Join-Path $script:ChatqQueueDir "$($j.id).cancel"
         if (Test-Path -LiteralPath $cancel) { Remove-Item -LiteralPath $cancel -Force -EA SilentlyContinue }
         if ($j.path -and (Test-ChatqPromptLanded $j.path ([string](Read-ChatqPrompt $j)) $j.startedAt $j.provider)) {
@@ -810,7 +833,7 @@ function Invoke-ChatqJob {
     }
     Set-ChatqProp $Job 'startedAt' (Get-ChatqStamp)
     Set-ChatqProp $Job 'attempts' ([int]$Job.attempts + 1)
-    Set-ChatqProp $Job 'runnerPid' $PID
+    Set-ChatqProp $Job 'runnerPid' (Get-ChatqRunnerPid)
     Set-ChatqProp $Job 'deferUntil' $null
     Set-ChatqProp $Job 'deferredSince' $null
     Set-ChatqProp $Job 'retryAt' $null
@@ -1226,6 +1249,17 @@ function Wait-ChatqUntil {
     }
 }
 
+function Test-ChatqJobFound {
+    # Whether the job's own id finds it in $All, the whole queue, as
+    # Invoke-ChatqJob looks for it before it runs. Not when a second job
+    # file holds the same id - a copy made by hand - or the id is blank or
+    # finds another job: the run would find nothing and return, and the
+    # loop pick the same job again at once, every pass with no wait.
+    param($Job, $All)
+    $f = Find-ChatqJob ([string]$Job.id) -Exact -Jobs $All
+    return [bool]($f -and [string]$f.id -eq [string]$Job.id)
+}
+
 function Get-ChatqDueTime {
     # when the watcher may next pick this job: the latest of its lane's limit
     # (a minute after the reset), its lane's next overload check, -At/-In, and
@@ -1252,6 +1286,27 @@ function Get-ChatqMaxRetries {
     $c = Get-ChatqConfig
     if ($c.PSObject.Properties['maxRetries'] -and [int]$c.maxRetries -ge 1) { $n = [int]$c.maxRetries }
     return $n
+}
+
+function Invoke-ChatqPick {
+    # the job the watch loop picked: allowed, then run. The loop sets
+    # ChatqAlertJob around it and saves the state and the board after.
+    param($W, $Job)
+    try {
+        if (Confirm-ChatqAllowed $W $Job) { Invoke-ChatqJob $W $Job }
+    }
+    catch {
+        # one job's failure must not end the watcher - the rest of
+        # the queue is still waiting on it
+        $msg = "$($_.Exception.Message) @ $(($_.ScriptStackTrace -split "`n")[0])"
+        Write-ChatqWatchLog "#$($Job.seq) error: $msg"
+        $W.current = $null
+        $j = Find-ChatqJob $Job.id -Exact
+        if ($j -and $j.state -in 'queued', 'running') {
+            try { Complete-ChatqJob $j 'failed' ([pscustomobject]@{ kind = 'failed'; reason = "chatq error: $($_.Exception.Message)" }) 'chatq error' } catch {}
+            [void](Send-ChatqAlert 'failed' "$($j.title) $($script:ChatqDot) chatq error: $($_.Exception.Message)" 2 -Job $j)
+        }
+    }
 }
 
 function Invoke-ChatqWatchLoop {
@@ -1287,7 +1342,10 @@ function Invoke-ChatqWatchLoop {
         $boardAt = [datetime]::MinValue
         $autoAt = [datetime]::MinValue
         $strayAt = [datetime]::MinValue
-        $W.CutCache = @{}
+        # the ids a job not found by its own id has been named under
+        $lostSaid = New-Object 'System.Collections.Generic.HashSet[string]'
+        # kept when chatqd's handoff carried one in
+        if ($null -eq $W.CutCache) { $W.CutCache = @{} }
         while ($true) {
             if (Test-Path -LiteralPath $script:ChatqStopPath) {
                 Remove-Item -LiteralPath $script:ChatqStopPath -Force -EA SilentlyContinue
@@ -1351,7 +1409,8 @@ function Invoke-ChatqWatchLoop {
                 $swept = @(try { Clear-ChatqStrayFiles } catch { })
                 if ($swept.Count) { Write-ChatqWatchLog "removed $($swept.Count) stray file(s) and folder(s) from data/queue" }
             }
-            $queued = @(Get-ChatqJobs | Where-Object { $_.state -eq 'queued' })
+            $all = @(Get-ChatqJobs)
+            $queued = @($all | Where-Object { $_.state -eq 'queued' })
             if (-not $queued -and $replyOpen) {
                 # Nothing to run, only listening: the machine may sleep - no
                 # reply is worth keeping a laptop awake for, and the poll
@@ -1394,6 +1453,16 @@ function Invoke-ChatqWatchLoop {
             $pick = $null
             $nextAt = $now.AddMinutes(15)
             foreach ($j in $queued) {
+                # A job its own id does not find is passed over, as a job
+                # file that does not read is: left queued and unwritten - a
+                # write by id could land in its twin's file - and named in
+                # watcher.log the first time its id is met
+                if (-not (Test-ChatqJobFound $j $all)) {
+                    if ($lostSaid.Add([string]$j.id)) {
+                        Write-ChatqWatchLog "$(@(Get-ChatqJobFiles ([string]$j.id)) -join ', '): the id '$($j.id)' does not find one job - left queued, not run, until that is put right"
+                    }
+                    continue
+                }
                 Update-ChatqBlock $W $j
                 $due = Get-ChatqDueTime $W $j $now
                 if ($due) { if ($due -lt $nextAt) { $nextAt = $due }; continue }
@@ -1403,21 +1472,7 @@ function Invoke-ChatqWatchLoop {
             if ($pick) {
                 Set-ChatqKeepAwake $true
                 $script:ChatqAlertJob = "#$($pick.seq)"
-                try {
-                    if (Confirm-ChatqAllowed $W $pick) { Invoke-ChatqJob $W $pick }
-                }
-                catch {
-                    # one job's failure must not end the watcher - the rest of
-                    # the queue is still waiting on it
-                    $msg = "$($_.Exception.Message) @ $(($_.ScriptStackTrace -split "`n")[0])"
-                    Write-ChatqWatchLog "#$($pick.seq) error: $msg"
-                    $W.current = $null
-                    $j = Find-ChatqJob $pick.id -Exact
-                    if ($j -and $j.state -in 'queued', 'running') {
-                        try { Complete-ChatqJob $j 'failed' ([pscustomobject]@{ kind = 'failed'; reason = "chatq error: $($_.Exception.Message)" }) 'chatq error' } catch {}
-                        [void](Send-ChatqAlert 'failed' "$($j.title) $($script:ChatqDot) chatq error: $($_.Exception.Message)" 2 -Job $j)
-                    }
-                }
+                Invoke-ChatqPick $W $pick
                 $script:ChatqAlertJob = $null
                 Save-ChatqWatchState $W
                 Write-ChatqBoard
@@ -1944,6 +1999,399 @@ function Remove-ChatqNativePending {
     $pp = Get-ChatqNativeFile 'pending.json'
     $p = Read-ChatqJson $pp
     if ($p -and (Get-ChatqNativeInt $p.pid) -eq $ProcessId) { Remove-Item -LiteralPath $pp -Force -EA SilentlyContinue }
+}
+
+#endregion
+
+#region native helper steps ----------------------------------------------------
+# chatqd runs the loop itself, and each piece of work still written here
+# goes to a helper step: one PowerShell running src/native-step.ps1, one op,
+# then gone (native/SPEC.md 3.6). The watch state crosses as `w` in the
+# step's In and Out files, the caches nothing native reads in
+# data/native/carry.clixml.
+
+# The fields `w` names in each kind of entry, by its key: what is not here
+# travels as the JSON scalar it is, or fails the encode
+$script:ChatqStepFields = @{
+    blocked           = @{ Until = 'date'; Type = 'string'; Source = 'string'; At = 'date' }
+    outage            = @{ Since = 'date'; Attempts = 'int'; Status = 'string'; Alerted = 'bool'; Reminded = 'bool'; LastProbe = 'date'; NextCheck = 'date'; AutoJob = 'string' }
+    ChatqAskSent      = @{ Rid = 'string'; At = 'date'; ToolUseId = 'string'; Answers = 'answers'; Transcript = 'string'; SessionId = 'string'; Title = 'string' }
+    ChatqReplyJunkLog = @{ At = 'date'; Count = 'int' }
+}
+# w.caches: each name and what it holds - a map of entries or of true, or
+# one date
+$script:ChatqStepCaches = [ordered]@{
+    ChatqReplyHandled = 'bool'; ChatqReplySeen = 'bool'; ChatqAskSent = 'entry'; ChatqReplyJunkLog = 'entry'; ChatqUsageSent = 'bool'
+    ChatqReplyPolledAt = 'date'; ChatqReplyErrAt = 'date'; ChatqReplyBadIdAt = 'date'; ChatqReplySavedAt = 'date'; ChatqSummaryTriedAt = 'date'
+}
+# The process-lifetime caches and throttles nothing native reads, carried
+# from step to step in carry.clixml with $W.CutCache, as the PowerShell
+# watcher keeps them for its life. The self-test's audit holds the same list.
+# Not the index (ChatIndexCache): the file read again costs less than its
+# rows carried, ~3 s for 2000 on 5.1.
+$script:ChatqStepCarry = 'ChatqBoardCutCache', 'ChatqCliVersions', 'ChatqAskAliveCache', 'ChatqBoardCache', 'ChatqPermitAsked', 'ChatqAutoCache', 'ChatAgentDoneCache',
+'ChatHostFilesSeen', 'ChatOverlayLogSeen', 'ChatqAskCache', 'ChatqAutoSaid', 'ChatqBoardBgCache', 'ChatqBoardRegCache',
+'ChatqPhoneMetaCache', 'ChatShellChildList', 'ChatqDownErrAt', 'ChatqPhoneWakeAt', 'ChatqAskTidiedAt'
+
+function Test-ChatqStepScalar {
+    # a value JSON holds as itself: a string, a bool or a number
+    param($V)
+    if ($V -is [string] -or $V -is [bool]) { return $true }
+    return ($V -is [ValueType] -and -not $V.GetType().IsEnum -and [int][Type]::GetTypeCode($V.GetType()) -in 5..15)
+}
+
+function ConvertFrom-ChatqStepText {
+    # a string as chatqd sent it: pwsh 7's ConvertFrom-Json makes a
+    # [datetime] of one shaped like a stamp
+    param($V)
+    if ($V -isnot [datetime]) { return $V }
+    if ($V.Kind -eq [System.DateTimeKind]::Utc) { return $V.ToUniversalTime().ToString('o') }
+    return $V.ToString('o')
+}
+
+function ConvertTo-ChatqStepValue {
+    # one value of `w` by its kind - date, entry, answers, or a scalar -
+    # $Where naming it when it is none of them
+    param($V, [string]$Kind, [string]$Where, $Fields)
+    if ($null -eq $V) { return $null }
+    if ($Kind -eq 'date' -and $V -is [datetime]) { return $V.ToUniversalTime().ToString('o') }
+    if ($Kind -eq 'answers' -and $V -is [System.Collections.IDictionary]) { return , (ConvertTo-ChatqStepPairs $V 'string' $Where) }
+    if ($Kind -eq 'entry' -and ($V -is [System.Collections.IDictionary] -or $V -is [System.Management.Automation.PSCustomObject])) {
+        $dict = $V -is [System.Collections.IDictionary]
+        $o = [ordered]@{ _type = $(if ($dict) { 'hashtable' } else { 'psobject' }) }
+        $names = if ($dict) { @($V.Keys) } else { @($V.PSObject.Properties | ForEach-Object { $_.Name }) }
+        foreach ($n in $names) {
+            $x = if ($dict) { $V[$n] } else { $V.$n }
+            $o[[string]$n] = ConvertTo-ChatqStepValue $x $Fields[[string]$n] "$Where.$n" $null
+        }
+        return $o
+    }
+    if (Test-ChatqStepScalar $V) { return $V }
+    throw "bad step state: $Where"
+}
+
+function ConvertTo-ChatqStepPairs {
+    # a map as `w` carries one: a list of {k, v}, never an object, since a
+    # key may be empty or differ from another only in case
+    param($Map, [string]$Kind, [string]$Where, $Fields)
+    if ($Map -isnot [System.Collections.IDictionary]) { throw "bad step state: $Where" }
+    $l = [System.Collections.Generic.List[object]]::new()
+    foreach ($k in @($Map.Keys)) { $l.Add([ordered]@{ k = [string]$k; v = (ConvertTo-ChatqStepValue $Map[$k] $Kind $Where $Fields) }) }
+    return , $l.ToArray()
+}
+
+function ConvertTo-ChatqStepW {
+    # The watch state and the shared caches as `w` (native/SPEC.md 3.6
+    # "The w encoding"). $W.CutCache goes to the carry, not here. Throws
+    # 'bad step state: <key>.<field>' on a value the schema cannot carry.
+    param($W)
+    $f = $script:ChatqStepFields
+    $c = [ordered]@{}
+    foreach ($n in $script:ChatqStepCaches.Keys) {
+        $v = (Get-Variable -Name $n -Scope Script).Value
+        $c[$n] = if ($script:ChatqStepCaches[$n] -eq 'date') { ConvertTo-ChatqStepValue $v 'date' $n $null } else { ConvertTo-ChatqStepPairs $v $script:ChatqStepCaches[$n] $n $f[$n] }
+    }
+    [ordered]@{
+        blocked = ConvertTo-ChatqStepPairs $W.blocked 'entry' 'blocked' $f['blocked']
+        outage = ConvertTo-ChatqStepPairs $W.outage 'entry' 'outage' $f['outage']
+        lastAllowed = ConvertTo-ChatqStepPairs $W.lastAllowed 'date' 'lastAllowed' $null
+        probeFails = ConvertTo-ChatqStepPairs $W.probeFails 'int' 'probeFails' $null
+        scannedAt = ConvertTo-ChatqStepPairs $W.scannedAt 'date' 'scannedAt' $null
+        authAlerted = ConvertTo-ChatqStepPairs $W.authAlerted 'bool' 'authAlerted' $null
+        current = ConvertTo-ChatqStepValue $W.current 'string' 'current' $null
+        next = ConvertTo-ChatqStepValue $W.next 'string' 'next' $null
+        startedAt = ConvertTo-ChatqStepValue $W.startedAt 'string' 'startedAt' $null
+        handoff = ConvertTo-ChatqStepValue $W.handoff 'bool' 'handoff' $null
+        listening = ConvertTo-ChatqStepValue $W.listening 'bool' 'listening' $null
+        caches = $c
+    }
+}
+
+function ConvertFrom-ChatqStepValue {
+    # one value of `w` back by its kind: a Date Kind Local, as every writer
+    # stores it; an int [int]; an entry the type its _type names; anything
+    # else the scalar it is, a stamp-shaped string text again
+    param($V, [string]$Kind, [string]$Where, $Fields)
+    if ($null -eq $V) { return $null }
+    if ($Kind -eq 'date' -and ($V -is [string] -or $V -is [datetime])) { $d = ConvertTo-ChatqDate $V; if ($d) { return $d } }
+    if ($Kind -eq 'int' -and ($V -is [int] -or $V -is [long])) { return [int]$V }
+    if ($Kind -eq 'answers' -and $V -is [array]) {
+        $m = New-Object System.Collections.Specialized.OrderedDictionary ([StringComparer]::Ordinal)
+        foreach ($p in (ConvertFrom-ChatqStepPairs $V 'string' $Where $null)) { $m[$p.K] = $p.V }
+        return , $m
+    }
+    if ($Kind -eq 'entry') {
+        $t = if ($V -is [System.Management.Automation.PSCustomObject] -and $V.PSObject.Properties['_type']) { $V._type } else { $null }
+        if ($t -cnotin 'psobject', 'hashtable') { throw "bad step input: $Where" }
+        $o = [ordered]@{}
+        foreach ($p in $V.PSObject.Properties) {
+            if ($p.Name -ceq '_type') { continue }
+            $o[$p.Name] = ConvertFrom-ChatqStepValue $p.Value $Fields[$p.Name] "$Where.$($p.Name)" $null
+        }
+        if ($t -eq 'psobject') { return [pscustomobject]$o }
+        $h = @{}
+        foreach ($k in $o.Keys) { $h[$k] = $o[$k] }
+        return $h
+    }
+    if ($V -is [System.Management.Automation.PSCustomObject] -or $V -is [array]) { throw "bad step input: $Where" }
+    return (ConvertFrom-ChatqStepText $V)
+}
+
+function ConvertFrom-ChatqStepPairs {
+    # a list of {k, v} back, as @{ K; V } in its order
+    param($L, [string]$Kind, [string]$Where, $Fields)
+    if ($L -isnot [array]) { throw "bad step input: $Where" }
+    $out = [System.Collections.Generic.List[object]]::new()
+    foreach ($p in $L) {
+        if ($p -isnot [System.Management.Automation.PSCustomObject] -or -not $p.PSObject.Properties['k'] -or -not $p.PSObject.Properties['v']) { throw "bad step input: $Where" }
+        $k = ConvertFrom-ChatqStepText $p.k
+        if ($k -isnot [string]) { throw "bad step input: $Where" }
+        $out.Add(@{ K = $k; V = (ConvertFrom-ChatqStepValue $p.v $Kind $Where $Fields) })
+    }
+    return , $out.ToArray()
+}
+
+function ConvertFrom-ChatqStepW {
+    # `w` back: @{ W = a fresh watch state; Caches = name -> value }, all of
+    # it or nothing - 'bad step input: <key>' on what the schema does not
+    # carry, so a w that does not decode is taken nowhere
+    param($J)
+    if ($J -isnot [System.Management.Automation.PSCustomObject]) { throw 'bad step input: w' }
+    $get = { param($o, $k) if (-not $o.PSObject.Properties[$k]) { throw "bad step input: $k" }; , $o.$k }
+    $f = $script:ChatqStepFields
+    $W = New-ChatqWatchState
+    foreach ($k in 'blocked', 'outage', 'lastAllowed', 'probeFails', 'scannedAt', 'authAlerted') {
+        $kind = switch ($k) { 'blocked' { 'entry' } 'outage' { 'entry' } 'probeFails' { 'int' } 'authAlerted' { 'bool' } default { 'date' } }
+        $m = @{}
+        foreach ($p in (ConvertFrom-ChatqStepPairs (& $get $J $k) $kind $k $f[$k])) { $m[$p.K] = $p.V }
+        $W[$k] = $m
+    }
+    foreach ($k in 'current', 'next', 'startedAt') { $W[$k] = ConvertFrom-ChatqStepValue (& $get $J $k) 'string' $k $null }
+    foreach ($k in 'handoff', 'listening') { $W[$k] = ConvertFrom-ChatqStepValue (& $get $J $k) 'bool' $k $null }
+    $cj = & $get $J 'caches'
+    if ($cj -isnot [System.Management.Automation.PSCustomObject]) { throw 'bad step input: caches' }
+    $c = @{}
+    foreach ($n in $script:ChatqStepCaches.Keys) {
+        $kind = $script:ChatqStepCaches[$n]
+        if ($kind -eq 'date') { $c[$n] = ConvertFrom-ChatqStepValue (& $get $cj $n) 'date' $n $null; continue }
+        $m = @{}
+        foreach ($p in (ConvertFrom-ChatqStepPairs (& $get $cj $n) $kind $n $f[$n])) { $m[$p.K] = $p.V }
+        $c[$n] = $m
+    }
+    return @{ W = $W; Caches = $c }
+}
+
+function ConvertTo-ChatqCarryValue {
+    # A cache's value as Import-Clixml gives it back the same: an array or
+    # a List[T] would come back an ArrayList, and an [ordered] a Hashtable
+    # on 5.1, its order lost, so those go as marked objects (ChatqCarry).
+    # Hashtables, objects, strings, numbers and dates go as themselves.
+    # Throws on any other type: that cache is not carried, and the next
+    # step builds it again.
+    param($V)
+    if ($null -eq $V -or $V -is [string] -or $V -is [ValueType]) { return $V }
+    $items = { param($all) $l = [System.Collections.Generic.List[object]]::new(); foreach ($x in $all) { $l.Add((ConvertTo-ChatqCarryValue $x)) }; , $l.ToArray() }
+    if ($V -is [System.Collections.Specialized.OrderedDictionary]) {
+        $cmp = [System.Collections.Specialized.OrderedDictionary].GetField('_comparer', [System.Reflection.BindingFlags]'NonPublic,Instance').GetValue($V)
+        return [pscustomobject]@{ ChatqCarry = 'ordered'; Ordinal = [bool]($cmp -eq [StringComparer]::Ordinal); Keys = @($V.Keys); Values = (& $items $V.Values) }
+    }
+    if ($V -is [System.Collections.IDictionary]) {
+        $h = @{}
+        foreach ($k in @($V.Keys)) { $h[$k] = ConvertTo-ChatqCarryValue $V[$k] }
+        return $h
+    }
+    $t = $V.GetType()
+    if ($V -is [array]) { return [pscustomobject]@{ ChatqCarry = 'array'; Type = $t.GetElementType().FullName; Items = (& $items $V) } }
+    if ($t.IsGenericType -and $t.GetGenericTypeDefinition() -eq [System.Collections.Generic.List`1]) {
+        return [pscustomobject]@{ ChatqCarry = 'list'; Type = $t.GetGenericArguments()[0].FullName; Items = (& $items $V) }
+    }
+    if ($V -is [System.Management.Automation.PSCustomObject]) {
+        $o = [ordered]@{}
+        foreach ($p in $V.PSObject.Properties) { $o[$p.Name] = ConvertTo-ChatqCarryValue $p.Value }
+        return [pscustomobject]$o
+    }
+    throw "no carry for a $($t.FullName)"
+}
+
+function ConvertFrom-ChatqCarryValue {
+    # ConvertTo-ChatqCarryValue's value back, from what Import-Clixml made
+    param($V)
+    if ($null -eq $V -or $V -is [string] -or $V -is [ValueType]) { return $V }
+    if ($V -is [System.Collections.IDictionary]) {
+        $h = @{}
+        foreach ($k in @($V.Keys)) { $h[$k] = ConvertFrom-ChatqCarryValue $V[$k] }
+        return $h
+    }
+    if ($V -isnot [System.Management.Automation.PSCustomObject]) { throw "no carry for a $($V.GetType().FullName)" }
+    $mark = if ($V.PSObject.Properties['ChatqCarry']) { [string]$V.ChatqCarry } else { '' }
+    if ($mark -eq 'ordered') {
+        $o = if ($V.Ordinal) { New-Object System.Collections.Specialized.OrderedDictionary ([StringComparer]::Ordinal) } else { [ordered]@{} }
+        $vals = @($V.Values)
+        $i = 0
+        foreach ($k in @($V.Keys)) { $o[$k] = ConvertFrom-ChatqCarryValue $vals[$i]; $i++ }
+        return , $o
+    }
+    if ($mark -in 'array', 'list') {
+        $et = [string]$V.Type -as [type]
+        if (-not $et) { throw "no carry for a $($V.Type)" }
+        $all = @($V.Items)
+        if ($mark -eq 'array') {
+            $a = [Array]::CreateInstance($et, $all.Count)
+            for ($i = 0; $i -lt $all.Count; $i++) { $a[$i] = ConvertFrom-ChatqCarryValue $all[$i] }
+            return , $a
+        }
+        $l = [Activator]::CreateInstance([System.Collections.Generic.List`1].MakeGenericType($et))
+        foreach ($x in $all) { $l.Add((ConvertFrom-ChatqCarryValue $x)) }
+        return , $l
+    }
+    $o = [ordered]@{}
+    foreach ($p in $V.PSObject.Properties) { $o[$p.Name] = ConvertFrom-ChatqCarryValue $p.Value }
+    return [pscustomobject]$o
+}
+
+function Export-ChatqStepCarry {
+    # the carry rows and $W.CutCache into carry.clixml for the next step; a
+    # cache not made yet, or of a type the carry does not know, is left out,
+    # to start again
+    param($W)
+    $vars = @{}
+    foreach ($n in $script:ChatqStepCarry) {
+        $v = Get-Variable -Name $n -Scope Script -EA SilentlyContinue
+        if ($v) { try { $vars[$n] = ConvertTo-ChatqCarryValue $v.Value } catch {} }
+    }
+    $cut = try { ConvertTo-ChatqCarryValue $W.CutCache } catch { $null }
+    try {
+        New-ChatqDir (Join-Path $script:ChatqData 'native')
+        Export-Clixml -LiteralPath (Get-ChatqNativeFile 'carry.clixml') -InputObject @{ Vars = $vars; CutCache = $cut } -Depth 64
+    }
+    catch {}
+}
+
+function Import-ChatqStepCarry {
+    # what Export-ChatqStepCarry kept, when there is any: each cache it
+    # holds set again, $W.CutCache @{} without one
+    param($W)
+    $W.CutCache = @{}
+    $p = Get-ChatqNativeFile 'carry.clixml'
+    if (-not [System.IO.File]::Exists($p)) { return }
+    $c = try { Import-Clixml -LiteralPath $p } catch { $null }
+    if ($c -isnot [hashtable]) { return }
+    $cut = try { ConvertFrom-ChatqCarryValue $c['CutCache'] } catch { $null }
+    if ($cut -is [hashtable]) { $W.CutCache = $cut }
+    if ($c['Vars'] -isnot [hashtable]) { return }
+    foreach ($n in $script:ChatqStepCarry) {
+        if ($c['Vars'].ContainsKey($n)) { try { Set-Variable -Name $n -Scope Script -Value (ConvertFrom-ChatqCarryValue $c['Vars'][$n]) } catch {} }
+    }
+}
+
+function Invoke-ChatqNativeStep {
+    <#
+    One helper step's op (native/SPEC.md 3.6), from src/native-step.ps1: In
+    read, the watch state and the caches taken from it and the carry, the op
+    run, and Out written - {v, ok, error, w, result}. A missing In, another
+    v, an op not known or a w that does not decode is 'bad step input', and
+    nothing is run or carried. The parent is checked before and after the op
+    (ChatqStepParent): with chatqd gone, the step ends itself at once.
+    #>
+    param([string]$In, [string]$Out)
+    $r = [ordered]@{ v = 1; ok = $false; error = 'bad step input'; w = $null; result = $null }
+    $q = Read-ChatqJson $In
+    $op = if ($q) { ConvertFrom-ChatqStepText $q.op } else { $null }
+    $d = $null
+    if ($q -and (Get-ChatqNativeInt $q.v) -eq 1 -and $op -is [string] -and
+        $op -cin 'repair', 'pick', 'block', 'auto', 'stray', 'soon', 'held', 'ask-landed', 'alert', 'job-write') {
+        $d = try { ConvertFrom-ChatqStepW $q.w } catch { $null }
+    }
+    if (-not $d) { Save-ChatqText $Out ($r | ConvertTo-Json -Depth 12); return }
+    if ($script:ChatqStepParent -and -not (& $script:ChatqStepParent)) { Stop-Process -Id $PID -Force }
+    $W = $d.W
+    foreach ($n in $script:ChatqStepCaches.Keys) { Set-Variable -Name $n -Scope Script -Value $d.Caches[$n] }
+    Import-ChatqStepCarry $W
+    # chatqd's identity wherever a step writes the watcher's: state.json, a
+    # run's runnerPid, the permit.log and ask.log tags
+    $script:ChatqWatcherPid = $q.watcherPid
+    $script:ChatqWatcherStartedAt = ConvertFrom-ChatqStepText $q.startedAt
+    $script:ChatqRunnerPid = $q.watcherPid
+    $script:ChatqAlertJob = ConvertFrom-ChatqStepText $q.alertJob
+    $a = $q.args
+    $arg = { param($n) if ($a -and $a.PSObject.Properties[$n]) { ConvertFrom-ChatqStepText $a.$n } else { $null } }
+    $r.error = $null
+    $res = $null
+    try {
+        switch -CaseSensitive ($op) {
+            'repair' {
+                Repair-ChatqInterrupted
+                $W.CutCache = @{}
+                $res = [ordered]@{}
+            }
+            'pick' {
+                # gone, or no longer queued: nothing done at all, as
+                # Invoke-ChatqJob's own re-read leaves it
+                $job = Find-ChatqJob ([string](& $arg 'jobId')) -Exact
+                $gone = -not $job -or $job.state -ne 'queued'
+                if (-not $gone) { Invoke-ChatqPick $W $job }
+                $res = [ordered]@{ gone = $gone }
+            }
+            'block' {
+                foreach ($id in @($a.jobIds)) {
+                    $job = Find-ChatqJob ([string](ConvertFrom-ChatqStepText $id)) -Exact
+                    if ($job) { Update-ChatqBlock $W $job }
+                }
+                $res = [ordered]@{}
+            }
+            'auto' {
+                $null = Invoke-ChatqWatchAutoScan $W
+                $res = [ordered]@{}
+            }
+            'stray' {
+                # the loop's own sweep and line
+                $swept = @(try { Clear-ChatqStrayFiles } catch { })
+                if ($swept.Count) { Write-ChatqWatchLog "removed $($swept.Count) stray file(s) and folder(s) from data/queue" }
+                $res = [ordered]@{ removed = $swept.Count }
+            }
+            'soon' {
+                $queued = @(Get-ChatqJobs | Where-Object { $_.state -eq 'queued' })
+                $soonAt = Send-ChatqUsageSoon $W $queued
+                $res = [ordered]@{ soonAt = $(if ($soonAt) { $soonAt.ToUniversalTime().ToString('o') } else { $null }) }
+            }
+            'held' {
+                $res = [ordered]@{ sent = [bool](Send-ChatqHeldSummary) }
+            }
+            'ask-landed' {
+                $null = Test-ChatqAskLanded -Quick:([bool](& $arg 'quick'))
+                $res = [ordered]@{}
+            }
+            'alert' {
+                $id = & $arg 'jobId'
+                $job = if ($id) { Find-ChatqJob ([string]$id) -Exact } else { $null }
+                $sent = Send-ChatqAlert ([string](& $arg 'event')) ([string](& $arg 'text')) ([int](& $arg 'priority')) -Loud:([bool](& $arg 'loud')) -Job $job `
+                    -Quick:([bool](& $arg 'quick')) -NoReply:([bool](& $arg 'noReply')) -UsageKind ([string](& $arg 'usageKind'))
+                $res = [ordered]@{ sent = [bool]$sent }
+            }
+            'job-write' {
+                $job = Find-ChatqJob ([string](& $arg 'jobId')) -Exact
+                $saved = $false
+                if ($job -and $a.PSObject.Properties['set']) {
+                    foreach ($p in $a.set.PSObject.Properties) { Set-ChatqProp $job $p.Name (ConvertFrom-ChatqStepText $p.Value) }
+                    $saved = [bool](Save-ChatqJob $job -Existing)
+                }
+                elseif ($job -and $a.PSObject.Properties['complete'] -and $job.state -in 'queued', 'running') {
+                    $cp = $a.complete
+                    $saved = [bool](Complete-ChatqJob $job ([string](ConvertFrom-ChatqStepText $cp.state)) $cp.result ([string](ConvertFrom-ChatqStepText $cp.why)) -Existing)
+                }
+                $res = [ordered]@{ saved = $saved }
+            }
+        }
+        $r.ok = $true
+    }
+    catch { $r.error = "$($_.Exception.Message) @ $(($_.ScriptStackTrace -split "`r?`n")[0])" }
+    if ($script:ChatqStepParent -and -not (& $script:ChatqStepParent)) { Stop-Process -Id $PID -Force }
+    Export-ChatqStepCarry $W
+    if ($r.ok) {
+        try { $r.w = ConvertTo-ChatqStepW $W; $r.result = $res }
+        catch { $r.ok = $false; $r.error = $_.Exception.Message; $r.w = $null; $r.result = $null }
+    }
+    Save-ChatqText $Out ($r | ConvertTo-Json -Depth 12)
 }
 
 #endregion

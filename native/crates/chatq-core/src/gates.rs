@@ -9,7 +9,7 @@ use crate::paths::Paths;
 use crate::time::{Flavour, Instant, Zone, parse_stamp_in};
 use base64::Engine as _;
 use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
-use chrono::TimeDelta;
+use chrono::{NaiveTime, TimeDelta};
 use serde_json::Value;
 use std::fs;
 use std::path::Path;
@@ -146,6 +146,76 @@ pub fn held_waiting(p: &Paths, now: SystemTime) -> bool {
                     })
             })
     })
+}
+
+/// [Send-ChatqHeldSummary](src/phone-extras.ps1): a push that failed is
+/// tried again this many minutes later at the soonest.
+pub const HELD_RETRY_MINUTES: i64 = 5;
+
+/// [ConvertTo-ChatqClock](src/phone-extras.ps1), not `-Loose`: `HH:mm` as
+/// `^([01]\d|2[0-3]):([0-5]\d)$` takes it, a final newline let by as .NET's
+/// `$` does. Only ASCII digits, where .NET's `\d` takes any.
+fn clock(s: &str) -> Option<NaiveTime> {
+    let s = s.strip_suffix('\n').unwrap_or(s);
+    let b = s.as_bytes();
+    let digit = |i: usize| b[i].is_ascii_digit().then(|| u32::from(b[i] - b'0'));
+    if b.len() != 5 || b[2] != b':' {
+        return None;
+    }
+    let h = digit(0)? * 10 + digit(1)?;
+    let m = digit(3)? * 10 + digit(4)?;
+    NaiveTime::from_hms_opt(h, m, 0)
+}
+
+/// [Get-ChatqQuietHours](src/phone-extras.ps1)'s window, from and to, or
+/// None when quiet hours are off: no quietHours, a from or to that is not
+/// `HH:mm`, or a from equal to the to.
+fn quiet_hours(cfg: &Value) -> Option<(NaiveTime, NaiveTime)> {
+    let q = json::get(Some(cfg), "quietHours").filter(|v| json::truthy(Some(v)));
+    let q = unroll(q).filter(|v| json::truthy(Some(v)))?;
+    let from = clock(&json::to_ps_string(json::get(Some(q), "from")))?;
+    let to = clock(&json::to_ps_string(json::get(Some(q), "to")))?;
+    (from != to).then_some((from, to))
+}
+
+/// [Test-ChatqQuietNow](src/phone-extras.ps1)'s In: the time of day on the
+/// wall clock of `zone`, inside a window that may run past midnight.
+fn quiet_now((from, to): (NaiveTime, NaiveTime), now: Instant, zone: Zone) -> bool {
+    let t = zone.wall(now).time();
+    if from < to {
+        t >= from && t < to
+    } else {
+        t >= from || t < to
+    }
+}
+
+/// SPEC 3.6's held pre-gate: would [Send-ChatqHeldSummary](src/phone-extras.ps1)
+/// get as far as its claim? Something held is waiting ([held_waiting]), its
+/// last failed push (`tried_at`, `ChatqSummaryTriedAt`) is not under
+/// [HELD_RETRY_MINUTES] old, and now is outside quiet hours on the local
+/// clock.
+pub fn held_summary_due(
+    p: &Paths,
+    cfg: &Value,
+    tried_at: Option<Instant>,
+    now_sys: SystemTime,
+    now: Instant,
+) -> bool {
+    held_summary_due_in(p, cfg, tried_at, now_sys, now, Zone::Local)
+}
+
+/// [held_summary_due] with quiet hours read on the wall clock of `zone`.
+pub fn held_summary_due_in(
+    p: &Paths,
+    cfg: &Value,
+    tried_at: Option<Instant>,
+    now_sys: SystemTime,
+    now: Instant,
+    zone: Zone,
+) -> bool {
+    held_waiting(p, now_sys)
+        && !tried_at.is_some_and(|t| now - t < TimeDelta::minutes(HELD_RETRY_MINUTES))
+        && !quiet_hours(cfg).is_some_and(|q| quiet_now(q, now, zone))
 }
 
 /// [Get-ChatqAutoContinue](src/queue.ps1): only the word "on" is on.
@@ -294,6 +364,24 @@ pub struct UsageSoon {
 /// `$script:ChatqUsageSent` and data/usage-alerts.json.
 pub fn soon_key(lane: &str, until: Instant) -> String {
     format!("s|{lane}|{}", until.timestamp().div_euclid(60))
+}
+
+/// Does data/usage-alerts.json, as read ([crate::fsx::read_json]), have
+/// `key` already, so that [Send-ChatqUsageSoon](src/phone-extras.ps1) would
+/// record it as sent and send nothing? What
+/// [Get-ChatqUsageAlertState](src/phone-extras.ps1) keeps is a top-level
+/// name whose value [ConvertTo-ChatqDate](src/queue.ps1) reads as a time;
+/// `ContainsKey` finds it case-blind. A file that is no object holds none,
+/// but for a list of one on pwsh 7, whose ConvertFrom-Json unrolls it.
+pub fn soon_already_sent(usage_alerts: Option<&Value>, key: &str, fl: Flavour) -> bool {
+    let st = match usage_alerts {
+        Some(Value::Array(a)) if fl == Flavour::Core && a.len() == 1 => a.first(),
+        v => v,
+    };
+    st.and_then(Value::as_object).is_some_and(|m| {
+        m.iter()
+            .any(|(k, v)| ieq(k, key) && crate::time::date_of(Some(v), fl).is_some())
+    })
 }
 
 /// [Send-ChatqUsageSoon](src/phone-extras.ps1)'s gate. A lane counts when

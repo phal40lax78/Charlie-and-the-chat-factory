@@ -1,6 +1,6 @@
-//! CHATQ_NATIVE_SEAMS (SPEC 6.5): a JSON file of test seams. M0 honours
-//! `hold`, `spawn`, `capture` and `panic`; any other name is left for the
-//! milestone that reads it.
+//! CHATQ_NATIVE_SEAMS (SPEC 6.5): a JSON file of test seams. chatqd itself
+//! honours `spawn`, `capture` and `panic`; the steps get the file too, and
+//! any other name is theirs or a later milestone's.
 
 use chatq_core::fsx::{read_json, save_text};
 use chatq_core::json;
@@ -10,8 +10,6 @@ use std::path::PathBuf;
 
 #[derive(Default)]
 pub struct Seams {
-    /// minutes an empty queue waits before it exits (M0 only)
-    pub hold: Option<f64>,
     /// where launches are recorded instead of started, when `spawn` is on
     pub capture: Option<PathBuf>,
     /// the first pass panics, so the panic strike and handoff are tested
@@ -28,27 +26,17 @@ impl Seams {
             return Seams::default();
         };
         let v = Some(&v);
-        let hold = json::get(v, "hold")
-            .and_then(Value::as_f64)
-            .filter(|m| *m > 0.0);
         let capture = json::get(v, "capture")
             .and_then(Value::as_str)
             .filter(|_| json::truthy(json::get(v, "spawn")))
             .map(PathBuf::from);
         let panic = json::truthy(json::get(v, "panic"));
-        Seams {
-            hold,
-            capture,
-            panic,
-        }
+        Seams { capture, panic }
     }
 
     /// One line per honoured seam, for chatqd.log.
     pub fn honoured(&self) -> Vec<String> {
         let mut out = Vec::new();
-        if let Some(m) = self.hold {
-            out.push(format!("seam hold: {m} min"));
-        }
         if let Some(c) = &self.capture {
             out.push(format!("seam spawn: launches recorded in {}", c.display()));
         }

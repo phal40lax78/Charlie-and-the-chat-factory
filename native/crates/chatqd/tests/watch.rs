@@ -1,6 +1,9 @@
 //! The built chatqd against throwaway roots under native/target/test-data
 //! (never a real data folder, never %TEMP%). Every launch it makes is
-//! recorded through the `spawn` seam, so no PowerShell watcher starts.
+//! recorded through the `spawn` seam, so no PowerShell watcher starts. A case
+//! with a job runs its helper steps in a real PowerShell, against a stub
+//! R/src/native-step.ps1 ([STUB]) that keeps each `In` and `Out`, sends W
+//! back as it came and answers as the case's stub.json says.
 
 use chatq_core::fsx::{lock_held, try_lock};
 use chatq_core::launch::encode_command;
@@ -17,6 +20,69 @@ const BIN: &str = env!("CARGO_BIN_EXE_chatqd");
 const VER: &str = env!("CARGO_PKG_VERSION");
 const PS: &str = r"C:\fake\WindowsPowerShell\v1.0\powershell.exe";
 const TARGET: &str = chatq_core::launch::TARGET;
+const ID: &str = "20261015-101500-ab12";
+
+/// A stand-in for src/native-step.ps1. `stub.json` maps an op to `{exit,
+/// out, result}`: the exit code, `out: false` for no `Out` at all, and the
+/// result in place of the op's default. A pick with no entry is a run that
+/// ends done.
+const STUB: &str = r#"param([string]$In, [string]$Out, [string]$Watcher, [string]$WatcherStart, [string]$Seams)
+$root = Split-Path -Parent $PSScriptRoot
+$raw = [IO.File]::ReadAllText($In)
+# not $in: names are case-blind, and [string]$In would take it as text
+$req = $raw | ConvertFrom-Json
+$log = Join-Path $root 'stub-steps'
+$null = New-Item -ItemType Directory -Force -Path $log
+$n = @(Get-ChildItem -LiteralPath $log).Count + 1
+[IO.File]::WriteAllText((Join-Path $log "$n.json"), $raw)
+$plan = $null
+$pf = Join-Path $root 'stub.json'
+if (Test-Path -LiteralPath $pf) { $plan = ([IO.File]::ReadAllText($pf) | ConvertFrom-Json).($req.op) }
+$result = switch ($req.op) {
+    'pick' { @{ gone = $false } }
+    'stray' { @{ removed = 0 } }
+    'soon' { @{ soonAt = $null } }
+    'held' { @{ sent = $true } }
+    'alert' { @{ sent = $true } }
+    'job-write' { @{ saved = $true } }
+    default { @{} }
+}
+if ($plan -and $null -ne $plan.result) { $result = $plan.result }
+if ($req.op -eq 'pick' -and -not $plan) {
+    $f = Join-Path (Join-Path (Join-Path $root 'data') 'queue') "$($req.args.jobId).json"
+    $j = [IO.File]::ReadAllText($f) | ConvertFrom-Json
+    $j.state = 'done'
+    [IO.File]::WriteAllText($f, ($j | ConvertTo-Json -Depth 8))
+}
+if (-not $plan -or $plan.out -ne $false) {
+    # the parent check's reading: chatqd's start as .NET has it, in ticks
+    # from -WatcherStart, kept in stub-outs as chatqd deletes Out
+    $off = [Math]::Abs((Get-Process -Id ([int]$Watcher)).StartTime.ToUniversalTime().Ticks - [long]$WatcherStart)
+    $o = @{ v = 1; ok = $true; error = $null; w = $req.w; result = $result; startOff = $off }
+    $text = $o | ConvertTo-Json -Depth 12
+    [IO.File]::WriteAllText($Out, $text)
+    $outs = Join-Path $root 'stub-outs'
+    $null = New-Item -ItemType Directory -Force -Path $outs
+    [IO.File]::WriteAllText((Join-Path $outs "$n.json"), $text)
+}
+exit $(if ($plan -and $plan.exit) { [int]$plan.exit } else { 0 })
+"#;
+
+/// The PowerShell a real step runs in: Windows PowerShell, or pwsh where
+/// there is none. None where neither is there.
+fn real_ps() -> Option<String> {
+    if cfg!(windows) {
+        let root = std::env::var("SystemRoot").ok()?;
+        return Some(format!(
+            r"{root}\System32\WindowsPowerShell\v1.0\powershell.exe"
+        ));
+    }
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .map(|d| d.join("pwsh"))
+        .find(|f| f.is_file())
+        .map(|f| f.to_string_lossy().into_owned())
+}
 
 struct Root {
     dir: PathBuf,
@@ -77,21 +143,36 @@ impl Root {
         self.dir.join("capture")
     }
 
-    fn cmd(&self, hold: Option<f64>) -> Command {
-        let mut s = json!({"spawn": true, "capture": self.capture()});
-        if let Some(h) = hold {
-            s["hold"] = json!(h);
-        }
-        self.cmd_with(&s)
+    fn cmd(&self) -> Command {
+        self.cmd_with(&json!({"spawn": true, "capture": self.capture()}))
     }
 
     fn cmd_with(&self, s: &Value) -> Command {
+        self.cmd_ps(s, PS)
+    }
+
+    /// A run whose steps go to the stub under a real PowerShell, answering
+    /// as `plan` says; None, with a note, where there is no PowerShell.
+    fn stepping(&self, plan: Value) -> Option<Command> {
+        let Some(ps) = real_ps() else {
+            eprintln!("no PowerShell here: the case runs no step and checks nothing");
+            return None;
+        };
+        let src = self.p.native_step();
+        fs::create_dir_all(src.parent().unwrap()).unwrap();
+        fs::write(&src, STUB).unwrap();
+        fs::write(self.dir.join("stub.json"), plan.to_string()).unwrap();
+        let s = json!({"spawn": true, "capture": self.capture()});
+        Some(self.cmd_ps(&s, &ps))
+    }
+
+    fn cmd_ps(&self, s: &Value, ps: &str) -> Command {
         let seams = self.dir.join("seams.json");
         fs::write(&seams, s.to_string()).unwrap();
         let mut c = Command::new(BIN);
         c.args(["watch", "--root", &self.p.root, "--script"])
             .arg(self.p.loader())
-            .args(["--ps", PS])
+            .args(["--ps", ps])
             .env("CHATQ_NATIVE_SEAMS", &seams)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -151,16 +232,45 @@ impl Root {
         }
     }
 
-    fn queue_job(&self, state: &str) {
-        let q = self.p.queue_dir();
-        fs::create_dir_all(&q).unwrap();
-        let id = "20261015-101500-ab12";
-        fs::write(
-            q.join(format!("{id}.json")),
-            json!({"id": id, "seq": 1, "state": state}).to_string(),
-        )
-        .unwrap();
+    fn job_file(&self) -> PathBuf {
+        self.p.queue_dir().join(format!("{ID}.json"))
     }
+
+    /// Job ID, queued, with `more` over its fields.
+    fn queue_job(&self, more: Value) {
+        let mut job =
+            json!({"id": ID, "seq": 1, "title": "fix it", "state": "queued", "history": []});
+        for (k, v) in more.as_object().unwrap() {
+            job[k] = v.clone();
+        }
+        fs::create_dir_all(self.p.queue_dir()).unwrap();
+        fs::write(self.job_file(), job.to_string()).unwrap();
+    }
+
+    /// Each step's `In`, in the order the stub saw them.
+    fn steps(&self) -> Vec<Value> {
+        (1..)
+            .map(|n| self.dir.join("stub-steps").join(format!("{n}.json")))
+            .take_while(|f| f.exists())
+            .map(|f| self.json(&f))
+            .collect()
+    }
+
+    fn ops(&self) -> Vec<String> {
+        self.steps()
+            .iter()
+            .map(|s| s["op"].as_str().unwrap().to_string())
+            .collect()
+    }
+}
+
+/// A wait for real: a job queued not before an hour from now.
+fn waiting(name: &str) -> Option<(Root, Command)> {
+    let r = root(name);
+    let c = r.stepping(json!({}))?;
+    let later = stamp_utc(chrono::Utc::now() + chrono::Duration::hours(1));
+    r.queue_job(json!({"notBefore": later}));
+    Some((r, c))
 }
 
 #[test]
@@ -203,7 +313,7 @@ fn empty_queue_exits_and_lets_go() {
     let r = root("empty");
     // a stale stop is from an earlier watcher, not for this one
     fs::write(r.p.stop(), "").unwrap();
-    assert_eq!(r.run(&mut r.cmd(None)), 0);
+    assert_eq!(r.run(&mut r.cmd()), 0);
     let lines = r.lines();
     assert_eq!(lines.len(), 3, "{lines:?}");
     assert!(lines[0].starts_with("watcher ") && lines[0].ends_with(&format!(" started ({VER})")));
@@ -239,7 +349,7 @@ fn a_busy_lock_acks_and_leaves_last_alone() {
     let last = r#"{"pid":1,"version":"x","engine":"native","state":"holding","at":"y"}"#;
     fs::create_dir_all(r.p.native_dir()).unwrap();
     fs::write(r.p.last(), last).unwrap();
-    let mut w = r.start(&mut r.cmd(None));
+    let mut w = r.start(&mut r.cmd());
     // the launcher's pending record, written before the 5 tries are over
     let pending = json!({"pid": w.0.id(), "version": VER, "at": stamp_utc(chrono::Utc::now())});
     fs::write(r.p.pending(), pending.to_string()).unwrap();
@@ -254,10 +364,12 @@ fn a_busy_lock_acks_and_leaves_last_alone() {
 }
 
 #[test]
-fn stop_while_holding() {
-    let r = root("hold-stop");
-    let mut w = r.start(&mut r.cmd(Some(1.0)));
-    r.until(10, || {
+fn stop_while_waiting() {
+    let Some((r, mut c)) = waiting("wait-stop") else {
+        return;
+    };
+    let mut w = r.start(&mut c);
+    r.until(60, || {
         r.p.state().exists() && r.json(&r.p.state())["next"].is_string()
     });
     assert!(lock_held(&r.p.lock()));
@@ -267,7 +379,7 @@ fn stop_while_holding() {
     let pending = json!({"pid": w.0.id(), "version": VER, "at": stamp_utc(chrono::Utc::now())});
     fs::write(r.p.pending(), pending.to_string()).unwrap();
     fs::write(r.p.stop(), "").unwrap();
-    assert_eq!(w.exit_within(6), 0);
+    assert_eq!(w.exit_within(10), 0);
     assert!(!r.p.pending().exists(), "acked again at exit");
     let lines = r.lines();
     assert_eq!(lines[1], "stop requested", "{lines:?}");
@@ -275,18 +387,27 @@ fn stop_while_holding() {
     assert_eq!(r.json(&r.p.last())["state"], "stopped");
     assert!(r.json(&r.p.state())["next"].is_null());
     assert!(r.spawns().is_empty());
-    assert!(r.log("chatqd.log").contains("seam hold: 1 min"));
+    // the lane was never scanned: one block step, and then the wait
+    assert_eq!(r.ops(), ["block"]);
+    assert_eq!(r.steps()[0]["args"], json!({"jobIds": [ID]}));
+    let d = r.log("chatqd.log");
+    assert!(d.contains("step 1 block exited 0 after "), "{d}");
+    assert!(!d.contains("helper step"), "a good answer: {d}");
 }
 
 #[test]
 fn wake_now_fresh_and_stale() {
-    let r = root("hold-wake");
-    let mut w = r.start(&mut r.cmd(Some(1.0)));
-    r.until(10, || {
+    let Some((r, mut c)) = waiting("wait-wake") else {
+        return;
+    };
+    let mut w = r.start(&mut c);
+    r.until(60, || {
         r.p.state().exists() && r.json(&r.p.state())["next"].is_string()
     });
     fs::write(r.p.wake(), "NOW\r\n").unwrap();
-    r.until(6, || r.lines().iter().any(|l| l == "woken: -Now"));
+    // state.json is saved just before the wait reads wake's mtime, so a
+    // write in between is seen only by the next pass, a wait (30 s) later
+    r.until(35, || r.lines().iter().any(|l| l == "woken: -Now"));
     r.until(2, || fs::read_to_string(r.p.wake()).unwrap() == "seen\r\n");
     // a -Now left lying around: the mtime changes, the word is ignored
     fs::write(r.p.wake(), "now\r\n").unwrap();
@@ -298,15 +419,104 @@ fn wake_now_fresh_and_stale() {
     assert_eq!(r.lines().iter().filter(|l| *l == "woken: -Now").count(), 1);
     assert_eq!(fs::read_to_string(r.p.wake()).unwrap(), "now\r\n");
     fs::write(r.p.stop(), "").unwrap();
-    assert_eq!(w.exit_within(6), 0);
+    assert_eq!(w.exit_within(10), 0);
+    // the -Now stamped the lane as scanned, so no scan came after it
+    assert_eq!(r.ops(), ["block"]);
 }
 
 #[test]
-fn a_queued_job_hands_over_and_leaves_the_now() {
-    let r = root("handoff");
-    r.queue_job("queued");
+fn a_queued_job_is_picked_through_a_step_the_now_taken() {
+    let r = root("pick");
+    let Some(mut c) = r.stepping(json!({})) else {
+        return;
+    };
+    let later = stamp_utc(chrono::Utc::now() + chrono::Duration::hours(1));
+    r.queue_job(json!({"deferUntil": later}));
     fs::write(r.p.wake(), "now\r\n").unwrap();
-    assert_eq!(r.run(&mut r.cmd(None)), 0);
+    assert_eq!(r.start(&mut c).exit_within(60), 0);
+    let lines = r.lines();
+    assert_eq!(lines.len(), 4, "{lines:?}");
+    assert_eq!(lines[1..3], ["woken: -Now", "queue empty"]);
+    assert_eq!(fs::read_to_string(r.p.wake()).unwrap(), "seen\r\n");
+    let job = r.json(&r.job_file());
+    assert!(job["deferUntil"].is_null(), "the -Now's write");
+    assert_eq!(job["state"], "done", "the stub's run");
+    // the -Now stamped the job's lane, so no scan came before the pick
+    assert_eq!(r.ops(), ["pick"]);
+    let st = r.json(&r.p.state());
+    let pick = &r.steps()[0];
+    assert_eq!(pick["alertJob"], "#1");
+    assert_eq!(pick["args"], json!({"jobId": ID}));
+    assert_eq!(pick["watcherPid"], st["pid"]);
+    assert_eq!(pick["w"]["scannedAt"][0]["k"], "");
+    assert!(pick["w"]["scannedAt"][0]["v"].is_string());
+    assert_eq!(st["handoff"], false);
+    assert_eq!(r.json(&r.p.last())["state"], "empty");
+    assert!(r.spawns().is_empty(), "no handoff");
+    let d = r.log("chatqd.log");
+    assert!(d.contains("step 1 pick exited 0 after "), "{d}");
+    assert!(!d.contains("helper step"), "a good answer: {d}");
+    assert!(!r.p.step_in(1).exists() && !r.p.step_out(1).exists());
+    // -WatcherStart against (Get-Process -Id <chatqd>).StartTime, as the
+    // step's parent check reads them: within its 1 s
+    let out = r.json(&r.dir.join("stub-outs").join("1.json"));
+    let off = out["startOff"].as_i64().unwrap();
+    assert!(off <= 10_000_000, "{off} ticks apart");
+}
+
+#[test]
+fn a_pick_that_does_not_answer_fails_its_job() {
+    let r = root("pick-fails");
+    let Some(mut c) = r.stepping(json!({"pick": {"out": false, "exit": 5}})) else {
+        return;
+    };
+    r.queue_job(json!({"seq": 3}));
+    assert_eq!(r.start(&mut c).exit_within(60), 0);
+    let why = "helper step exited 5 with no answer";
+    let lines = r.lines();
+    assert_eq!(lines[1], format!("#3 error: {why}"), "{lines:?}");
+    assert_eq!(lines[2], "queue empty");
+    let job = r.json(&r.job_file());
+    assert_eq!(job["state"], "failed");
+    assert_eq!(
+        job["result"],
+        json!({"kind": "failed", "reason": format!("chatq error: {why}")})
+    );
+    assert_eq!(job["history"][0]["state"], "failed");
+    assert_eq!(job["history"][0]["why"], "chatq error");
+    assert!(job["runnerPid"].is_null() && job["endedAt"].is_string());
+    assert!(
+        r.log("jobs.log")
+            .contains("  #3 failed - chatq error \u{b7} fix it")
+    );
+    assert_eq!(r.ops(), ["block", "pick", "alert"]);
+    let alert = &r.steps()[2];
+    assert_eq!(alert["alertJob"], "#3");
+    let text = format!("fix it \u{b7} chatq error: {why}");
+    assert_eq!(
+        alert["args"],
+        json!({"event": "failed", "text": text, "priority": 2, "jobId": ID,
+            "loud": false, "quick": false, "noReply": false, "usageKind": null})
+    );
+    let d = r.log("chatqd.log");
+    assert!(d.contains("step 2 pick exited 5 after "), "{d}");
+    assert!(d.contains(&format!("step 2 pick: {why}")), "{d}");
+    assert!(
+        !d.contains("step 3 alert: helper step"),
+        "the alert went: {d}"
+    );
+    assert!(r.spawns().is_empty());
+}
+
+#[test]
+fn an_open_reply_window_hands_over_with_w() {
+    let r = root("handoff");
+    let soon = stamp_utc(chrono::Utc::now() + chrono::Duration::minutes(30));
+    let cfg = json!({"reply": {"on": true, "topic": "t", "key": "k"}});
+    fs::write(r.p.config(), cfg.to_string()).unwrap();
+    fs::write(r.p.replies(), json!({"openUntil": soon}).to_string()).unwrap();
+    fs::write(r.p.wake(), "now\r\n").unwrap();
+    assert_eq!(r.run(&mut r.cmd()), 0);
     let lines = r.lines();
     assert_eq!(lines.len(), 2, "started and stopped only: {lines:?}");
     assert_eq!(
@@ -314,12 +524,18 @@ fn a_queued_job_hands_over_and_leaves_the_now() {
         "now\r\n",
         "left for the PS watcher"
     );
-    assert_eq!(r.json(&r.p.state())["handoff"], true);
+    let st = r.json(&r.p.state());
+    assert_eq!(st["handoff"], true);
     assert_eq!(r.json(&r.p.last())["state"], "handed-over");
     assert!(
         r.log("chatqd.log")
-            .contains("handing over to the PowerShell watcher: a job is queued")
+            .contains("handing over to the PowerShell watcher: the phone reply window is open")
     );
+    let h = r.json(&r.p.handoff());
+    assert_eq!(h["v"], 1);
+    assert_eq!(h["watcherPid"], st["pid"]);
+    assert_eq!(h["w"]["handoff"], true);
+    assert!(h["w"]["caches"]["ChatqAskSent"].is_array());
     let s = r.spawns();
     assert_eq!(s.len(), 1);
     assert_eq!(s[0]["engine"], "ps");
@@ -343,41 +559,6 @@ fn a_queued_job_hands_over_and_leaves_the_now() {
 }
 
 #[test]
-fn other_first_pass_duties_hand_over() {
-    let r = root("handoff-more");
-    let soon = stamp_utc(chrono::Utc::now() + chrono::Duration::minutes(30));
-    let cfg = json!({"reply": {"on": true, "topic": "t", "key": "k"}});
-    fs::write(r.p.config(), cfg.to_string()).unwrap();
-    fs::write(r.p.replies(), json!({"openUntil": soon}).to_string()).unwrap();
-    assert_eq!(r.run(&mut r.cmd(None)), 0);
-    assert!(
-        r.log("chatqd.log")
-            .contains(": the phone reply window is open")
-    );
-
-    // handed-over state with a lane limited until later: carried, and the
-    // board would name the lane
-    let r = root("handoff-carry");
-    let st = json!({"handoff": true, "blocked": {"claude": {"until": soon, "type": "session", "source": "probe"}}});
-    fs::write(r.p.state(), st.to_string()).unwrap();
-    assert_eq!(r.run(&mut r.cmd(None)), 0);
-    assert_eq!(r.lines()[1], "carrying on from the watcher before it");
-    assert!(
-        r.log("chatqd.log")
-            .contains(": the board shows more than an empty queue")
-    );
-    assert_eq!(r.json(&r.p.state())["blocked"]["claude"]["until"], soon);
-
-    let r = root("handoff-repair");
-    r.queue_job("running");
-    assert_eq!(r.run(&mut r.cmd(None)), 0);
-    assert!(
-        r.log("chatqd.log")
-            .contains(": the watcher before it left something to repair")
-    );
-}
-
-#[test]
 fn a_panic_strikes_runs_the_finally_and_hands_over() {
     let r = root("panic");
     let s = json!({"spawn": true, "capture": r.capture(), "panic": true});
@@ -394,6 +575,10 @@ fn a_panic_strikes_runs_the_finally_and_hands_over() {
     assert!(!lock_held(&r.p.lock()));
     assert!(!r.p.pid().exists());
     assert_eq!(r.json(&r.p.state())["handoff"], true);
+    assert!(
+        r.p.handoff().exists(),
+        "a panic hands W over too (SPEC 4.4)"
+    );
     assert!(r.lines().last().unwrap().ends_with(" stopped"));
     let s = r.spawns();
     assert_eq!(s.len(), 1, "{s:?}");
@@ -404,7 +589,7 @@ fn a_panic_strikes_runs_the_finally_and_hands_over() {
 fn restart_respawns_native_after_preflight() {
     let r = root("restart-native");
     fs::write(r.p.restart(), "").unwrap();
-    assert_eq!(r.run(r.cmd(None).env("CHATQ_CHATQD", BIN)), 0);
+    assert_eq!(r.run(r.cmd().env("CHATQ_CHATQD", BIN)), 0);
     assert!(
         r.lines()
             .iter()
@@ -413,6 +598,10 @@ fn restart_respawns_native_after_preflight() {
     assert!(!r.p.restart().exists());
     assert_eq!(r.json(&r.p.last())["state"], "handed-over");
     assert_eq!(r.json(&r.p.state())["handoff"], true);
+    assert!(
+        !r.p.handoff().exists(),
+        "a restart carries state.json alone (SPEC 4.4)"
+    );
     let s = r.spawns();
     assert_eq!(s.len(), 1, "{s:?}");
     assert_eq!(s[0]["engine"], "native");
@@ -438,18 +627,14 @@ fn respawn_goes_to_ps_when_native_may_not_run() {
     // no binary at R/bin/<version>/<target>/
     let r = root("restart-nobin");
     fs::write(r.p.restart(), "").unwrap();
-    assert_eq!(r.run(&mut r.cmd(None)), 0);
+    assert_eq!(r.run(&mut r.cmd()), 0);
     assert_eq!(r.spawns()[0]["engine"], "ps");
     assert!(r.log("chatqd.log").contains("no runnable chatqd at"));
 
     let r = root("restart-engine");
     fs::write(r.p.restart(), "").unwrap();
     assert_eq!(
-        r.run(
-            r.cmd(None)
-                .env("CHATQ_CHATQD", BIN)
-                .env("CHATQ_ENGINE", "ps")
-        ),
+        r.run(r.cmd().env("CHATQ_CHATQD", BIN).env("CHATQ_ENGINE", "ps")),
         0
     );
     assert_eq!(r.spawns()[0]["engine"], "ps");
@@ -464,7 +649,7 @@ fn respawn_goes_to_ps_when_native_may_not_run() {
         json!({"pid": 4_000_000_000u32, "version": VER, "at": old}).to_string(),
     )
     .unwrap();
-    assert_eq!(r.run(r.cmd(None).env("CHATQ_CHATQD", BIN)), 0);
+    assert_eq!(r.run(r.cmd().env("CHATQ_CHATQD", BIN)), 0);
     assert_eq!(r.spawns()[0]["engine"], "ps");
     assert_eq!(r.json(&r.p.fuse())["strikes"][0]["why"], "no ack");
     assert!(!r.p.pending().exists());
@@ -477,7 +662,7 @@ fn respawn_goes_to_ps_when_native_may_not_run() {
     let strike = json!({"at": now, "why": "crash", "pid": 1});
     let fuse = json!({"version": VER, "strikes": [strike, strike, strike], "alerted": false});
     fs::write(r.p.fuse(), fuse.to_string()).unwrap();
-    assert_eq!(r.run(r.cmd(None).env("CHATQ_CHATQD", BIN)), 0);
+    assert_eq!(r.run(r.cmd().env("CHATQ_CHATQD", BIN)), 0);
     assert_eq!(r.spawns()[0]["engine"], "ps");
     assert!(r.log("chatqd.log").contains("failed 3 times"));
 
@@ -485,7 +670,7 @@ fn respawn_goes_to_ps_when_native_may_not_run() {
     let r = root("restart-newver");
     fs::write(r.p.restart(), "").unwrap();
     r.loader("99.0.0");
-    assert_eq!(r.run(r.cmd(None).env("CHATQ_CHATQD", BIN)), 0);
+    assert_eq!(r.run(r.cmd().env("CHATQ_CHATQD", BIN)), 0);
     assert_eq!(r.spawns()[0]["engine"], "ps");
     assert!(r.log("chatqd.log").contains("preflight failed"));
     assert_eq!(r.json(&r.p.fuse())["version"], "99.0.0");

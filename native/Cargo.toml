@@ -5,7 +5,7 @@ resolver = "3"
 members = ["crates/chatq-core", "crates/chatqd"]
 
 [workspace.package]
-version = "0.10.15"
+version = "0.10.16"
 edition = "2024"
 publish = false
 

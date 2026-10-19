@@ -2,6 +2,7 @@
 //! watcher lock (SPEC 4.3). Every handle here is std's default, never
 //! inheritable, so no child chatqd starts can hold watcher.lock.
 
+use crate::json::Tolerant;
 use crate::time::Flavour;
 use serde_json::Value;
 use std::fs::{self, File, OpenOptions};
@@ -40,14 +41,41 @@ pub fn save_text(path: &Path, text: &str) -> io::Result<()> {
     }
 }
 
+/// [Update-ChatqText](src/queue.ps1): [save_text] over a file that must
+/// still be there, by the replace alone, so a file deleted meanwhile stays
+/// deleted: false then, and the copy aside dropped. A failure with the file
+/// still there is tried again as in [save_text].
+pub fn update_text(path: &Path, text: &str) -> io::Result<bool> {
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".tmp");
+    let tmp = Path::new(&tmp);
+    let mut tries = 1;
+    loop {
+        match fs::write(tmp, text.as_bytes()).and_then(|()| replace(tmp, path)) {
+            Ok(()) => return Ok(true),
+            Err(_) if !path.exists() => {
+                let _ = fs::remove_file(tmp);
+                return Ok(false);
+            }
+            Err(e) if tries == 5 => return Err(e),
+            Err(_) => {
+                sleep(Duration::from_millis(100 * tries));
+                tries += 1;
+            }
+        }
+    }
+}
+
 /// `File.Replace(tmp, path, null)`.
 #[cfg(windows)]
 fn replace(tmp: &Path, path: &Path) -> io::Result<()> {
     win::replace(tmp, path)
 }
 
+/// .NET's Unix File.Replace: the target must be there, then a rename.
 #[cfg(not(windows))]
 fn replace(tmp: &Path, path: &Path) -> io::Result<()> {
+    fs::metadata(path)?;
     fs::rename(tmp, path)
 }
 
@@ -88,12 +116,20 @@ mod win {
 /// missing file at once; a file that does not read or parse is tried 3
 /// times, 100 ms apart, then None. The top level is not unrolled.
 pub fn read_json(path: &Path, fl: Flavour) -> Option<Value> {
+    read_json_raw(path, fl).and_then(|(_, t)| t.value)
+}
+
+/// [read_json], keeping the bytes read and whether the read was `repaired`
+/// or `lossy` (SPEC 2.2), for a caller that may write the file back. The
+/// value is always Some.
+pub fn read_json_raw(path: &Path, fl: Flavour) -> Option<(Vec<u8>, Tolerant)> {
     for _ in 0..3 {
         match fs::read(path) {
             Err(e) if e.kind() == io::ErrorKind::NotFound => return None,
             Ok(b) => {
-                if let Some(v) = crate::json::parse_tolerant_in(&b, fl).value {
-                    return Some(v);
+                let t = crate::json::parse_tolerant_in(&b, fl);
+                if t.value.is_some() {
+                    return Some((b, t));
                 }
             }
             Err(_) => {}
@@ -200,6 +236,19 @@ mod tests {
         save_text(&p, "one").unwrap();
         save_text(&p, "two ·").unwrap();
         assert_eq!(fs::read(&p).unwrap(), "two ·".as_bytes());
+        assert!(!d.join("a.json.tmp").exists());
+    }
+
+    #[test]
+    fn update_never_brings_a_file_back() {
+        let d = dir("update");
+        let p = d.join("a.json");
+        assert!(!update_text(&p, "one").unwrap());
+        assert!(!p.exists());
+        assert!(!d.join("a.json.tmp").exists());
+        fs::write(&p, "one").unwrap();
+        assert!(update_text(&p, "two").unwrap());
+        assert_eq!(fs::read(&p).unwrap(), b"two");
         assert!(!d.join("a.json.tmp").exists());
     }
 

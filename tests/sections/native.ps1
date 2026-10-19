@@ -401,6 +401,348 @@ else {
     # asked of this build (native/SPEC.md 6.1)
     . (Join-Path $here 'vectors\live.ps1')
     foreach ($nvLc in @(Invoke-NvLiveChecks $nvExe)) { Check "the real chatqd, live: $($nvLc.name)" ([bool]$nvLc.ok) $nvLc.detail }
+
+    # --- the twin run: jobs through pick (native/SPEC.md 6.5) ----------------
+    # Each case is a fixture D of its own beside a copy of the tool - its real
+    # loader and src/, native-step.ps1 among them - holding the jobs' files,
+    # a config with no toast, no handover and no phone, and the harness's
+    # seams file. It runs once under the PS watcher (Invoke-ChatqWatchLoop in
+    # a child, the seams applied as src/native-step.ps1 applies them) and
+    # once under this chatqd, and the two are compared with stamps, clock
+    # times, pids and the root masked: watcher.log, jobs.log and alerts.log
+    # line for line, the job files and state.json as read, queue.md as text,
+    # and the captures. The CLIs are the sandbox's fake behind a .cmd of the
+    # fixture's own: codex replays codex-done.jsonl, a claude run (--resume)
+    # of $nvFailId replays error.jsonl, and any claude run sleeps
+    # NV_RUN_SLEEP s when that is set. --version gets no stdin: the fake reads
+    # its stdin to the end, and a step's hidden console never ends it.
+    $nvPs = (Get-Process -Id $PID).Path
+    $nvTool = Join-Path $sb 'tool'
+    $nvStepText = [IO.File]::ReadAllText((Join-Path $nvTool 'src\native-step.ps1'), $utf8)
+    $nvSeamAt = $nvStepText.IndexOf('function Save-StepCapture')
+    $nvSeamText = $nvStepText.Substring($nvSeamAt, $nvStepText.IndexOf('# The parent test') - $nvSeamAt)
+    $nvWatchPs1 = "param([string]`$Seams)`r`ntry { . (Join-Path `$PSScriptRoot 'Charlie-and-the-chat-factory.ps1') } catch { exit 3 }`r`n" +
+    "Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference' -EA SilentlyContinue`r`n$nvSeamText" +
+    "# the harness's fake ntfy: a reply topic nothing is posted to`r`n`$script:ChatqReplyPollSeam = { param(`$Url) '' }`r`nInvoke-ChatqWatchLoop`r`n"
+    $nvCfg = [ordered]@{ toast = $false; handover = $false }
+    $nvToastsAt = $script:Toasts.Count
+    $nvNtfysAt = $script:Ntfys.Count
+    # each job made by chatq in the sandbox, its files kept aside, then removed
+    $nvStash = Join-Path $sb 'native\twin-jobs'
+    $null = New-Item -ItemType Directory -Path $nvStash -Force
+    function New-NvJob([string]$Target, [string]$Text, [hashtable]$Set = @{}) {
+        $j = New-TestJob $Target $Text
+        foreach ($k in $Set.Keys) { Set-ChatqProp $j $k $Set[$k] }
+        if ($Set.Count) { $null = Save-ChatqJob $j -Existing }
+        foreach ($f in "$($j.id).json", $j.promptFile) { Copy-Item -LiteralPath (Join-Path $script:ChatqQueueDir $f) -Destination $nvStash -Force }
+        $null = Remove-ChatqJob (Find-ChatqJob $j.id -Exact) 'test'
+        return $j
+    }
+    function New-NvFixture([string]$Name, $Jobs, $Cfg) {
+        $r = Join-Path (Join-Path $sb 'native') $Name
+        if (Test-Path -LiteralPath $r) { Remove-Item -LiteralPath $r -Recurse -Force }
+        $d = Join-Path $r 'data'
+        foreach ($x in (Join-Path $d 'queue'), (Join-Path $d 'native'), (Join-Path $r 'capture'), (Join-Path $r 'fake')) { $null = New-Item -ItemType Directory -Path $x -Force }
+        Copy-Item -LiteralPath (Join-Path $nvTool 'Charlie-and-the-chat-factory.ps1') -Destination $r -Force
+        Copy-Item -LiteralPath (Join-Path $nvTool 'src') -Destination $r -Recurse -Force
+        foreach ($j in @($Jobs)) { foreach ($f in "$($j.id).json", $j.promptFile) { Copy-Item -LiteralPath (Join-Path $nvStash $f) -Destination (Join-Path $d 'queue') -Force } }
+        Write-NvJson (Join-Path $d 'config.json') $Cfg
+        Write-NvJson (Join-Path $r 'seams.json') ([ordered]@{ capture = (Join-Path $r 'capture'); spawn = $true; idleSeconds = 99999; handoverOff = $true })
+        [IO.File]::WriteAllText((Join-Path $r 'nv-watch.ps1'), $nvWatchPs1, $utf8)
+        $st = Join-Path $here 'fixtures\stream'
+        $run = "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$(Join-Path $here 'fake-agent.ps1')`""
+        $head = "@echo off`r`nsetlocal EnableDelayedExpansion`r`nset `"FAKE_ARGV=%*`"`r`n"
+        $tail = "if not `"!FAKE_ARGV:--version=!`"==`"!FAKE_ARGV!`" (`r`n$run <nul`r`nexit /b`r`n)`r`n$run`r`n"
+        [IO.File]::WriteAllText((Join-Path $r 'fake\claude.cmd'), $head +
+            "if not `"!FAKE_ARGV:--resume=!`"==`"!FAKE_ARGV!`" if defined NV_RUN_SLEEP set `"FAKE_SLEEP=!NV_RUN_SLEEP!`"`r`n" +
+            "if not `"!FAKE_ARGV:$nvFailId=!`"==`"!FAKE_ARGV!`" set `"FAKE_SCENARIO=$st\error.jsonl`"`r`n" + $tail, [Text.Encoding]::ASCII)
+        [IO.File]::WriteAllText((Join-Path $r 'fake\codex.cmd'), $head + "set `"FAKE_SCENARIO=$st\codex-done.jsonl`"`r`n" + $tail, [Text.Encoding]::ASCII)
+        return $r
+    }
+    # chatqrun -Now's wake, as Send-ChatqWake writes it
+    function Send-NvNow([string]$Root) { [IO.File]::WriteAllText((Join-Path $Root 'data\wake'), "now`r`n", [Text.Encoding]::ASCII) }
+    # a watcher as each engine is started, in your home folder, on the
+    # fixture's CLIs and seams, with the watcher's parts and no FAKE_ of the
+    # runner's; stdin closed at once, as a hidden console's never is
+    function Start-NvEngine([string]$Root, [string]$Engine, [hashtable]$Env = @{}) {
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $seams = Join-Path $Root 'seams.json'
+        if ($Engine -eq 'ps') {
+            $psi.FileName = $nvPs
+            $psi.Arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$(Join-Path $Root 'nv-watch.ps1')`" -Seams `"$seams`""
+        }
+        else {
+            $a = @((Get-ChatqWatcherLaunch (Join-Path $Root 'Charlie-and-the-chat-factory.ps1') -Native $nvExe).Args)
+            $a[2] = $Root
+            $psi.FileName = $nvExe
+            $psi.Arguments = ConvertTo-ChatqArgLine $a
+        }
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        $psi.WorkingDirectory = $HOME
+        $psi.RedirectStandardInput = $true
+        $ev = $psi.EnvironmentVariables
+        foreach ($n in @($ev.Keys)) { if ($n -like 'FAKE_*' -or $n -like 'NV_*') { $ev.Remove($n) } }
+        foreach ($n in 'CHATQ_ALLPARTS', 'CHATQ_CHATQD', 'CHATQ_ENGINE') { $ev.Remove($n) }
+        $ev['CHATQ_WATCHER'] = '1'
+        $ev['CHATQ_NATIVE_SEAMS'] = $seams
+        $ev['CHATQ_CLAUDE'] = Join-Path $Root 'fake\claude.cmd'
+        $ev['CHATQ_CODEX'] = Join-Path $Root 'fake\codex.cmd'
+        foreach ($k in $Env.Keys) { $ev[$k] = $Env[$k] }
+        $p = [System.Diagnostics.Process]::Start($psi)
+        $p.StandardInput.Close()
+        return $p
+    }
+    # a process this test started, and what it started in turn
+    function Stop-NvTree([int]$Id) {
+        foreach ($c in @(Get-CimInstance Win32_Process -Filter "ParentProcessId = $Id" -EA SilentlyContinue)) { Stop-NvTree ([int]$c.ProcessId) }
+        Stop-Process -Id $Id -Force -EA SilentlyContinue
+    }
+    # its exit, within $Secs; meanwhile, every 200 ms, the pids a running
+    # job is under (its runnerPid, state.json's pid, watcher.pid) and the
+    # case's $During
+    function Wait-NvEngine($P, [string]$Root, [scriptblock]$During, [int]$Secs = 300) {
+        $d = Join-Path $Root 'data'
+        $seen = [System.Collections.Generic.List[string]]::new()
+        $until = (Get-Date).AddSeconds($Secs)
+        while (-not $P.HasExited -and (Get-Date) -lt $until) {
+            foreach ($f in @(Get-ChildItem -LiteralPath (Join-Path $d 'queue') -Filter '*.json' -File -EA SilentlyContinue)) {
+                $j = try { [IO.File]::ReadAllText($f.FullName) | ConvertFrom-Json } catch { $null }
+                if (-not $j -or $j.state -ne 'running') { continue }
+                $s = try { [IO.File]::ReadAllText((Join-Path $d 'state.json')) | ConvertFrom-Json } catch { $null }
+                # state.json caught mid-write reads as nothing: no sample
+                if (-not $s) { continue }
+                $w = try { [IO.File]::ReadAllText((Join-Path $d 'watcher.pid')).Trim() } catch { '' }
+                $seen.Add("$($j.runnerPid)/$($s.pid)/$w")
+            }
+            if ($During) { & $During }
+            Start-Sleep -Milliseconds 200
+        }
+        $exited = $P.HasExited
+        if (-not $exited) { Stop-NvTree $P.Id }
+        return [pscustomobject]@{ Pid = $P.Id; Exited = $exited; Pids = @($seen) }
+    }
+    function Get-NvMask([string]$Text, [int]$WPid, [string]$Root) {
+        $t = $Text
+        if ($Root) { $t = $t -replace [regex]::Escape($Root.Replace('\', '\\')), '<root>' -replace [regex]::Escape($Root), '<root>' }
+        $t = $t -replace '\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?(Z|[+-]\d\d:\d\d)?', '<at>' -replace '\b\d\d?:\d\d(:\d\d)?\b', '<hh:mm>'
+        if ($WPid) { $t = $t -replace "\b$WPid\b", '<pid>' }
+        return $t
+    }
+    # a JSON value as one string, each object's names in order: two files
+    # that read the same are the same string
+    function ConvertTo-NvCanon($V) {
+        if ($null -eq $V) { return 'null' }
+        if ($V -is [System.Management.Automation.PSCustomObject]) { return '{' + ((@($V.PSObject.Properties | Sort-Object Name) | ForEach-Object { "$($_.Name)=$(ConvertTo-NvCanon $_.Value)" }) -join ';') + '}' }
+        if ($V -is [System.Collections.IList]) { return '[' + ((@($V) | ForEach-Object { ConvertTo-NvCanon $_ }) -join ',') + ']' }
+        return (ConvertTo-Json $V -Compress)
+    }
+    # what a run left: the logs, the job files and state.json, masked
+    function Read-NvRun([string]$Root, $Run) {
+        $d = Join-Path $Root 'data'
+        $txt = { param($p) if (Test-Path -LiteralPath $p) { Read-NvShared $p } else { '' } }
+        $logs = @{}
+        foreach ($n in 'watcher.log', 'jobs.log', 'alerts.log', 'replies.log', 'chatqd.log') { $logs[$n] = Get-NvMask (& $txt (Join-Path $d "logs\$n")) $Run.Pid $Root }
+        $jobs = [ordered]@{}
+        $states = [ordered]@{}
+        foreach ($f in @(Get-ChildItem -LiteralPath (Join-Path $d 'queue') -Filter '*.json' -File | Sort-Object Name)) {
+            $j = (Get-NvMask (& $txt $f.FullName) 0 $Root) | ConvertFrom-Json
+            $jobs[$f.Name] = ConvertTo-NvCanon $j
+            $states[$f.Name] = "$($j.state)"
+        }
+        $st = (Get-NvMask (& $txt (Join-Path $d 'state.json')) 0 $Root) | ConvertFrom-Json
+        $stPid = if ($st) { $st.pid } else { $null }
+        if ($st) { $st.PSObject.Properties.Remove('pid') }
+        return [pscustomobject]@{ Root = $Root; Pid = $Run.Pid; Exited = $Run.Exited; Pids = $Run.Pids; Logs = $logs; Jobs = $jobs; States = $states
+            State = (ConvertTo-NvCanon $st); StatePid = $stPid; Board = (Get-NvMask (& $txt (Join-Path $d 'queue.md')) $Run.Pid $Root)
+            Captures = (@(Get-ChildItem -LiteralPath (Join-Path $Root 'capture') -File | Sort-Object Name | ForEach-Object { $_.Name }) -join ',')
+        }
+    }
+    # a case under each engine in turn, on fixtures alike but for their name
+    function Invoke-NvTwin([string]$Name, $Jobs, [switch]$Now, [scriptblock]$During, [hashtable]$Env = @{}) {
+        $out = [ordered]@{}
+        foreach ($e in 'ps', 'native') {
+            $r = New-NvFixture "$Name-$e" $Jobs $nvCfg
+            if ($Now) { Send-NvNow $r }
+            $script:nvCase = @{ Root = $r; Done = $false }
+            $p = Start-NvEngine $r $e $Env
+            $out[$e] = Read-NvRun $r (Wait-NvEngine $p $r $During)
+        }
+        return $out
+    }
+    function Compare-NvTwin($T) {
+        $a = $T.ps
+        $b = $T.native
+        $bad = @()
+        if (-not $a.Exited -or -not $b.Exited) { $bad += "exited: ps $($a.Exited), native $($b.Exited)" }
+        foreach ($n in 'watcher.log', 'jobs.log', 'alerts.log') {
+            $x = @($a.Logs[$n] -split "`n")
+            $y = @($b.Logs[$n] -split "`n")
+            for ($i = 0; $i -lt [Math]::Max($x.Count, $y.Count); $i++) {
+                if ($x[$i] -cne $y[$i]) { $bad += "$n line $($i + 1): ps '$($x[$i])', native '$($y[$i])'"; break }
+            }
+        }
+        foreach ($n in @(@($a.Jobs.Keys) + @($b.Jobs.Keys) | Select-Object -Unique)) { if ($a.Jobs[$n] -cne $b.Jobs[$n]) { $bad += "$n`: ps $($a.Jobs[$n]) / native $($b.Jobs[$n])" } }
+        if ($a.State -cne $b.State) { $bad += "state.json: ps $($a.State) / native $($b.State)" }
+        if ($a.StatePid -ne $a.Pid -or $b.StatePid -ne $b.Pid) { $bad += "state.json pid: ps $($a.StatePid) of $($a.Pid), native $($b.StatePid) of $($b.Pid)" }
+        if ($a.Board -cne $b.Board) { $bad += "queue.md: ps '$($a.Board)' / native '$($b.Board)'" }
+        if ($a.Captures -or $b.Captures) { $bad += "captured: ps '$($a.Captures)', native '$($b.Captures)'" }
+        return $bad
+    }
+    # every sample of a running job: runnerPid = state.json's pid = watcher.pid = the watcher's
+    function Test-NvPids($R) { $R.Pids.Count -gt 0 -and -not @($R.Pids | Where-Object { $_ -cne "$($R.Pid)/$($R.Pid)/$($R.Pid)" }).Count }
+
+    # a Claude job and a Codex job done, and a run that fails, past the
+    # sandbox's limited lanes by a fresh -Now; each Claude run 3 s long, so
+    # it is seen running
+    $nvA = @((New-NvJob 'plugin' 'twin: a Claude job'), (New-NvJob 'Codex gitignore thread' 'twin: a Codex job'), (New-NvJob 'Old chat about gitignore rules' 'twin: a run that fails'))
+    $nvFailId = $nvA[2].sessionId
+    $nvTa = Invoke-NvTwin 'twin-pick' $nvA -Now -Env @{ NV_RUN_SLEEP = '3' }
+    $nvTaWant = @(foreach ($j in $nvA) { "$($j.id).json" }) -join ','
+    $nvTaBad = @(Compare-NvTwin $nvTa)
+    foreach ($e in 'ps', 'native') {
+        $t = $nvTa[$e]
+        if ((@($t.States.Values) -join ',') -cne 'done,done,failed' -or (@($t.States.Keys) -join ',') -cne $nvTaWant) { $nvTaBad += "$e`: jobs $(@($t.States.Keys) -join ',') $(@($t.States.Values) -join ',')" }
+        if ($t.Logs['watcher.log'] -notlike '*  woken: -Now*' -or $t.Logs['watcher.log'] -notlike '*  queue empty*') { $nvTaBad += "$e`: watcher.log $($t.Logs['watcher.log'])" }
+        if (-not (Test-NvPids $t)) { $nvTaBad += "$e`: pids $($t.Pid) / $($t.Pids -join ' ')" }
+    }
+    Check 'the twin run, through pick: a Claude job and a Codex job done and a run failed alike under the PS watcher and chatqd - the logs line for line, job files, state.json, queue.md, nothing captured; a running job''s runnerPid, state.json and watcher.pid the watcher''s' (
+        $nvA[1].provider -eq 'codex' -and -not $nvTaBad) ($nvTaBad -join ' || ')
+
+    # -Now mid-wait: a job put off an hour on a limited lane; once the
+    # watcher waits (state.json has its next), chatqrun -Now
+    $nvB = @(New-NvJob 'plugin' 'twin: woken mid-wait' @{ deferUntil = (Get-Date).AddHours(1).ToUniversalTime().ToString('o') })
+    $nvWakeMid = {
+        $c = $script:nvCase
+        if ($c.Done) { return }
+        $s = try { [IO.File]::ReadAllText((Join-Path $c.Root 'data\state.json')) | ConvertFrom-Json } catch { $null }
+        if ($s -and $s.next) { Start-Sleep -Seconds 1; Send-NvNow $c.Root; $c.Done = $true }
+    }
+    $nvTb = Invoke-NvTwin 'twin-now' $nvB -During $nvWakeMid
+    $nvTbBad = @(Compare-NvTwin $nvTb)
+    foreach ($e in 'ps', 'native') {
+        $t = $nvTb[$e]
+        $wk = Read-TestFile (Join-Path $t.Root 'data\wake')
+        if ((@($t.States.Values) -join ',') -cne 'done' -or $t.Logs['watcher.log'] -notlike '*  woken: -Now*' -or "$wk".Trim() -cne 'seen' -or $t.Jobs[0] -notlike '*;deferUntil=null;*') {
+            $nvTbBad += "$e`: $(@($t.States.Values) -join ','), wake '$wk', $($t.Jobs[0]) | $($t.Logs['watcher.log'])"
+        }
+    }
+    Check 'the twin run: -Now mid-wait ends the wait, clears the job''s deferUntil, says woken and seen, and the job runs - alike under both' (-not $nvTbBad) ($nvTbBad -join ' || ')
+
+    # a step that dies mid-pick: chatqd's pick-failure write (SPEC 2.4),
+    # against Complete-ChatqJob and the loop's failed alert on a twin of the
+    # job file as the step left it
+    $nvC = New-NvJob 'plugin' 'a pick whose step dies'
+    $nvCr = New-NvFixture 'step-dies' @($nvC) $nvCfg
+    Send-NvNow $nvCr
+    $nvCrec = Join-Path $nvCr 'fake\rec'
+    $nvCfile = Join-Path $nvCr "data\queue\$($nvC.id).json"
+    $nvCp = Start-NvEngine $nvCr 'native' @{ NV_RUN_SLEEP = '120'; FAKE_RECORD = $nvCrec }
+    $script:nvCase = @{ Pid = $nvCp.Id; Done = $false; Job = $null; Steps = @() }
+    $nvKill = {
+        $c = $script:nvCase
+        if ($c.Done) { return }
+        $argv = try { [IO.File]::ReadAllText((Join-Path $nvCrec 'argv.txt')) } catch { '' }
+        if ($argv -notmatch '--resume') { return }
+        $cli = try { [int]([regex]::Match([IO.File]::ReadAllText((Join-Path $nvCrec 'pid.txt')), '\d+').Value) } catch { 0 }
+        $c.Job = Read-TestFile $nvCfile
+        # the step chatqd started, then the CLI it leaves running
+        $c.Steps = @(Get-CimInstance Win32_Process -Filter "ParentProcessId = $($c.Pid)" | Where-Object { $_.CommandLine -like '*native-step.ps1*' } | ForEach-Object { [int]$_.ProcessId })
+        foreach ($s in $c.Steps) { Stop-Process -Id $s -Force -EA SilentlyContinue }
+        if ($cli) { Stop-Process -Id $cli -Force -EA SilentlyContinue }
+        $c.Done = $true
+    }
+    $nvCrun = Read-NvRun $nvCr (Wait-NvEngine $nvCp $nvCr $nvKill)
+    $nvCsnap = $script:nvCase.Job
+    $nvCwhy = [regex]::Match($nvCrun.Logs['watcher.log'], "#$($nvC.seq) error: helper step ([^\r\n]+)").Groups[1].Value
+    $nvCt = New-NvFixture 'step-dies-twin' @() $nvCfg
+    [IO.File]::WriteAllText((Join-Path $nvCt "data\queue\$($nvC.id).json"), "$nvCsnap", $utf8)
+    Copy-Item -LiteralPath (Join-Path $nvStash $nvC.promptFile) -Destination (Join-Path $nvCt 'data\queue') -Force
+    $nvCq = { param($s) "'" + $s.Replace("'", "''") + "'" }
+    [IO.File]::WriteAllText((Join-Path $nvCt 'nv-fail.ps1'), (". $(& $nvCq (Join-Path $nvCt 'Charlie-and-the-chat-factory.ps1'))`r`n" +
+            "`$j = Find-ChatqJob $(& $nvCq $nvC.id) -Exact`r`n`$msg = $(& $nvCq "helper step $nvCwhy")`r`n" +
+            "Complete-ChatqJob `$j 'failed' ([pscustomobject]@{ kind = 'failed'; reason = `"chatq error: `$msg`" }) 'chatq error'`r`n" +
+            "[void](Send-ChatqAlert 'failed' `"`$(`$j.title) `$(`$script:ChatqDot) chatq error: `$msg`" 2 -Job `$j)`r`n"), $utf8)
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $nvPs
+    $psi.Arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$(Join-Path $nvCt 'nv-fail.ps1')`""
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.EnvironmentVariables['CHATQ_WATCHER'] = '1'
+    $psi.EnvironmentVariables.Remove('CHATQ_ALLPARTS')
+    $nvCtp = [System.Diagnostics.Process]::Start($psi)
+    if (-not $nvCtp.WaitForExit(120000)) { Stop-NvTree $nvCtp.Id }
+    $nvCtwin = Read-NvRun $nvCt ([pscustomobject]@{ Pid = $nvCtp.Id; Exited = $true; Pids = @() })
+    $nvCj = $nvCfile | Where-Object { Test-Path -LiteralPath $_ } | ForEach-Object { Read-ChatqJson $_ }
+    $nvClast = { param($R, $N) @($R.Logs[$N] -split "`n" | Where-Object { $_ })[-1] }
+    $nvCbad = @()
+    if (-not $nvCrun.Exited -or $script:nvCase.Steps.Count -ne 1 -or $nvCsnap -notmatch '"state":\s*"running"') { $nvCbad += "exited $($nvCrun.Exited), steps $($script:nvCase.Steps -join ','), snapshot $nvCsnap" }
+    if ($nvCwhy -cne 'exited -1 with no answer' -or $nvCrun.Logs['chatqd.log'] -notlike '* pick exited -1 after *' -or $nvCj.state -ne 'failed' -or
+        $nvCj.result.reason -cne 'chatq error: helper step exited -1 with no answer' -or $null -ne $nvCj.runnerPid) { $nvCbad += "why '$nvCwhy', job $($nvCj.state) '$($nvCj.result.reason)' $($nvCj.runnerPid)" }
+    if ($nvCrun.Jobs[0] -cne $nvCtwin.Jobs[0]) { $nvCbad += "job: native $($nvCrun.Jobs[0]) / ps $($nvCtwin.Jobs[0])" }
+    foreach ($n in 'jobs.log', 'alerts.log') { if ((& $nvClast $nvCrun $n) -cne (& $nvClast $nvCtwin $n)) { $nvCbad += "$n`: native '$(& $nvClast $nvCrun $n)' / ps '$(& $nvClast $nvCtwin $n)'" } }
+    if ($nvCrun.Captures) { $nvCbad += "captured '$($nvCrun.Captures)'" }
+    Check 'a pick step killed mid-run: chatqd logs helper step exited -1, fails the job as Complete-ChatqJob does on a twin of the file the step left - the file, its jobs.log line and its failed alert alike' (
+        -not $nvCbad) ($nvCbad -join ' || ')
+
+    # a pick that opens the reply window: chatqd hands over, W and its caches
+    # in handoff.json, and the PS watcher it would start (started here in its
+    # place, the spawn seam having recorded it) carries on from them: the
+    # answer the phone sent mid-pick lands. One engine, as the PS watcher
+    # listens where chatqd hands over until M3. The answer's entry is a
+    # stand-in, put in by the fixture's own native-step.ps1 after the run:
+    # Invoke-ChatqAskReply makes one only on a reply chatqd cannot take yet.
+    $nvD = New-NvJob 'plugin' 'a pick that opens the reply window'
+    $nvDcfg = [ordered]@{ toast = $false; handover = $false
+        join = [ordered]@{ apiKey = (Protect-ChatqSecret '0123456789abcdef0123456789abcdef'); device = 'group.phone' }
+        reply = [ordered]@{ on = $true; topic = (Protect-ChatqSecret 'nvtwintopic'); key = (Protect-ChatqSecret (ConvertTo-ChatqB64Url ([byte[]](1..32)))) }
+    }
+    $nvDr = New-NvFixture 'handoff' @($nvD) $nvDcfg
+    $nvDt = Join-Path $nvDr 'ask-chat.jsonl'
+    [IO.File]::WriteAllText($nvDt, '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_nv","content":"B"}]},"toolUseResult":{"answers":{"Which?":"B"}}}' + "`n", $utf8)
+    $nvDstep = Join-Path $nvDr 'src\native-step.ps1'
+    $nvDin = "# the harness's stand-in for an answer the phone sent mid-pick (tests/sections/native.ps1)`r`n" +
+    "`$script:NvJob = `${function:Invoke-ChatqJob}`r`n`${function:Invoke-ChatqJob} = {`r`n    & `$script:NvJob @args`r`n" +
+    "    `$a = New-Object System.Collections.Specialized.OrderedDictionary ([StringComparer]::Ordinal)`r`n    `$a['Which?'] = 'B'`r`n" +
+    "    `$script:ChatqAskSent['nvaskrid22'] = @{ Rid = 'nvaskrid22'; At = (Get-Date); ToolUseId = 'toolu_nv'; Answers = `$a; Transcript = '$nvDt'; SessionId = 's-nv'; Title = 'nv ask chat' }`r`n}`r`n"
+    [IO.File]::WriteAllText($nvDstep, [IO.File]::ReadAllText($nvDstep, $utf8).Replace("Invoke-ChatqNativeStep -In `$In -Out `$Out", "$nvDin`Invoke-ChatqNativeStep -In `$In -Out `$Out"), $utf8)
+    Send-NvNow $nvDr
+    $nvDp = Start-NvEngine $nvDr 'native'
+    $nvDrun = Wait-NvEngine $nvDp $nvDr $null
+    $nvDd = Join-Path $nvDr 'data'
+    $nvDh = Read-ChatqJson (Join-Path $nvDd 'native\handoff.json')
+    $nvDw = if ($nvDh) { try { ConvertFrom-ChatqStepW $nvDh.w } catch { $null } } else { $null }
+    $nvDs = Read-ChatqJson (Join-Path $nvDd 'state.json')
+    $nvDl = Read-ChatqJson (Join-Path $nvDd 'native\last.json')
+    $nvDsp = Read-ChatqJson (Join-Path $nvDr 'capture\spawn-1.json')
+    $nvDcap = @(Get-ChildItem -LiteralPath (Join-Path $nvDr 'capture') -File | ForEach-Object { $_.Name -replace '-\d+\.json$', '' } | Sort-Object -Unique) -join ','
+    $nvDcarry = Test-Path -LiteralPath (Join-Path $nvDd 'native\carry.clixml')
+    $nvDbad = @()
+    if (-not $nvDrun.Exited -or -not $nvDh -or [int]$nvDh.v -ne 1 -or [int]$nvDh.watcherPid -ne $nvDrun.Pid -or $nvDh.w.handoff -ne $true -or -not $nvDw -or
+        -not $nvDw.Caches.ChatqAskSent.ContainsKey('nvaskrid22') -or -not $nvDw.W.lastAllowed.Count) { $nvDbad += "handoff.json: exited $($nvDrun.Exited), $($nvDh | ConvertTo-Json -Compress -Depth 3)" }
+    if ($nvDs.handoff -ne $true -or [int]$nvDs.pid -ne $nvDrun.Pid -or $nvDl.state -cne 'handed-over' -or $nvDsp.engine -cne 'ps' -or
+        $nvDsp.command -notlike "*$(Join-Path $nvDr 'Charlie-and-the-chat-factory.ps1')*Invoke-ChatqWatchLoop" -or $nvDcap -cne 'down,join,spawn' -or
+        (Read-NvShared (Join-Path $nvDd 'logs\chatqd.log')) -notlike '*handing over to the PowerShell watcher: the phone reply window is open*') {
+        $nvDbad += "state handoff $($nvDs.handoff) pid $($nvDs.pid), last $($nvDl.state), spawn $($nvDsp.engine) '$($nvDsp.command)', captured $nvDcap"
+    }
+    $nvDreplies = Join-Path $nvDd 'logs\replies.log'
+    $nvDstop = {
+        if (-not $script:nvCase.Done -and (Test-Path -LiteralPath $nvDreplies) -and (Read-NvShared $nvDreplies) -like '*ask nvaskrid22 nv ask chat: landed*') {
+            [IO.File]::WriteAllText((Join-Path $nvDd 'stop'), '', $utf8)
+            $script:nvCase.Done = $true
+        }
+    }
+    $script:nvCase = @{ Done = $false }
+    $nvDpp = Start-NvEngine $nvDr 'ps'
+    $nvDps = Wait-NvEngine $nvDpp $nvDr $nvDstop 150
+    $nvDwl = Read-NvShared (Join-Path $nvDd 'logs\watcher.log')
+    if (-not $nvDps.Exited -or -not $script:nvCase.Done -or $nvDwl -notlike "*watcher $($nvDpp.Id) started*carrying on from the watcher before it*listening for phone replies*stop requested*" -or
+        (Test-Path -LiteralPath (Join-Path $nvDd 'native\handoff.json')) -or (Test-Path -LiteralPath (Join-Path $nvDd 'native\carry.clixml'))) {
+        $nvDbad += "the PS watcher: exited $($nvDps.Exited), landed $($script:nvCase.Done), carry was $nvDcarry | $nvDwl"
+    }
+    Check 'a pick that opens the reply window: chatqd hands over W and its caches in handoff.json, its PS watcher recorded; that watcher carries on from them, the phone''s answer sent mid-pick lands, and both files go' (
+        -not $nvDbad) ($nvDbad -join ' || ')
+    Check 'the twin run toasts, pushes and starts nothing outside its captures' ($script:Toasts.Count -eq $nvToastsAt -and $script:Ntfys.Count -eq $nvNtfysAt) "toasts $nvToastsAt -> $($script:Toasts.Count), ntfy $nvNtfysAt -> $($script:Ntfys.Count)"
 }
 
 # --- the contract vectors (native/SPEC.md 6.1) ---------------------------------

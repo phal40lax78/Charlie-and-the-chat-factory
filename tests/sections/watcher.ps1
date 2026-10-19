@@ -267,3 +267,122 @@ while ($wlOk -and -not $wlCwd -and (Get-Date) -lt $wlUntil) {
 Check 'the watcher starts in your home folder, not the folder of the shell that started it, even one with [1] in its name' ($wlOk -and
     $wlCwd.TrimEnd('\', '/') -eq $HOME.TrimEnd('\', '/')) "started $wlOk, in '$wlCwd'"
 Remove-Item -LiteralPath $wlCwdStub, $wlCwdOut, $wlFrom -Force -EA SilentlyContinue
+
+# The respawn after 'queue empty', with the reply window asked per call:
+# shut at the pass's look and at the empty recheck, open by the look after
+# the lock is let go - a shell's alert in between. The sequence of looks,
+# log lines and starts is the one chatqd's own replay of that exit asserts
+# (native/crates/chatqd/src/watch/timers_replay.rs). Every other call the
+# loop makes is stubbed, the queue is seen as empty, and no -Now is lying
+# about.
+$wlFnWas = @{}
+foreach ($k in 'Get-ChatqJobs', 'Restore-ChatqWatchState', 'Repair-ChatqInterrupted', 'Test-ChatqHeldWaiting', 'Test-ChatqReplyOpen', 'Invoke-ChatqWatchAutoScan',
+    'Clear-ChatqStrayFiles', 'Set-ChatqKeepAwake', 'Save-ChatqWatchState', 'Write-ChatqBoard', 'Write-ChatqWatchLog', 'Start-ChatqWatcherProcess') { $wlFnWas[$k] = (Get-Item "function:$k").ScriptBlock }
+$wlSentWas = $script:ChatqAskSent
+$wlFgWas = $script:ChatqForeground
+$wlWake = Read-TestFile $script:ChatqWakePath
+$script:wlSeq = New-Object System.Collections.Generic.List[string]
+$script:wlOpens = 0
+try {
+    $script:ChatqAskSent = @{}
+    Remove-Item -LiteralPath $script:ChatqStopPath, $script:ChatqWakePath -Force -EA SilentlyContinue
+    Set-Item function:Get-ChatqJobs { @() }
+    Set-Item function:Restore-ChatqWatchState { param($W) $false }
+    Set-Item function:Repair-ChatqInterrupted { }
+    Set-Item function:Test-ChatqHeldWaiting { $false }
+    Set-Item function:Test-ChatqReplyOpen { param($Cfg) $script:wlOpens++; $o = $script:wlOpens -ge 3; $script:wlSeq.Add("reply open: $o"); $o }
+    Set-Item function:Invoke-ChatqWatchAutoScan { param($W) 0 }
+    Set-Item function:Clear-ChatqStrayFiles { @() }
+    Set-Item function:Set-ChatqKeepAwake { param([bool]$On) }
+    Set-Item function:Save-ChatqWatchState { param($W) }
+    Set-Item function:Write-ChatqBoard { }
+    Set-Item function:Write-ChatqWatchLog { param([string]$Text) $script:wlSeq.Add("log: $Text") }
+    Set-Item function:Start-ChatqWatcherProcess { $script:wlSeq.Add('start a watcher'); $true }
+    Invoke-ChatqWatchLoop -Foreground *> $null
+}
+finally {
+    foreach ($k in $wlFnWas.Keys) { Set-Item "function:$k" $wlFnWas[$k] }
+    $script:ChatqAskSent = $wlSentWas
+    $script:ChatqForeground = $wlFgWas
+    Restore-TestFile $script:ChatqWakePath $wlWake
+}
+$wlWant = "log: watcher $PID started ($script:ChatVersion)", 'reply open: False', 'reply open: False', 'log: queue empty', "log: watcher $PID stopped",
+    'reply open: True', 'log: a phone alert went out as this watcher left - starting another to listen', 'start a watcher'
+Check 'the respawn after queue empty, the window asked per call: shut at the pass and the recheck, open after the lock is let go - one watcher started, in that order' (
+    ($script:wlSeq -join ' | ') -ceq ($wlWant -join ' | ')) ($script:wlSeq -join ' | ')
+
+# A queued job its own id does not find: two files holding one id (a copy
+# made by hand) and a blank id. The pick would look for it, find nothing and
+# return, and the loop used to pick it again at once, every pass with no
+# wait. Now it is passed over, named once in watcher.log, its files left as
+# they are, and the job after it runs. Three scripted passes, as
+# tests/vectors/timers.ps1 scripts them: the pass marker writes data/stop on
+# the last. The pick finds the job again as Invoke-ChatqJob does. chatqd's
+# replay of the same queue asserts the same lines
+# (native/crates/chatqd/src/watch/timers_replay.rs).
+$wlLostDir = Join-Path $sb 'lost-queue'
+$null = New-Item -ItemType Directory -Path $wlLostDir -Force
+$wlLostFiles = [ordered]@{ 'a.json' = @('d', 1); 'b.json' = @('d', 2); 'blank.json' = @(' ', 3); 'g.json' = @('g', 4) }
+foreach ($k in $wlLostFiles.Keys) {
+    $wlL = $wlLostFiles[$k]
+    $wlJ = [ordered]@{ id = $wlL[0]; seq = $wlL[1]; state = 'queued'; kind = 'prompt'; title = "chat $($wlL[1])"; createdAt = "2026-10-15T08:0$($wlL[1]):00.0000000Z"; provider = 'claude'; history = @() }
+    [System.IO.File]::WriteAllText((Join-Path $wlLostDir $k), ($wlJ | ConvertTo-Json -Depth 4), $utf8)
+}
+$wlLostBefore = @{}
+foreach ($k in 'a.json', 'b.json', 'blank.json') { $wlLostBefore[$k] = [System.IO.File]::ReadAllText((Join-Path $wlLostDir $k), $utf8) }
+$wlFnWas = @{}
+foreach ($k in 'Restore-ChatqWatchState', 'Repair-ChatqInterrupted', 'Test-ChatqHeldWaiting', 'Test-ChatqReplyOpen', 'Invoke-ChatqWatchAutoScan', 'Clear-ChatqStrayFiles', 'Update-ChatqBlock',
+    'Invoke-ChatqPick', 'Send-ChatqUsageSoon', 'Set-ChatqKeepAwake', 'Save-ChatqWatchState', 'Write-ChatqBoard', 'Write-ChatqWatchLog', 'Wait-ChatqUntil') { $wlFnWas[$k] = (Get-Item "function:$k").ScriptBlock }
+$wlQueueWas = $script:ChatqQueueDir
+$wlSentWas = $script:ChatqAskSent
+$wlFgWas = $script:ChatqForeground
+$wlWake = Read-TestFile $script:ChatqWakePath
+$script:wlSeq = New-Object System.Collections.Generic.List[string]
+$script:wlPass = 0
+try {
+    $script:ChatqQueueDir = $wlLostDir
+    $script:ChatqAskSent = @{}
+    Remove-Item -LiteralPath $script:ChatqStopPath, $script:ChatqWakePath -Force -EA SilentlyContinue
+    Set-Item function:Restore-ChatqWatchState { param($W) $false }
+    Set-Item function:Repair-ChatqInterrupted { }
+    Set-Item function:Test-ChatqHeldWaiting {
+        $script:wlPass++
+        if ($script:wlPass -gt 3) { throw 'the loop went round more than 3 times' }
+        $script:wlSeq.Add('pass')
+        if ($script:wlPass -eq 3) { Set-Content -LiteralPath $script:ChatqStopPath -Value 'stop' -Encoding ASCII }
+        $false
+    }
+    Set-Item function:Test-ChatqReplyOpen { param($Cfg) $false }
+    Set-Item function:Invoke-ChatqWatchAutoScan { param($W) 0 }
+    Set-Item function:Clear-ChatqStrayFiles { @() }
+    Set-Item function:Update-ChatqBlock { param($W, $Job) $script:wlSeq.Add("block #$($Job.seq)") }
+    Set-Item function:Invoke-ChatqPick {
+        param($W, $Job)
+        $j = Find-ChatqJob $Job.id -Exact
+        if (-not $j -or $j.state -ne 'queued') { $script:wlSeq.Add("pick #$($Job.seq): not found"); return }
+        $script:wlSeq.Add("run #$($j.seq)")
+        Set-ChatqProp $j 'state' 'done'
+        $null = Save-ChatqJob $j -Existing
+    }
+    Set-Item function:Send-ChatqUsageSoon { param($W, $Queued) $null }
+    Set-Item function:Set-ChatqKeepAwake { param([bool]$On) }
+    Set-Item function:Save-ChatqWatchState { param($W) }
+    Set-Item function:Write-ChatqBoard { }
+    Set-Item function:Write-ChatqWatchLog { param([string]$Text) if ($Text -notmatch '^watcher \d+ (started|stopped)') { $script:wlSeq.Add("log: $Text") } }
+    Set-Item function:Wait-ChatqUntil { param([datetime]$When) $script:wlSeq.Add('wait') }
+    Invoke-ChatqWatchLoop -Foreground *> $null
+}
+finally {
+    foreach ($k in $wlFnWas.Keys) { Set-Item "function:$k" $wlFnWas[$k] }
+    $script:ChatqQueueDir = $wlQueueWas
+    $script:ChatqAskSent = $wlSentWas
+    $script:ChatqForeground = $wlFgWas
+    Remove-Item -LiteralPath $script:ChatqStopPath -Force -EA SilentlyContinue
+    Restore-TestFile $script:ChatqWakePath $wlWake
+}
+$wlWant = 'pass', "log: a.json, b.json: the id 'd' does not find one job - left queued, not run, until that is put right",
+    "log: blank.json: the id ' ' does not find one job - left queued, not run, until that is put right", 'block #4', 'run #4', 'pass', 'wait', 'pass', 'wait', 'log: stop requested'
+$wlLostKept = @($wlLostBefore.Keys | Where-Object { [System.IO.File]::ReadAllText((Join-Path $wlLostDir $_), $utf8) -cne $wlLostBefore[$_] })
+Check 'a queued job its own id does not find (an id two files hold, a blank id): passed over, each named once in watcher.log, its files untouched, the next job run, and the passes after wait' (
+    ($script:wlSeq -join ' | ') -ceq ($wlWant -join ' | ') -and $wlLostKept.Count -eq 0) "$($script:wlSeq -join ' | ') / changed: $($wlLostKept -join ', ')"
+Remove-Item -LiteralPath $wlLostDir -Recurse -Force -EA SilentlyContinue

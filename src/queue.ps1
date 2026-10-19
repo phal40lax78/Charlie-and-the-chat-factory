@@ -94,6 +94,15 @@ $script:ChatWindowTitlesSeam = $null
 $script:ChatCodeWindowListSeam = $null
 $script:ChatCodeProfilesSeam = $null
 $script:ChatShowSpawnSeam = $null
+# a helper step of chatqd (native/SPEC.md 3.6), set by src/native-step.ps1:
+# the watcher's pid and start stamp for state.json, the pid a run names as
+# its runner (Get-ChatqRunnerPid), and the parent test, a scriptblock that
+# is $true while chatqd lives. All $null in a PowerShell watcher, so every
+# site keeps $PID.
+$script:ChatqWatcherPid = $null
+$script:ChatqWatcherStartedAt = $null
+$script:ChatqRunnerPid = $null
+$script:ChatqStepParent = $null
 
 #endregion
 
@@ -1020,6 +1029,13 @@ function New-ChatqDir {
     if (-not (Test-Path -LiteralPath $Path)) { New-Item -ItemType Directory -Path $Path -Force | Out-Null }
 }
 
+function Get-ChatqRunnerPid {
+    # The pid that holds the watcher lock: this process, or chatqd's when a
+    # helper step of it runs here - one pid per run (native/SPEC.md 3.6)
+    if ($script:ChatqRunnerPid) { return $script:ChatqRunnerPid }
+    return $PID
+}
+
 function Open-ChatqLock {
     # A lock file opened with no sharing, or $null when it cannot be had in
     # 3 s of tries; each caller throws its own words for that. A wait of its
@@ -1246,6 +1262,15 @@ function Find-ChatqJob {
     $hit = @($Jobs | Where-Object { $_.id -like "$r*" })
     if ($hit.Count -eq 1) { return $hit[0] }
     return $null
+}
+
+function Get-ChatqJobFiles {
+    # the names of the job files holding a job with this id, as -eq
+    # compares one: for a line that says which files to put right
+    param([string]$Id)
+    foreach ($f in @(Get-ChildItem -LiteralPath $script:ChatqQueueDir -Filter *.json -File -EA SilentlyContinue)) {
+        if (@(Read-ChatqJson $f.FullName | Where-Object { $_ -and [string]$_.id -eq $Id }).Count) { $f.Name }
+    }
 }
 
 function Get-ChatqPromptPath {
@@ -1988,6 +2013,9 @@ function Invoke-ChatqProcess {
     # cancel, stop and the deadline are looked at every 5 s whether the run is
     # silent or chattering - a stream of quick tool calls must not hide them
     $check = {
+        # a helper step whose chatqd died ends at once, as a killed watcher
+        # would: the CLI is left running and the next repair says so
+        if ($script:ChatqStepParent -and -not (& $script:ChatqStepParent)) { Stop-Process -Id $PID -Force }
         if ($OnTick -and (& $OnTick)) { return 'cancelled' }
         if ((Get-Date) -gt $deadline) { return 'timeout' }
         return $null

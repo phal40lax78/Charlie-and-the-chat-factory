@@ -8,10 +8,10 @@ use chatq_core::config::read_config;
 use chatq_core::culture::Culture;
 use chatq_core::fsx::read_json;
 use chatq_core::gates::{self, BlockedLane};
-use chatq_core::json::{self, ieq};
+use chatq_core::json;
 use chatq_core::paths::Paths;
 use chatq_core::time::{Flavour, Instant, Zone, parse_stamp_in, stamp_utc};
-use chrono::FixedOffset;
+use chrono::{FixedOffset, TimeDelta};
 use serde_json::{Value, json};
 use std::fs;
 use std::path::Path;
@@ -129,15 +129,28 @@ fn soon(input: &Value, p: &Paths, now: Instant, fl: Flavour, zone: Zone) -> Valu
         )
     };
     let sent: Vec<String> = list(input, "sentBefore").iter().map(key).collect();
-    let file: Vec<String> = list(input, "fileHas").iter().map(key).collect();
+    // data/usage-alerts.json: fileHas's keys, each sent at 08:00 unless it
+    // names its value, or fileText as it is
+    let alerts = Path::new(&p.data).join("usage-alerts.json");
+    let eight = json!("2026-10-15T08:00:00.0000000Z");
+    let file: serde_json::Map<String, Value> = list(input, "fileHas")
+        .iter()
+        .map(|e| (key(e), e.get("value").unwrap_or(&eight).clone()))
+        .collect();
+    if !file.is_empty() {
+        fs::write(&alerts, Value::Object(file).to_string()).expect("the file");
+    } else if let Some(t) = input.get("fileText") {
+        fs::write(&alerts, t.as_str().expect("a text field")).expect("the file");
+    }
     let r = gates::usage_soon(&cfg, &blocked, &queued, &sent, now, fl, zone);
     let mut due = r.due.clone();
     due.sort();
     // Use-ChatqUsageAlertState: a key data/usage-alerts.json has already
     // is not sent again
+    let st = read_json(&alerts, fl);
     let send: Vec<&String> = due
         .iter()
-        .filter(|k| !file.iter().any(|f| ieq(f, k)))
+        .filter(|k| !gates::soon_already_sent(st.as_ref(), k, fl))
         .collect();
     json!({ "next": r.next.map(stamp_utc), "due": due, "send": send, "alerts": send.len() })
 }
@@ -159,6 +172,16 @@ fn answer(case: &common::Case, fl: Flavour) -> Value {
             let clock = UNIX_EPOCH + Duration::from_secs(now.timestamp() as u64);
             make_files(&p, list(input, "files"), clock);
             json!({ "waiting": gates::held_waiting(&p, clock) })
+        }
+        Some("heldSummary") => {
+            write_file(&p.config(), input, "config", "configText");
+            let clock = UNIX_EPOCH + Duration::from_secs(now.timestamp() as u64);
+            make_files(&p, list(input, "files"), clock);
+            let cfg = read_config(&p.config(), fl);
+            let tried = input
+                .get("triedSecondsAgo")
+                .map(|s| now - TimeDelta::seconds(s.as_i64().expect("seconds")));
+            json!({ "due": gates::held_summary_due_in(&p, &cfg, tried, clock, now, zone) })
         }
         Some("auto") => {
             write_file(&p.config(), input, "config", "configText");

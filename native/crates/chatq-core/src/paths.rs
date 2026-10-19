@@ -139,6 +139,22 @@ impl Paths {
     pub fn fuse(&self) -> PathBuf {
         self.native_file("fuse.json")
     }
+    /// `D/native/step-<n>.in.json`: what helper step `n` is to do (SPEC 3.6)
+    pub fn step_in(&self, n: u32) -> PathBuf {
+        self.native_file(&format!("step-{n}.in.json"))
+    }
+    /// `D/native/step-<n>.out.json`: what helper step `n` answered
+    pub fn step_out(&self, n: u32) -> PathBuf {
+        self.native_file(&format!("step-{n}.out.json"))
+    }
+    /// D/native/handoff.json: W and its caches for the PS watcher (SPEC 4.4)
+    pub fn handoff(&self) -> PathBuf {
+        self.native_file("handoff.json")
+    }
+    /// R/src/native-step.ps1, the helper steps' entry (SPEC 3.6)
+    pub fn native_step(&self) -> PathBuf {
+        PathBuf::from(join(&join(&self.root, "src"), "native-step.ps1"))
+    }
     /// R/Charlie-and-the-chat-factory.ps1, where `chatqd version` reads the
     /// loader's version
     pub fn loader(&self) -> PathBuf {
@@ -160,5 +176,13 @@ mod tests {
         assert_eq!(join(r"D:\", "data"), r"D:\data");
         let p = Paths::new(r"C:\Users\me\chatq");
         assert_eq!(p.logs, r"C:\Users\me\chatq\data\logs");
+        assert_eq!(
+            p.step_in(3),
+            PathBuf::from(r"C:\Users\me\chatq\data\native\step-3.in.json")
+        );
+        assert_eq!(
+            p.native_step(),
+            PathBuf::from(r"C:\Users\me\chatq\src\native-step.ps1")
+        );
     }
 }
