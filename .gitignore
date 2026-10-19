@@ -17,6 +17,9 @@ extension/LICENSE
 .env
 .env.*
 !.env.example
+# design reference material (CD Projekt Red's Skippy art, clips, audio) -
+# third-party IP, kept local, never published
+design/skippy/
 # local Python virtual environments - machine-specific and rebuildable
 .venv/
 venv/

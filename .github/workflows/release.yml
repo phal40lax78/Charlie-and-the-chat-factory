@@ -1,0 +1,45 @@
+name: release
+
+# chatqd's release assets, made from test.yml's own builds and attached to
+# nothing: the unsigned dry run of native/SPEC.md 7 (M0). The real release
+# adds Authenticode signing, the v* tag trigger, build provenance and the
+# upload to the GitHub release (SPEC 4.7, 4.8), once install.ps1 fetches
+# these assets.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/test.yml
+
+  assets:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: chatqd-*
+          path: dist
+
+      # the names install.ps1 will ask for (SPEC 4.7); the Mac binary's mode
+      # 0755 rides inside its tar, which test.yml made on the Mac
+      - name: Assets and SHA256SUMS
+        run: |
+          v=$(sed -n 's/^version = "\([0-9.]*\)"$/\1/p' native/Cargo.toml | head -n 1)
+          test -n "$v"
+          mkdir out
+          (cd dist/chatqd-x86_64-pc-windows-msvc && zip -X "../../out/chatqd-$v-x86_64-pc-windows-msvc.zip" chatqd.exe)
+          cp dist/chatqd-universal-apple-darwin/chatqd-universal-apple-darwin.tar.gz "out/chatqd-$v-universal-apple-darwin.tar.gz"
+          tar -tvzf "out/chatqd-$v-universal-apple-darwin.tar.gz" | grep -q '^-rwxr-xr-x .* chatqd$'
+          (cd out && sha256sum -- * > SHA256SUMS && cat SHA256SUMS)
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: chatqd-release
+          path: out/
+          if-no-files-found: error

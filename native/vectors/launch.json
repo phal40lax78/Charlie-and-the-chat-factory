@@ -1,0 +1,199 @@
+{
+  "about": "The engine decision of native/SPEC.md 4.2, as both launchers make it: Get-ChatqWatcherEngine in src/watcher.ps1 (tests/sections/native.ps1) and decide in native/crates/chatq-core/src/launch.rs (crates/chatq-core/tests/launch_vectors.rs). Each case starts from an empty data folder, writes what 'given' says, makes one decision call for 'version', and checks 'expect'.",
+  "fields": {
+    "given.engine": "CHATQ_ENGINE, unset when absent",
+    "given.config": "config.json's content",
+    "given.binary": "a file at <root>/chatqd-under-test.exe, named by CHATQ_CHATQD; absent or false: CHATQ_CHATQD unset and nothing at R/bin/<version>/<target>/",
+    "given.verified": "same: verified.json holds this binary's identity; stale: an entry for its path with another size",
+    "given.preflight": "pass (the default) or fail: what chatqd version would answer, were it asked",
+    "given.pending": "pending.json {pid, version, at = now - ageSeconds}; no ageSeconds, no at",
+    "given.last": "last.json {pid, version, engine, state}",
+    "given.pidFile": "watcher.pid there, naming last's pid",
+    "given.lockHeld": "watcher.lock held through the call",
+    "given.fuse": "fuse.json {version, alerted, strikes:[{at = now - hoursAgo, why, pid}]}",
+    "given.live": "pids that are a live chatqd",
+    "given.alive": "pids that are a live process of another kind",
+    "expect.engine": "native or ps",
+    "expect.strikes": "the whys this call added to fuse.json for 'version', in order",
+    "expect.preflight": "whether this call ran preflight",
+    "expect.pending": "whether pending.json is there after",
+    "expect.verified": "whether verified.json holds the binary's identity after, in one entry for its path",
+    "expect.alert": "PowerShell only: whether this call sent the one-time failed alert and marked fuse.json alerted"
+  },
+  "version": "1.0.0",
+  "cases": [
+    {
+      "name": "no binary: PowerShell, nothing run or written",
+      "given": {},
+      "expect": { "engine": "ps", "strikes": [], "preflight": false, "pending": false, "verified": false, "alert": false }
+    },
+    {
+      "name": "a binary not yet verified: preflight passes, native, the pass cached",
+      "given": { "binary": true },
+      "expect": { "engine": "native", "strikes": [], "preflight": true, "pending": false, "verified": true, "alert": false }
+    },
+    {
+      "name": "a verified binary: native, no preflight",
+      "given": { "binary": true, "verified": "same" },
+      "expect": { "engine": "native", "strikes": [], "preflight": false, "pending": false, "verified": true, "alert": false }
+    },
+    {
+      "name": "a rebuilt binary is checked again, its old pass replaced",
+      "given": { "binary": true, "verified": "stale" },
+      "expect": { "engine": "native", "strikes": [], "preflight": true, "pending": false, "verified": true, "alert": false }
+    },
+    {
+      "name": "preflight fails: a strike, PowerShell, nothing cached",
+      "given": { "binary": true, "preflight": "fail" },
+      "expect": { "engine": "ps", "strikes": ["preflight"], "preflight": true, "pending": false, "verified": false, "alert": false }
+    },
+    {
+      "name": "CHATQ_ENGINE=ps: PowerShell, no preflight",
+      "given": { "binary": true, "engine": "ps" },
+      "expect": { "engine": "ps", "strikes": [], "preflight": false, "pending": false, "verified": false, "alert": false }
+    },
+    {
+      "name": "config watcher ps, in any case and spacing",
+      "given": { "binary": true, "config": { "watcher": " PS " } },
+      "expect": { "engine": "ps", "strikes": [], "preflight": false, "pending": false, "verified": false, "alert": false }
+    },
+    {
+      "name": "CHATQ_ENGINE=native wins over config ps",
+      "given": { "binary": true, "verified": "same", "engine": "native", "config": { "watcher": "ps" } },
+      "expect": { "engine": "native", "strikes": [], "preflight": false, "pending": false, "verified": true, "alert": false }
+    },
+    {
+      "name": "CHATQ_ENGINE=ps wins over config native",
+      "given": { "binary": true, "verified": "same", "engine": "ps", "config": { "watcher": "native" } },
+      "expect": { "engine": "ps", "strikes": [], "preflight": false, "pending": false, "verified": true, "alert": false }
+    },
+    {
+      "name": "a CHATQ_ENGINE of spaces is unset, so config says",
+      "given": { "binary": true, "verified": "same", "engine": "  ", "config": { "watcher": "ps" } },
+      "expect": { "engine": "ps", "strikes": [], "preflight": false, "pending": false, "verified": true, "alert": false }
+    },
+    {
+      "name": "any other config value is native",
+      "given": { "binary": true, "verified": "same", "config": { "watcher": "chatqd" } },
+      "expect": { "engine": "native", "strikes": [], "preflight": false, "pending": false, "verified": true, "alert": false }
+    },
+    {
+      "name": "a pending launch under 15 s old is waited for",
+      "given": { "binary": true, "verified": "same", "pending": { "pid": 7001, "version": "1.0.0", "ageSeconds": 5 } },
+      "expect": { "engine": "native", "strikes": [], "preflight": false, "pending": true, "verified": true, "alert": false }
+    },
+    {
+      "name": "a pending launch whose chatqd still runs is waited for",
+      "given": { "binary": true, "verified": "same", "pending": { "pid": 7002, "version": "1.0.0", "ageSeconds": 60 }, "live": [7002] },
+      "expect": { "engine": "native", "strikes": [], "preflight": false, "pending": true, "verified": true, "alert": false }
+    },
+    {
+      "name": "a launch never acked: a strike, cleared, PowerShell",
+      "given": { "binary": true, "verified": "same", "pending": { "pid": 7003, "version": "1.0.0", "ageSeconds": 60 } },
+      "expect": { "engine": "ps", "strikes": ["no ack"], "preflight": false, "pending": false, "verified": true, "alert": false }
+    },
+    {
+      "name": "a pending pid alive as something else is no chatqd",
+      "given": { "binary": true, "verified": "same", "pending": { "pid": 7004, "version": "1.0.0", "ageSeconds": 60 }, "alive": [7004] },
+      "expect": { "engine": "ps", "strikes": ["no ack"], "preflight": false, "pending": false, "verified": true, "alert": false }
+    },
+    {
+      "name": "a pending record with no stamp is old",
+      "given": { "binary": true, "verified": "same", "pending": { "pid": 7005, "version": "1.0.0" } },
+      "expect": { "engine": "ps", "strikes": ["no ack"], "preflight": false, "pending": false, "verified": true, "alert": false }
+    },
+    {
+      "name": "another version's pending is cleared with no strike",
+      "given": { "binary": true, "verified": "same", "pending": { "pid": 7006, "version": "0.9.0", "ageSeconds": 60 } },
+      "expect": { "engine": "native", "strikes": [], "preflight": false, "pending": false, "verified": true, "alert": false }
+    },
+    {
+      "name": "with no binary a launch never acked is still a strike",
+      "given": { "pending": { "pid": 7007, "version": "1.0.0", "ageSeconds": 60 } },
+      "expect": { "engine": "ps", "strikes": ["no ack"], "preflight": false, "pending": false, "verified": false, "alert": false }
+    },
+    {
+      "name": "engine ps still records what it finds",
+      "given": { "binary": true, "verified": "same", "engine": "ps", "pending": { "pid": 7008, "version": "1.0.0", "ageSeconds": 60 } },
+      "expect": { "engine": "ps", "strikes": ["no ack"], "preflight": false, "pending": false, "verified": true, "alert": false }
+    },
+    {
+      "name": "a crash: holding, dead, the lock free and the pid file left",
+      "given": { "binary": true, "verified": "same", "last": { "pid": 7010, "version": "1.0.0", "engine": "native", "state": "holding" }, "pidFile": true },
+      "expect": { "engine": "ps", "strikes": ["crash"], "preflight": false, "pending": false, "verified": true, "alert": false }
+    },
+    {
+      "name": "a crash already counted is not counted again",
+      "given": { "binary": true, "verified": "same", "last": { "pid": 7010, "version": "1.0.0", "engine": "native", "state": "holding" }, "pidFile": true,
+        "fuse": { "version": "1.0.0", "alerted": false, "strikes": [{ "hoursAgo": 1, "why": "crash", "pid": 7010 }] } },
+      "expect": { "engine": "native", "strikes": [], "preflight": false, "pending": false, "verified": true, "alert": false }
+    },
+    {
+      "name": "no pid file: a clean exit, not a crash",
+      "given": { "binary": true, "verified": "same", "last": { "pid": 7011, "version": "1.0.0", "engine": "native", "state": "holding" } },
+      "expect": { "engine": "native", "strikes": [], "preflight": false, "pending": false, "verified": true, "alert": false }
+    },
+    {
+      "name": "the lock held: not a crash",
+      "given": { "binary": true, "verified": "same", "last": { "pid": 7012, "version": "1.0.0", "engine": "native", "state": "holding" }, "pidFile": true, "lockHeld": true },
+      "expect": { "engine": "native", "strikes": [], "preflight": false, "pending": false, "verified": true, "alert": false }
+    },
+    {
+      "name": "its pid alive: not a crash",
+      "given": { "binary": true, "verified": "same", "last": { "pid": 7013, "version": "1.0.0", "engine": "native", "state": "holding" }, "pidFile": true, "alive": [7013] },
+      "expect": { "engine": "native", "strikes": [], "preflight": false, "pending": false, "verified": true, "alert": false }
+    },
+    {
+      "name": "last.json empty is an ack, not a crash",
+      "given": { "binary": true, "verified": "same", "last": { "pid": 7014, "version": "1.0.0", "engine": "native", "state": "empty" }, "pidFile": true },
+      "expect": { "engine": "native", "strikes": [], "preflight": false, "pending": false, "verified": true, "alert": false }
+    },
+    {
+      "name": "another version's last.json is ignored",
+      "given": { "binary": true, "verified": "same", "last": { "pid": 7015, "version": "0.9.0", "engine": "native", "state": "holding" }, "pidFile": true },
+      "expect": { "engine": "native", "strikes": [], "preflight": false, "pending": false, "verified": true, "alert": false }
+    },
+    {
+      "name": "3 strikes in 24 h: the fuse, PowerShell, alerted once",
+      "given": { "binary": true, "verified": "same",
+        "fuse": { "version": "1.0.0", "alerted": false, "strikes": [{ "hoursAgo": 1, "why": "crash", "pid": 1 }, { "hoursAgo": 2, "why": "no ack", "pid": 2 }, { "hoursAgo": 3, "why": "preflight", "pid": null }] } },
+      "expect": { "engine": "ps", "strikes": [], "preflight": false, "pending": false, "verified": true, "alert": true }
+    },
+    {
+      "name": "a fuse already alerted says nothing more",
+      "given": { "binary": true, "verified": "same",
+        "fuse": { "version": "1.0.0", "alerted": true, "strikes": [{ "hoursAgo": 1, "why": "crash", "pid": 1 }, { "hoursAgo": 2, "why": "no ack", "pid": 2 }, { "hoursAgo": 3, "why": "panic", "pid": 3 }] } },
+      "expect": { "engine": "ps", "strikes": [], "preflight": false, "pending": false, "verified": true, "alert": false }
+    },
+    {
+      "name": "a strike over a day old does not count",
+      "given": { "binary": true, "verified": "same",
+        "fuse": { "version": "1.0.0", "alerted": false, "strikes": [{ "hoursAgo": 1, "why": "crash", "pid": 1 }, { "hoursAgo": 2, "why": "crash", "pid": 2 }, { "hoursAgo": 30, "why": "crash", "pid": 3 }] } },
+      "expect": { "engine": "native", "strikes": [], "preflight": false, "pending": false, "verified": true, "alert": false }
+    },
+    {
+      "name": "another version's fuse counts for nothing",
+      "given": { "binary": true, "verified": "same",
+        "fuse": { "version": "0.9.0", "alerted": false, "strikes": [{ "hoursAgo": 1, "why": "crash", "pid": 1 }, { "hoursAgo": 1, "why": "crash", "pid": 2 }, { "hoursAgo": 1, "why": "crash", "pid": 3 }] } },
+      "expect": { "engine": "native", "strikes": [], "preflight": false, "pending": false, "verified": true, "alert": false }
+    },
+    {
+      "name": "a third strike found now blows the fuse, and is alerted",
+      "given": { "binary": true, "verified": "same", "pending": { "pid": 7020, "version": "1.0.0", "ageSeconds": 60 },
+        "fuse": { "version": "1.0.0", "alerted": false, "strikes": [{ "hoursAgo": 1, "why": "crash", "pid": 1 }, { "hoursAgo": 2, "why": "crash", "pid": 2 }] } },
+      "expect": { "engine": "ps", "strikes": ["no ack"], "preflight": false, "pending": false, "verified": true, "alert": true }
+    },
+    {
+      "name": "a third strike by preflight blows it too",
+      "given": { "binary": true, "preflight": "fail",
+        "fuse": { "version": "1.0.0", "alerted": false, "strikes": [{ "hoursAgo": 1, "why": "crash", "pid": 1 }, { "hoursAgo": 2, "why": "start failed", "pid": null }] } },
+      "expect": { "engine": "ps", "strikes": ["preflight"], "preflight": true, "pending": false, "verified": false, "alert": true }
+    },
+    {
+      "name": "with no binary a third strike blows the fuse, but nothing is alerted",
+      "given": { "pending": { "pid": 7021, "version": "1.0.0", "ageSeconds": 60 },
+        "fuse": { "version": "1.0.0", "alerted": false, "strikes": [{ "hoursAgo": 1, "why": "crash", "pid": 1 }, { "hoursAgo": 2, "why": "crash", "pid": 2 }] } },
+      "expect": { "engine": "ps", "strikes": ["no ack"], "preflight": false, "pending": false, "verified": false, "alert": false }
+    }
+  ]
+}

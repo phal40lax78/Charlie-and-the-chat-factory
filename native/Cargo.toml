@@ -1,0 +1,32 @@
+# chatqd, the native watcher: see SPEC.md. The version is the loader's
+# $script:ChatVersion, and chatqd's build.rs refuses to build when they differ.
+[workspace]
+resolver = "3"
+members = ["crates/chatq-core", "crates/chatqd"]
+
+[workspace.package]
+version = "0.10.15"
+edition = "2024"
+publish = false
+
+[workspace.dependencies]
+chatq-core = { path = "crates/chatq-core" }
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+base64 = "0.22"
+regex = "1.13.1"
+hmac = "0.13.0"
+sha2 = "0.11.1"
+subtle = "2.6.1"
+zeroize = "1.9.1"
+windows = "0.62.2"
+libc = "0.2"
+
+# SPEC 3.3: small and self-contained. Unwind stays, so a panic still runs the
+# hook and the handoff to the PowerShell watcher.
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+panic = "unwind"

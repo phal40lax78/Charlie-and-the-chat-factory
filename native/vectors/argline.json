@@ -1,0 +1,1882 @@
+{
+  "about": "ConvertTo-ChatqArgLine and Get-ChatqCmdArgRefusal (src/queue.ps1) for an exe and a .cmd or .bat target, on an adversarial corpus: {exe, args} -> {refusal, line}, line null where it threw the refusal; text with a lone surrogate as UTF-16 code units. Titles: Invoke-ChatqRun's --name for a fresh chat, the cmd title scrub for a .cmd: {exe, title} -> {name, args, line}",
+  "cases": [
+    {
+      "name": "exe: plain",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["plain"]},
+      "expect": {"refusal": null, "line": "plain"}
+    },
+    {
+      "name": "cmd: plain",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["plain"]},
+      "expect": {"refusal": null, "line": "plain"}
+    },
+    {
+      "name": "exe: empty",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": [""]},
+      "expect": {"refusal": null, "line": "\"\""}
+    },
+    {
+      "name": "cmd: empty",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": [""]},
+      "expect": {"refusal": null, "line": "\"\""}
+    },
+    {
+      "name": "exe: space",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["a b"]},
+      "expect": {"refusal": null, "line": "\"a b\""}
+    },
+    {
+      "name": "cmd: space",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["a b"]},
+      "expect": {"refusal": null, "line": "\"a b\""}
+    },
+    {
+      "name": "exe: tab",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["a\tb"]},
+      "expect": {"refusal": null, "line": "\"a\tb\""}
+    },
+    {
+      "name": "cmd: tab",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["a\tb"]},
+      "expect": {"refusal": null, "line": "\"a\tb\""}
+    },
+    {
+      "name": "exe: newline",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["a\nb"]},
+      "expect": {"refusal": null, "line": "\"a\nb\""}
+    },
+    {
+      "name": "cmd: newline",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["a\nb"]},
+      "expect": {
+        "refusal": "claude.cmd runs through cmd.exe, which cannot be handed a line break - not sent: a b",
+        "line": null
+      }
+    },
+    {
+      "name": "exe: carriage return",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["a\rb"]},
+      "expect": {"refusal": null, "line": "\"a\rb\""}
+    },
+    {
+      "name": "cmd: carriage return",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["a\rb"]},
+      "expect": {
+        "refusal": "claude.cmd runs through cmd.exe, which cannot be handed a line break - not sent: a b",
+        "line": null
+      }
+    },
+    {
+      "name": "exe: crlf",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["a\r\nb"]},
+      "expect": {"refusal": null, "line": "\"a\r\nb\""}
+    },
+    {
+      "name": "cmd: crlf",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["a\r\nb"]},
+      "expect": {
+        "refusal": "claude.cmd runs through cmd.exe, which cannot be handed a line break - not sent: a b",
+        "line": null
+      }
+    },
+    {
+      "name": "exe: line break run",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["a\n\n\rb"]},
+      "expect": {"refusal": null, "line": "\"a\n\n\rb\""}
+    },
+    {
+      "name": "cmd: line break run",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["a\n\n\rb"]},
+      "expect": {
+        "refusal": "claude.cmd runs through cmd.exe, which cannot be handed a line break - not sent: a b",
+        "line": null
+      }
+    },
+    {
+      "name": "exe: quote",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["a\"b"]},
+      "expect": {"refusal": null, "line": "\"a\\\"b\""}
+    },
+    {
+      "name": "cmd: quote",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["a\"b"]},
+      "expect": {
+        "refusal": "claude.cmd runs through cmd.exe, which cannot be handed a quote - not sent: a\"b",
+        "line": null
+      }
+    },
+    {
+      "name": "exe: quote alone",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["\""]},
+      "expect": {"refusal": null, "line": "\"\\\"\""}
+    },
+    {
+      "name": "cmd: quote alone",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["\""]},
+      "expect": {
+        "refusal": "claude.cmd runs through cmd.exe, which cannot be handed a quote - not sent: \"",
+        "line": null
+      }
+    },
+    {
+      "name": "exe: two quotes",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["\"\""]},
+      "expect": {"refusal": null, "line": "\"\\\"\\\"\""}
+    },
+    {
+      "name": "cmd: two quotes",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["\"\""]},
+      "expect": {
+        "refusal": "claude.cmd runs through cmd.exe, which cannot be handed a quote - not sent: \"\"",
+        "line": null
+      }
+    },
+    {
+      "name": "exe: backslash",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["a\\b"]},
+      "expect": {"refusal": null, "line": "a\\b"}
+    },
+    {
+      "name": "cmd: backslash",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["a\\b"]},
+      "expect": {"refusal": null, "line": "a\\b"}
+    },
+    {
+      "name": "exe: backslashes and a space",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["a\\\\b c"]},
+      "expect": {"refusal": null, "line": "\"a\\\\b c\""}
+    },
+    {
+      "name": "cmd: backslashes and a space",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["a\\\\b c"]},
+      "expect": {"refusal": null, "line": "\"a\\\\b c\""}
+    },
+    {
+      "name": "exe: backslash before a quote",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["a\\\"b"]},
+      "expect": {"refusal": null, "line": "\"a\\\\\\\"b\""}
+    },
+    {
+      "name": "cmd: backslash before a quote",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["a\\\"b"]},
+      "expect": {
+        "refusal": "claude.cmd runs through cmd.exe, which cannot be handed a quote - not sent: a\\\"b",
+        "line": null
+      }
+    },
+    {
+      "name": "exe: two backslashes before a quote",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["a\\\\\"b"]},
+      "expect": {"refusal": null, "line": "\"a\\\\\\\\\\\"b\""}
+    },
+    {
+      "name": "cmd: two backslashes before a quote",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["a\\\\\"b"]},
+      "expect": {
+        "refusal": "claude.cmd runs through cmd.exe, which cannot be handed a quote - not sent: a\\\\\"b",
+        "line": null
+      }
+    },
+    {
+      "name": "exe: trailing backslash",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["a b\\"]},
+      "expect": {"refusal": null, "line": "\"a b\\\\\""}
+    },
+    {
+      "name": "cmd: trailing backslash",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["a b\\"]},
+      "expect": {"refusal": null, "line": "\"a b\\\\\""}
+    },
+    {
+      "name": "exe: two trailing backslashes",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["a b\\\\"]},
+      "expect": {"refusal": null, "line": "\"a b\\\\\\\\\""}
+    },
+    {
+      "name": "cmd: two trailing backslashes",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["a b\\\\"]},
+      "expect": {"refusal": null, "line": "\"a b\\\\\\\\\""}
+    },
+    {
+      "name": "exe: backslash alone",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["\\"]},
+      "expect": {"refusal": null, "line": "\\"}
+    },
+    {
+      "name": "cmd: backslash alone",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["\\"]},
+      "expect": {"refusal": null, "line": "\\"}
+    },
+    {
+      "name": "exe: two backslashes alone",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["\\\\"]},
+      "expect": {"refusal": null, "line": "\\\\"}
+    },
+    {
+      "name": "cmd: two backslashes alone",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["\\\\"]},
+      "expect": {"refusal": null, "line": "\\\\"}
+    },
+    {
+      "name": "exe: program files",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["C:\\Program Files\\"]},
+      "expect": {"refusal": null, "line": "\"C:\\Program Files\\\\\""}
+    },
+    {
+      "name": "cmd: program files",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["C:\\Program Files\\"]},
+      "expect": {"refusal": null, "line": "\"C:\\Program Files\\\\\""}
+    },
+    {
+      "name": "exe: unc with a space",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["\\\\srv\\share\\a b"]},
+      "expect": {"refusal": null, "line": "\"\\\\srv\\share\\a b\""}
+    },
+    {
+      "name": "cmd: unc with a space",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["\\\\srv\\share\\a b"]},
+      "expect": {"refusal": null, "line": "\"\\\\srv\\share\\a b\""}
+    },
+    {
+      "name": "exe: percent name",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["%PATH%"]},
+      "expect": {"refusal": null, "line": "%PATH%"}
+    },
+    {
+      "name": "cmd: percent name",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["%PATH%"]},
+      "expect": {
+        "refusal": "claude.cmd runs through cmd.exe, which cannot be handed a %name% - not sent: %PATH%",
+        "line": null
+      }
+    },
+    {
+      "name": "exe: percent lone",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["100%"]},
+      "expect": {"refusal": null, "line": "100%"}
+    },
+    {
+      "name": "cmd: percent lone",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["100%"]},
+      "expect": {"refusal": null, "line": "100%"}
+    },
+    {
+      "name": "exe: percent alone",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["%"]},
+      "expect": {"refusal": null, "line": "%"}
+    },
+    {
+      "name": "cmd: percent alone",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["%"]},
+      "expect": {"refusal": null, "line": "%"}
+    },
+    {
+      "name": "exe: percent pair",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["%%"]},
+      "expect": {"refusal": null, "line": "%%"}
+    },
+    {
+      "name": "cmd: percent pair",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["%%"]},
+      "expect": {"refusal": null, "line": "%%"}
+    },
+    {
+      "name": "exe: percent three",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["%%a%"]},
+      "expect": {"refusal": null, "line": "%%a%"}
+    },
+    {
+      "name": "cmd: percent three",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["%%a%"]},
+      "expect": {
+        "refusal": "claude.cmd runs through cmd.exe, which cannot be handed a %name% - not sent: %%a%",
+        "line": null
+      }
+    },
+    {
+      "name": "exe: percent name inside",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["a%b%c"]},
+      "expect": {"refusal": null, "line": "a%b%c"}
+    },
+    {
+      "name": "cmd: percent name inside",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["a%b%c"]},
+      "expect": {
+        "refusal": "claude.cmd runs through cmd.exe, which cannot be handed a %name% - not sent: a%b%c",
+        "line": null
+      }
+    },
+    {
+      "name": "exe: percent name with a space",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["%a b%"]},
+      "expect": {"refusal": null, "line": "\"%a b%\""}
+    },
+    {
+      "name": "cmd: percent name with a space",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["%a b%"]},
+      "expect": {
+        "refusal": "claude.cmd runs through cmd.exe, which cannot be handed a %name% - not sent: %a b%",
+        "line": null
+      }
+    },
+    {
+      "name": "exe: bang",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["!x!"]},
+      "expect": {"refusal": null, "line": "!x!"}
+    },
+    {
+      "name": "cmd: bang",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["!x!"]},
+      "expect": {"refusal": null, "line": "!x!"}
+    },
+    {
+      "name": "exe: caret",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["^"]},
+      "expect": {"refusal": null, "line": "^"}
+    },
+    {
+      "name": "cmd: caret",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["^"]},
+      "expect": {"refusal": null, "line": "\"^\""}
+    },
+    {
+      "name": "exe: ampersand",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["&"]},
+      "expect": {"refusal": null, "line": "&"}
+    },
+    {
+      "name": "cmd: ampersand",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["&"]},
+      "expect": {"refusal": null, "line": "\"&\""}
+    },
+    {
+      "name": "exe: pipe",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["|"]},
+      "expect": {"refusal": null, "line": "|"}
+    },
+    {
+      "name": "cmd: pipe",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["|"]},
+      "expect": {"refusal": null, "line": "\"|\""}
+    },
+    {
+      "name": "exe: less",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["<"]},
+      "expect": {"refusal": null, "line": "<"}
+    },
+    {
+      "name": "cmd: less",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["<"]},
+      "expect": {"refusal": null, "line": "\"<\""}
+    },
+    {
+      "name": "exe: greater",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": [">"]},
+      "expect": {"refusal": null, "line": ">"}
+    },
+    {
+      "name": "cmd: greater",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": [">"]},
+      "expect": {"refusal": null, "line": "\">\""}
+    },
+    {
+      "name": "exe: parens",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["(x)"]},
+      "expect": {"refusal": null, "line": "(x)"}
+    },
+    {
+      "name": "cmd: parens",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["(x)"]},
+      "expect": {"refusal": null, "line": "\"(x)\""}
+    },
+    {
+      "name": "exe: ampersand inside",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["a&b"]},
+      "expect": {"refusal": null, "line": "a&b"}
+    },
+    {
+      "name": "cmd: ampersand inside",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["a&b"]},
+      "expect": {"refusal": null, "line": "\"a&b\""}
+    },
+    {
+      "name": "exe: caret and a space",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["a^b c"]},
+      "expect": {"refusal": null, "line": "\"a^b c\""}
+    },
+    {
+      "name": "cmd: caret and a space",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["a^b c"]},
+      "expect": {"refusal": null, "line": "\"a^b c\""}
+    },
+    {
+      "name": "exe: cve quote ampersand",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["\"&calc.exe"]},
+      "expect": {"refusal": null, "line": "\"\\\"&calc.exe\""}
+    },
+    {
+      "name": "cmd: cve quote ampersand",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["\"&calc.exe"]},
+      "expect": {
+        "refusal": "claude.cmd runs through cmd.exe, which cannot be handed a quote - not sent: \"&calc.exe",
+        "line": null
+      }
+    },
+    {
+      "name": "exe: cve backslash quote",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["\\\"&calc.exe"]},
+      "expect": {"refusal": null, "line": "\"\\\\\\\"&calc.exe\""}
+    },
+    {
+      "name": "cmd: cve backslash quote",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["\\\"&calc.exe"]},
+      "expect": {
+        "refusal": "claude.cmd runs through cmd.exe, which cannot be handed a quote - not sent: \\\"&calc.exe",
+        "line": null
+      }
+    },
+    {
+      "name": "exe: cve ampersand",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["&calc.exe"]},
+      "expect": {"refusal": null, "line": "&calc.exe"}
+    },
+    {
+      "name": "cmd: cve ampersand",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["&calc.exe"]},
+      "expect": {"refusal": null, "line": "\"&calc.exe\""}
+    },
+    {
+      "name": "exe: cve quoted ampersands",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["x\"&calc.exe&\"y"]},
+      "expect": {"refusal": null, "line": "\"x\\\"&calc.exe&\\\"y\""}
+    },
+    {
+      "name": "cmd: cve quoted ampersands",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["x\"&calc.exe&\"y"]},
+      "expect": {
+        "refusal": "claude.cmd runs through cmd.exe, which cannot be handed a quote - not sent: x\"&calc.exe&\"y",
+        "line": null
+      }
+    },
+    {
+      "name": "exe: cve caret quote",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["^\"&calc"]},
+      "expect": {"refusal": null, "line": "\"^\\\"&calc\""}
+    },
+    {
+      "name": "cmd: cve caret quote",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["^\"&calc"]},
+      "expect": {
+        "refusal": "claude.cmd runs through cmd.exe, which cannot be handed a quote - not sent: ^\"&calc",
+        "line": null
+      }
+    },
+    {
+      "name": "exe: cve cmdcmdline",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["%CMDCMDLINE:~-1%&calc.exe"]},
+      "expect": {"refusal": null, "line": "%CMDCMDLINE:~-1%&calc.exe"}
+    },
+    {
+      "name": "cmd: cve cmdcmdline",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["%CMDCMDLINE:~-1%&calc.exe"]},
+      "expect": {
+        "refusal": "claude.cmd runs through cmd.exe, which cannot be handed a %name% - not sent: %CMDCMDLINE:~-1%&calc.exe",
+        "line": null
+      }
+    },
+    {
+      "name": "exe: cve backslashes quote",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["a\\\\\" & calc"]},
+      "expect": {"refusal": null, "line": "\"a\\\\\\\\\\\" & calc\""}
+    },
+    {
+      "name": "cmd: cve backslashes quote",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["a\\\\\" & calc"]},
+      "expect": {
+        "refusal": "claude.cmd runs through cmd.exe, which cannot be handed a quote - not sent: a\\\\\" & calc",
+        "line": null
+      }
+    },
+    {
+      "name": "exe: cve trailing backslash",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["calc.exe\\"]},
+      "expect": {"refusal": null, "line": "calc.exe\\"}
+    },
+    {
+      "name": "cmd: cve trailing backslash",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["calc.exe\\"]},
+      "expect": {"refusal": null, "line": "calc.exe\\"}
+    },
+    {
+      "name": "exe: accent",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["caf\u00e9"]},
+      "expect": {"refusal": null, "line": "caf\u00e9"}
+    },
+    {
+      "name": "cmd: accent",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["caf\u00e9"]},
+      "expect": {"refusal": null, "line": "caf\u00e9"}
+    },
+    {
+      "name": "exe: hangul",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["\ud55c\uad6d\uc5b4"]},
+      "expect": {"refusal": null, "line": "\ud55c\uad6d\uc5b4"}
+    },
+    {
+      "name": "cmd: hangul",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["\ud55c\uad6d\uc5b4"]},
+      "expect": {"refusal": null, "line": "\ud55c\uad6d\uc5b4"}
+    },
+    {
+      "name": "exe: hangul and a space",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["\ud55c\uad6d \uc5b4"]},
+      "expect": {"refusal": null, "line": "\"\ud55c\uad6d \uc5b4\""}
+    },
+    {
+      "name": "cmd: hangul and a space",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["\ud55c\uad6d \uc5b4"]},
+      "expect": {"refusal": null, "line": "\"\ud55c\uad6d \uc5b4\""}
+    },
+    {
+      "name": "exe: astral",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["\ud83d\ude00"]},
+      "expect": {"refusal": null, "line": "\ud83d\ude00"}
+    },
+    {
+      "name": "cmd: astral",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["\ud83d\ude00"]},
+      "expect": {"refusal": null, "line": "\ud83d\ude00"}
+    },
+    {
+      "name": "exe: astral and a space",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["a\ud83d\ude00 b"]},
+      "expect": {"refusal": null, "line": "\"a\ud83d\ude00 b\""}
+    },
+    {
+      "name": "cmd: astral and a space",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["a\ud83d\ude00 b"]},
+      "expect": {"refusal": null, "line": "\"a\ud83d\ude00 b\""}
+    },
+    {
+      "name": "exe: no-break space",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["a\u00a0b"]},
+      "expect": {"refusal": null, "line": "\"a\u00a0b\""}
+    },
+    {
+      "name": "cmd: no-break space",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["a\u00a0b"]},
+      "expect": {"refusal": null, "line": "\"a\u00a0b\""}
+    },
+    {
+      "name": "exe: ideographic space",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["a\u3000b"]},
+      "expect": {"refusal": null, "line": "\"a\u3000b\""}
+    },
+    {
+      "name": "cmd: ideographic space",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["a\u3000b"]},
+      "expect": {"refusal": null, "line": "\"a\u3000b\""}
+    },
+    {
+      "name": "exe: line separator",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["a\u2028b"]},
+      "expect": {"refusal": null, "line": "\"a\u2028b\""}
+    },
+    {
+      "name": "cmd: line separator",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["a\u2028b"]},
+      "expect": {"refusal": null, "line": "\"a\u2028b\""}
+    },
+    {
+      "name": "exe: next line",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["a\u0085b"]},
+      "expect": {"refusal": null, "line": "\"a\u0085b\""}
+    },
+    {
+      "name": "cmd: next line",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["a\u0085b"]},
+      "expect": {"refusal": null, "line": "\"a\u0085b\""}
+    },
+    {
+      "name": "exe: mongolian vowel separator",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["a\u180eb"]},
+      "expect": {"refusal": null, "line": "a\u180eb"}
+    },
+    {
+      "name": "cmd: mongolian vowel separator",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["a\u180eb"]},
+      "expect": {"refusal": null, "line": "a\u180eb"}
+    },
+    {
+      "name": "exe: zero width space alone",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["\u200b"]},
+      "expectByEdition": {"Desktop": {"refusal": null, "line": "\u200b"}, "Core": {"refusal": null, "line": "\"\""}}
+    },
+    {
+      "name": "cmd: zero width space alone",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["\u200b"]},
+      "expectByEdition": {"Desktop": {"refusal": null, "line": "\u200b"}, "Core": {"refusal": null, "line": "\"\""}}
+    },
+    {
+      "name": "exe: soft hyphen alone",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["\u00ad"]},
+      "expect": {"refusal": null, "line": "\"\""}
+    },
+    {
+      "name": "cmd: soft hyphen alone",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["\u00ad"]},
+      "expect": {"refusal": null, "line": "\"\""}
+    },
+    {
+      "name": "exe: byte order mark alone",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["\ufeff"]},
+      "expect": {"refusal": null, "line": "\"\""}
+    },
+    {
+      "name": "cmd: byte order mark alone",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["\ufeff"]},
+      "expect": {"refusal": null, "line": "\"\""}
+    },
+    {
+      "name": "exe: soft hyphen and zero width space",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["\u00ad\u200b"]},
+      "expectByEdition": {
+        "Desktop": {"refusal": null, "line": "\u00ad\u200b"},
+        "Core": {"refusal": null, "line": "\"\""}
+      }
+    },
+    {
+      "name": "cmd: soft hyphen and zero width space",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["\u00ad\u200b"]},
+      "expectByEdition": {
+        "Desktop": {"refusal": null, "line": "\u00ad\u200b"},
+        "Core": {"refusal": null, "line": "\"\""}
+      }
+    },
+    {
+      "name": "exe: soft hyphen in a word",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["a\u00adb"]},
+      "expect": {"refusal": null, "line": "a\u00adb"}
+    },
+    {
+      "name": "cmd: soft hyphen in a word",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["a\u00adb"]},
+      "expect": {"refusal": null, "line": "a\u00adb"}
+    },
+    {
+      "name": "exe: variation selector alone",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["\udb40\udd00"]},
+      "expect": {"refusal": null, "line": "\"\""}
+    },
+    {
+      "name": "cmd: variation selector alone",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["\udb40\udd00"]},
+      "expect": {"refusal": null, "line": "\"\""}
+    },
+    {
+      "name": "exe: nul alone",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["\u0000"]},
+      "expect": {"refusal": null, "line": "\"\""}
+    },
+    {
+      "name": "cmd: nul alone",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["\u0000"]},
+      "expect": {"refusal": null, "line": "\"\""}
+    },
+    {
+      "name": "exe: nul inside",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["a\u0000b"]},
+      "expect": {"refusal": null, "line": "a\u0000b"}
+    },
+    {
+      "name": "cmd: nul inside",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["a\u0000b"]},
+      "expect": {"refusal": null, "line": "a\u0000b"}
+    },
+    {
+      "name": "exe: fullwidth quote",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["a\uff02b"]},
+      "expect": {"refusal": null, "line": "a\uff02b"}
+    },
+    {
+      "name": "cmd: fullwidth quote",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["a\uff02b"]},
+      "expect": {"refusal": null, "line": "a\uff02b"}
+    },
+    {
+      "name": "exe: curly quotes",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["\u201cx\u201d"]},
+      "expect": {"refusal": null, "line": "\u201cx\u201d"}
+    },
+    {
+      "name": "cmd: curly quotes",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["\u201cx\u201d"]},
+      "expect": {"refusal": null, "line": "\u201cx\u201d"}
+    },
+    {
+      "name": "exe: long quote",
+      "input": {
+        "kind": "line",
+        "exe": "C:\\bin\\claude.exe",
+        "args": ["xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\""]
+      },
+      "expect": {
+        "refusal": null,
+        "line": "\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\\"\""
+      }
+    },
+    {
+      "name": "cmd: long quote",
+      "input": {
+        "kind": "line",
+        "exe": "C:\\npm\\claude.cmd",
+        "args": ["xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\""]
+      },
+      "expect": {
+        "refusal": "claude.cmd runs through cmd.exe, which cannot be handed a quote - not sent: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\u2026",
+        "line": null
+      }
+    },
+    {
+      "name": "exe: long name",
+      "input": {
+        "kind": "line",
+        "exe": "C:\\bin\\claude.exe",
+        "args": ["%yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy%"]
+      },
+      "expect": {
+        "refusal": null,
+        "line": "%yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy%"
+      }
+    },
+    {
+      "name": "cmd: long name",
+      "input": {
+        "kind": "line",
+        "exe": "C:\\npm\\claude.cmd",
+        "args": ["%yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy%"]
+      },
+      "expect": {
+        "refusal": "claude.cmd runs through cmd.exe, which cannot be handed a %name% - not sent: %yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\u2026",
+        "line": null
+      }
+    },
+    {
+      "name": "exe: long line break",
+      "input": {
+        "kind": "line",
+        "exe": "C:\\bin\\claude.exe",
+        "args": ["zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\r\ntail"]
+      },
+      "expect": {
+        "refusal": null,
+        "line": "\"zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\r\ntail\""
+      }
+    },
+    {
+      "name": "cmd: long line break",
+      "input": {
+        "kind": "line",
+        "exe": "C:\\npm\\claude.cmd",
+        "args": ["zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\r\ntail"]
+      },
+      "expect": {
+        "refusal": "claude.cmd runs through cmd.exe, which cannot be handed a line break - not sent: zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz \u2026",
+        "line": null
+      }
+    },
+    {
+      "name": "exe: astral at the cut",
+      "input": {
+        "kind": "line",
+        "exe": "C:\\bin\\claude.exe",
+        "args": ["wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\ud83d\ude00\""]
+      },
+      "expect": {
+        "refusal": null,
+        "line": "\"wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\ud83d\ude00\\\"\""
+      }
+    },
+    {
+      "name": "cmd: astral at the cut",
+      "input": {
+        "kind": "line",
+        "exe": "C:\\npm\\claude.cmd",
+        "args": ["wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\ud83d\ude00\""]
+      },
+      "expect": {
+        "refusal": [
+          99,
+          108,
+          97,
+          117,
+          100,
+          101,
+          46,
+          99,
+          109,
+          100,
+          32,
+          114,
+          117,
+          110,
+          115,
+          32,
+          116,
+          104,
+          114,
+          111,
+          117,
+          103,
+          104,
+          32,
+          99,
+          109,
+          100,
+          46,
+          101,
+          120,
+          101,
+          44,
+          32,
+          119,
+          104,
+          105,
+          99,
+          104,
+          32,
+          99,
+          97,
+          110,
+          110,
+          111,
+          116,
+          32,
+          98,
+          101,
+          32,
+          104,
+          97,
+          110,
+          100,
+          101,
+          100,
+          32,
+          97,
+          32,
+          113,
+          117,
+          111,
+          116,
+          101,
+          32,
+          45,
+          32,
+          110,
+          111,
+          116,
+          32,
+          115,
+          101,
+          110,
+          116,
+          58,
+          32,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          119,
+          55357,
+          8230
+        ],
+        "line": null
+      }
+    },
+    {
+      "name": "exe: astral before the cut",
+      "input": {
+        "kind": "line",
+        "exe": "C:\\bin\\claude.exe",
+        "args": ["vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\ud83d\ude00\""]
+      },
+      "expect": {
+        "refusal": null,
+        "line": "\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\ud83d\ude00\\\"\""
+      }
+    },
+    {
+      "name": "cmd: astral before the cut",
+      "input": {
+        "kind": "line",
+        "exe": "C:\\npm\\claude.cmd",
+        "args": ["vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\ud83d\ude00\""]
+      },
+      "expect": {
+        "refusal": "claude.cmd runs through cmd.exe, which cannot be handed a quote - not sent: vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\ud83d\ude00\u2026",
+        "line": null
+      }
+    },
+    {
+      "name": "exe list: several",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["-p", "--name", "my chat", ""]},
+      "expect": {"refusal": null, "line": "-p --name \"my chat\" \"\""}
+    },
+    {
+      "name": "cmd list: several",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["-p", "--name", "my chat", ""]},
+      "expect": {"refusal": null, "line": "-p --name \"my chat\" \"\""}
+    },
+    {
+      "name": "exe list: first refusal wins",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["ok", "bad\"one", "%also%"]},
+      "expect": {"refusal": null, "line": "ok \"bad\\\"one\" %also%"}
+    },
+    {
+      "name": "cmd list: first refusal wins",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["ok", "bad\"one", "%also%"]},
+      "expect": {
+        "refusal": "claude.cmd runs through cmd.exe, which cannot be handed a quote - not sent: bad\"one",
+        "line": null
+      }
+    },
+    {
+      "name": "exe list: a name before a quote",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["ok", "%x%", "a\"b"]},
+      "expect": {"refusal": null, "line": "ok %x% \"a\\\"b\""}
+    },
+    {
+      "name": "cmd list: a name before a quote",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["ok", "%x%", "a\"b"]},
+      "expect": {
+        "refusal": "claude.cmd runs through cmd.exe, which cannot be handed a %name% - not sent: %x%",
+        "line": null
+      }
+    },
+    {
+      "name": "exe list: quote and name in one",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["a\"%x%"]},
+      "expect": {"refusal": null, "line": "\"a\\\"%x%\""}
+    },
+    {
+      "name": "cmd list: quote and name in one",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["a\"%x%"]},
+      "expect": {
+        "refusal": "claude.cmd runs through cmd.exe, which cannot be handed a quote - not sent: a\"%x%",
+        "line": null
+      }
+    },
+    {
+      "name": "exe list: name and line break in one",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": ["a\n%x%"]},
+      "expect": {"refusal": null, "line": "\"a\n%x%\""}
+    },
+    {
+      "name": "cmd list: name and line break in one",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": ["a\n%x%"]},
+      "expect": {
+        "refusal": "claude.cmd runs through cmd.exe, which cannot be handed a %name% - not sent: a %x%",
+        "line": null
+      }
+    },
+    {
+      "name": "exe list: none",
+      "input": {"kind": "line", "exe": "C:\\bin\\claude.exe", "args": []},
+      "expect": {"refusal": null, "line": ""}
+    },
+    {
+      "name": "cmd list: none",
+      "input": {"kind": "line", "exe": "C:\\npm\\claude.cmd", "args": []},
+      "expect": {"refusal": null, "line": ""}
+    },
+    {
+      "name": "exe path: bare cmd",
+      "input": {"kind": "line", "exe": "claude.cmd", "args": ["a\"b", "x y"]},
+      "expect": {
+        "refusal": "claude.cmd runs through cmd.exe, which cannot be handed a quote - not sent: a\"b",
+        "line": null
+      }
+    },
+    {
+      "name": "exe path: forward slashes",
+      "input": {"kind": "line", "exe": "C:/npm/codex.CMD", "args": ["a\"b", "x y"]},
+      "expect": {
+        "refusal": "codex.CMD runs through cmd.exe, which cannot be handed a quote - not sent: a\"b",
+        "line": null
+      }
+    },
+    {
+      "name": "exe path: bat with spaces",
+      "input": {"kind": "line", "exe": "C:\\x y\\run.bat", "args": ["a\"b", "x y"]},
+      "expect": {
+        "refusal": "run.bat runs through cmd.exe, which cannot be handed a quote - not sent: a\"b",
+        "line": null
+      }
+    },
+    {
+      "name": "exe path: relative bat",
+      "input": {"kind": "line", "exe": "..\\tools\\c.Bat", "args": ["a\"b", "x y"]},
+      "expect": {
+        "refusal": "c.Bat runs through cmd.exe, which cannot be handed a quote - not sent: a\"b",
+        "line": null
+      }
+    },
+    {
+      "name": "exe path: drive relative",
+      "input": {"kind": "line", "exe": "C:claude.cmd", "args": ["a\"b", "x y"]},
+      "expect": {
+        "refusal": "claude.cmd runs through cmd.exe, which cannot be handed a quote - not sent: a\"b",
+        "line": null
+      }
+    },
+    {
+      "name": "exe path: brackets",
+      "input": {"kind": "line", "exe": "C:\\x\\[a].cmd", "args": ["a\"b", "x y"]},
+      "expect": {
+        "refusal": "[a].cmd runs through cmd.exe, which cannot be handed a quote - not sent: a\"b",
+        "line": null
+      }
+    },
+    {
+      "name": "exe path: star",
+      "input": {"kind": "line", "exe": "C:\\x\\*.cmd", "args": ["a\"b", "x y"]},
+      "expect": {
+        "refusal": "*.cmd runs through cmd.exe, which cannot be handed a quote - not sent: a\"b",
+        "line": null
+      }
+    },
+    {
+      "name": "exe path: trailing newline",
+      "input": {"kind": "line", "exe": "C:\\x\\c.cmd\n", "args": ["a\"b", "x y"]},
+      "expect": {
+        "refusal": "c.cmd\n runs through cmd.exe, which cannot be handed a quote - not sent: a\"b",
+        "line": null
+      }
+    },
+    {
+      "name": "exe path: trailing crlf",
+      "input": {"kind": "line", "exe": "C:\\x\\c.cmd\r\n", "args": ["a\"b", "x y"]},
+      "expect": {"refusal": null, "line": "\"a\\\"b\" \"x y\""}
+    },
+    {
+      "name": "exe path: trailing space",
+      "input": {"kind": "line", "exe": "C:\\x\\c.cmd ", "args": ["a\"b", "x y"]},
+      "expect": {"refusal": null, "line": "\"a\\\"b\" \"x y\""}
+    },
+    {
+      "name": "exe path: cmdx",
+      "input": {"kind": "line", "exe": "C:\\x\\c.cmdx", "args": ["a\"b", "x y"]},
+      "expect": {"refusal": null, "line": "\"a\\\"b\" \"x y\""}
+    },
+    {
+      "name": "exe path: dot cmd",
+      "input": {"kind": "line", "exe": "C:\\x\\.cmd", "args": ["a\"b", "x y"]},
+      "expect": {
+        "refusal": ".cmd runs through cmd.exe, which cannot be handed a quote - not sent: a\"b",
+        "line": null
+      }
+    },
+    {
+      "name": "exe path: unix path",
+      "input": {"kind": "line", "exe": "/usr/local/bin/claude.cmd", "args": ["a\"b", "x y"]},
+      "expect": {
+        "refusal": "claude.cmd runs through cmd.exe, which cannot be handed a quote - not sent: a\"b",
+        "line": null
+      }
+    },
+    {
+      "name": "exe path: mixed slashes",
+      "input": {"kind": "line", "exe": "a/b\\c.bat", "args": ["a\"b", "x y"]},
+      "expect": {
+        "refusal": "c.bat runs through cmd.exe, which cannot be handed a quote - not sent: a\"b",
+        "line": null
+      }
+    },
+    {
+      "name": "exe path: upper case",
+      "input": {"kind": "line", "exe": "C:\\X\\CLAUDE.CMD", "args": ["a\"b", "x y"]},
+      "expect": {
+        "refusal": "CLAUDE.CMD runs through cmd.exe, which cannot be handed a quote - not sent: a\"b",
+        "line": null
+      }
+    },
+    {
+      "name": "exe path: no extension",
+      "input": {"kind": "line", "exe": "codex", "args": ["a\"b", "x y"]},
+      "expect": {"refusal": null, "line": "\"a\\\"b\" \"x y\""}
+    },
+    {
+      "name": "exe path: cmd folder",
+      "input": {"kind": "line", "exe": "C:\\x.cmd\\claude.exe", "args": ["a\"b", "x y"]},
+      "expect": {"refusal": null, "line": "\"a\\\"b\" \"x y\""}
+    },
+    {
+      "name": "exe path: empty",
+      "input": {"kind": "line", "exe": "", "args": ["a\"b", "x y"]},
+      "expect": {"refusal": null, "line": "\"a\\\"b\" \"x y\""}
+    },
+    {
+      "name": "cmd title: plain",
+      "input": {"kind": "title", "exe": "C:\\npm\\claude.cmd", "title": "My chat"},
+      "expect": {
+        "name": "My chat",
+        "args": [
+          "-p",
+          "--session-id",
+          "00000000-0000-4000-8000-000000000001",
+          "--name",
+          "My chat",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--permission-mode",
+          "default",
+          "--permission-prompts",
+          "none"
+        ],
+        "line": "-p --session-id 00000000-0000-4000-8000-000000000001 --name \"My chat\" --output-format stream-json --verbose --permission-mode default --permission-prompts none"
+      }
+    },
+    {
+      "name": "exe title: plain",
+      "input": {"kind": "title", "exe": "C:\\bin\\claude.exe", "title": "My chat"},
+      "expect": {
+        "name": "My chat",
+        "args": [
+          "-p",
+          "--session-id",
+          "00000000-0000-4000-8000-000000000001",
+          "--name",
+          "My chat",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--permission-mode",
+          "default",
+          "--permission-prompts",
+          "none"
+        ],
+        "line": "-p --session-id 00000000-0000-4000-8000-000000000001 --name \"My chat\" --output-format stream-json --verbose --permission-mode default --permission-prompts none"
+      }
+    },
+    {
+      "name": "cmd title: quotes and ampersand",
+      "input": {"kind": "title", "exe": "C:\\npm\\claude.cmd", "title": "fix \"quoted\" & more"},
+      "expect": {
+        "name": "fix quoted more",
+        "args": [
+          "-p",
+          "--session-id",
+          "00000000-0000-4000-8000-000000000001",
+          "--name",
+          "fix quoted more",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--permission-mode",
+          "default",
+          "--permission-prompts",
+          "none"
+        ],
+        "line": "-p --session-id 00000000-0000-4000-8000-000000000001 --name \"fix quoted more\" --output-format stream-json --verbose --permission-mode default --permission-prompts none"
+      }
+    },
+    {
+      "name": "exe title: quotes and ampersand",
+      "input": {"kind": "title", "exe": "C:\\bin\\claude.exe", "title": "fix \"quoted\" & more"},
+      "expect": {
+        "name": "fix \"quoted\" & more",
+        "args": [
+          "-p",
+          "--session-id",
+          "00000000-0000-4000-8000-000000000001",
+          "--name",
+          "fix \"quoted\" & more",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--permission-mode",
+          "default",
+          "--permission-prompts",
+          "none"
+        ],
+        "line": "-p --session-id 00000000-0000-4000-8000-000000000001 --name \"fix \\\"quoted\\\" & more\" --output-format stream-json --verbose --permission-mode default --permission-prompts none"
+      }
+    },
+    {
+      "name": "cmd title: percent and bang",
+      "input": {"kind": "title", "exe": "C:\\npm\\claude.cmd", "title": "100% sure %PATH% !x!"},
+      "expect": {
+        "name": "100 sure PATH x",
+        "args": [
+          "-p",
+          "--session-id",
+          "00000000-0000-4000-8000-000000000001",
+          "--name",
+          "100 sure PATH x",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--permission-mode",
+          "default",
+          "--permission-prompts",
+          "none"
+        ],
+        "line": "-p --session-id 00000000-0000-4000-8000-000000000001 --name \"100 sure PATH x\" --output-format stream-json --verbose --permission-mode default --permission-prompts none"
+      }
+    },
+    {
+      "name": "exe title: percent and bang",
+      "input": {"kind": "title", "exe": "C:\\bin\\claude.exe", "title": "100% sure %PATH% !x!"},
+      "expect": {
+        "name": "100% sure %PATH% !x!",
+        "args": [
+          "-p",
+          "--session-id",
+          "00000000-0000-4000-8000-000000000001",
+          "--name",
+          "100% sure %PATH% !x!",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--permission-mode",
+          "default",
+          "--permission-prompts",
+          "none"
+        ],
+        "line": "-p --session-id 00000000-0000-4000-8000-000000000001 --name \"100% sure %PATH% !x!\" --output-format stream-json --verbose --permission-mode default --permission-prompts none"
+      }
+    },
+    {
+      "name": "cmd title: pipes and carets",
+      "input": {"kind": "title", "exe": "C:\\npm\\claude.cmd", "title": "a|b<c>d^e"},
+      "expect": {
+        "name": "a b c d e",
+        "args": [
+          "-p",
+          "--session-id",
+          "00000000-0000-4000-8000-000000000001",
+          "--name",
+          "a b c d e",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--permission-mode",
+          "default",
+          "--permission-prompts",
+          "none"
+        ],
+        "line": "-p --session-id 00000000-0000-4000-8000-000000000001 --name \"a b c d e\" --output-format stream-json --verbose --permission-mode default --permission-prompts none"
+      }
+    },
+    {
+      "name": "exe title: pipes and carets",
+      "input": {"kind": "title", "exe": "C:\\bin\\claude.exe", "title": "a|b<c>d^e"},
+      "expect": {
+        "name": "a|b<c>d^e",
+        "args": [
+          "-p",
+          "--session-id",
+          "00000000-0000-4000-8000-000000000001",
+          "--name",
+          "a|b<c>d^e",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--permission-mode",
+          "default",
+          "--permission-prompts",
+          "none"
+        ],
+        "line": "-p --session-id 00000000-0000-4000-8000-000000000001 --name a|b<c>d^e --output-format stream-json --verbose --permission-mode default --permission-prompts none"
+      }
+    },
+    {
+      "name": "cmd title: white space",
+      "input": {"kind": "title", "exe": "C:\\npm\\claude.cmd", "title": "tabs\tand\nnewlines\r\nhere"},
+      "expect": {
+        "name": "tabs and newlines here",
+        "args": [
+          "-p",
+          "--session-id",
+          "00000000-0000-4000-8000-000000000001",
+          "--name",
+          "tabs and newlines here",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--permission-mode",
+          "default",
+          "--permission-prompts",
+          "none"
+        ],
+        "line": "-p --session-id 00000000-0000-4000-8000-000000000001 --name \"tabs and newlines here\" --output-format stream-json --verbose --permission-mode default --permission-prompts none"
+      }
+    },
+    {
+      "name": "exe title: white space",
+      "input": {"kind": "title", "exe": "C:\\bin\\claude.exe", "title": "tabs\tand\nnewlines\r\nhere"},
+      "expect": {
+        "name": "tabs\tand\nnewlines\r\nhere",
+        "args": [
+          "-p",
+          "--session-id",
+          "00000000-0000-4000-8000-000000000001",
+          "--name",
+          "tabs\tand\nnewlines\r\nhere",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--permission-mode",
+          "default",
+          "--permission-prompts",
+          "none"
+        ],
+        "line": "-p --session-id 00000000-0000-4000-8000-000000000001 --name \"tabs\tand\nnewlines\r\nhere\" --output-format stream-json --verbose --permission-mode default --permission-prompts none"
+      }
+    },
+    {
+      "name": "cmd title: leading and trailing",
+      "input": {"kind": "title", "exe": "C:\\npm\\claude.cmd", "title": "  leading and trailing  "},
+      "expect": {
+        "name": "leading and trailing",
+        "args": [
+          "-p",
+          "--session-id",
+          "00000000-0000-4000-8000-000000000001",
+          "--name",
+          "leading and trailing",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--permission-mode",
+          "default",
+          "--permission-prompts",
+          "none"
+        ],
+        "line": "-p --session-id 00000000-0000-4000-8000-000000000001 --name \"leading and trailing\" --output-format stream-json --verbose --permission-mode default --permission-prompts none"
+      }
+    },
+    {
+      "name": "exe title: leading and trailing",
+      "input": {"kind": "title", "exe": "C:\\bin\\claude.exe", "title": "  leading and trailing  "},
+      "expect": {
+        "name": "  leading and trailing  ",
+        "args": [
+          "-p",
+          "--session-id",
+          "00000000-0000-4000-8000-000000000001",
+          "--name",
+          "  leading and trailing  ",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--permission-mode",
+          "default",
+          "--permission-prompts",
+          "none"
+        ],
+        "line": "-p --session-id 00000000-0000-4000-8000-000000000001 --name \"  leading and trailing  \" --output-format stream-json --verbose --permission-mode default --permission-prompts none"
+      }
+    },
+    {
+      "name": "cmd title: parens",
+      "input": {"kind": "title", "exe": "C:\\npm\\claude.cmd", "title": "(parens) stay"},
+      "expect": {
+        "name": "(parens) stay",
+        "args": [
+          "-p",
+          "--session-id",
+          "00000000-0000-4000-8000-000000000001",
+          "--name",
+          "(parens) stay",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--permission-mode",
+          "default",
+          "--permission-prompts",
+          "none"
+        ],
+        "line": "-p --session-id 00000000-0000-4000-8000-000000000001 --name \"(parens) stay\" --output-format stream-json --verbose --permission-mode default --permission-prompts none"
+      }
+    },
+    {
+      "name": "exe title: parens",
+      "input": {"kind": "title", "exe": "C:\\bin\\claude.exe", "title": "(parens) stay"},
+      "expect": {
+        "name": "(parens) stay",
+        "args": [
+          "-p",
+          "--session-id",
+          "00000000-0000-4000-8000-000000000001",
+          "--name",
+          "(parens) stay",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--permission-mode",
+          "default",
+          "--permission-prompts",
+          "none"
+        ],
+        "line": "-p --session-id 00000000-0000-4000-8000-000000000001 --name \"(parens) stay\" --output-format stream-json --verbose --permission-mode default --permission-prompts none"
+      }
+    },
+    {
+      "name": "cmd title: quote at the end",
+      "input": {"kind": "title", "exe": "C:\\npm\\claude.cmd", "title": "only \""},
+      "expect": {
+        "name": "only",
+        "args": [
+          "-p",
+          "--session-id",
+          "00000000-0000-4000-8000-000000000001",
+          "--name",
+          "only",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--permission-mode",
+          "default",
+          "--permission-prompts",
+          "none"
+        ],
+        "line": "-p --session-id 00000000-0000-4000-8000-000000000001 --name only --output-format stream-json --verbose --permission-mode default --permission-prompts none"
+      }
+    },
+    {
+      "name": "exe title: quote at the end",
+      "input": {"kind": "title", "exe": "C:\\bin\\claude.exe", "title": "only \""},
+      "expect": {
+        "name": "only \"",
+        "args": [
+          "-p",
+          "--session-id",
+          "00000000-0000-4000-8000-000000000001",
+          "--name",
+          "only \"",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--permission-mode",
+          "default",
+          "--permission-prompts",
+          "none"
+        ],
+        "line": "-p --session-id 00000000-0000-4000-8000-000000000001 --name \"only \\\"\" --output-format stream-json --verbose --permission-mode default --permission-prompts none"
+      }
+    },
+    {
+      "name": "cmd title: quote alone",
+      "input": {"kind": "title", "exe": "C:\\npm\\claude.cmd", "title": "\""},
+      "expect": {
+        "name": "",
+        "args": [
+          "-p",
+          "--session-id",
+          "00000000-0000-4000-8000-000000000001",
+          "--name",
+          "",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--permission-mode",
+          "default",
+          "--permission-prompts",
+          "none"
+        ],
+        "line": "-p --session-id 00000000-0000-4000-8000-000000000001 --name \"\" --output-format stream-json --verbose --permission-mode default --permission-prompts none"
+      }
+    },
+    {
+      "name": "exe title: quote alone",
+      "input": {"kind": "title", "exe": "C:\\bin\\claude.exe", "title": "\""},
+      "expect": {
+        "name": "\"",
+        "args": [
+          "-p",
+          "--session-id",
+          "00000000-0000-4000-8000-000000000001",
+          "--name",
+          "\"",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--permission-mode",
+          "default",
+          "--permission-prompts",
+          "none"
+        ],
+        "line": "-p --session-id 00000000-0000-4000-8000-000000000001 --name \"\\\"\" --output-format stream-json --verbose --permission-mode default --permission-prompts none"
+      }
+    },
+    {
+      "name": "cmd title: cve",
+      "input": {"kind": "title", "exe": "C:\\npm\\claude.cmd", "title": "\"\"&calc.exe"},
+      "expect": {
+        "name": "calc.exe",
+        "args": [
+          "-p",
+          "--session-id",
+          "00000000-0000-4000-8000-000000000001",
+          "--name",
+          "calc.exe",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--permission-mode",
+          "default",
+          "--permission-prompts",
+          "none"
+        ],
+        "line": "-p --session-id 00000000-0000-4000-8000-000000000001 --name calc.exe --output-format stream-json --verbose --permission-mode default --permission-prompts none"
+      }
+    },
+    {
+      "name": "exe title: cve",
+      "input": {"kind": "title", "exe": "C:\\bin\\claude.exe", "title": "\"\"&calc.exe"},
+      "expect": {
+        "name": "\"\"&calc.exe",
+        "args": [
+          "-p",
+          "--session-id",
+          "00000000-0000-4000-8000-000000000001",
+          "--name",
+          "\"\"&calc.exe",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--permission-mode",
+          "default",
+          "--permission-prompts",
+          "none"
+        ],
+        "line": "-p --session-id 00000000-0000-4000-8000-000000000001 --name \"\\\"\\\"&calc.exe\" --output-format stream-json --verbose --permission-mode default --permission-prompts none"
+      }
+    },
+    {
+      "name": "cmd title: hangul",
+      "input": {
+        "kind": "title",
+        "exe": "C:\\npm\\claude.cmd",
+        "title": "\ud55c\uad6d\uc5b4 \"\uc81c\ubaa9\""
+      },
+      "expect": {
+        "name": "\ud55c\uad6d\uc5b4 \uc81c\ubaa9",
+        "args": [
+          "-p",
+          "--session-id",
+          "00000000-0000-4000-8000-000000000001",
+          "--name",
+          "\ud55c\uad6d\uc5b4 \uc81c\ubaa9",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--permission-mode",
+          "default",
+          "--permission-prompts",
+          "none"
+        ],
+        "line": "-p --session-id 00000000-0000-4000-8000-000000000001 --name \"\ud55c\uad6d\uc5b4 \uc81c\ubaa9\" --output-format stream-json --verbose --permission-mode default --permission-prompts none"
+      }
+    },
+    {
+      "name": "exe title: hangul",
+      "input": {
+        "kind": "title",
+        "exe": "C:\\bin\\claude.exe",
+        "title": "\ud55c\uad6d\uc5b4 \"\uc81c\ubaa9\""
+      },
+      "expect": {
+        "name": "\ud55c\uad6d\uc5b4 \"\uc81c\ubaa9\"",
+        "args": [
+          "-p",
+          "--session-id",
+          "00000000-0000-4000-8000-000000000001",
+          "--name",
+          "\ud55c\uad6d\uc5b4 \"\uc81c\ubaa9\"",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--permission-mode",
+          "default",
+          "--permission-prompts",
+          "none"
+        ],
+        "line": "-p --session-id 00000000-0000-4000-8000-000000000001 --name \"\ud55c\uad6d\uc5b4 \\\"\uc81c\ubaa9\\\"\" --output-format stream-json --verbose --permission-mode default --permission-prompts none"
+      }
+    },
+    {
+      "name": "cmd title: astral",
+      "input": {"kind": "title", "exe": "C:\\npm\\claude.cmd", "title": "emoji \ud83d\ude00 title"},
+      "expect": {
+        "name": "emoji \ud83d\ude00 title",
+        "args": [
+          "-p",
+          "--session-id",
+          "00000000-0000-4000-8000-000000000001",
+          "--name",
+          "emoji \ud83d\ude00 title",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--permission-mode",
+          "default",
+          "--permission-prompts",
+          "none"
+        ],
+        "line": "-p --session-id 00000000-0000-4000-8000-000000000001 --name \"emoji \ud83d\ude00 title\" --output-format stream-json --verbose --permission-mode default --permission-prompts none"
+      }
+    },
+    {
+      "name": "exe title: astral",
+      "input": {"kind": "title", "exe": "C:\\bin\\claude.exe", "title": "emoji \ud83d\ude00 title"},
+      "expect": {
+        "name": "emoji \ud83d\ude00 title",
+        "args": [
+          "-p",
+          "--session-id",
+          "00000000-0000-4000-8000-000000000001",
+          "--name",
+          "emoji \ud83d\ude00 title",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--permission-mode",
+          "default",
+          "--permission-prompts",
+          "none"
+        ],
+        "line": "-p --session-id 00000000-0000-4000-8000-000000000001 --name \"emoji \ud83d\ude00 title\" --output-format stream-json --verbose --permission-mode default --permission-prompts none"
+      }
+    },
+    {
+      "name": "cmd title: unicode spaces",
+      "input": {"kind": "title", "exe": "C:\\npm\\claude.cmd", "title": "a\u00a0\u00a0b\u3000c"},
+      "expect": {
+        "name": "a b c",
+        "args": [
+          "-p",
+          "--session-id",
+          "00000000-0000-4000-8000-000000000001",
+          "--name",
+          "a b c",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--permission-mode",
+          "default",
+          "--permission-prompts",
+          "none"
+        ],
+        "line": "-p --session-id 00000000-0000-4000-8000-000000000001 --name \"a b c\" --output-format stream-json --verbose --permission-mode default --permission-prompts none"
+      }
+    },
+    {
+      "name": "exe title: unicode spaces",
+      "input": {"kind": "title", "exe": "C:\\bin\\claude.exe", "title": "a\u00a0\u00a0b\u3000c"},
+      "expect": {
+        "name": "a\u00a0\u00a0b\u3000c",
+        "args": [
+          "-p",
+          "--session-id",
+          "00000000-0000-4000-8000-000000000001",
+          "--name",
+          "a\u00a0\u00a0b\u3000c",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--permission-mode",
+          "default",
+          "--permission-prompts",
+          "none"
+        ],
+        "line": "-p --session-id 00000000-0000-4000-8000-000000000001 --name \"a\u00a0\u00a0b\u3000c\" --output-format stream-json --verbose --permission-mode default --permission-prompts none"
+      }
+    },
+    {
+      "name": "cmd title: zero width space",
+      "input": {"kind": "title", "exe": "C:\\npm\\claude.cmd", "title": "\u200b"},
+      "expectByEdition": {
+        "Desktop": {
+          "name": "\u200b",
+          "args": [
+            "-p",
+            "--session-id",
+            "00000000-0000-4000-8000-000000000001",
+            "--name",
+            "\u200b",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--permission-mode",
+            "default",
+            "--permission-prompts",
+            "none"
+          ],
+          "line": "-p --session-id 00000000-0000-4000-8000-000000000001 --name \u200b --output-format stream-json --verbose --permission-mode default --permission-prompts none"
+        },
+        "Core": {
+          "name": "\u200b",
+          "args": [
+            "-p",
+            "--session-id",
+            "00000000-0000-4000-8000-000000000001",
+            "--name",
+            "\u200b",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--permission-mode",
+            "default",
+            "--permission-prompts",
+            "none"
+          ],
+          "line": "-p --session-id 00000000-0000-4000-8000-000000000001 --name \"\" --output-format stream-json --verbose --permission-mode default --permission-prompts none"
+        }
+      }
+    },
+    {
+      "name": "exe title: zero width space",
+      "input": {"kind": "title", "exe": "C:\\bin\\claude.exe", "title": "\u200b"},
+      "expectByEdition": {
+        "Desktop": {
+          "name": "\u200b",
+          "args": [
+            "-p",
+            "--session-id",
+            "00000000-0000-4000-8000-000000000001",
+            "--name",
+            "\u200b",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--permission-mode",
+            "default",
+            "--permission-prompts",
+            "none"
+          ],
+          "line": "-p --session-id 00000000-0000-4000-8000-000000000001 --name \u200b --output-format stream-json --verbose --permission-mode default --permission-prompts none"
+        },
+        "Core": {
+          "name": "\u200b",
+          "args": [
+            "-p",
+            "--session-id",
+            "00000000-0000-4000-8000-000000000001",
+            "--name",
+            "\u200b",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--permission-mode",
+            "default",
+            "--permission-prompts",
+            "none"
+          ],
+          "line": "-p --session-id 00000000-0000-4000-8000-000000000001 --name \"\" --output-format stream-json --verbose --permission-mode default --permission-prompts none"
+        }
+      }
+    },
+    {
+      "name": "cmd title: empty",
+      "input": {"kind": "title", "exe": "C:\\npm\\claude.cmd", "title": ""},
+      "expect": {
+        "name": "",
+        "args": [
+          "-p",
+          "--session-id",
+          "00000000-0000-4000-8000-000000000001",
+          "--name",
+          "",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--permission-mode",
+          "default",
+          "--permission-prompts",
+          "none"
+        ],
+        "line": "-p --session-id 00000000-0000-4000-8000-000000000001 --name \"\" --output-format stream-json --verbose --permission-mode default --permission-prompts none"
+      }
+    },
+    {
+      "name": "exe title: empty",
+      "input": {"kind": "title", "exe": "C:\\bin\\claude.exe", "title": ""},
+      "expect": {
+        "name": "",
+        "args": [
+          "-p",
+          "--session-id",
+          "00000000-0000-4000-8000-000000000001",
+          "--name",
+          "",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--permission-mode",
+          "default",
+          "--permission-prompts",
+          "none"
+        ],
+        "line": "-p --session-id 00000000-0000-4000-8000-000000000001 --name \"\" --output-format stream-json --verbose --permission-mode default --permission-prompts none"
+      }
+    }
+  ]
+}

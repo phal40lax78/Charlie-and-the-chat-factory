@@ -168,86 +168,8 @@ function Add-ChatTombstone {
     Start-ChatGhostWatch
 }
 
-function Test-ChatGhostWatch {
-    # Asking Get-EventSubscriber for a name that is not registered raises an
-    # error - and -ErrorAction SilentlyContinue hides it but still files it in
-    # $Error. Listing and filtering asks the same question quietly.
-    [bool]@(Get-EventSubscriber -EA SilentlyContinue |
-        Where-Object { $_.SourceIdentifier -eq 'ChatGhostWatch' })
-}
-
-function Start-ChatGhostWatch {
-    # Why running it a second time works: the window flushes a tracked session
-    # to disk once, when it reloads. After that reload it rebuilds its list
-    # from disk and is no longer holding that session, so the next delete
-    # sticks. The write is a single event, not a state to out-wait - so watch
-    # for it instead of polling, and take the file back the moment it lands.
-    #
-    # Created only, and FileName only: transcripts are appended to constantly,
-    # and a rewritten ghost always arrives as a brand new file. That keeps this
-    # silent until the one event that matters.
-    #
-    # Here, not at the call sites: tombstones and the index sweep start it too,
-    # and the background watcher runs both. That process is headless and
-    # outlives the shell - a second watch there would only race this one.
-    if ($env:CHATQ_WATCHER -or $env:CHATQ_OVERLAY -or $script:ChatNoGhostWatch) { return }
-    if (Test-ChatGhostWatch) { return }
-    $root = Join-Path $script:ChatClaudeHome 'projects'
-    if (-not (Test-Path -LiteralPath $root)) { return }
-
-    $fsw = New-Object System.IO.FileSystemWatcher $root, '*.jsonl'
-    $fsw.IncludeSubdirectories = $true
-    $fsw.NotifyFilter = [System.IO.NotifyFilters]::FileName
-    $fsw.EnableRaisingEvents = $true
-    $script:ChatGhostWatcher = $fsw          # a reference, or it is collected
-
-    # self-contained: this runs in its own runspace, with none of these
-    # functions loaded, and must stay silent so it cannot garble the prompt
-    $null = Register-ObjectEvent -InputObject $fsw -EventName Created `
-        -SourceIdentifier 'ChatGhostWatch' -MessageData $script:ChatTombPath -Action {
-        $tomb = $Event.MessageData
-        $path = $Event.SourceEventArgs.FullPath
-        if (-not (Test-Path -LiteralPath $tomb)) { return }
-        # the same seven days the sweep honours, or an entry the sweep would
-        # have dropped would still be acted on here
-        $cutoff = (Get-Date).AddDays(-7)
-        $wanted = @(Get-Content -LiteralPath $tomb -EA SilentlyContinue | ForEach-Object {
-                $parts = $_ -split "`t", 2
-                if ($parts.Count -eq 2) {
-                    $when = try {
-                        [datetime]::Parse($parts[0], [System.Globalization.CultureInfo]::InvariantCulture,
-                            [System.Globalization.DateTimeStyles]::RoundtripKind)
-                    }
-                    catch { $null }
-                    if ($when -and $when -ge $cutoff) { $parts[1] }
-                }
-            })
-        if ($wanted -notcontains $path) { return }
-        Start-Sleep -Milliseconds 200        # let the writer finish the file
-        $f = Get-Item -LiteralPath $path -EA SilentlyContinue
-        if (-not $f -or $f.Length -gt 65536) { return }
-        # runs in the watcher's own runspace, where the shared-read helpers are
-        # not defined - open the handle inline, sharing what a writer may hold
-        $t = try {
-            $fh = [System.IO.FileStream]::new($f.FullName, [System.IO.FileMode]::Open,
-                [System.IO.FileAccess]::Read,
-                ([System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete))
-            try { [System.IO.StreamReader]::new($fh).ReadToEnd() } finally { $fh.Dispose() }
-        }
-        catch { return }
-        if ($t -like '*"type":"user"*' -or $t -like '*"type":"assistant"*') { return }
-        Remove-Item -LiteralPath $path -Force -EA SilentlyContinue
-    }
-}
-
-function Stop-ChatGhostWatch {
-    if (Test-ChatGhostWatch) { Unregister-Event -SourceIdentifier 'ChatGhostWatch' -EA SilentlyContinue }
-    if ($script:ChatGhostWatcher) {
-        $script:ChatGhostWatcher.EnableRaisingEvents = $false
-        $script:ChatGhostWatcher.Dispose()
-        $script:ChatGhostWatcher = $null
-    }
-}
+# Test-ChatGhostWatch, Start-ChatGhostWatch and Stop-ChatGhostWatch are in
+# shell.ps1: a lazy shell starts the watch before the tool loads.
 
 function Clear-ChatTombstones {
     # The window does not write a deleted session back straight away - it

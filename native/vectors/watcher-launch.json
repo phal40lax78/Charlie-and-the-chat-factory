@@ -1,0 +1,643 @@
+{
+  "about": "Get-ChatqWatcherLaunch (src/watcher.ps1), PowerShell branch: {psExe, script, logDir, claude, codex} -> {exe, args, command}; args end with -EncodedCommand base64(UTF-16LE(command)). claude and codex are CHATQ_CLAUDE and CHATQ_CODEX, null for unset; the log file is Join-Path logDir watcher.log, as Windows PowerShell joins",
+  "cases": [
+    {
+      "name": "plain",
+      "input": {
+        "psExe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "script": "C:\\tools\\chatq\\Charlie-and-the-chat-factory.ps1",
+        "logDir": "C:\\tools\\chatq\\data\\logs",
+        "claude": null,
+        "codex": null
+      },
+      "expect": {
+        "exe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "args": [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-EncodedCommand",
+          "JABlAG4AdgA6AEMASABBAFQAUQBfAFcAQQBUAEMASABFAFIAPQAnADEAJwA7ACAAdAByAHkAIAB7ACAALgAgACcAQwA6AFwAdABvAG8AbABzAFwAYwBoAGEAdABxAFwAQwBoAGEAcgBsAGkAZQAtAGEAbgBkAC0AdABoAGUALQBjAGgAYQB0AC0AZgBhAGMAdABvAHIAeQAuAHAAcwAxACcAIAB9ACAAYwBhAHQAYwBoACAAewAgAHQAcgB5ACAAewAgAFsAdgBvAGkAZABdAFsASQBPAC4ARABpAHIAZQBjAHQAbwByAHkAXQA6ADoAQwByAGUAYQB0AGUARABpAHIAZQBjAHQAbwByAHkAKAAnAEMAOgBcAHQAbwBvAGwAcwBcAGMAaABhAHQAcQBcAGQAYQB0AGEAXABsAG8AZwBzACcAKQA7ACAAWwBJAE8ALgBGAGkAbABlAF0AOgA6AEEAcABwAGUAbgBkAEEAbABsAFQAZQB4AHQAKAAnAEMAOgBcAHQAbwBvAGwAcwBcAGMAaABhAHQAcQBcAGQAYQB0AGEAXABsAG8AZwBzAFwAdwBhAHQAYwBoAGUAcgAuAGwAbwBnACcALAAgACgARwBlAHQALQBEAGEAdABlACkALgBUAG8AUwB0AHIAaQBuAGcAKAAnAG8AJwApACAAKwAgACcAIAAgAHQAaABlACAAdwBhAHQAYwBoAGUAcgAgAGQAaQBkACAAbgBvAHQAIABsAG8AYQBkADoAIAAnACAAKwAgACQAXwAuAEUAeABjAGUAcAB0AGkAbwBuAC4ATQBlAHMAcwBhAGcAZQAgACsAIABbAGMAaABhAHIAXQAxADAAKQAgAH0AIABjAGEAdABjAGgAIAB7AH0AOwAgAGUAeABpAHQAIAAxACAAfQA7ACAAUgBlAG0AbwB2AGUALQBJAHQAZQBtACAALQBMAGkAdABlAHIAYQBsAFAAYQB0AGgAIAAnAGUAbgB2ADoAUABTAEUAeABlAGMAdQB0AGkAbwBuAFAAbwBsAGkAYwB5AFAAcgBlAGYAZQByAGUAbgBjAGUAJwAgAC0ARQBBACAAUwBpAGwAZQBuAHQAbAB5AEMAbwBuAHQAaQBuAHUAZQA7ACAASQBuAHYAbwBrAGUALQBDAGgAYQB0AHEAVwBhAHQAYwBoAEwAbwBvAHAA"
+        ],
+        "command": "$env:CHATQ_WATCHER='1'; try { . 'C:\\tools\\chatq\\Charlie-and-the-chat-factory.ps1' } catch { try { [void][IO.Directory]::CreateDirectory('C:\\tools\\chatq\\data\\logs'); [IO.File]::AppendAllText('C:\\tools\\chatq\\data\\logs\\watcher.log', (Get-Date).ToString('o') + '  the watcher did not load: ' + $_.Exception.Message + [char]10) } catch {}; exit 1 }; Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference' -EA SilentlyContinue; Invoke-ChatqWatchLoop"
+      }
+    },
+    {
+      "name": "pwsh 7",
+      "input": {
+        "psExe": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+        "script": "C:\\tools\\chatq\\Charlie-and-the-chat-factory.ps1",
+        "logDir": "C:\\tools\\chatq\\data\\logs",
+        "claude": null,
+        "codex": null
+      },
+      "expect": {
+        "exe": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+        "args": [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-EncodedCommand",
+          "JABlAG4AdgA6AEMASABBAFQAUQBfAFcAQQBUAEMASABFAFIAPQAnADEAJwA7ACAAdAByAHkAIAB7ACAALgAgACcAQwA6AFwAdABvAG8AbABzAFwAYwBoAGEAdABxAFwAQwBoAGEAcgBsAGkAZQAtAGEAbgBkAC0AdABoAGUALQBjAGgAYQB0AC0AZgBhAGMAdABvAHIAeQAuAHAAcwAxACcAIAB9ACAAYwBhAHQAYwBoACAAewAgAHQAcgB5ACAAewAgAFsAdgBvAGkAZABdAFsASQBPAC4ARABpAHIAZQBjAHQAbwByAHkAXQA6ADoAQwByAGUAYQB0AGUARABpAHIAZQBjAHQAbwByAHkAKAAnAEMAOgBcAHQAbwBvAGwAcwBcAGMAaABhAHQAcQBcAGQAYQB0AGEAXABsAG8AZwBzACcAKQA7ACAAWwBJAE8ALgBGAGkAbABlAF0AOgA6AEEAcABwAGUAbgBkAEEAbABsAFQAZQB4AHQAKAAnAEMAOgBcAHQAbwBvAGwAcwBcAGMAaABhAHQAcQBcAGQAYQB0AGEAXABsAG8AZwBzAFwAdwBhAHQAYwBoAGUAcgAuAGwAbwBnACcALAAgACgARwBlAHQALQBEAGEAdABlACkALgBUAG8AUwB0AHIAaQBuAGcAKAAnAG8AJwApACAAKwAgACcAIAAgAHQAaABlACAAdwBhAHQAYwBoAGUAcgAgAGQAaQBkACAAbgBvAHQAIABsAG8AYQBkADoAIAAnACAAKwAgACQAXwAuAEUAeABjAGUAcAB0AGkAbwBuAC4ATQBlAHMAcwBhAGcAZQAgACsAIABbAGMAaABhAHIAXQAxADAAKQAgAH0AIABjAGEAdABjAGgAIAB7AH0AOwAgAGUAeABpAHQAIAAxACAAfQA7ACAAUgBlAG0AbwB2AGUALQBJAHQAZQBtACAALQBMAGkAdABlAHIAYQBsAFAAYQB0AGgAIAAnAGUAbgB2ADoAUABTAEUAeABlAGMAdQB0AGkAbwBuAFAAbwBsAGkAYwB5AFAAcgBlAGYAZQByAGUAbgBjAGUAJwAgAC0ARQBBACAAUwBpAGwAZQBuAHQAbAB5AEMAbwBuAHQAaQBuAHUAZQA7ACAASQBuAHYAbwBrAGUALQBDAGgAYQB0AHEAVwBhAHQAYwBoAEwAbwBvAHAA"
+        ],
+        "command": "$env:CHATQ_WATCHER='1'; try { . 'C:\\tools\\chatq\\Charlie-and-the-chat-factory.ps1' } catch { try { [void][IO.Directory]::CreateDirectory('C:\\tools\\chatq\\data\\logs'); [IO.File]::AppendAllText('C:\\tools\\chatq\\data\\logs\\watcher.log', (Get-Date).ToString('o') + '  the watcher did not load: ' + $_.Exception.Message + [char]10) } catch {}; exit 1 }; Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference' -EA SilentlyContinue; Invoke-ChatqWatchLoop"
+      }
+    },
+    {
+      "name": "claude set",
+      "input": {
+        "psExe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "script": "C:\\tools\\chatq\\Charlie-and-the-chat-factory.ps1",
+        "logDir": "C:\\tools\\chatq\\data\\logs",
+        "claude": "C:\\npm\\claude.cmd",
+        "codex": null
+      },
+      "expect": {
+        "exe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "args": [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-EncodedCommand",
+          "JABlAG4AdgA6AEMASABBAFQAUQBfAFcAQQBUAEMASABFAFIAPQAnADEAJwA7ACAAJABlAG4AdgA6AEMASABBAFQAUQBfAEMATABBAFUARABFAD0AJwBDADoAXABuAHAAbQBcAGMAbABhAHUAZABlAC4AYwBtAGQAJwA7ACAAdAByAHkAIAB7ACAALgAgACcAQwA6AFwAdABvAG8AbABzAFwAYwBoAGEAdABxAFwAQwBoAGEAcgBsAGkAZQAtAGEAbgBkAC0AdABoAGUALQBjAGgAYQB0AC0AZgBhAGMAdABvAHIAeQAuAHAAcwAxACcAIAB9ACAAYwBhAHQAYwBoACAAewAgAHQAcgB5ACAAewAgAFsAdgBvAGkAZABdAFsASQBPAC4ARABpAHIAZQBjAHQAbwByAHkAXQA6ADoAQwByAGUAYQB0AGUARABpAHIAZQBjAHQAbwByAHkAKAAnAEMAOgBcAHQAbwBvAGwAcwBcAGMAaABhAHQAcQBcAGQAYQB0AGEAXABsAG8AZwBzACcAKQA7ACAAWwBJAE8ALgBGAGkAbABlAF0AOgA6AEEAcABwAGUAbgBkAEEAbABsAFQAZQB4AHQAKAAnAEMAOgBcAHQAbwBvAGwAcwBcAGMAaABhAHQAcQBcAGQAYQB0AGEAXABsAG8AZwBzAFwAdwBhAHQAYwBoAGUAcgAuAGwAbwBnACcALAAgACgARwBlAHQALQBEAGEAdABlACkALgBUAG8AUwB0AHIAaQBuAGcAKAAnAG8AJwApACAAKwAgACcAIAAgAHQAaABlACAAdwBhAHQAYwBoAGUAcgAgAGQAaQBkACAAbgBvAHQAIABsAG8AYQBkADoAIAAnACAAKwAgACQAXwAuAEUAeABjAGUAcAB0AGkAbwBuAC4ATQBlAHMAcwBhAGcAZQAgACsAIABbAGMAaABhAHIAXQAxADAAKQAgAH0AIABjAGEAdABjAGgAIAB7AH0AOwAgAGUAeABpAHQAIAAxACAAfQA7ACAAUgBlAG0AbwB2AGUALQBJAHQAZQBtACAALQBMAGkAdABlAHIAYQBsAFAAYQB0AGgAIAAnAGUAbgB2ADoAUABTAEUAeABlAGMAdQB0AGkAbwBuAFAAbwBsAGkAYwB5AFAAcgBlAGYAZQByAGUAbgBjAGUAJwAgAC0ARQBBACAAUwBpAGwAZQBuAHQAbAB5AEMAbwBuAHQAaQBuAHUAZQA7ACAASQBuAHYAbwBrAGUALQBDAGgAYQB0AHEAVwBhAHQAYwBoAEwAbwBvAHAA"
+        ],
+        "command": "$env:CHATQ_WATCHER='1'; $env:CHATQ_CLAUDE='C:\\npm\\claude.cmd'; try { . 'C:\\tools\\chatq\\Charlie-and-the-chat-factory.ps1' } catch { try { [void][IO.Directory]::CreateDirectory('C:\\tools\\chatq\\data\\logs'); [IO.File]::AppendAllText('C:\\tools\\chatq\\data\\logs\\watcher.log', (Get-Date).ToString('o') + '  the watcher did not load: ' + $_.Exception.Message + [char]10) } catch {}; exit 1 }; Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference' -EA SilentlyContinue; Invoke-ChatqWatchLoop"
+      }
+    },
+    {
+      "name": "codex set",
+      "input": {
+        "psExe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "script": "C:\\tools\\chatq\\Charlie-and-the-chat-factory.ps1",
+        "logDir": "C:\\tools\\chatq\\data\\logs",
+        "claude": null,
+        "codex": "C:\\npm\\codex.cmd"
+      },
+      "expect": {
+        "exe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "args": [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-EncodedCommand",
+          "JABlAG4AdgA6AEMASABBAFQAUQBfAFcAQQBUAEMASABFAFIAPQAnADEAJwA7ACAAJABlAG4AdgA6AEMASABBAFQAUQBfAEMATwBEAEUAWAA9ACcAQwA6AFwAbgBwAG0AXABjAG8AZABlAHgALgBjAG0AZAAnADsAIAB0AHIAeQAgAHsAIAAuACAAJwBDADoAXAB0AG8AbwBsAHMAXABjAGgAYQB0AHEAXABDAGgAYQByAGwAaQBlAC0AYQBuAGQALQB0AGgAZQAtAGMAaABhAHQALQBmAGEAYwB0AG8AcgB5AC4AcABzADEAJwAgAH0AIABjAGEAdABjAGgAIAB7ACAAdAByAHkAIAB7ACAAWwB2AG8AaQBkAF0AWwBJAE8ALgBEAGkAcgBlAGMAdABvAHIAeQBdADoAOgBDAHIAZQBhAHQAZQBEAGkAcgBlAGMAdABvAHIAeQAoACcAQwA6AFwAdABvAG8AbABzAFwAYwBoAGEAdABxAFwAZABhAHQAYQBcAGwAbwBnAHMAJwApADsAIABbAEkATwAuAEYAaQBsAGUAXQA6ADoAQQBwAHAAZQBuAGQAQQBsAGwAVABlAHgAdAAoACcAQwA6AFwAdABvAG8AbABzAFwAYwBoAGEAdABxAFwAZABhAHQAYQBcAGwAbwBnAHMAXAB3AGEAdABjAGgAZQByAC4AbABvAGcAJwAsACAAKABHAGUAdAAtAEQAYQB0AGUAKQAuAFQAbwBTAHQAcgBpAG4AZwAoACcAbwAnACkAIAArACAAJwAgACAAdABoAGUAIAB3AGEAdABjAGgAZQByACAAZABpAGQAIABuAG8AdAAgAGwAbwBhAGQAOgAgACcAIAArACAAJABfAC4ARQB4AGMAZQBwAHQAaQBvAG4ALgBNAGUAcwBzAGEAZwBlACAAKwAgAFsAYwBoAGEAcgBdADEAMAApACAAfQAgAGMAYQB0AGMAaAAgAHsAfQA7ACAAZQB4AGkAdAAgADEAIAB9ADsAIABSAGUAbQBvAHYAZQAtAEkAdABlAG0AIAAtAEwAaQB0AGUAcgBhAGwAUABhAHQAaAAgACcAZQBuAHYAOgBQAFMARQB4AGUAYwB1AHQAaQBvAG4AUABvAGwAaQBjAHkAUAByAGUAZgBlAHIAZQBuAGMAZQAnACAALQBFAEEAIABTAGkAbABlAG4AdABsAHkAQwBvAG4AdABpAG4AdQBlADsAIABJAG4AdgBvAGsAZQAtAEMAaABhAHQAcQBXAGEAdABjAGgATABvAG8AcAA="
+        ],
+        "command": "$env:CHATQ_WATCHER='1'; $env:CHATQ_CODEX='C:\\npm\\codex.cmd'; try { . 'C:\\tools\\chatq\\Charlie-and-the-chat-factory.ps1' } catch { try { [void][IO.Directory]::CreateDirectory('C:\\tools\\chatq\\data\\logs'); [IO.File]::AppendAllText('C:\\tools\\chatq\\data\\logs\\watcher.log', (Get-Date).ToString('o') + '  the watcher did not load: ' + $_.Exception.Message + [char]10) } catch {}; exit 1 }; Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference' -EA SilentlyContinue; Invoke-ChatqWatchLoop"
+      }
+    },
+    {
+      "name": "both set",
+      "input": {
+        "psExe": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+        "script": "C:\\tools\\chatq\\Charlie-and-the-chat-factory.ps1",
+        "logDir": "C:\\tools\\chatq\\data\\logs",
+        "claude": "C:\\npm\\claude.cmd",
+        "codex": "C:\\npm\\codex.cmd"
+      },
+      "expect": {
+        "exe": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+        "args": [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-EncodedCommand",
+          "JABlAG4AdgA6AEMASABBAFQAUQBfAFcAQQBUAEMASABFAFIAPQAnADEAJwA7ACAAJABlAG4AdgA6AEMASABBAFQAUQBfAEMATABBAFUARABFAD0AJwBDADoAXABuAHAAbQBcAGMAbABhAHUAZABlAC4AYwBtAGQAJwA7ACAAJABlAG4AdgA6AEMASABBAFQAUQBfAEMATwBEAEUAWAA9ACcAQwA6AFwAbgBwAG0AXABjAG8AZABlAHgALgBjAG0AZAAnADsAIAB0AHIAeQAgAHsAIAAuACAAJwBDADoAXAB0AG8AbwBsAHMAXABjAGgAYQB0AHEAXABDAGgAYQByAGwAaQBlAC0AYQBuAGQALQB0AGgAZQAtAGMAaABhAHQALQBmAGEAYwB0AG8AcgB5AC4AcABzADEAJwAgAH0AIABjAGEAdABjAGgAIAB7ACAAdAByAHkAIAB7ACAAWwB2AG8AaQBkAF0AWwBJAE8ALgBEAGkAcgBlAGMAdABvAHIAeQBdADoAOgBDAHIAZQBhAHQAZQBEAGkAcgBlAGMAdABvAHIAeQAoACcAQwA6AFwAdABvAG8AbABzAFwAYwBoAGEAdABxAFwAZABhAHQAYQBcAGwAbwBnAHMAJwApADsAIABbAEkATwAuAEYAaQBsAGUAXQA6ADoAQQBwAHAAZQBuAGQAQQBsAGwAVABlAHgAdAAoACcAQwA6AFwAdABvAG8AbABzAFwAYwBoAGEAdABxAFwAZABhAHQAYQBcAGwAbwBnAHMAXAB3AGEAdABjAGgAZQByAC4AbABvAGcAJwAsACAAKABHAGUAdAAtAEQAYQB0AGUAKQAuAFQAbwBTAHQAcgBpAG4AZwAoACcAbwAnACkAIAArACAAJwAgACAAdABoAGUAIAB3AGEAdABjAGgAZQByACAAZABpAGQAIABuAG8AdAAgAGwAbwBhAGQAOgAgACcAIAArACAAJABfAC4ARQB4AGMAZQBwAHQAaQBvAG4ALgBNAGUAcwBzAGEAZwBlACAAKwAgAFsAYwBoAGEAcgBdADEAMAApACAAfQAgAGMAYQB0AGMAaAAgAHsAfQA7ACAAZQB4AGkAdAAgADEAIAB9ADsAIABSAGUAbQBvAHYAZQAtAEkAdABlAG0AIAAtAEwAaQB0AGUAcgBhAGwAUABhAHQAaAAgACcAZQBuAHYAOgBQAFMARQB4AGUAYwB1AHQAaQBvAG4AUABvAGwAaQBjAHkAUAByAGUAZgBlAHIAZQBuAGMAZQAnACAALQBFAEEAIABTAGkAbABlAG4AdABsAHkAQwBvAG4AdABpAG4AdQBlADsAIABJAG4AdgBvAGsAZQAtAEMAaABhAHQAcQBXAGEAdABjAGgATABvAG8AcAA="
+        ],
+        "command": "$env:CHATQ_WATCHER='1'; $env:CHATQ_CLAUDE='C:\\npm\\claude.cmd'; $env:CHATQ_CODEX='C:\\npm\\codex.cmd'; try { . 'C:\\tools\\chatq\\Charlie-and-the-chat-factory.ps1' } catch { try { [void][IO.Directory]::CreateDirectory('C:\\tools\\chatq\\data\\logs'); [IO.File]::AppendAllText('C:\\tools\\chatq\\data\\logs\\watcher.log', (Get-Date).ToString('o') + '  the watcher did not load: ' + $_.Exception.Message + [char]10) } catch {}; exit 1 }; Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference' -EA SilentlyContinue; Invoke-ChatqWatchLoop"
+      }
+    },
+    {
+      "name": "single quotes",
+      "input": {
+        "psExe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "script": "C:\\it's\\chat.ps1",
+        "logDir": "C:\\it's\\data\\logs",
+        "claude": "C:\\it's\\claude.cmd",
+        "codex": "it''s"
+      },
+      "expect": {
+        "exe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "args": [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-EncodedCommand",
+          "JABlAG4AdgA6AEMASABBAFQAUQBfAFcAQQBUAEMASABFAFIAPQAnADEAJwA7ACAAJABlAG4AdgA6AEMASABBAFQAUQBfAEMATABBAFUARABFAD0AJwBDADoAXABpAHQAJwAnAHMAXABjAGwAYQB1AGQAZQAuAGMAbQBkACcAOwAgACQAZQBuAHYAOgBDAEgAQQBUAFEAXwBDAE8ARABFAFgAPQAnAGkAdAAnACcAJwAnAHMAJwA7ACAAdAByAHkAIAB7ACAALgAgACcAQwA6AFwAaQB0ACcAJwBzAFwAYwBoAGEAdAAuAHAAcwAxACcAIAB9ACAAYwBhAHQAYwBoACAAewAgAHQAcgB5ACAAewAgAFsAdgBvAGkAZABdAFsASQBPAC4ARABpAHIAZQBjAHQAbwByAHkAXQA6ADoAQwByAGUAYQB0AGUARABpAHIAZQBjAHQAbwByAHkAKAAnAEMAOgBcAGkAdAAnACcAcwBcAGQAYQB0AGEAXABsAG8AZwBzACcAKQA7ACAAWwBJAE8ALgBGAGkAbABlAF0AOgA6AEEAcABwAGUAbgBkAEEAbABsAFQAZQB4AHQAKAAnAEMAOgBcAGkAdAAnACcAcwBcAGQAYQB0AGEAXABsAG8AZwBzAFwAdwBhAHQAYwBoAGUAcgAuAGwAbwBnACcALAAgACgARwBlAHQALQBEAGEAdABlACkALgBUAG8AUwB0AHIAaQBuAGcAKAAnAG8AJwApACAAKwAgACcAIAAgAHQAaABlACAAdwBhAHQAYwBoAGUAcgAgAGQAaQBkACAAbgBvAHQAIABsAG8AYQBkADoAIAAnACAAKwAgACQAXwAuAEUAeABjAGUAcAB0AGkAbwBuAC4ATQBlAHMAcwBhAGcAZQAgACsAIABbAGMAaABhAHIAXQAxADAAKQAgAH0AIABjAGEAdABjAGgAIAB7AH0AOwAgAGUAeABpAHQAIAAxACAAfQA7ACAAUgBlAG0AbwB2AGUALQBJAHQAZQBtACAALQBMAGkAdABlAHIAYQBsAFAAYQB0AGgAIAAnAGUAbgB2ADoAUABTAEUAeABlAGMAdQB0AGkAbwBuAFAAbwBsAGkAYwB5AFAAcgBlAGYAZQByAGUAbgBjAGUAJwAgAC0ARQBBACAAUwBpAGwAZQBuAHQAbAB5AEMAbwBuAHQAaQBuAHUAZQA7ACAASQBuAHYAbwBrAGUALQBDAGgAYQB0AHEAVwBhAHQAYwBoAEwAbwBvAHAA"
+        ],
+        "command": "$env:CHATQ_WATCHER='1'; $env:CHATQ_CLAUDE='C:\\it''s\\claude.cmd'; $env:CHATQ_CODEX='it''''s'; try { . 'C:\\it''s\\chat.ps1' } catch { try { [void][IO.Directory]::CreateDirectory('C:\\it''s\\data\\logs'); [IO.File]::AppendAllText('C:\\it''s\\data\\logs\\watcher.log', (Get-Date).ToString('o') + '  the watcher did not load: ' + $_.Exception.Message + [char]10) } catch {}; exit 1 }; Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference' -EA SilentlyContinue; Invoke-ChatqWatchLoop"
+      }
+    },
+    {
+      "name": "curly single quotes",
+      "input": {
+        "psExe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "script": "C:\\a\u2018b\u2019c\\chat.ps1",
+        "logDir": "C:\\a\u201ab\u201bc\\logs",
+        "claude": "\u2018\u2019\u201a\u201b",
+        "codex": "x\u2019'"
+      },
+      "expect": {
+        "exe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "args": [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-EncodedCommand",
+          "JABlAG4AdgA6AEMASABBAFQAUQBfAFcAQQBUAEMASABFAFIAPQAnADEAJwA7ACAAJABlAG4AdgA6AEMASABBAFQAUQBfAEMATABBAFUARABFAD0AJwAYIBggGSAZIBogGiAbIBsgJwA7ACAAJABlAG4AdgA6AEMASABBAFQAUQBfAEMATwBEAEUAWAA9ACcAeAAZIBkgJwAnACcAOwAgAHQAcgB5ACAAewAgAC4AIAAnAEMAOgBcAGEAGCAYIGIAGSAZIGMAXABjAGgAYQB0AC4AcABzADEAJwAgAH0AIABjAGEAdABjAGgAIAB7ACAAdAByAHkAIAB7ACAAWwB2AG8AaQBkAF0AWwBJAE8ALgBEAGkAcgBlAGMAdABvAHIAeQBdADoAOgBDAHIAZQBhAHQAZQBEAGkAcgBlAGMAdABvAHIAeQAoACcAQwA6AFwAYQAaIBogYgAbIBsgYwBcAGwAbwBnAHMAJwApADsAIABbAEkATwAuAEYAaQBsAGUAXQA6ADoAQQBwAHAAZQBuAGQAQQBsAGwAVABlAHgAdAAoACcAQwA6AFwAYQAaIBogYgAbIBsgYwBcAGwAbwBnAHMAXAB3AGEAdABjAGgAZQByAC4AbABvAGcAJwAsACAAKABHAGUAdAAtAEQAYQB0AGUAKQAuAFQAbwBTAHQAcgBpAG4AZwAoACcAbwAnACkAIAArACAAJwAgACAAdABoAGUAIAB3AGEAdABjAGgAZQByACAAZABpAGQAIABuAG8AdAAgAGwAbwBhAGQAOgAgACcAIAArACAAJABfAC4ARQB4AGMAZQBwAHQAaQBvAG4ALgBNAGUAcwBzAGEAZwBlACAAKwAgAFsAYwBoAGEAcgBdADEAMAApACAAfQAgAGMAYQB0AGMAaAAgAHsAfQA7ACAAZQB4AGkAdAAgADEAIAB9ADsAIABSAGUAbQBvAHYAZQAtAEkAdABlAG0AIAAtAEwAaQB0AGUAcgBhAGwAUABhAHQAaAAgACcAZQBuAHYAOgBQAFMARQB4AGUAYwB1AHQAaQBvAG4AUABvAGwAaQBjAHkAUAByAGUAZgBlAHIAZQBuAGMAZQAnACAALQBFAEEAIABTAGkAbABlAG4AdABsAHkAQwBvAG4AdABpAG4AdQBlADsAIABJAG4AdgBvAGsAZQAtAEMAaABhAHQAcQBXAGEAdABjAGgATABvAG8AcAA="
+        ],
+        "command": "$env:CHATQ_WATCHER='1'; $env:CHATQ_CLAUDE='\u2018\u2018\u2019\u2019\u201a\u201a\u201b\u201b'; $env:CHATQ_CODEX='x\u2019\u2019'''; try { . 'C:\\a\u2018\u2018b\u2019\u2019c\\chat.ps1' } catch { try { [void][IO.Directory]::CreateDirectory('C:\\a\u201a\u201ab\u201b\u201bc\\logs'); [IO.File]::AppendAllText('C:\\a\u201a\u201ab\u201b\u201bc\\logs\\watcher.log', (Get-Date).ToString('o') + '  the watcher did not load: ' + $_.Exception.Message + [char]10) } catch {}; exit 1 }; Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference' -EA SilentlyContinue; Invoke-ChatqWatchLoop"
+      }
+    },
+    {
+      "name": "double and prime quotes",
+      "input": {
+        "psExe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "script": "C:\\a\u201cb\u201d\\chat.ps1",
+        "logDir": "C:\\a\"b\\logs",
+        "claude": "c\u2032d",
+        "codex": "say \"hi\""
+      },
+      "expect": {
+        "exe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "args": [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-EncodedCommand",
+          "JABlAG4AdgA6AEMASABBAFQAUQBfAFcAQQBUAEMASABFAFIAPQAnADEAJwA7ACAAJABlAG4AdgA6AEMASABBAFQAUQBfAEMATABBAFUARABFAD0AJwBjADIgZAAnADsAIAAkAGUAbgB2ADoAQwBIAEEAVABRAF8AQwBPAEQARQBYAD0AJwBzAGEAeQAgACIAaABpACIAJwA7ACAAdAByAHkAIAB7ACAALgAgACcAQwA6AFwAYQAcIGIAHSBcAGMAaABhAHQALgBwAHMAMQAnACAAfQAgAGMAYQB0AGMAaAAgAHsAIAB0AHIAeQAgAHsAIABbAHYAbwBpAGQAXQBbAEkATwAuAEQAaQByAGUAYwB0AG8AcgB5AF0AOgA6AEMAcgBlAGEAdABlAEQAaQByAGUAYwB0AG8AcgB5ACgAJwBDADoAXABhACIAYgBcAGwAbwBnAHMAJwApADsAIABbAEkATwAuAEYAaQBsAGUAXQA6ADoAQQBwAHAAZQBuAGQAQQBsAGwAVABlAHgAdAAoACcAQwA6AFwAYQAiAGIAXABsAG8AZwBzAFwAdwBhAHQAYwBoAGUAcgAuAGwAbwBnACcALAAgACgARwBlAHQALQBEAGEAdABlACkALgBUAG8AUwB0AHIAaQBuAGcAKAAnAG8AJwApACAAKwAgACcAIAAgAHQAaABlACAAdwBhAHQAYwBoAGUAcgAgAGQAaQBkACAAbgBvAHQAIABsAG8AYQBkADoAIAAnACAAKwAgACQAXwAuAEUAeABjAGUAcAB0AGkAbwBuAC4ATQBlAHMAcwBhAGcAZQAgACsAIABbAGMAaABhAHIAXQAxADAAKQAgAH0AIABjAGEAdABjAGgAIAB7AH0AOwAgAGUAeABpAHQAIAAxACAAfQA7ACAAUgBlAG0AbwB2AGUALQBJAHQAZQBtACAALQBMAGkAdABlAHIAYQBsAFAAYQB0AGgAIAAnAGUAbgB2ADoAUABTAEUAeABlAGMAdQB0AGkAbwBuAFAAbwBsAGkAYwB5AFAAcgBlAGYAZQByAGUAbgBjAGUAJwAgAC0ARQBBACAAUwBpAGwAZQBuAHQAbAB5AEMAbwBuAHQAaQBuAHUAZQA7ACAASQBuAHYAbwBrAGUALQBDAGgAYQB0AHEAVwBhAHQAYwBoAEwAbwBvAHAA"
+        ],
+        "command": "$env:CHATQ_WATCHER='1'; $env:CHATQ_CLAUDE='c\u2032d'; $env:CHATQ_CODEX='say \"hi\"'; try { . 'C:\\a\u201cb\u201d\\chat.ps1' } catch { try { [void][IO.Directory]::CreateDirectory('C:\\a\"b\\logs'); [IO.File]::AppendAllText('C:\\a\"b\\logs\\watcher.log', (Get-Date).ToString('o') + '  the watcher did not load: ' + $_.Exception.Message + [char]10) } catch {}; exit 1 }; Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference' -EA SilentlyContinue; Invoke-ChatqWatchLoop"
+      }
+    },
+    {
+      "name": "dollar and backtick",
+      "input": {
+        "psExe": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+        "script": "C:\\$env:x\\`a\\chat.ps1",
+        "logDir": "C:\\$(boom)\\logs",
+        "claude": "$env:USERNAME",
+        "codex": "a`b`$c"
+      },
+      "expect": {
+        "exe": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+        "args": [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-EncodedCommand",
+          "JABlAG4AdgA6AEMASABBAFQAUQBfAFcAQQBUAEMASABFAFIAPQAnADEAJwA7ACAAJABlAG4AdgA6AEMASABBAFQAUQBfAEMATABBAFUARABFAD0AJwAkAGUAbgB2ADoAVQBTAEUAUgBOAEEATQBFACcAOwAgACQAZQBuAHYAOgBDAEgAQQBUAFEAXwBDAE8ARABFAFgAPQAnAGEAYABiAGAAJABjACcAOwAgAHQAcgB5ACAAewAgAC4AIAAnAEMAOgBcACQAZQBuAHYAOgB4AFwAYABhAFwAYwBoAGEAdAAuAHAAcwAxACcAIAB9ACAAYwBhAHQAYwBoACAAewAgAHQAcgB5ACAAewAgAFsAdgBvAGkAZABdAFsASQBPAC4ARABpAHIAZQBjAHQAbwByAHkAXQA6ADoAQwByAGUAYQB0AGUARABpAHIAZQBjAHQAbwByAHkAKAAnAEMAOgBcACQAKABiAG8AbwBtACkAXABsAG8AZwBzACcAKQA7ACAAWwBJAE8ALgBGAGkAbABlAF0AOgA6AEEAcABwAGUAbgBkAEEAbABsAFQAZQB4AHQAKAAnAEMAOgBcACQAKABiAG8AbwBtACkAXABsAG8AZwBzAFwAdwBhAHQAYwBoAGUAcgAuAGwAbwBnACcALAAgACgARwBlAHQALQBEAGEAdABlACkALgBUAG8AUwB0AHIAaQBuAGcAKAAnAG8AJwApACAAKwAgACcAIAAgAHQAaABlACAAdwBhAHQAYwBoAGUAcgAgAGQAaQBkACAAbgBvAHQAIABsAG8AYQBkADoAIAAnACAAKwAgACQAXwAuAEUAeABjAGUAcAB0AGkAbwBuAC4ATQBlAHMAcwBhAGcAZQAgACsAIABbAGMAaABhAHIAXQAxADAAKQAgAH0AIABjAGEAdABjAGgAIAB7AH0AOwAgAGUAeABpAHQAIAAxACAAfQA7ACAAUgBlAG0AbwB2AGUALQBJAHQAZQBtACAALQBMAGkAdABlAHIAYQBsAFAAYQB0AGgAIAAnAGUAbgB2ADoAUABTAEUAeABlAGMAdQB0AGkAbwBuAFAAbwBsAGkAYwB5AFAAcgBlAGYAZQByAGUAbgBjAGUAJwAgAC0ARQBBACAAUwBpAGwAZQBuAHQAbAB5AEMAbwBuAHQAaQBuAHUAZQA7ACAASQBuAHYAbwBrAGUALQBDAGgAYQB0AHEAVwBhAHQAYwBoAEwAbwBvAHAA"
+        ],
+        "command": "$env:CHATQ_WATCHER='1'; $env:CHATQ_CLAUDE='$env:USERNAME'; $env:CHATQ_CODEX='a`b`$c'; try { . 'C:\\$env:x\\`a\\chat.ps1' } catch { try { [void][IO.Directory]::CreateDirectory('C:\\$(boom)\\logs'); [IO.File]::AppendAllText('C:\\$(boom)\\logs\\watcher.log', (Get-Date).ToString('o') + '  the watcher did not load: ' + $_.Exception.Message + [char]10) } catch {}; exit 1 }; Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference' -EA SilentlyContinue; Invoke-ChatqWatchLoop"
+      }
+    },
+    {
+      "name": "spaces",
+      "input": {
+        "psExe": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+        "script": "C:\\my tools\\chat q\\Charlie and the chat factory.ps1",
+        "logDir": "C:\\my tools\\chat q\\data\\logs",
+        "claude": "C:\\Program Files\\nodejs\\claude.cmd",
+        "codex": null
+      },
+      "expect": {
+        "exe": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+        "args": [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-EncodedCommand",
+          "JABlAG4AdgA6AEMASABBAFQAUQBfAFcAQQBUAEMASABFAFIAPQAnADEAJwA7ACAAJABlAG4AdgA6AEMASABBAFQAUQBfAEMATABBAFUARABFAD0AJwBDADoAXABQAHIAbwBnAHIAYQBtACAARgBpAGwAZQBzAFwAbgBvAGQAZQBqAHMAXABjAGwAYQB1AGQAZQAuAGMAbQBkACcAOwAgAHQAcgB5ACAAewAgAC4AIAAnAEMAOgBcAG0AeQAgAHQAbwBvAGwAcwBcAGMAaABhAHQAIABxAFwAQwBoAGEAcgBsAGkAZQAgAGEAbgBkACAAdABoAGUAIABjAGgAYQB0ACAAZgBhAGMAdABvAHIAeQAuAHAAcwAxACcAIAB9ACAAYwBhAHQAYwBoACAAewAgAHQAcgB5ACAAewAgAFsAdgBvAGkAZABdAFsASQBPAC4ARABpAHIAZQBjAHQAbwByAHkAXQA6ADoAQwByAGUAYQB0AGUARABpAHIAZQBjAHQAbwByAHkAKAAnAEMAOgBcAG0AeQAgAHQAbwBvAGwAcwBcAGMAaABhAHQAIABxAFwAZABhAHQAYQBcAGwAbwBnAHMAJwApADsAIABbAEkATwAuAEYAaQBsAGUAXQA6ADoAQQBwAHAAZQBuAGQAQQBsAGwAVABlAHgAdAAoACcAQwA6AFwAbQB5ACAAdABvAG8AbABzAFwAYwBoAGEAdAAgAHEAXABkAGEAdABhAFwAbABvAGcAcwBcAHcAYQB0AGMAaABlAHIALgBsAG8AZwAnACwAIAAoAEcAZQB0AC0ARABhAHQAZQApAC4AVABvAFMAdAByAGkAbgBnACgAJwBvACcAKQAgACsAIAAnACAAIAB0AGgAZQAgAHcAYQB0AGMAaABlAHIAIABkAGkAZAAgAG4AbwB0ACAAbABvAGEAZAA6ACAAJwAgACsAIAAkAF8ALgBFAHgAYwBlAHAAdABpAG8AbgAuAE0AZQBzAHMAYQBnAGUAIAArACAAWwBjAGgAYQByAF0AMQAwACkAIAB9ACAAYwBhAHQAYwBoACAAewB9ADsAIABlAHgAaQB0ACAAMQAgAH0AOwAgAFIAZQBtAG8AdgBlAC0ASQB0AGUAbQAgAC0ATABpAHQAZQByAGEAbABQAGEAdABoACAAJwBlAG4AdgA6AFAAUwBFAHgAZQBjAHUAdABpAG8AbgBQAG8AbABpAGMAeQBQAHIAZQBmAGUAcgBlAG4AYwBlACcAIAAtAEUAQQAgAFMAaQBsAGUAbgB0AGwAeQBDAG8AbgB0AGkAbgB1AGUAOwAgAEkAbgB2AG8AawBlAC0AQwBoAGEAdABxAFcAYQB0AGMAaABMAG8AbwBwAA=="
+        ],
+        "command": "$env:CHATQ_WATCHER='1'; $env:CHATQ_CLAUDE='C:\\Program Files\\nodejs\\claude.cmd'; try { . 'C:\\my tools\\chat q\\Charlie and the chat factory.ps1' } catch { try { [void][IO.Directory]::CreateDirectory('C:\\my tools\\chat q\\data\\logs'); [IO.File]::AppendAllText('C:\\my tools\\chat q\\data\\logs\\watcher.log', (Get-Date).ToString('o') + '  the watcher did not load: ' + $_.Exception.Message + [char]10) } catch {}; exit 1 }; Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference' -EA SilentlyContinue; Invoke-ChatqWatchLoop"
+      }
+    },
+    {
+      "name": "hangul",
+      "input": {
+        "psExe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "script": "C:\\\uc0ac\uc6a9\uc790\\chatq\\Charlie-and-the-chat-factory.ps1",
+        "logDir": "C:\\\uc0ac\uc6a9\uc790\\chatq\\data\\logs",
+        "claude": "C:\\\ud55c\\claude.cmd",
+        "codex": null
+      },
+      "expect": {
+        "exe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "args": [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-EncodedCommand",
+          "JABlAG4AdgA6AEMASABBAFQAUQBfAFcAQQBUAEMASABFAFIAPQAnADEAJwA7ACAAJABlAG4AdgA6AEMASABBAFQAUQBfAEMATABBAFUARABFAD0AJwBDADoAXABc1VwAYwBsAGEAdQBkAGUALgBjAG0AZAAnADsAIAB0AHIAeQAgAHsAIAAuACAAJwBDADoAXACswKnGkMdcAGMAaABhAHQAcQBcAEMAaABhAHIAbABpAGUALQBhAG4AZAAtAHQAaABlAC0AYwBoAGEAdAAtAGYAYQBjAHQAbwByAHkALgBwAHMAMQAnACAAfQAgAGMAYQB0AGMAaAAgAHsAIAB0AHIAeQAgAHsAIABbAHYAbwBpAGQAXQBbAEkATwAuAEQAaQByAGUAYwB0AG8AcgB5AF0AOgA6AEMAcgBlAGEAdABlAEQAaQByAGUAYwB0AG8AcgB5ACgAJwBDADoAXACswKnGkMdcAGMAaABhAHQAcQBcAGQAYQB0AGEAXABsAG8AZwBzACcAKQA7ACAAWwBJAE8ALgBGAGkAbABlAF0AOgA6AEEAcABwAGUAbgBkAEEAbABsAFQAZQB4AHQAKAAnAEMAOgBcAKzAqcaQx1wAYwBoAGEAdABxAFwAZABhAHQAYQBcAGwAbwBnAHMAXAB3AGEAdABjAGgAZQByAC4AbABvAGcAJwAsACAAKABHAGUAdAAtAEQAYQB0AGUAKQAuAFQAbwBTAHQAcgBpAG4AZwAoACcAbwAnACkAIAArACAAJwAgACAAdABoAGUAIAB3AGEAdABjAGgAZQByACAAZABpAGQAIABuAG8AdAAgAGwAbwBhAGQAOgAgACcAIAArACAAJABfAC4ARQB4AGMAZQBwAHQAaQBvAG4ALgBNAGUAcwBzAGEAZwBlACAAKwAgAFsAYwBoAGEAcgBdADEAMAApACAAfQAgAGMAYQB0AGMAaAAgAHsAfQA7ACAAZQB4AGkAdAAgADEAIAB9ADsAIABSAGUAbQBvAHYAZQAtAEkAdABlAG0AIAAtAEwAaQB0AGUAcgBhAGwAUABhAHQAaAAgACcAZQBuAHYAOgBQAFMARQB4AGUAYwB1AHQAaQBvAG4AUABvAGwAaQBjAHkAUAByAGUAZgBlAHIAZQBuAGMAZQAnACAALQBFAEEAIABTAGkAbABlAG4AdABsAHkAQwBvAG4AdABpAG4AdQBlADsAIABJAG4AdgBvAGsAZQAtAEMAaABhAHQAcQBXAGEAdABjAGgATABvAG8AcAA="
+        ],
+        "command": "$env:CHATQ_WATCHER='1'; $env:CHATQ_CLAUDE='C:\\\ud55c\\claude.cmd'; try { . 'C:\\\uc0ac\uc6a9\uc790\\chatq\\Charlie-and-the-chat-factory.ps1' } catch { try { [void][IO.Directory]::CreateDirectory('C:\\\uc0ac\uc6a9\uc790\\chatq\\data\\logs'); [IO.File]::AppendAllText('C:\\\uc0ac\uc6a9\uc790\\chatq\\data\\logs\\watcher.log', (Get-Date).ToString('o') + '  the watcher did not load: ' + $_.Exception.Message + [char]10) } catch {}; exit 1 }; Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference' -EA SilentlyContinue; Invoke-ChatqWatchLoop"
+      }
+    },
+    {
+      "name": "astral",
+      "input": {
+        "psExe": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+        "script": "C:\\\ud83d\ude00\\chat.ps1",
+        "logDir": "C:\\\ud83d\ude00\\data\\logs",
+        "claude": null,
+        "codex": "\ud83d\ude00"
+      },
+      "expect": {
+        "exe": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+        "args": [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-EncodedCommand",
+          "JABlAG4AdgA6AEMASABBAFQAUQBfAFcAQQBUAEMASABFAFIAPQAnADEAJwA7ACAAJABlAG4AdgA6AEMASABBAFQAUQBfAEMATwBEAEUAWAA9ACcAPdgA3icAOwAgAHQAcgB5ACAAewAgAC4AIAAnAEMAOgBcAD3YAN5cAGMAaABhAHQALgBwAHMAMQAnACAAfQAgAGMAYQB0AGMAaAAgAHsAIAB0AHIAeQAgAHsAIABbAHYAbwBpAGQAXQBbAEkATwAuAEQAaQByAGUAYwB0AG8AcgB5AF0AOgA6AEMAcgBlAGEAdABlAEQAaQByAGUAYwB0AG8AcgB5ACgAJwBDADoAXAA92ADeXABkAGEAdABhAFwAbABvAGcAcwAnACkAOwAgAFsASQBPAC4ARgBpAGwAZQBdADoAOgBBAHAAcABlAG4AZABBAGwAbABUAGUAeAB0ACgAJwBDADoAXAA92ADeXABkAGEAdABhAFwAbABvAGcAcwBcAHcAYQB0AGMAaABlAHIALgBsAG8AZwAnACwAIAAoAEcAZQB0AC0ARABhAHQAZQApAC4AVABvAFMAdAByAGkAbgBnACgAJwBvACcAKQAgACsAIAAnACAAIAB0AGgAZQAgAHcAYQB0AGMAaABlAHIAIABkAGkAZAAgAG4AbwB0ACAAbABvAGEAZAA6ACAAJwAgACsAIAAkAF8ALgBFAHgAYwBlAHAAdABpAG8AbgAuAE0AZQBzAHMAYQBnAGUAIAArACAAWwBjAGgAYQByAF0AMQAwACkAIAB9ACAAYwBhAHQAYwBoACAAewB9ADsAIABlAHgAaQB0ACAAMQAgAH0AOwAgAFIAZQBtAG8AdgBlAC0ASQB0AGUAbQAgAC0ATABpAHQAZQByAGEAbABQAGEAdABoACAAJwBlAG4AdgA6AFAAUwBFAHgAZQBjAHUAdABpAG8AbgBQAG8AbABpAGMAeQBQAHIAZQBmAGUAcgBlAG4AYwBlACcAIAAtAEUAQQAgAFMAaQBsAGUAbgB0AGwAeQBDAG8AbgB0AGkAbgB1AGUAOwAgAEkAbgB2AG8AawBlAC0AQwBoAGEAdABxAFcAYQB0AGMAaABMAG8AbwBwAA=="
+        ],
+        "command": "$env:CHATQ_WATCHER='1'; $env:CHATQ_CODEX='\ud83d\ude00'; try { . 'C:\\\ud83d\ude00\\chat.ps1' } catch { try { [void][IO.Directory]::CreateDirectory('C:\\\ud83d\ude00\\data\\logs'); [IO.File]::AppendAllText('C:\\\ud83d\ude00\\data\\logs\\watcher.log', (Get-Date).ToString('o') + '  the watcher did not load: ' + $_.Exception.Message + [char]10) } catch {}; exit 1 }; Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference' -EA SilentlyContinue; Invoke-ChatqWatchLoop"
+      }
+    },
+    {
+      "name": "newline in a value",
+      "input": {
+        "psExe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "script": "C:\\tools\\chatq\\Charlie-and-the-chat-factory.ps1",
+        "logDir": "C:\\tools\\chatq\\data\\logs",
+        "claude": "C:\\a\nb\\claude.cmd",
+        "codex": null
+      },
+      "expect": {
+        "exe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "args": [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-EncodedCommand",
+          "JABlAG4AdgA6AEMASABBAFQAUQBfAFcAQQBUAEMASABFAFIAPQAnADEAJwA7ACAAJABlAG4AdgA6AEMASABBAFQAUQBfAEMATABBAFUARABFAD0AJwBDADoAXABhAAoAYgBcAGMAbABhAHUAZABlAC4AYwBtAGQAJwA7ACAAdAByAHkAIAB7ACAALgAgACcAQwA6AFwAdABvAG8AbABzAFwAYwBoAGEAdABxAFwAQwBoAGEAcgBsAGkAZQAtAGEAbgBkAC0AdABoAGUALQBjAGgAYQB0AC0AZgBhAGMAdABvAHIAeQAuAHAAcwAxACcAIAB9ACAAYwBhAHQAYwBoACAAewAgAHQAcgB5ACAAewAgAFsAdgBvAGkAZABdAFsASQBPAC4ARABpAHIAZQBjAHQAbwByAHkAXQA6ADoAQwByAGUAYQB0AGUARABpAHIAZQBjAHQAbwByAHkAKAAnAEMAOgBcAHQAbwBvAGwAcwBcAGMAaABhAHQAcQBcAGQAYQB0AGEAXABsAG8AZwBzACcAKQA7ACAAWwBJAE8ALgBGAGkAbABlAF0AOgA6AEEAcABwAGUAbgBkAEEAbABsAFQAZQB4AHQAKAAnAEMAOgBcAHQAbwBvAGwAcwBcAGMAaABhAHQAcQBcAGQAYQB0AGEAXABsAG8AZwBzAFwAdwBhAHQAYwBoAGUAcgAuAGwAbwBnACcALAAgACgARwBlAHQALQBEAGEAdABlACkALgBUAG8AUwB0AHIAaQBuAGcAKAAnAG8AJwApACAAKwAgACcAIAAgAHQAaABlACAAdwBhAHQAYwBoAGUAcgAgAGQAaQBkACAAbgBvAHQAIABsAG8AYQBkADoAIAAnACAAKwAgACQAXwAuAEUAeABjAGUAcAB0AGkAbwBuAC4ATQBlAHMAcwBhAGcAZQAgACsAIABbAGMAaABhAHIAXQAxADAAKQAgAH0AIABjAGEAdABjAGgAIAB7AH0AOwAgAGUAeABpAHQAIAAxACAAfQA7ACAAUgBlAG0AbwB2AGUALQBJAHQAZQBtACAALQBMAGkAdABlAHIAYQBsAFAAYQB0AGgAIAAnAGUAbgB2ADoAUABTAEUAeABlAGMAdQB0AGkAbwBuAFAAbwBsAGkAYwB5AFAAcgBlAGYAZQByAGUAbgBjAGUAJwAgAC0ARQBBACAAUwBpAGwAZQBuAHQAbAB5AEMAbwBuAHQAaQBuAHUAZQA7ACAASQBuAHYAbwBrAGUALQBDAGgAYQB0AHEAVwBhAHQAYwBoAEwAbwBvAHAA"
+        ],
+        "command": "$env:CHATQ_WATCHER='1'; $env:CHATQ_CLAUDE='C:\\a\nb\\claude.cmd'; try { . 'C:\\tools\\chatq\\Charlie-and-the-chat-factory.ps1' } catch { try { [void][IO.Directory]::CreateDirectory('C:\\tools\\chatq\\data\\logs'); [IO.File]::AppendAllText('C:\\tools\\chatq\\data\\logs\\watcher.log', (Get-Date).ToString('o') + '  the watcher did not load: ' + $_.Exception.Message + [char]10) } catch {}; exit 1 }; Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference' -EA SilentlyContinue; Invoke-ChatqWatchLoop"
+      }
+    },
+    {
+      "name": "relative paths",
+      "input": {
+        "psExe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "script": ".\\Charlie-and-the-chat-factory.ps1",
+        "logDir": "data\\logs",
+        "claude": null,
+        "codex": null
+      },
+      "expect": {
+        "exe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "args": [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-EncodedCommand",
+          "JABlAG4AdgA6AEMASABBAFQAUQBfAFcAQQBUAEMASABFAFIAPQAnADEAJwA7ACAAdAByAHkAIAB7ACAALgAgACcALgBcAEMAaABhAHIAbABpAGUALQBhAG4AZAAtAHQAaABlAC0AYwBoAGEAdAAtAGYAYQBjAHQAbwByAHkALgBwAHMAMQAnACAAfQAgAGMAYQB0AGMAaAAgAHsAIAB0AHIAeQAgAHsAIABbAHYAbwBpAGQAXQBbAEkATwAuAEQAaQByAGUAYwB0AG8AcgB5AF0AOgA6AEMAcgBlAGEAdABlAEQAaQByAGUAYwB0AG8AcgB5ACgAJwBkAGEAdABhAFwAbABvAGcAcwAnACkAOwAgAFsASQBPAC4ARgBpAGwAZQBdADoAOgBBAHAAcABlAG4AZABBAGwAbABUAGUAeAB0ACgAJwBkAGEAdABhAFwAbABvAGcAcwBcAHcAYQB0AGMAaABlAHIALgBsAG8AZwAnACwAIAAoAEcAZQB0AC0ARABhAHQAZQApAC4AVABvAFMAdAByAGkAbgBnACgAJwBvACcAKQAgACsAIAAnACAAIAB0AGgAZQAgAHcAYQB0AGMAaABlAHIAIABkAGkAZAAgAG4AbwB0ACAAbABvAGEAZAA6ACAAJwAgACsAIAAkAF8ALgBFAHgAYwBlAHAAdABpAG8AbgAuAE0AZQBzAHMAYQBnAGUAIAArACAAWwBjAGgAYQByAF0AMQAwACkAIAB9ACAAYwBhAHQAYwBoACAAewB9ADsAIABlAHgAaQB0ACAAMQAgAH0AOwAgAFIAZQBtAG8AdgBlAC0ASQB0AGUAbQAgAC0ATABpAHQAZQByAGEAbABQAGEAdABoACAAJwBlAG4AdgA6AFAAUwBFAHgAZQBjAHUAdABpAG8AbgBQAG8AbABpAGMAeQBQAHIAZQBmAGUAcgBlAG4AYwBlACcAIAAtAEUAQQAgAFMAaQBsAGUAbgB0AGwAeQBDAG8AbgB0AGkAbgB1AGUAOwAgAEkAbgB2AG8AawBlAC0AQwBoAGEAdABxAFcAYQB0AGMAaABMAG8AbwBwAA=="
+        ],
+        "command": "$env:CHATQ_WATCHER='1'; try { . '.\\Charlie-and-the-chat-factory.ps1' } catch { try { [void][IO.Directory]::CreateDirectory('data\\logs'); [IO.File]::AppendAllText('data\\logs\\watcher.log', (Get-Date).ToString('o') + '  the watcher did not load: ' + $_.Exception.Message + [char]10) } catch {}; exit 1 }; Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference' -EA SilentlyContinue; Invoke-ChatqWatchLoop"
+      }
+    },
+    {
+      "name": "forward slashes",
+      "input": {
+        "psExe": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+        "script": "C:/tools/chatq/Charlie-and-the-chat-factory.ps1",
+        "logDir": "C:/tools/chatq/data/logs",
+        "claude": "C:/npm/claude.cmd",
+        "codex": null
+      },
+      "expect": {
+        "exe": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+        "args": [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-EncodedCommand",
+          "JABlAG4AdgA6AEMASABBAFQAUQBfAFcAQQBUAEMASABFAFIAPQAnADEAJwA7ACAAJABlAG4AdgA6AEMASABBAFQAUQBfAEMATABBAFUARABFAD0AJwBDADoALwBuAHAAbQAvAGMAbABhAHUAZABlAC4AYwBtAGQAJwA7ACAAdAByAHkAIAB7ACAALgAgACcAQwA6AC8AdABvAG8AbABzAC8AYwBoAGEAdABxAC8AQwBoAGEAcgBsAGkAZQAtAGEAbgBkAC0AdABoAGUALQBjAGgAYQB0AC0AZgBhAGMAdABvAHIAeQAuAHAAcwAxACcAIAB9ACAAYwBhAHQAYwBoACAAewAgAHQAcgB5ACAAewAgAFsAdgBvAGkAZABdAFsASQBPAC4ARABpAHIAZQBjAHQAbwByAHkAXQA6ADoAQwByAGUAYQB0AGUARABpAHIAZQBjAHQAbwByAHkAKAAnAEMAOgAvAHQAbwBvAGwAcwAvAGMAaABhAHQAcQAvAGQAYQB0AGEALwBsAG8AZwBzACcAKQA7ACAAWwBJAE8ALgBGAGkAbABlAF0AOgA6AEEAcABwAGUAbgBkAEEAbABsAFQAZQB4AHQAKAAnAEMAOgBcAHQAbwBvAGwAcwBcAGMAaABhAHQAcQBcAGQAYQB0AGEAXABsAG8AZwBzAFwAdwBhAHQAYwBoAGUAcgAuAGwAbwBnACcALAAgACgARwBlAHQALQBEAGEAdABlACkALgBUAG8AUwB0AHIAaQBuAGcAKAAnAG8AJwApACAAKwAgACcAIAAgAHQAaABlACAAdwBhAHQAYwBoAGUAcgAgAGQAaQBkACAAbgBvAHQAIABsAG8AYQBkADoAIAAnACAAKwAgACQAXwAuAEUAeABjAGUAcAB0AGkAbwBuAC4ATQBlAHMAcwBhAGcAZQAgACsAIABbAGMAaABhAHIAXQAxADAAKQAgAH0AIABjAGEAdABjAGgAIAB7AH0AOwAgAGUAeABpAHQAIAAxACAAfQA7ACAAUgBlAG0AbwB2AGUALQBJAHQAZQBtACAALQBMAGkAdABlAHIAYQBsAFAAYQB0AGgAIAAnAGUAbgB2ADoAUABTAEUAeABlAGMAdQB0AGkAbwBuAFAAbwBsAGkAYwB5AFAAcgBlAGYAZQByAGUAbgBjAGUAJwAgAC0ARQBBACAAUwBpAGwAZQBuAHQAbAB5AEMAbwBuAHQAaQBuAHUAZQA7ACAASQBuAHYAbwBrAGUALQBDAGgAYQB0AHEAVwBhAHQAYwBoAEwAbwBvAHAA"
+        ],
+        "command": "$env:CHATQ_WATCHER='1'; $env:CHATQ_CLAUDE='C:/npm/claude.cmd'; try { . 'C:/tools/chatq/Charlie-and-the-chat-factory.ps1' } catch { try { [void][IO.Directory]::CreateDirectory('C:/tools/chatq/data/logs'); [IO.File]::AppendAllText('C:\\tools\\chatq\\data\\logs\\watcher.log', (Get-Date).ToString('o') + '  the watcher did not load: ' + $_.Exception.Message + [char]10) } catch {}; exit 1 }; Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference' -EA SilentlyContinue; Invoke-ChatqWatchLoop"
+      }
+    },
+    {
+      "name": "relative forward slashes",
+      "input": {
+        "psExe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "script": "chatq/chat.ps1",
+        "logDir": "data/logs",
+        "claude": null,
+        "codex": null
+      },
+      "expect": {
+        "exe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "args": [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-EncodedCommand",
+          "JABlAG4AdgA6AEMASABBAFQAUQBfAFcAQQBUAEMASABFAFIAPQAnADEAJwA7ACAAdAByAHkAIAB7ACAALgAgACcAYwBoAGEAdABxAC8AYwBoAGEAdAAuAHAAcwAxACcAIAB9ACAAYwBhAHQAYwBoACAAewAgAHQAcgB5ACAAewAgAFsAdgBvAGkAZABdAFsASQBPAC4ARABpAHIAZQBjAHQAbwByAHkAXQA6ADoAQwByAGUAYQB0AGUARABpAHIAZQBjAHQAbwByAHkAKAAnAGQAYQB0AGEALwBsAG8AZwBzACcAKQA7ACAAWwBJAE8ALgBGAGkAbABlAF0AOgA6AEEAcABwAGUAbgBkAEEAbABsAFQAZQB4AHQAKAAnAGQAYQB0AGEAXABsAG8AZwBzAFwAdwBhAHQAYwBoAGUAcgAuAGwAbwBnACcALAAgACgARwBlAHQALQBEAGEAdABlACkALgBUAG8AUwB0AHIAaQBuAGcAKAAnAG8AJwApACAAKwAgACcAIAAgAHQAaABlACAAdwBhAHQAYwBoAGUAcgAgAGQAaQBkACAAbgBvAHQAIABsAG8AYQBkADoAIAAnACAAKwAgACQAXwAuAEUAeABjAGUAcAB0AGkAbwBuAC4ATQBlAHMAcwBhAGcAZQAgACsAIABbAGMAaABhAHIAXQAxADAAKQAgAH0AIABjAGEAdABjAGgAIAB7AH0AOwAgAGUAeABpAHQAIAAxACAAfQA7ACAAUgBlAG0AbwB2AGUALQBJAHQAZQBtACAALQBMAGkAdABlAHIAYQBsAFAAYQB0AGgAIAAnAGUAbgB2ADoAUABTAEUAeABlAGMAdQB0AGkAbwBuAFAAbwBsAGkAYwB5AFAAcgBlAGYAZQByAGUAbgBjAGUAJwAgAC0ARQBBACAAUwBpAGwAZQBuAHQAbAB5AEMAbwBuAHQAaQBuAHUAZQA7ACAASQBuAHYAbwBrAGUALQBDAGgAYQB0AHEAVwBhAHQAYwBoAEwAbwBvAHAA"
+        ],
+        "command": "$env:CHATQ_WATCHER='1'; try { . 'chatq/chat.ps1' } catch { try { [void][IO.Directory]::CreateDirectory('data/logs'); [IO.File]::AppendAllText('data\\logs\\watcher.log', (Get-Date).ToString('o') + '  the watcher did not load: ' + $_.Exception.Message + [char]10) } catch {}; exit 1 }; Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference' -EA SilentlyContinue; Invoke-ChatqWatchLoop"
+      }
+    },
+    {
+      "name": "trailing backslash",
+      "input": {
+        "psExe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "script": "C:\\tools\\chatq\\Charlie-and-the-chat-factory.ps1",
+        "logDir": "C:\\tools\\chatq\\data\\logs\\",
+        "claude": null,
+        "codex": null
+      },
+      "expect": {
+        "exe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "args": [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-EncodedCommand",
+          "JABlAG4AdgA6AEMASABBAFQAUQBfAFcAQQBUAEMASABFAFIAPQAnADEAJwA7ACAAdAByAHkAIAB7ACAALgAgACcAQwA6AFwAdABvAG8AbABzAFwAYwBoAGEAdABxAFwAQwBoAGEAcgBsAGkAZQAtAGEAbgBkAC0AdABoAGUALQBjAGgAYQB0AC0AZgBhAGMAdABvAHIAeQAuAHAAcwAxACcAIAB9ACAAYwBhAHQAYwBoACAAewAgAHQAcgB5ACAAewAgAFsAdgBvAGkAZABdAFsASQBPAC4ARABpAHIAZQBjAHQAbwByAHkAXQA6ADoAQwByAGUAYQB0AGUARABpAHIAZQBjAHQAbwByAHkAKAAnAEMAOgBcAHQAbwBvAGwAcwBcAGMAaABhAHQAcQBcAGQAYQB0AGEAXABsAG8AZwBzAFwAJwApADsAIABbAEkATwAuAEYAaQBsAGUAXQA6ADoAQQBwAHAAZQBuAGQAQQBsAGwAVABlAHgAdAAoACcAQwA6AFwAdABvAG8AbABzAFwAYwBoAGEAdABxAFwAZABhAHQAYQBcAGwAbwBnAHMAXAB3AGEAdABjAGgAZQByAC4AbABvAGcAJwAsACAAKABHAGUAdAAtAEQAYQB0AGUAKQAuAFQAbwBTAHQAcgBpAG4AZwAoACcAbwAnACkAIAArACAAJwAgACAAdABoAGUAIAB3AGEAdABjAGgAZQByACAAZABpAGQAIABuAG8AdAAgAGwAbwBhAGQAOgAgACcAIAArACAAJABfAC4ARQB4AGMAZQBwAHQAaQBvAG4ALgBNAGUAcwBzAGEAZwBlACAAKwAgAFsAYwBoAGEAcgBdADEAMAApACAAfQAgAGMAYQB0AGMAaAAgAHsAfQA7ACAAZQB4AGkAdAAgADEAIAB9ADsAIABSAGUAbQBvAHYAZQAtAEkAdABlAG0AIAAtAEwAaQB0AGUAcgBhAGwAUABhAHQAaAAgACcAZQBuAHYAOgBQAFMARQB4AGUAYwB1AHQAaQBvAG4AUABvAGwAaQBjAHkAUAByAGUAZgBlAHIAZQBuAGMAZQAnACAALQBFAEEAIABTAGkAbABlAG4AdABsAHkAQwBvAG4AdABpAG4AdQBlADsAIABJAG4AdgBvAGsAZQAtAEMAaABhAHQAcQBXAGEAdABjAGgATABvAG8AcAA="
+        ],
+        "command": "$env:CHATQ_WATCHER='1'; try { . 'C:\\tools\\chatq\\Charlie-and-the-chat-factory.ps1' } catch { try { [void][IO.Directory]::CreateDirectory('C:\\tools\\chatq\\data\\logs\\'); [IO.File]::AppendAllText('C:\\tools\\chatq\\data\\logs\\watcher.log', (Get-Date).ToString('o') + '  the watcher did not load: ' + $_.Exception.Message + [char]10) } catch {}; exit 1 }; Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference' -EA SilentlyContinue; Invoke-ChatqWatchLoop"
+      }
+    },
+    {
+      "name": "trailing forward slash",
+      "input": {
+        "psExe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "script": "C:\\tools\\chatq\\Charlie-and-the-chat-factory.ps1",
+        "logDir": "data\\logs/",
+        "claude": null,
+        "codex": null
+      },
+      "expect": {
+        "exe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "args": [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-EncodedCommand",
+          "JABlAG4AdgA6AEMASABBAFQAUQBfAFcAQQBUAEMASABFAFIAPQAnADEAJwA7ACAAdAByAHkAIAB7ACAALgAgACcAQwA6AFwAdABvAG8AbABzAFwAYwBoAGEAdABxAFwAQwBoAGEAcgBsAGkAZQAtAGEAbgBkAC0AdABoAGUALQBjAGgAYQB0AC0AZgBhAGMAdABvAHIAeQAuAHAAcwAxACcAIAB9ACAAYwBhAHQAYwBoACAAewAgAHQAcgB5ACAAewAgAFsAdgBvAGkAZABdAFsASQBPAC4ARABpAHIAZQBjAHQAbwByAHkAXQA6ADoAQwByAGUAYQB0AGUARABpAHIAZQBjAHQAbwByAHkAKAAnAGQAYQB0AGEAXABsAG8AZwBzAC8AJwApADsAIABbAEkATwAuAEYAaQBsAGUAXQA6ADoAQQBwAHAAZQBuAGQAQQBsAGwAVABlAHgAdAAoACcAZABhAHQAYQBcAGwAbwBnAHMAXAB3AGEAdABjAGgAZQByAC4AbABvAGcAJwAsACAAKABHAGUAdAAtAEQAYQB0AGUAKQAuAFQAbwBTAHQAcgBpAG4AZwAoACcAbwAnACkAIAArACAAJwAgACAAdABoAGUAIAB3AGEAdABjAGgAZQByACAAZABpAGQAIABuAG8AdAAgAGwAbwBhAGQAOgAgACcAIAArACAAJABfAC4ARQB4AGMAZQBwAHQAaQBvAG4ALgBNAGUAcwBzAGEAZwBlACAAKwAgAFsAYwBoAGEAcgBdADEAMAApACAAfQAgAGMAYQB0AGMAaAAgAHsAfQA7ACAAZQB4AGkAdAAgADEAIAB9ADsAIABSAGUAbQBvAHYAZQAtAEkAdABlAG0AIAAtAEwAaQB0AGUAcgBhAGwAUABhAHQAaAAgACcAZQBuAHYAOgBQAFMARQB4AGUAYwB1AHQAaQBvAG4AUABvAGwAaQBjAHkAUAByAGUAZgBlAHIAZQBuAGMAZQAnACAALQBFAEEAIABTAGkAbABlAG4AdABsAHkAQwBvAG4AdABpAG4AdQBlADsAIABJAG4AdgBvAGsAZQAtAEMAaABhAHQAcQBXAGEAdABjAGgATABvAG8AcAA="
+        ],
+        "command": "$env:CHATQ_WATCHER='1'; try { . 'C:\\tools\\chatq\\Charlie-and-the-chat-factory.ps1' } catch { try { [void][IO.Directory]::CreateDirectory('data\\logs/'); [IO.File]::AppendAllText('data\\logs\\watcher.log', (Get-Date).ToString('o') + '  the watcher did not load: ' + $_.Exception.Message + [char]10) } catch {}; exit 1 }; Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference' -EA SilentlyContinue; Invoke-ChatqWatchLoop"
+      }
+    },
+    {
+      "name": "two trailing backslashes",
+      "input": {
+        "psExe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "script": "C:\\tools\\chatq\\Charlie-and-the-chat-factory.ps1",
+        "logDir": "C:\\a\\data\\logs\\\\",
+        "claude": null,
+        "codex": null
+      },
+      "expect": {
+        "exe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "args": [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-EncodedCommand",
+          "JABlAG4AdgA6AEMASABBAFQAUQBfAFcAQQBUAEMASABFAFIAPQAnADEAJwA7ACAAdAByAHkAIAB7ACAALgAgACcAQwA6AFwAdABvAG8AbABzAFwAYwBoAGEAdABxAFwAQwBoAGEAcgBsAGkAZQAtAGEAbgBkAC0AdABoAGUALQBjAGgAYQB0AC0AZgBhAGMAdABvAHIAeQAuAHAAcwAxACcAIAB9ACAAYwBhAHQAYwBoACAAewAgAHQAcgB5ACAAewAgAFsAdgBvAGkAZABdAFsASQBPAC4ARABpAHIAZQBjAHQAbwByAHkAXQA6ADoAQwByAGUAYQB0AGUARABpAHIAZQBjAHQAbwByAHkAKAAnAEMAOgBcAGEAXABkAGEAdABhAFwAbABvAGcAcwBcAFwAJwApADsAIABbAEkATwAuAEYAaQBsAGUAXQA6ADoAQQBwAHAAZQBuAGQAQQBsAGwAVABlAHgAdAAoACcAQwA6AFwAYQBcAGQAYQB0AGEAXABsAG8AZwBzAFwAXAB3AGEAdABjAGgAZQByAC4AbABvAGcAJwAsACAAKABHAGUAdAAtAEQAYQB0AGUAKQAuAFQAbwBTAHQAcgBpAG4AZwAoACcAbwAnACkAIAArACAAJwAgACAAdABoAGUAIAB3AGEAdABjAGgAZQByACAAZABpAGQAIABuAG8AdAAgAGwAbwBhAGQAOgAgACcAIAArACAAJABfAC4ARQB4AGMAZQBwAHQAaQBvAG4ALgBNAGUAcwBzAGEAZwBlACAAKwAgAFsAYwBoAGEAcgBdADEAMAApACAAfQAgAGMAYQB0AGMAaAAgAHsAfQA7ACAAZQB4AGkAdAAgADEAIAB9ADsAIABSAGUAbQBvAHYAZQAtAEkAdABlAG0AIAAtAEwAaQB0AGUAcgBhAGwAUABhAHQAaAAgACcAZQBuAHYAOgBQAFMARQB4AGUAYwB1AHQAaQBvAG4AUABvAGwAaQBjAHkAUAByAGUAZgBlAHIAZQBuAGMAZQAnACAALQBFAEEAIABTAGkAbABlAG4AdABsAHkAQwBvAG4AdABpAG4AdQBlADsAIABJAG4AdgBvAGsAZQAtAEMAaABhAHQAcQBXAGEAdABjAGgATABvAG8AcAA="
+        ],
+        "command": "$env:CHATQ_WATCHER='1'; try { . 'C:\\tools\\chatq\\Charlie-and-the-chat-factory.ps1' } catch { try { [void][IO.Directory]::CreateDirectory('C:\\a\\data\\logs\\\\'); [IO.File]::AppendAllText('C:\\a\\data\\logs\\\\watcher.log', (Get-Date).ToString('o') + '  the watcher did not load: ' + $_.Exception.Message + [char]10) } catch {}; exit 1 }; Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference' -EA SilentlyContinue; Invoke-ChatqWatchLoop"
+      }
+    },
+    {
+      "name": "trailing backslash and slash",
+      "input": {
+        "psExe": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+        "script": "C:\\tools\\chatq\\Charlie-and-the-chat-factory.ps1",
+        "logDir": "C:\\a\\data\\logs\\/",
+        "claude": null,
+        "codex": null
+      },
+      "expect": {
+        "exe": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+        "args": [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-EncodedCommand",
+          "JABlAG4AdgA6AEMASABBAFQAUQBfAFcAQQBUAEMASABFAFIAPQAnADEAJwA7ACAAdAByAHkAIAB7ACAALgAgACcAQwA6AFwAdABvAG8AbABzAFwAYwBoAGEAdABxAFwAQwBoAGEAcgBsAGkAZQAtAGEAbgBkAC0AdABoAGUALQBjAGgAYQB0AC0AZgBhAGMAdABvAHIAeQAuAHAAcwAxACcAIAB9ACAAYwBhAHQAYwBoACAAewAgAHQAcgB5ACAAewAgAFsAdgBvAGkAZABdAFsASQBPAC4ARABpAHIAZQBjAHQAbwByAHkAXQA6ADoAQwByAGUAYQB0AGUARABpAHIAZQBjAHQAbwByAHkAKAAnAEMAOgBcAGEAXABkAGEAdABhAFwAbABvAGcAcwBcAC8AJwApADsAIABbAEkATwAuAEYAaQBsAGUAXQA6ADoAQQBwAHAAZQBuAGQAQQBsAGwAVABlAHgAdAAoACcAQwA6AFwAYQBcAGQAYQB0AGEAXABsAG8AZwBzAFwAXAB3AGEAdABjAGgAZQByAC4AbABvAGcAJwAsACAAKABHAGUAdAAtAEQAYQB0AGUAKQAuAFQAbwBTAHQAcgBpAG4AZwAoACcAbwAnACkAIAArACAAJwAgACAAdABoAGUAIAB3AGEAdABjAGgAZQByACAAZABpAGQAIABuAG8AdAAgAGwAbwBhAGQAOgAgACcAIAArACAAJABfAC4ARQB4AGMAZQBwAHQAaQBvAG4ALgBNAGUAcwBzAGEAZwBlACAAKwAgAFsAYwBoAGEAcgBdADEAMAApACAAfQAgAGMAYQB0AGMAaAAgAHsAfQA7ACAAZQB4AGkAdAAgADEAIAB9ADsAIABSAGUAbQBvAHYAZQAtAEkAdABlAG0AIAAtAEwAaQB0AGUAcgBhAGwAUABhAHQAaAAgACcAZQBuAHYAOgBQAFMARQB4AGUAYwB1AHQAaQBvAG4AUABvAGwAaQBjAHkAUAByAGUAZgBlAHIAZQBuAGMAZQAnACAALQBFAEEAIABTAGkAbABlAG4AdABsAHkAQwBvAG4AdABpAG4AdQBlADsAIABJAG4AdgBvAGsAZQAtAEMAaABhAHQAcQBXAGEAdABjAGgATABvAG8AcAA="
+        ],
+        "command": "$env:CHATQ_WATCHER='1'; try { . 'C:\\tools\\chatq\\Charlie-and-the-chat-factory.ps1' } catch { try { [void][IO.Directory]::CreateDirectory('C:\\a\\data\\logs\\/'); [IO.File]::AppendAllText('C:\\a\\data\\logs\\\\watcher.log', (Get-Date).ToString('o') + '  the watcher did not load: ' + $_.Exception.Message + [char]10) } catch {}; exit 1 }; Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference' -EA SilentlyContinue; Invoke-ChatqWatchLoop"
+      }
+    },
+    {
+      "name": "doubled slash inside",
+      "input": {
+        "psExe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "script": "C:\\tools\\chatq\\Charlie-and-the-chat-factory.ps1",
+        "logDir": "C:\\a//b\\logs",
+        "claude": null,
+        "codex": null
+      },
+      "expect": {
+        "exe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "args": [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-EncodedCommand",
+          "JABlAG4AdgA6AEMASABBAFQAUQBfAFcAQQBUAEMASABFAFIAPQAnADEAJwA7ACAAdAByAHkAIAB7ACAALgAgACcAQwA6AFwAdABvAG8AbABzAFwAYwBoAGEAdABxAFwAQwBoAGEAcgBsAGkAZQAtAGEAbgBkAC0AdABoAGUALQBjAGgAYQB0AC0AZgBhAGMAdABvAHIAeQAuAHAAcwAxACcAIAB9ACAAYwBhAHQAYwBoACAAewAgAHQAcgB5ACAAewAgAFsAdgBvAGkAZABdAFsASQBPAC4ARABpAHIAZQBjAHQAbwByAHkAXQA6ADoAQwByAGUAYQB0AGUARABpAHIAZQBjAHQAbwByAHkAKAAnAEMAOgBcAGEALwAvAGIAXABsAG8AZwBzACcAKQA7ACAAWwBJAE8ALgBGAGkAbABlAF0AOgA6AEEAcABwAGUAbgBkAEEAbABsAFQAZQB4AHQAKAAnAEMAOgBcAGEAXABcAGIAXABsAG8AZwBzAFwAdwBhAHQAYwBoAGUAcgAuAGwAbwBnACcALAAgACgARwBlAHQALQBEAGEAdABlACkALgBUAG8AUwB0AHIAaQBuAGcAKAAnAG8AJwApACAAKwAgACcAIAAgAHQAaABlACAAdwBhAHQAYwBoAGUAcgAgAGQAaQBkACAAbgBvAHQAIABsAG8AYQBkADoAIAAnACAAKwAgACQAXwAuAEUAeABjAGUAcAB0AGkAbwBuAC4ATQBlAHMAcwBhAGcAZQAgACsAIABbAGMAaABhAHIAXQAxADAAKQAgAH0AIABjAGEAdABjAGgAIAB7AH0AOwAgAGUAeABpAHQAIAAxACAAfQA7ACAAUgBlAG0AbwB2AGUALQBJAHQAZQBtACAALQBMAGkAdABlAHIAYQBsAFAAYQB0AGgAIAAnAGUAbgB2ADoAUABTAEUAeABlAGMAdQB0AGkAbwBuAFAAbwBsAGkAYwB5AFAAcgBlAGYAZQByAGUAbgBjAGUAJwAgAC0ARQBBACAAUwBpAGwAZQBuAHQAbAB5AEMAbwBuAHQAaQBuAHUAZQA7ACAASQBuAHYAbwBrAGUALQBDAGgAYQB0AHEAVwBhAHQAYwBoAEwAbwBvAHAA"
+        ],
+        "command": "$env:CHATQ_WATCHER='1'; try { . 'C:\\tools\\chatq\\Charlie-and-the-chat-factory.ps1' } catch { try { [void][IO.Directory]::CreateDirectory('C:\\a//b\\logs'); [IO.File]::AppendAllText('C:\\a\\\\b\\logs\\watcher.log', (Get-Date).ToString('o') + '  the watcher did not load: ' + $_.Exception.Message + [char]10) } catch {}; exit 1 }; Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference' -EA SilentlyContinue; Invoke-ChatqWatchLoop"
+      }
+    },
+    {
+      "name": "drive alone",
+      "input": {
+        "psExe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "script": "C:\\tools\\chatq\\Charlie-and-the-chat-factory.ps1",
+        "logDir": "C:",
+        "claude": null,
+        "codex": null
+      },
+      "expect": {
+        "exe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "args": [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-EncodedCommand",
+          "JABlAG4AdgA6AEMASABBAFQAUQBfAFcAQQBUAEMASABFAFIAPQAnADEAJwA7ACAAdAByAHkAIAB7ACAALgAgACcAQwA6AFwAdABvAG8AbABzAFwAYwBoAGEAdABxAFwAQwBoAGEAcgBsAGkAZQAtAGEAbgBkAC0AdABoAGUALQBjAGgAYQB0AC0AZgBhAGMAdABvAHIAeQAuAHAAcwAxACcAIAB9ACAAYwBhAHQAYwBoACAAewAgAHQAcgB5ACAAewAgAFsAdgBvAGkAZABdAFsASQBPAC4ARABpAHIAZQBjAHQAbwByAHkAXQA6ADoAQwByAGUAYQB0AGUARABpAHIAZQBjAHQAbwByAHkAKAAnAEMAOgAnACkAOwAgAFsASQBPAC4ARgBpAGwAZQBdADoAOgBBAHAAcABlAG4AZABBAGwAbABUAGUAeAB0ACgAJwBDADoAXAB3AGEAdABjAGgAZQByAC4AbABvAGcAJwAsACAAKABHAGUAdAAtAEQAYQB0AGUAKQAuAFQAbwBTAHQAcgBpAG4AZwAoACcAbwAnACkAIAArACAAJwAgACAAdABoAGUAIAB3AGEAdABjAGgAZQByACAAZABpAGQAIABuAG8AdAAgAGwAbwBhAGQAOgAgACcAIAArACAAJABfAC4ARQB4AGMAZQBwAHQAaQBvAG4ALgBNAGUAcwBzAGEAZwBlACAAKwAgAFsAYwBoAGEAcgBdADEAMAApACAAfQAgAGMAYQB0AGMAaAAgAHsAfQA7ACAAZQB4AGkAdAAgADEAIAB9ADsAIABSAGUAbQBvAHYAZQAtAEkAdABlAG0AIAAtAEwAaQB0AGUAcgBhAGwAUABhAHQAaAAgACcAZQBuAHYAOgBQAFMARQB4AGUAYwB1AHQAaQBvAG4AUABvAGwAaQBjAHkAUAByAGUAZgBlAHIAZQBuAGMAZQAnACAALQBFAEEAIABTAGkAbABlAG4AdABsAHkAQwBvAG4AdABpAG4AdQBlADsAIABJAG4AdgBvAGsAZQAtAEMAaABhAHQAcQBXAGEAdABjAGgATABvAG8AcAA="
+        ],
+        "command": "$env:CHATQ_WATCHER='1'; try { . 'C:\\tools\\chatq\\Charlie-and-the-chat-factory.ps1' } catch { try { [void][IO.Directory]::CreateDirectory('C:'); [IO.File]::AppendAllText('C:\\watcher.log', (Get-Date).ToString('o') + '  the watcher did not load: ' + $_.Exception.Message + [char]10) } catch {}; exit 1 }; Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference' -EA SilentlyContinue; Invoke-ChatqWatchLoop"
+      }
+    },
+    {
+      "name": "drive root",
+      "input": {
+        "psExe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "script": "C:\\tools\\chatq\\Charlie-and-the-chat-factory.ps1",
+        "logDir": "C:\\",
+        "claude": null,
+        "codex": null
+      },
+      "expect": {
+        "exe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "args": [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-EncodedCommand",
+          "JABlAG4AdgA6AEMASABBAFQAUQBfAFcAQQBUAEMASABFAFIAPQAnADEAJwA7ACAAdAByAHkAIAB7ACAALgAgACcAQwA6AFwAdABvAG8AbABzAFwAYwBoAGEAdABxAFwAQwBoAGEAcgBsAGkAZQAtAGEAbgBkAC0AdABoAGUALQBjAGgAYQB0AC0AZgBhAGMAdABvAHIAeQAuAHAAcwAxACcAIAB9ACAAYwBhAHQAYwBoACAAewAgAHQAcgB5ACAAewAgAFsAdgBvAGkAZABdAFsASQBPAC4ARABpAHIAZQBjAHQAbwByAHkAXQA6ADoAQwByAGUAYQB0AGUARABpAHIAZQBjAHQAbwByAHkAKAAnAEMAOgBcACcAKQA7ACAAWwBJAE8ALgBGAGkAbABlAF0AOgA6AEEAcABwAGUAbgBkAEEAbABsAFQAZQB4AHQAKAAnAEMAOgBcAHcAYQB0AGMAaABlAHIALgBsAG8AZwAnACwAIAAoAEcAZQB0AC0ARABhAHQAZQApAC4AVABvAFMAdAByAGkAbgBnACgAJwBvACcAKQAgACsAIAAnACAAIAB0AGgAZQAgAHcAYQB0AGMAaABlAHIAIABkAGkAZAAgAG4AbwB0ACAAbABvAGEAZAA6ACAAJwAgACsAIAAkAF8ALgBFAHgAYwBlAHAAdABpAG8AbgAuAE0AZQBzAHMAYQBnAGUAIAArACAAWwBjAGgAYQByAF0AMQAwACkAIAB9ACAAYwBhAHQAYwBoACAAewB9ADsAIABlAHgAaQB0ACAAMQAgAH0AOwAgAFIAZQBtAG8AdgBlAC0ASQB0AGUAbQAgAC0ATABpAHQAZQByAGEAbABQAGEAdABoACAAJwBlAG4AdgA6AFAAUwBFAHgAZQBjAHUAdABpAG8AbgBQAG8AbABpAGMAeQBQAHIAZQBmAGUAcgBlAG4AYwBlACcAIAAtAEUAQQAgAFMAaQBsAGUAbgB0AGwAeQBDAG8AbgB0AGkAbgB1AGUAOwAgAEkAbgB2AG8AawBlAC0AQwBoAGEAdABxAFcAYQB0AGMAaABMAG8AbwBwAA=="
+        ],
+        "command": "$env:CHATQ_WATCHER='1'; try { . 'C:\\tools\\chatq\\Charlie-and-the-chat-factory.ps1' } catch { try { [void][IO.Directory]::CreateDirectory('C:\\'); [IO.File]::AppendAllText('C:\\watcher.log', (Get-Date).ToString('o') + '  the watcher did not load: ' + $_.Exception.Message + [char]10) } catch {}; exit 1 }; Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference' -EA SilentlyContinue; Invoke-ChatqWatchLoop"
+      }
+    },
+    {
+      "name": "drive root forward",
+      "input": {
+        "psExe": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+        "script": "C:\\tools\\chatq\\Charlie-and-the-chat-factory.ps1",
+        "logDir": "C:/",
+        "claude": null,
+        "codex": null
+      },
+      "expect": {
+        "exe": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+        "args": [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-EncodedCommand",
+          "JABlAG4AdgA6AEMASABBAFQAUQBfAFcAQQBUAEMASABFAFIAPQAnADEAJwA7ACAAdAByAHkAIAB7ACAALgAgACcAQwA6AFwAdABvAG8AbABzAFwAYwBoAGEAdABxAFwAQwBoAGEAcgBsAGkAZQAtAGEAbgBkAC0AdABoAGUALQBjAGgAYQB0AC0AZgBhAGMAdABvAHIAeQAuAHAAcwAxACcAIAB9ACAAYwBhAHQAYwBoACAAewAgAHQAcgB5ACAAewAgAFsAdgBvAGkAZABdAFsASQBPAC4ARABpAHIAZQBjAHQAbwByAHkAXQA6ADoAQwByAGUAYQB0AGUARABpAHIAZQBjAHQAbwByAHkAKAAnAEMAOgAvACcAKQA7ACAAWwBJAE8ALgBGAGkAbABlAF0AOgA6AEEAcABwAGUAbgBkAEEAbABsAFQAZQB4AHQAKAAnAEMAOgBcAHcAYQB0AGMAaABlAHIALgBsAG8AZwAnACwAIAAoAEcAZQB0AC0ARABhAHQAZQApAC4AVABvAFMAdAByAGkAbgBnACgAJwBvACcAKQAgACsAIAAnACAAIAB0AGgAZQAgAHcAYQB0AGMAaABlAHIAIABkAGkAZAAgAG4AbwB0ACAAbABvAGEAZAA6ACAAJwAgACsAIAAkAF8ALgBFAHgAYwBlAHAAdABpAG8AbgAuAE0AZQBzAHMAYQBnAGUAIAArACAAWwBjAGgAYQByAF0AMQAwACkAIAB9ACAAYwBhAHQAYwBoACAAewB9ADsAIABlAHgAaQB0ACAAMQAgAH0AOwAgAFIAZQBtAG8AdgBlAC0ASQB0AGUAbQAgAC0ATABpAHQAZQByAGEAbABQAGEAdABoACAAJwBlAG4AdgA6AFAAUwBFAHgAZQBjAHUAdABpAG8AbgBQAG8AbABpAGMAeQBQAHIAZQBmAGUAcgBlAG4AYwBlACcAIAAtAEUAQQAgAFMAaQBsAGUAbgB0AGwAeQBDAG8AbgB0AGkAbgB1AGUAOwAgAEkAbgB2AG8AawBlAC0AQwBoAGEAdABxAFcAYQB0AGMAaABMAG8AbwBwAA=="
+        ],
+        "command": "$env:CHATQ_WATCHER='1'; try { . 'C:\\tools\\chatq\\Charlie-and-the-chat-factory.ps1' } catch { try { [void][IO.Directory]::CreateDirectory('C:/'); [IO.File]::AppendAllText('C:\\watcher.log', (Get-Date).ToString('o') + '  the watcher did not load: ' + $_.Exception.Message + [char]10) } catch {}; exit 1 }; Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference' -EA SilentlyContinue; Invoke-ChatqWatchLoop"
+      }
+    },
+    {
+      "name": "trailing space",
+      "input": {
+        "psExe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "script": "C:\\tools\\chatq\\Charlie-and-the-chat-factory.ps1",
+        "logDir": "C:\\a\\data\\logs ",
+        "claude": null,
+        "codex": null
+      },
+      "expect": {
+        "exe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "args": [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-EncodedCommand",
+          "JABlAG4AdgA6AEMASABBAFQAUQBfAFcAQQBUAEMASABFAFIAPQAnADEAJwA7ACAAdAByAHkAIAB7ACAALgAgACcAQwA6AFwAdABvAG8AbABzAFwAYwBoAGEAdABxAFwAQwBoAGEAcgBsAGkAZQAtAGEAbgBkAC0AdABoAGUALQBjAGgAYQB0AC0AZgBhAGMAdABvAHIAeQAuAHAAcwAxACcAIAB9ACAAYwBhAHQAYwBoACAAewAgAHQAcgB5ACAAewAgAFsAdgBvAGkAZABdAFsASQBPAC4ARABpAHIAZQBjAHQAbwByAHkAXQA6ADoAQwByAGUAYQB0AGUARABpAHIAZQBjAHQAbwByAHkAKAAnAEMAOgBcAGEAXABkAGEAdABhAFwAbABvAGcAcwAgACcAKQA7ACAAWwBJAE8ALgBGAGkAbABlAF0AOgA6AEEAcABwAGUAbgBkAEEAbABsAFQAZQB4AHQAKAAnAEMAOgBcAGEAXABkAGEAdABhAFwAbABvAGcAcwAgAFwAdwBhAHQAYwBoAGUAcgAuAGwAbwBnACcALAAgACgARwBlAHQALQBEAGEAdABlACkALgBUAG8AUwB0AHIAaQBuAGcAKAAnAG8AJwApACAAKwAgACcAIAAgAHQAaABlACAAdwBhAHQAYwBoAGUAcgAgAGQAaQBkACAAbgBvAHQAIABsAG8AYQBkADoAIAAnACAAKwAgACQAXwAuAEUAeABjAGUAcAB0AGkAbwBuAC4ATQBlAHMAcwBhAGcAZQAgACsAIABbAGMAaABhAHIAXQAxADAAKQAgAH0AIABjAGEAdABjAGgAIAB7AH0AOwAgAGUAeABpAHQAIAAxACAAfQA7ACAAUgBlAG0AbwB2AGUALQBJAHQAZQBtACAALQBMAGkAdABlAHIAYQBsAFAAYQB0AGgAIAAnAGUAbgB2ADoAUABTAEUAeABlAGMAdQB0AGkAbwBuAFAAbwBsAGkAYwB5AFAAcgBlAGYAZQByAGUAbgBjAGUAJwAgAC0ARQBBACAAUwBpAGwAZQBuAHQAbAB5AEMAbwBuAHQAaQBuAHUAZQA7ACAASQBuAHYAbwBrAGUALQBDAGgAYQB0AHEAVwBhAHQAYwBoAEwAbwBvAHAA"
+        ],
+        "command": "$env:CHATQ_WATCHER='1'; try { . 'C:\\tools\\chatq\\Charlie-and-the-chat-factory.ps1' } catch { try { [void][IO.Directory]::CreateDirectory('C:\\a\\data\\logs '); [IO.File]::AppendAllText('C:\\a\\data\\logs \\watcher.log', (Get-Date).ToString('o') + '  the watcher did not load: ' + $_.Exception.Message + [char]10) } catch {}; exit 1 }; Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference' -EA SilentlyContinue; Invoke-ChatqWatchLoop"
+      }
+    },
+    {
+      "name": "wildcards",
+      "input": {
+        "psExe": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+        "script": "C:\\a\\[x]\\*.ps1",
+        "logDir": "C:\\a\\[x]\\*\\logs",
+        "claude": null,
+        "codex": null
+      },
+      "expect": {
+        "exe": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+        "args": [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-EncodedCommand",
+          "JABlAG4AdgA6AEMASABBAFQAUQBfAFcAQQBUAEMASABFAFIAPQAnADEAJwA7ACAAdAByAHkAIAB7ACAALgAgACcAQwA6AFwAYQBcAFsAeABdAFwAKgAuAHAAcwAxACcAIAB9ACAAYwBhAHQAYwBoACAAewAgAHQAcgB5ACAAewAgAFsAdgBvAGkAZABdAFsASQBPAC4ARABpAHIAZQBjAHQAbwByAHkAXQA6ADoAQwByAGUAYQB0AGUARABpAHIAZQBjAHQAbwByAHkAKAAnAEMAOgBcAGEAXABbAHgAXQBcACoAXABsAG8AZwBzACcAKQA7ACAAWwBJAE8ALgBGAGkAbABlAF0AOgA6AEEAcABwAGUAbgBkAEEAbABsAFQAZQB4AHQAKAAnAEMAOgBcAGEAXABbAHgAXQBcACoAXABsAG8AZwBzAFwAdwBhAHQAYwBoAGUAcgAuAGwAbwBnACcALAAgACgARwBlAHQALQBEAGEAdABlACkALgBUAG8AUwB0AHIAaQBuAGcAKAAnAG8AJwApACAAKwAgACcAIAAgAHQAaABlACAAdwBhAHQAYwBoAGUAcgAgAGQAaQBkACAAbgBvAHQAIABsAG8AYQBkADoAIAAnACAAKwAgACQAXwAuAEUAeABjAGUAcAB0AGkAbwBuAC4ATQBlAHMAcwBhAGcAZQAgACsAIABbAGMAaABhAHIAXQAxADAAKQAgAH0AIABjAGEAdABjAGgAIAB7AH0AOwAgAGUAeABpAHQAIAAxACAAfQA7ACAAUgBlAG0AbwB2AGUALQBJAHQAZQBtACAALQBMAGkAdABlAHIAYQBsAFAAYQB0AGgAIAAnAGUAbgB2ADoAUABTAEUAeABlAGMAdQB0AGkAbwBuAFAAbwBsAGkAYwB5AFAAcgBlAGYAZQByAGUAbgBjAGUAJwAgAC0ARQBBACAAUwBpAGwAZQBuAHQAbAB5AEMAbwBuAHQAaQBuAHUAZQA7ACAASQBuAHYAbwBrAGUALQBDAGgAYQB0AHEAVwBhAHQAYwBoAEwAbwBvAHAA"
+        ],
+        "command": "$env:CHATQ_WATCHER='1'; try { . 'C:\\a\\[x]\\*.ps1' } catch { try { [void][IO.Directory]::CreateDirectory('C:\\a\\[x]\\*\\logs'); [IO.File]::AppendAllText('C:\\a\\[x]\\*\\logs\\watcher.log', (Get-Date).ToString('o') + '  the watcher did not load: ' + $_.Exception.Message + [char]10) } catch {}; exit 1 }; Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference' -EA SilentlyContinue; Invoke-ChatqWatchLoop"
+      }
+    },
+    {
+      "name": "dot segments",
+      "input": {
+        "psExe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "script": "C:\\a\\.\\b\\..\\chat.ps1",
+        "logDir": "C:\\a\\.\\b\\..\\logs",
+        "claude": null,
+        "codex": null
+      },
+      "expect": {
+        "exe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "args": [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-EncodedCommand",
+          "JABlAG4AdgA6AEMASABBAFQAUQBfAFcAQQBUAEMASABFAFIAPQAnADEAJwA7ACAAdAByAHkAIAB7ACAALgAgACcAQwA6AFwAYQBcAC4AXABiAFwALgAuAFwAYwBoAGEAdAAuAHAAcwAxACcAIAB9ACAAYwBhAHQAYwBoACAAewAgAHQAcgB5ACAAewAgAFsAdgBvAGkAZABdAFsASQBPAC4ARABpAHIAZQBjAHQAbwByAHkAXQA6ADoAQwByAGUAYQB0AGUARABpAHIAZQBjAHQAbwByAHkAKAAnAEMAOgBcAGEAXAAuAFwAYgBcAC4ALgBcAGwAbwBnAHMAJwApADsAIABbAEkATwAuAEYAaQBsAGUAXQA6ADoAQQBwAHAAZQBuAGQAQQBsAGwAVABlAHgAdAAoACcAQwA6AFwAYQBcAC4AXABiAFwALgAuAFwAbABvAGcAcwBcAHcAYQB0AGMAaABlAHIALgBsAG8AZwAnACwAIAAoAEcAZQB0AC0ARABhAHQAZQApAC4AVABvAFMAdAByAGkAbgBnACgAJwBvACcAKQAgACsAIAAnACAAIAB0AGgAZQAgAHcAYQB0AGMAaABlAHIAIABkAGkAZAAgAG4AbwB0ACAAbABvAGEAZAA6ACAAJwAgACsAIAAkAF8ALgBFAHgAYwBlAHAAdABpAG8AbgAuAE0AZQBzAHMAYQBnAGUAIAArACAAWwBjAGgAYQByAF0AMQAwACkAIAB9ACAAYwBhAHQAYwBoACAAewB9ADsAIABlAHgAaQB0ACAAMQAgAH0AOwAgAFIAZQBtAG8AdgBlAC0ASQB0AGUAbQAgAC0ATABpAHQAZQByAGEAbABQAGEAdABoACAAJwBlAG4AdgA6AFAAUwBFAHgAZQBjAHUAdABpAG8AbgBQAG8AbABpAGMAeQBQAHIAZQBmAGUAcgBlAG4AYwBlACcAIAAtAEUAQQAgAFMAaQBsAGUAbgB0AGwAeQBDAG8AbgB0AGkAbgB1AGUAOwAgAEkAbgB2AG8AawBlAC0AQwBoAGEAdABxAFcAYQB0AGMAaABMAG8AbwBwAA=="
+        ],
+        "command": "$env:CHATQ_WATCHER='1'; try { . 'C:\\a\\.\\b\\..\\chat.ps1' } catch { try { [void][IO.Directory]::CreateDirectory('C:\\a\\.\\b\\..\\logs'); [IO.File]::AppendAllText('C:\\a\\.\\b\\..\\logs\\watcher.log', (Get-Date).ToString('o') + '  the watcher did not load: ' + $_.Exception.Message + [char]10) } catch {}; exit 1 }; Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference' -EA SilentlyContinue; Invoke-ChatqWatchLoop"
+      }
+    },
+    {
+      "name": "unc",
+      "input": {
+        "psExe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "script": "\\\\server\\share\\chatq\\chat.ps1",
+        "logDir": "\\\\server\\share\\chatq\\data\\logs",
+        "claude": null,
+        "codex": null
+      },
+      "expect": {
+        "exe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "args": [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-EncodedCommand",
+          "JABlAG4AdgA6AEMASABBAFQAUQBfAFcAQQBUAEMASABFAFIAPQAnADEAJwA7ACAAdAByAHkAIAB7ACAALgAgACcAXABcAHMAZQByAHYAZQByAFwAcwBoAGEAcgBlAFwAYwBoAGEAdABxAFwAYwBoAGEAdAAuAHAAcwAxACcAIAB9ACAAYwBhAHQAYwBoACAAewAgAHQAcgB5ACAAewAgAFsAdgBvAGkAZABdAFsASQBPAC4ARABpAHIAZQBjAHQAbwByAHkAXQA6ADoAQwByAGUAYQB0AGUARABpAHIAZQBjAHQAbwByAHkAKAAnAFwAXABzAGUAcgB2AGUAcgBcAHMAaABhAHIAZQBcAGMAaABhAHQAcQBcAGQAYQB0AGEAXABsAG8AZwBzACcAKQA7ACAAWwBJAE8ALgBGAGkAbABlAF0AOgA6AEEAcABwAGUAbgBkAEEAbABsAFQAZQB4AHQAKAAnAFwAXABzAGUAcgB2AGUAcgBcAHMAaABhAHIAZQBcAGMAaABhAHQAcQBcAGQAYQB0AGEAXABsAG8AZwBzAFwAdwBhAHQAYwBoAGUAcgAuAGwAbwBnACcALAAgACgARwBlAHQALQBEAGEAdABlACkALgBUAG8AUwB0AHIAaQBuAGcAKAAnAG8AJwApACAAKwAgACcAIAAgAHQAaABlACAAdwBhAHQAYwBoAGUAcgAgAGQAaQBkACAAbgBvAHQAIABsAG8AYQBkADoAIAAnACAAKwAgACQAXwAuAEUAeABjAGUAcAB0AGkAbwBuAC4ATQBlAHMAcwBhAGcAZQAgACsAIABbAGMAaABhAHIAXQAxADAAKQAgAH0AIABjAGEAdABjAGgAIAB7AH0AOwAgAGUAeABpAHQAIAAxACAAfQA7ACAAUgBlAG0AbwB2AGUALQBJAHQAZQBtACAALQBMAGkAdABlAHIAYQBsAFAAYQB0AGgAIAAnAGUAbgB2ADoAUABTAEUAeABlAGMAdQB0AGkAbwBuAFAAbwBsAGkAYwB5AFAAcgBlAGYAZQByAGUAbgBjAGUAJwAgAC0ARQBBACAAUwBpAGwAZQBuAHQAbAB5AEMAbwBuAHQAaQBuAHUAZQA7ACAASQBuAHYAbwBrAGUALQBDAGgAYQB0AHEAVwBhAHQAYwBoAEwAbwBvAHAA"
+        ],
+        "command": "$env:CHATQ_WATCHER='1'; try { . '\\\\server\\share\\chatq\\chat.ps1' } catch { try { [void][IO.Directory]::CreateDirectory('\\\\server\\share\\chatq\\data\\logs'); [IO.File]::AppendAllText('\\\\server\\share\\chatq\\data\\logs\\watcher.log', (Get-Date).ToString('o') + '  the watcher did not load: ' + $_.Exception.Message + [char]10) } catch {}; exit 1 }; Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference' -EA SilentlyContinue; Invoke-ChatqWatchLoop"
+      }
+    },
+    {
+      "name": "exe with quotes",
+      "input": {
+        "psExe": "C:\\it's\\pwsh.exe",
+        "script": "C:\\tools\\chatq\\Charlie-and-the-chat-factory.ps1",
+        "logDir": "C:\\tools\\chatq\\data\\logs",
+        "claude": null,
+        "codex": null
+      },
+      "expect": {
+        "exe": "C:\\it's\\pwsh.exe",
+        "args": [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-EncodedCommand",
+          "JABlAG4AdgA6AEMASABBAFQAUQBfAFcAQQBUAEMASABFAFIAPQAnADEAJwA7ACAAdAByAHkAIAB7ACAALgAgACcAQwA6AFwAdABvAG8AbABzAFwAYwBoAGEAdABxAFwAQwBoAGEAcgBsAGkAZQAtAGEAbgBkAC0AdABoAGUALQBjAGgAYQB0AC0AZgBhAGMAdABvAHIAeQAuAHAAcwAxACcAIAB9ACAAYwBhAHQAYwBoACAAewAgAHQAcgB5ACAAewAgAFsAdgBvAGkAZABdAFsASQBPAC4ARABpAHIAZQBjAHQAbwByAHkAXQA6ADoAQwByAGUAYQB0AGUARABpAHIAZQBjAHQAbwByAHkAKAAnAEMAOgBcAHQAbwBvAGwAcwBcAGMAaABhAHQAcQBcAGQAYQB0AGEAXABsAG8AZwBzACcAKQA7ACAAWwBJAE8ALgBGAGkAbABlAF0AOgA6AEEAcABwAGUAbgBkAEEAbABsAFQAZQB4AHQAKAAnAEMAOgBcAHQAbwBvAGwAcwBcAGMAaABhAHQAcQBcAGQAYQB0AGEAXABsAG8AZwBzAFwAdwBhAHQAYwBoAGUAcgAuAGwAbwBnACcALAAgACgARwBlAHQALQBEAGEAdABlACkALgBUAG8AUwB0AHIAaQBuAGcAKAAnAG8AJwApACAAKwAgACcAIAAgAHQAaABlACAAdwBhAHQAYwBoAGUAcgAgAGQAaQBkACAAbgBvAHQAIABsAG8AYQBkADoAIAAnACAAKwAgACQAXwAuAEUAeABjAGUAcAB0AGkAbwBuAC4ATQBlAHMAcwBhAGcAZQAgACsAIABbAGMAaABhAHIAXQAxADAAKQAgAH0AIABjAGEAdABjAGgAIAB7AH0AOwAgAGUAeABpAHQAIAAxACAAfQA7ACAAUgBlAG0AbwB2AGUALQBJAHQAZQBtACAALQBMAGkAdABlAHIAYQBsAFAAYQB0AGgAIAAnAGUAbgB2ADoAUABTAEUAeABlAGMAdQB0AGkAbwBuAFAAbwBsAGkAYwB5AFAAcgBlAGYAZQByAGUAbgBjAGUAJwAgAC0ARQBBACAAUwBpAGwAZQBuAHQAbAB5AEMAbwBuAHQAaQBuAHUAZQA7ACAASQBuAHYAbwBrAGUALQBDAGgAYQB0AHEAVwBhAHQAYwBoAEwAbwBvAHAA"
+        ],
+        "command": "$env:CHATQ_WATCHER='1'; try { . 'C:\\tools\\chatq\\Charlie-and-the-chat-factory.ps1' } catch { try { [void][IO.Directory]::CreateDirectory('C:\\tools\\chatq\\data\\logs'); [IO.File]::AppendAllText('C:\\tools\\chatq\\data\\logs\\watcher.log', (Get-Date).ToString('o') + '  the watcher did not load: ' + $_.Exception.Message + [char]10) } catch {}; exit 1 }; Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference' -EA SilentlyContinue; Invoke-ChatqWatchLoop"
+      }
+    }
+  ]
+}

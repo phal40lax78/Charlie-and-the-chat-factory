@@ -1,0 +1,1742 @@
+{
+  "about": "The phone's sealed messages as chatqd checks them (SPEC 2.8): keys per inbound label, b64url both ways, the confirmation code, and Open-ChatqSealed's check up to the MAC, on messages sealed by PowerShell and by docs/reply.html itself (tests/wire-vectors.js; input.page is the page's answer, which PowerShell's must equal) and on broken ones. An open answer is how far Unprotect-ChatqReplyMessage or Unprotect-ChatqComposeMessage got: stage format or mac is refused before the MAC checks out, decrypt or ok is past it, which is all chatqd decides; a decryption's \"could not be read\" text is cut to \"could not be read: ...\". The prefix is compared as -cne compares, linguistically, so a character the collation gives no weight to passes, and which those are differs by edition.",
+  "cases": [
+    {
+      "name": "keys: the reply fixture's D and aid",
+      "input": {
+        "op": "keys",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "label": "chatq-alert:",
+        "id": "abcdefghij",
+        "page": {
+          "k": "6b8be8bbce142449b8a1516e20cbf70ac8ef321eb489670408ef1c0ffb6fb40a",
+          "enc": "e61f3123e44767183915660f7233dd2847cf43a76664c016b30c3f3f43bbcf22",
+          "mac": "e7f9eccb5227d79c20ebf2a390078b0d4834321940878766aa0d87128b5a39b2"
+        }
+      },
+      "expect": {
+        "k": "6b8be8bbce142449b8a1516e20cbf70ac8ef321eb489670408ef1c0ffb6fb40a",
+        "enc": "e61f3123e44767183915660f7233dd2847cf43a76664c016b30c3f3f43bbcf22",
+        "mac": "e7f9eccb5227d79c20ebf2a390078b0d4834321940878766aa0d87128b5a39b2"
+      }
+    },
+    {
+      "name": "keys: the compose fixture's D and cid",
+      "input": {
+        "op": "keys",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "label": "chatq-phone:",
+        "id": "klmnopqrst",
+        "page": {
+          "k": "f15abbbd8c8a9941a0421633629147f59a3779bbe077be9a600441f9bef681eb",
+          "enc": "a8a6cf554cf276b45c51e8a38495f1eb94bd0748313d5ab1fb36191bfd446a22",
+          "mac": "329a19ff8ef5e08d7c2872f286d8ecaba039dd3e64052d1989172174e5585ca2"
+        }
+      },
+      "expect": {
+        "k": "f15abbbd8c8a9941a0421633629147f59a3779bbe077be9a600441f9bef681eb",
+        "enc": "a8a6cf554cf276b45c51e8a38495f1eb94bd0748313d5ab1fb36191bfd446a22",
+        "mac": "329a19ff8ef5e08d7c2872f286d8ecaba039dd3e64052d1989172174e5585ca2"
+      }
+    },
+    {
+      "name": "keys: another D and aid",
+      "input": {
+        "op": "keys",
+        "master": "f0e1d2c3b4a5968778695a4b3c2d1e0f00112233445566778899aabbccddeeff",
+        "label": "chatq-alert:",
+        "id": "mnopqr2345",
+        "page": {
+          "k": "3866ddd1fbe9a629842f82016c4ef4525c9019a08cda0391d89d1b498c6c8d42",
+          "enc": "5d49b6257f6e6e2b68536eb58312a5b3d3cc0c9ad9d2488df8d7d86cf48bac6c",
+          "mac": "6ea98ae23db6eef176044a93b115c8d2eff9793a14d3f53afe59f37ad20c2c46"
+        }
+      },
+      "expect": {
+        "k": "3866ddd1fbe9a629842f82016c4ef4525c9019a08cda0391d89d1b498c6c8d42",
+        "enc": "5d49b6257f6e6e2b68536eb58312a5b3d3cc0c9ad9d2488df8d7d86cf48bac6c",
+        "mac": "6ea98ae23db6eef176044a93b115c8d2eff9793a14d3f53afe59f37ad20c2c46"
+      }
+    },
+    {
+      "name": "keys: that aid under the other label",
+      "input": {
+        "op": "keys",
+        "master": "f0e1d2c3b4a5968778695a4b3c2d1e0f00112233445566778899aabbccddeeff",
+        "label": "chatq-phone:",
+        "id": "mnopqr2345",
+        "page": {
+          "k": "e273b94ac298a7196e749f12abcb90822daa783071699cc2ab8a1d14d9c4bc9c",
+          "enc": "804ea79ebe8bf55a9f7af968309cc068825757c081e2d4e70957b5e6db2099b3",
+          "mac": "79f2938266d812e964f555cdf412beac0ca134b91cf7f234b10881ed1f04b3b4"
+        }
+      },
+      "expect": {
+        "k": "e273b94ac298a7196e749f12abcb90822daa783071699cc2ab8a1d14d9c4bc9c",
+        "enc": "804ea79ebe8bf55a9f7af968309cc068825757c081e2d4e70957b5e6db2099b3",
+        "mac": "79f2938266d812e964f555cdf412beac0ca134b91cf7f234b10881ed1f04b3b4"
+      }
+    },
+    {
+      "name": "keys: an id ending in a line feed",
+      "input": {
+        "op": "keys",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "label": "chatq-alert:",
+        "id": "abcdefghij\n",
+        "page": {
+          "k": "435c377bc731d6226b333c5620613be3ccbf18e8184b3358d94b9b800242bca8",
+          "enc": "66961fbbfe299cdcbec7deba51ac5b2a1e313b12cce1196122c1bd64a3be1f1b",
+          "mac": "57d7b758e76400613cecf8489e3a8314b011d04f463d46721b143d9d75a3aa32"
+        }
+      },
+      "expect": {
+        "k": "435c377bc731d6226b333c5620613be3ccbf18e8184b3358d94b9b800242bca8",
+        "enc": "66961fbbfe299cdcbec7deba51ac5b2a1e313b12cce1196122c1bd64a3be1f1b",
+        "mac": "57d7b758e76400613cecf8489e3a8314b011d04f463d46721b143d9d75a3aa32"
+      }
+    },
+    {
+      "name": "keys: an id in Hangul, as UTF-8",
+      "input": {
+        "op": "keys",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "label": "chatq-alert:",
+        "id": "\ud55c\uae00",
+        "page": {
+          "k": "633be1b52218fd9bdc322d9b968081515398e74ea04bef9bac346cc26f6e129c",
+          "enc": "906d636b3b9d24fd8520c6a49d04283bd57f9fb0558c2cacd8b243c675d9f7b2",
+          "mac": "c5bbda260c0fc70b3691698d5bb4a2477f026caf3b1396a5ab2ddece1fe5fdb3"
+        }
+      },
+      "expect": {
+        "k": "633be1b52218fd9bdc322d9b968081515398e74ea04bef9bac346cc26f6e129c",
+        "enc": "906d636b3b9d24fd8520c6a49d04283bd57f9fb0558c2cacd8b243c675d9f7b2",
+        "mac": "c5bbda260c0fc70b3691698d5bb4a2477f026caf3b1396a5ab2ddece1fe5fdb3"
+      }
+    },
+    {
+      "name": "keys: an empty id",
+      "input": {
+        "op": "keys",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "label": "chatq-phone:",
+        "id": "",
+        "page": {
+          "k": "34d2ab0e691cb01c376c0cfdf8597f811ad7d07f352a43dd77f7b66a5b58e54b",
+          "enc": "0718f1a60344df4cfd605d5aac2e5cb511bd60745a4ad09744cd3fc0e63f60f5",
+          "mac": "a16cd6c581bea69973730455f6db30c2b9d0c173b3ac1aa332745bb7fb389dd8"
+        }
+      },
+      "expect": {
+        "k": "34d2ab0e691cb01c376c0cfdf8597f811ad7d07f352a43dd77f7b66a5b58e54b",
+        "enc": "0718f1a60344df4cfd605d5aac2e5cb511bd60745a4ad09744cd3fc0e63f60f5",
+        "mac": "a16cd6c581bea69973730455f6db30c2b9d0c173b3ac1aa332745bb7fb389dd8"
+      }
+    },
+    {
+      "name": "keys: a 65-byte key, longer than a SHA-256 block",
+      "input": {
+        "op": "keys",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40",
+        "label": "chatq-alert:",
+        "id": "abcdefghij",
+        "page": {
+          "k": "56b4239f5dabc1114733529e6c4f6751cbb350e6ddbf979230bee4bb21b82359",
+          "enc": "103608597dbe7f7de5e50cfe28f293f773d241bb1775229ce7559279d157e94f",
+          "mac": "beb738c4f7ee2e053d3dd6728a7be55952c7fcf4d8a6c9ab54c78eec8a80826e"
+        }
+      },
+      "expect": {
+        "k": "56b4239f5dabc1114733529e6c4f6751cbb350e6ddbf979230bee4bb21b82359",
+        "enc": "103608597dbe7f7de5e50cfe28f293f773d241bb1775229ce7559279d157e94f",
+        "mac": "beb738c4f7ee2e053d3dd6728a7be55952c7fcf4d8a6c9ab54c78eec8a80826e"
+      }
+    },
+    {
+      "name": "keys: a 1-byte key",
+      "input": {
+        "op": "keys",
+        "master": "2a",
+        "label": "chatq-phone:",
+        "id": "klmnopqrst",
+        "page": {
+          "k": "48e852f6ea1aff0eebb95f7227a752ab7c3e827d60f135d50791c624669af3af",
+          "enc": "ded6807c0cc2e16267f2c34265c7f7f8824d1ceb853f5a020bd89a42656ef51e",
+          "mac": "75684fb123d1c33a32faf1dcdc5c32e43ae91142880d57c9a745ebb7703ea751"
+        }
+      },
+      "expect": {
+        "k": "48e852f6ea1aff0eebb95f7227a752ab7c3e827d60f135d50791c624669af3af",
+        "enc": "ded6807c0cc2e16267f2c34265c7f7f8824d1ceb853f5a020bd89a42656ef51e",
+        "mac": "75684fb123d1c33a32faf1dcdc5c32e43ae91142880d57c9a745ebb7703ea751"
+      }
+    },
+    {
+      "name": "code: the pairing fixture's D",
+      "input": {
+        "op": "code",
+        "d": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "page": "026316"
+      },
+      "expect": {"code": "026316", "spaced": "026 316"}
+    },
+    {
+      "name": "code: another D",
+      "input": {
+        "op": "code",
+        "d": "f0e1d2c3b4a5968778695a4b3c2d1e0f00112233445566778899aabbccddeeff",
+        "page": "155264"
+      },
+      "expect": {"code": "155264", "spaced": "155 264"}
+    },
+    {
+      "name": "code: a D whose number has its top bit set",
+      "input": {
+        "op": "code",
+        "d": "0101010101010101010101010101010101010101010101010101010101010101",
+        "page": "605658"
+      },
+      "expect": {"code": "605658", "spaced": "605 658"}
+    },
+    {"name": "b64: ''", "input": {"op": "b64", "hex": "", "page": ""}, "expect": ""},
+    {"name": "b64: '00'", "input": {"op": "b64", "hex": "00", "page": "AA"}, "expect": "AA"},
+    {"name": "b64: 'ff'", "input": {"op": "b64", "hex": "ff", "page": "_w"}, "expect": "_w"},
+    {"name": "b64: 'fb'", "input": {"op": "b64", "hex": "fb", "page": "-w"}, "expect": "-w"},
+    {"name": "b64: 'fbff'", "input": {"op": "b64", "hex": "fbff", "page": "-_8"}, "expect": "-_8"},
+    {
+      "name": "b64: 'fbefbe'",
+      "input": {"op": "b64", "hex": "fbefbe", "page": "----"},
+      "expect": "----"
+    },
+    {"name": "b64: '0001'", "input": {"op": "b64", "hex": "0001", "page": "AAE"}, "expect": "AAE"},
+    {
+      "name": "b64: '000102'",
+      "input": {"op": "b64", "hex": "000102", "page": "AAEC"},
+      "expect": "AAEC"
+    },
+    {
+      "name": "b64: '00010203'",
+      "input": {"op": "b64", "hex": "00010203", "page": "AAECAw"},
+      "expect": "AAECAw"
+    },
+    {
+      "name": "b64: '0001020304'",
+      "input": {"op": "b64", "hex": "0001020304", "page": "AAECAwQ"},
+      "expect": "AAECAwQ"
+    },
+    {
+      "name": "b64: 'f8ff00'",
+      "input": {"op": "b64", "hex": "f8ff00", "page": "-P8A"},
+      "expect": "-P8A"
+    },
+    {"name": "unb64 0", "input": {"op": "unb64", "text": "", "page": ""}, "expect": ""},
+    {"name": "unb64 1", "input": {"op": "unb64", "text": "A", "page": null}, "expect": null},
+    {"name": "unb64 2", "input": {"op": "unb64", "text": "AA", "page": "00"}, "expect": "00"},
+    {"name": "unb64 3", "input": {"op": "unb64", "text": "AQ", "page": "01"}, "expect": "01"},
+    {"name": "unb64 4", "input": {"op": "unb64", "text": "AR", "page": "01"}, "expect": "01"},
+    {"name": "unb64 5", "input": {"op": "unb64", "text": "AB", "page": "00"}, "expect": "00"},
+    {"name": "unb64 6", "input": {"op": "unb64", "text": "AAA", "page": "0000"}, "expect": "0000"},
+    {"name": "unb64 7", "input": {"op": "unb64", "text": "AAE", "page": "0001"}, "expect": "0001"},
+    {"name": "unb64 8", "input": {"op": "unb64", "text": "AAF", "page": "0001"}, "expect": "0001"},
+    {
+      "name": "unb64 9",
+      "input": {"op": "unb64", "text": "AAAA", "page": "000000"},
+      "expect": "000000"
+    },
+    {"name": "unb64 10", "input": {"op": "unb64", "text": "AAAAA", "page": null}, "expect": null},
+    {
+      "name": "unb64 11",
+      "input": {"op": "unb64", "text": "AAAAAA", "page": "00000000"},
+      "expect": "00000000"
+    },
+    {"name": "unb64 12", "input": {"op": "unb64", "text": "__", "page": "ff"}, "expect": "ff"},
+    {"name": "unb64 13", "input": {"op": "unb64", "text": "_w", "page": "ff"}, "expect": "ff"},
+    {"name": "unb64 14", "input": {"op": "unb64", "text": "-_8", "page": "fbff"}, "expect": "fbff"},
+    {
+      "name": "unb64 15",
+      "input": {"op": "unb64", "text": "-_-_", "page": "fbffbf"},
+      "expect": "fbffbf"
+    },
+    {"name": "unb64 16", "input": {"op": "unb64", "text": "AA==", "page": null}, "expect": null},
+    {"name": "unb64 17", "input": {"op": "unb64", "text": "AA=", "page": null}, "expect": null},
+    {"name": "unb64 18", "input": {"op": "unb64", "text": "+/", "page": null}, "expect": null},
+    {"name": "unb64 19", "input": {"op": "unb64", "text": "AA AA", "page": null}, "expect": null},
+    {"name": "unb64 20", "input": {"op": "unb64", "text": "AAAA\n", "page": null}, "expect": null},
+    {"name": "unb64 21", "input": {"op": "unb64", "text": "AAA\n", "page": null}, "expect": null},
+    {"name": "unb64 22", "input": {"op": "unb64", "text": "AA\n", "page": null}, "expect": null},
+    {"name": "unb64 23", "input": {"op": "unb64", "text": "\n", "page": null}, "expect": null},
+    {"name": "unb64 24", "input": {"op": "unb64", "text": "AAAA\r\n", "page": null}, "expect": null},
+    {"name": "unb64 25", "input": {"op": "unb64", "text": "AA\u00c0", "page": null}, "expect": null},
+    {
+      "name": "seal chatq1: a reply in Hangul",
+      "input": {
+        "op": "seal",
+        "label": "chatq-alert:",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "id": "abcdefghij",
+        "iv": "101112131415161718191a1b1c1d1e1f",
+        "payload": "{\"v\":1,\"act\":\"prompt\",\"text\":\"\ud55c\uae00\ub85c \ub2f5\ud574\uc694\",\"nonce\":\"AAAAAAAAAAAAAAAAAAAAAA\",\"ts\":1790000000000}",
+        "page": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expect": {
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU",
+        "opened": {"stage": "ok", "error": null, "id": "abcdefghij"}
+      }
+    },
+    {
+      "name": "seal chatq1: a permission answer with its h",
+      "input": {
+        "op": "seal",
+        "label": "chatq-alert:",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "id": "abcdefghij",
+        "iv": "101112131415161718191a1b1c1d1e1f",
+        "payload": "{\"v\":1,\"act\":\"allow\",\"text\":\"\",\"nonce\":\"AAAAAAAAAAAAAAAAAAAAAA\",\"ts\":1790000000000,\"h\":\"Ab3_Ab3_Ab3_Ab3_Ab3_Ab\"}",
+        "page": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.ZGPcHgbw2HQe7ilcF-YW-gpclVush_1cLp_Os6RHqZqW1_K0Q1SN2WtFEeIGN-Qj7YCxAoP4QG7F024Sry1eKlEUTRb-o4zBZOf2JcY2hH1hLBX9ZbZTK4n6h7xwphhAfk06YcNAVUkGJNXfVU_gbR91YHFGUq6edO5JIX3NGvs.RWD2jqWDdwgdYD6_uxi1aaFahqgDq5J0NKR3fcsq6CY"
+      },
+      "expect": {
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.ZGPcHgbw2HQe7ilcF-YW-gpclVush_1cLp_Os6RHqZqW1_K0Q1SN2WtFEeIGN-Qj7YCxAoP4QG7F024Sry1eKlEUTRb-o4zBZOf2JcY2hH1hLBX9ZbZTK4n6h7xwphhAfk06YcNAVUkGJNXfVU_gbR91YHFGUq6edO5JIX3NGvs.RWD2jqWDdwgdYD6_uxi1aaFahqgDq5J0NKR3fcsq6CY",
+        "opened": {"stage": "ok", "error": null, "id": "abcdefghij"}
+      }
+    },
+    {
+      "name": "seal chatq1: an answer to a question",
+      "input": {
+        "op": "seal",
+        "label": "chatq-alert:",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "id": "abcdefghij",
+        "iv": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+        "payload": "{\"v\":1,\"act\":\"answer\",\"text\":\"\",\"nonce\":\"AAAAAAAAAAAAAAAAAAAAAA\",\"ts\":1790000000000,\"rid\":\"r2d2c3p0q1\",\"qh\":\"Qh1_Qh1_Qh1_Qh1_Qh1_Qh\",\"a\":[0,2],\"o\":\"and this\"}",
+        "page": "chatq1.abcdefghij.oKGio6SlpqeoqaqrrK2urw.Qm_yf64AVb_GcrpTwzFoH-9DdDFNH5tM88Y3nXxkBzvLkaB-Ev8iKBnlF2yeu6Sttuwj8tdfENX4AuZB8XMit67T44j5E3R1spANyiAjdMwXyMK37qbhT_rwJ8286IJYRILkS4ejwW2g1KlH7kj_gARMENZ8oJlmmbwp5Sz2KVs7Z4bZeqYX4rVvWcKAH0YyLoiukvLCd02xB00GbnInfQ.Onz7w9TPdupPcFE1MTTlraGUhSVhKRrGEnWfqVibq5Q"
+      },
+      "expect": {
+        "message": "chatq1.abcdefghij.oKGio6SlpqeoqaqrrK2urw.Qm_yf64AVb_GcrpTwzFoH-9DdDFNH5tM88Y3nXxkBzvLkaB-Ev8iKBnlF2yeu6Sttuwj8tdfENX4AuZB8XMit67T44j5E3R1spANyiAjdMwXyMK37qbhT_rwJ8286IJYRILkS4ejwW2g1KlH7kj_gARMENZ8oJlmmbwp5Sz2KVs7Z4bZeqYX4rVvWcKAH0YyLoiukvLCd02xB00GbnInfQ.Onz7w9TPdupPcFE1MTTlraGUhSVhKRrGEnWfqVibq5Q",
+        "opened": {"stage": "ok", "error": null, "id": "abcdefghij"}
+      }
+    },
+    {
+      "name": "seal chatq1: a v2 payload",
+      "input": {
+        "op": "seal",
+        "label": "chatq-alert:",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "id": "abcdefghij",
+        "iv": "101112131415161718191a1b1c1d1e1f",
+        "payload": "{\"v\":2,\"act\":\"prompt\",\"text\":\"paired\",\"nonce\":\"BBBBBBBBBBBBBBBBBBBBBB\",\"ts\":1790000000001}",
+        "page": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.V1xVLvcpX9CRCCEieh0HJDN0v-Vk4MTBkXktc-kD6YG4jJau-G4KR9mVrBuveb9Jw8L3j7PzIcECXZQQ50VIil8_HsS6L5k8L_R1zzqaKn8hph1wpn_7KFj4IcwmEsWt.DkwU16T5TQV-0mG5tBjXIUnKNVnLlX2v39Rtl2BJZCg"
+      },
+      "expect": {
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.V1xVLvcpX9CRCCEieh0HJDN0v-Vk4MTBkXktc-kD6YG4jJau-G4KR9mVrBuveb9Jw8L3j7PzIcECXZQQ50VIil8_HsS6L5k8L_R1zzqaKn8hph1wpn_7KFj4IcwmEsWt.DkwU16T5TQV-0mG5tBjXIUnKNVnLlX2v39Rtl2BJZCg",
+        "opened": {"stage": "ok", "error": null, "id": "abcdefghij"}
+      }
+    },
+    {
+      "name": "seal chatq1: a v4 payload, past the MAC and refused after",
+      "input": {
+        "op": "seal",
+        "label": "chatq-alert:",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "id": "abcdefghij",
+        "iv": "101112131415161718191a1b1c1d1e1f",
+        "payload": "{\"v\":4,\"act\":\"prompt\"}",
+        "page": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.HyS7GcYeV9y3JRgamt2p3n2fCnP673Lt8giUuT56mVo.bzH7YXxct61Sj3J3rPyo1EglKwatsgTAY3FPomXi8WI"
+      },
+      "expect": {
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.HyS7GcYeV9y3JRgamt2p3n2fCnP673Lt8giUuT56mVo.bzH7YXxct61Sj3J3rPyo1EglKwatsgTAY3FPomXi8WI",
+        "opened": {"stage": "decrypt", "error": "not a chatq reply payload", "id": "abcdefghij"}
+      }
+    },
+    {
+      "name": "seal chatq1: a payload that is no JSON",
+      "input": {
+        "op": "seal",
+        "label": "chatq-alert:",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "id": "abcdefghij",
+        "iv": "101112131415161718191a1b1c1d1e1f",
+        "payload": "hello",
+        "page": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.O9ag-uIJB1vuwAxi4upNlg.3WV_RZhjTWzN20ILzkFRpo-w9d-GI8LYa290Xaye1Pg"
+      },
+      "expect": {
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.O9ag-uIJB1vuwAxi4upNlg.3WV_RZhjTWzN20ILzkFRpo-w9d-GI8LYa290Xaye1Pg",
+        "opened": {"stage": "decrypt", "error": "could not be read: ...", "id": "abcdefghij"}
+      }
+    },
+    {
+      "name": "seal chatq1: a long text, many blocks",
+      "input": {
+        "op": "seal",
+        "label": "chatq-alert:",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "id": "abcdefghij",
+        "iv": "101112131415161718191a1b1c1d1e1f",
+        "payload": "{\"v\":1,\"act\":\"prompt\",\"text\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"nonce\":\"AAAAAAAAAAAAAAAAAAAAAA\",\"ts\":1790000000000}",
+        "page": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNFUTdf3Vv-C9q_Nue0exnbpUN5dTaAghQH-GVTmbi6D5Zl-Hop5evKtyYtFnonoJ_P0vZe_vLAAVFKsguYTbsEuFf8rjhIplgvuRxbVNzJ65AxNixQoAEpfIPHjSKIXeNW8QWC-FxwmAygqqfz6dBYJqwvG6GMVXwMCvZpZyKi8efCUCrcxiu6pzr7JC7IjF8-Iq-Fqx2eKVGx7etIx93-QsRaY1diHcvw72YsCCoJivata2S-OoxnnT_SuTT17wtHlmZWPEQ06aAbhVSC7Lc2aLMkQLkwW0-XcI3EC057elqfWmkdwMP8XJDckc0nySeV9FGTCs-O5zEpsuc62o9RWMLe3WS9tW5OODMhdoJ0I5uhGvheqYH0R6JnaQ759yKh1lrDW0CJAbsE2mLGs6bAALLLuElv-oSd4mPtQaHk4lW-_1oeC4zKcXgTbU9weozNCPj0ExxUEuhLIyxAZF9xhjia4WXLtzodcPE2ZbtT5r-BiWLysuXSjbOxEK89XNR29luSgbyVmIufwbu0UBdQSc50FG4DP0Mj1hVxSr13AkqHNtkJzXWaAhoJ74Ac4Z0kx7ZtKxLGfl3sfByVWRvwgNKZVEVER-k6aeq95y6iTkXlNPRepXOZ_zZl0Me-pDzGh2h5S3-jJu7JJ6tcWF3C6lVwm6p7Eh8kLE-MVnCp75es_p3dTwSR-WKmuR7L-_15dpO4UPSA9AxJVhqmZ4TS9hJHjJOPkHmyF_lmnNPN8C0W2kcvwd1kL2RRLTF9drZ9K35EJOZMqf1g0rpjRROwmBc46hrX2LLllTkdRxxT51pzHpMwlHTHnzBUpZGxDkg0II314EhORXr2tkVID4NgTmT8h-ClhgMCsBenbfYAtjH_jfLcPGeU9xTJ9H00zfkL9Uy7Rh04KBajygG5D-z631s05a5RiIs1TUBYmbIv9dSDkuXPDb0gZhWMwNGnFUz4oOnAtfTAgEG3q5blITKAj-BTsVh3UVikD2hfRM-yxGFHyAD9u3wN7nreq3XErJoTVKJ5xYJzJ-aSd2XcMTERT6if7-hZRIVEtOMYBx2_9cigcl5izhaVpe9gtja6qr8yhdYBSPQSERHiVrACBLt93wWp_6LcnTnhuEu5dWQh-sYMdet1dseFMyJ5SFPHlQTJTGZQtK1jgk7rH9GPM5kMnYu1iWUrj6ke9dGcSqoR7JugTN--9P8VtvaUR_E-V00ypesHQros4mMGalK5GwetjA9D2QTAeeC--cR-jPs8dEpU0EuHvsie2fn2XCB3z0KCC-0pgCK_oj0DOMP4XtxYMirijc_k13-ccz4sNCMa5RCURGHu1BPGJX-XIcp0oFHsFUUdHeqOd4tgbjt97acqww43Ee94Fe2fPgUyrz0jGvfPZicAuaRcASCM9MI1IU0iktuMFjEMV-4Fsp1og9or4.5GKvfU5silDWGJSmQ8_-Ybxg9HysW-jaeRVg87WCmeA"
+      },
+      "expect": {
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNFUTdf3Vv-C9q_Nue0exnbpUN5dTaAghQH-GVTmbi6D5Zl-Hop5evKtyYtFnonoJ_P0vZe_vLAAVFKsguYTbsEuFf8rjhIplgvuRxbVNzJ65AxNixQoAEpfIPHjSKIXeNW8QWC-FxwmAygqqfz6dBYJqwvG6GMVXwMCvZpZyKi8efCUCrcxiu6pzr7JC7IjF8-Iq-Fqx2eKVGx7etIx93-QsRaY1diHcvw72YsCCoJivata2S-OoxnnT_SuTT17wtHlmZWPEQ06aAbhVSC7Lc2aLMkQLkwW0-XcI3EC057elqfWmkdwMP8XJDckc0nySeV9FGTCs-O5zEpsuc62o9RWMLe3WS9tW5OODMhdoJ0I5uhGvheqYH0R6JnaQ759yKh1lrDW0CJAbsE2mLGs6bAALLLuElv-oSd4mPtQaHk4lW-_1oeC4zKcXgTbU9weozNCPj0ExxUEuhLIyxAZF9xhjia4WXLtzodcPE2ZbtT5r-BiWLysuXSjbOxEK89XNR29luSgbyVmIufwbu0UBdQSc50FG4DP0Mj1hVxSr13AkqHNtkJzXWaAhoJ74Ac4Z0kx7ZtKxLGfl3sfByVWRvwgNKZVEVER-k6aeq95y6iTkXlNPRepXOZ_zZl0Me-pDzGh2h5S3-jJu7JJ6tcWF3C6lVwm6p7Eh8kLE-MVnCp75es_p3dTwSR-WKmuR7L-_15dpO4UPSA9AxJVhqmZ4TS9hJHjJOPkHmyF_lmnNPN8C0W2kcvwd1kL2RRLTF9drZ9K35EJOZMqf1g0rpjRROwmBc46hrX2LLllTkdRxxT51pzHpMwlHTHnzBUpZGxDkg0II314EhORXr2tkVID4NgTmT8h-ClhgMCsBenbfYAtjH_jfLcPGeU9xTJ9H00zfkL9Uy7Rh04KBajygG5D-z631s05a5RiIs1TUBYmbIv9dSDkuXPDb0gZhWMwNGnFUz4oOnAtfTAgEG3q5blITKAj-BTsVh3UVikD2hfRM-yxGFHyAD9u3wN7nreq3XErJoTVKJ5xYJzJ-aSd2XcMTERT6if7-hZRIVEtOMYBx2_9cigcl5izhaVpe9gtja6qr8yhdYBSPQSERHiVrACBLt93wWp_6LcnTnhuEu5dWQh-sYMdet1dseFMyJ5SFPHlQTJTGZQtK1jgk7rH9GPM5kMnYu1iWUrj6ke9dGcSqoR7JugTN--9P8VtvaUR_E-V00ypesHQros4mMGalK5GwetjA9D2QTAeeC--cR-jPs8dEpU0EuHvsie2fn2XCB3z0KCC-0pgCK_oj0DOMP4XtxYMirijc_k13-ccz4sNCMa5RCURGHu1BPGJX-XIcp0oFHsFUUdHeqOd4tgbjt97acqww43Ee94Fe2fPgUyrz0jGvfPZicAuaRcASCM9MI1IU0iktuMFjEMV-4Fsp1og9or4.5GKvfU5silDWGJSmQ8_-Ybxg9HysW-jaeRVg87WCmeA",
+        "opened": {"stage": "ok", "error": null, "id": "abcdefghij"}
+      }
+    },
+    {
+      "name": "seal chatq1: another D, aid and iv",
+      "input": {
+        "op": "seal",
+        "label": "chatq-alert:",
+        "key": "8OHSw7Sllod4aVpLPC0eDwARIjNEVWZ3iJmqu8zd7v8",
+        "id": "mnopqr2345",
+        "iv": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+        "payload": "{\"v\":1,\"act\":\"continue\",\"text\":\"\",\"nonce\":\"CCCCCCCCCCCCCCCCCCCCCC\",\"ts\":1790000000000}",
+        "page": "chatq1.mnopqr2345.oKGio6SlpqeoqaqrrK2urw.IR51yIydlI-ijqR3fgLSjfs5V4NQZ25d_So_qk99rg7vgDtTi1HBuShMxa-XCrgPm3isd9yHS0ukVQ-uHTscQ5FgvPds2fXTX-_jWkTzv-0kJNPtYR-WgJ2vGsPSeTpO.hAehMZ_zT-hcnlg8U58NKlQa16QOSSInSaT2q-C6X_U"
+      },
+      "expect": {
+        "message": "chatq1.mnopqr2345.oKGio6SlpqeoqaqrrK2urw.IR51yIydlI-ijqR3fgLSjfs5V4NQZ25d_So_qk99rg7vgDtTi1HBuShMxa-XCrgPm3isd9yHS0ukVQ-uHTscQ5FgvPds2fXTX-_jWkTzv-0kJNPtYR-WgJ2vGsPSeTpO.hAehMZ_zT-hcnlg8U58NKlQa16QOSSInSaT2q-C6X_U",
+        "opened": {"stage": "ok", "error": null, "id": "mnopqr2345"}
+      }
+    },
+    {
+      "name": "seal chatq1: an aid ending in a line feed",
+      "input": {
+        "op": "seal",
+        "label": "chatq-alert:",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "id": "abcdefghij\n",
+        "iv": "101112131415161718191a1b1c1d1e1f",
+        "payload": "{\"v\":1,\"act\":\"prompt\",\"text\":\"lf\",\"nonce\":\"AAAAAAAAAAAAAAAAAAAAAA\",\"ts\":1790000000000}",
+        "page": "chatq1.abcdefghij\n.EBESExQVFhcYGRobHB0eHw.9yktm38syuewZnyoZwsQxh7xN9wXKneuj_JYOHaSGsnHj_mYY8sqFn_eUNXAlRqU_t-7U9wBrmRQQXxrCluLztUnx3pNzQk6t44XLuZ436PZRP8x9s3E-i6vBVWZk_ei.TKBiB09ROGnOD8pSTrt3oIeKdI2bCJKfnsrbTTlvvR4"
+      },
+      "expect": {
+        "message": "chatq1.abcdefghij\n.EBESExQVFhcYGRobHB0eHw.9yktm38syuewZnyoZwsQxh7xN9wXKneuj_JYOHaSGsnHj_mYY8sqFn_eUNXAlRqU_t-7U9wBrmRQQXxrCluLztUnx3pNzQk6t44XLuZ436PZRP8x9s3E-i6vBVWZk_ei.TKBiB09ROGnOD8pSTrt3oIeKdI2bCJKfnsrbTTlvvR4",
+        "opened": {"stage": "ok", "error": null, "id": "abcdefghij\n"}
+      }
+    },
+    {
+      "name": "seal chatq3c: send, the compose fixture",
+      "input": {
+        "op": "seal",
+        "label": "chatq-phone:",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "id": "klmnopqrst",
+        "iv": "101112131415161718191a1b1c1d1e1f",
+        "payload": "{\"v\":3,\"act\":\"send\",\"h\":\"k3m2qa\",\"id\":\"1a2b3c4d\",\"text\":\"yes, commit it \ud55c\uae00\",\"nonce\":\"AAAAAAAAAAAAAAAAAAAAAA\",\"ts\":1790000000000}",
+        "page": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {
+        "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM",
+        "opened": {"stage": "ok", "error": null, "id": "klmnopqrst"}
+      }
+    },
+    {
+      "name": "seal chatq3c: new",
+      "input": {
+        "op": "seal",
+        "label": "chatq-phone:",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "id": "klmnopqrst",
+        "iv": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+        "payload": "{\"v\":3,\"act\":\"new\",\"h\":\"k3m2qa\",\"name\":\"docs\",\"text\":\"start a chat\",\"nonce\":\"AAAAAAAAAAAAAAAAAAAAAA\",\"ts\":1790000000000}",
+        "page": "chatq3c.klmnopqrst.oKGio6SlpqeoqaqrrK2urw.ZHHoia53ISOphyx5_pqwJGWpy6IXxTIOvlAFzKNAGJyBG7lY3rONtwgRIdI93fGgzbBgjONFRze21WjXdx7Feah1ovFhzzbgRtsJlrqgmItXxTQuGe5nXxxa-2yILUY56Eb5Y0ola_oSe8KyK1PL2ngevPgDyFVrVx4m5FPwnM8.q83V146B5UrgKmLRmffaBIG1xUvV-Fv0wmDV-w7ZpIk"
+      },
+      "expect": {
+        "message": "chatq3c.klmnopqrst.oKGio6SlpqeoqaqrrK2urw.ZHHoia53ISOphyx5_pqwJGWpy6IXxTIOvlAFzKNAGJyBG7lY3rONtwgRIdI93fGgzbBgjONFRze21WjXdx7Feah1ovFhzzbgRtsJlrqgmItXxTQuGe5nXxxa-2yILUY56Eb5Y0ola_oSe8KyK1PL2ngevPgDyFVrVx4m5FPwnM8.q83V146B5UrgKmLRmffaBIG1xUvV-Fv0wmDV-w7ZpIk",
+        "opened": {"stage": "ok", "error": null, "id": "klmnopqrst"}
+      }
+    },
+    {
+      "name": "seal chatq3c: stop",
+      "input": {
+        "op": "seal",
+        "label": "chatq-phone:",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "id": "klmnopqrst",
+        "iv": "101112131415161718191a1b1c1d1e1f",
+        "payload": "{\"v\":3,\"act\":\"stop\",\"h\":\"k3m2qa\",\"n\":3,\"nonce\":\"AAAAAAAAAAAAAAAAAAAAAA\",\"ts\":1790000000000}",
+        "page": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.4E_QFLhonY7vEezkqC2_Xc74cvItskUl2Ay6L8hmjEHFHRBDnbEhvpAbuCRDt9DELW3fTRTmp78pkM-ACWYgud5nOZaxqwwpfxtTCQuiJuEfU804gIiXGtdKkL-IPpAA.-s-pz04u_EKsk_30WQlw-2jr2sOtbvW3xkYCRXGv-9U"
+      },
+      "expect": {
+        "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.4E_QFLhonY7vEezkqC2_Xc74cvItskUl2Ay6L8hmjEHFHRBDnbEhvpAbuCRDt9DELW3fTRTmp78pkM-ACWYgud5nOZaxqwwpfxtTCQuiJuEfU804gIiXGtdKkL-IPpAA.-s-pz04u_EKsk_30WQlw-2jr2sOtbvW3xkYCRXGv-9U",
+        "opened": {"stage": "ok", "error": null, "id": "klmnopqrst"}
+      }
+    },
+    {
+      "name": "seal chatq3c: read",
+      "input": {
+        "op": "seal",
+        "label": "chatq-phone:",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "id": "klmnopqrst",
+        "iv": "101112131415161718191a1b1c1d1e1f",
+        "payload": "{\"v\":3,\"act\":\"read\",\"h\":\"k3m2qa\",\"nonce\":\"AAAAAAAAAAAAAAAAAAAAAA\",\"ts\":1790000000000}",
+        "page": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.3Mbd8TFMy7AnYX3mIW6cFvDLih3iqzC-NZPYi3AOT1i3bJB-7rQi9YzVZ-9TmSytps5jeDWIlS06dsKq6BMdnB2h0xxKT1EFG_E94lcwENDJKhYX-0tUisI60-lcoD-j.uzVz7Ld2GC_oD4tooTuQWPD_Lmlvv8P3COceeLdw2ik"
+      },
+      "expect": {
+        "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.3Mbd8TFMy7AnYX3mIW6cFvDLih3iqzC-NZPYi3AOT1i3bJB-7rQi9YzVZ-9TmSytps5jeDWIlS06dsKq6BMdnB2h0xxKT1EFG_E94lcwENDJKhYX-0tUisI60-lcoD-j.uzVz7Ld2GC_oD4tooTuQWPD_Lmlvv8P3COceeLdw2ik",
+        "opened": {"stage": "ok", "error": null, "id": "klmnopqrst"}
+      }
+    },
+    {
+      "name": "seal chatq3c: answer",
+      "input": {
+        "op": "seal",
+        "label": "chatq-phone:",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "id": "klmnopqrst",
+        "iv": "101112131415161718191a1b1c1d1e1f",
+        "payload": "{\"v\":3,\"act\":\"answer\",\"h\":\"k3m2qa\",\"id\":\"1a2b3c4d\",\"rid\":\"r2d2c3p0q1\",\"qh\":\"Qh1_Qh1_Qh1_Qh1_Qh1_Qh\",\"a\":[1],\"o\":\"\",\"nonce\":\"AAAAAAAAAAAAAAAAAAAAAA\",\"ts\":1790000000000}",
+        "page": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.78hpW-VtDMLn2LH0VTibqujzDpLG1vgni4E0nAfAYvmGwptTBxkDyhx8dvJbHLe3AVwUBnhg6-1wXas8J29NPrln7g9dNOJEb7wFPdtQkEi8fkJ18jfzIRnbfkO0qYwZ5ECToepTeLjEEOCoxc1fnA58eXf5G3q31PwpFs3oBMrHEklM2hf0o9P11m0LLIuHWK24eJ7nOzv0ZTTi330QnVSp7LeM1Xu74lPQ3_3GX1I.oWZ2fiLFlk4By5QRWdcd19ybN9XBGbBhkL6RYKnBcjs"
+      },
+      "expect": {
+        "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.78hpW-VtDMLn2LH0VTibqujzDpLG1vgni4E0nAfAYvmGwptTBxkDyhx8dvJbHLe3AVwUBnhg6-1wXas8J29NPrln7g9dNOJEb7wFPdtQkEi8fkJ18jfzIRnbfkO0qYwZ5ECToepTeLjEEOCoxc1fnA58eXf5G3q31PwpFs3oBMrHEklM2hf0o9P11m0LLIuHWK24eJ7nOzv0ZTTi330QnVSp7LeM1Xu74lPQ3_3GX1I.oWZ2fiLFlk4By5QRWdcd19ybN9XBGbBhkL6RYKnBcjs",
+        "opened": {"stage": "ok", "error": null, "id": "klmnopqrst"}
+      }
+    },
+    {
+      "name": "seal chatq3c: a v1 payload, past the MAC and refused after",
+      "input": {
+        "op": "seal",
+        "label": "chatq-phone:",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "id": "klmnopqrst",
+        "iv": "101112131415161718191a1b1c1d1e1f",
+        "payload": "{\"v\":1,\"act\":\"send\"}",
+        "page": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.zUi6cevWvj5MA9PuU0u8mDGcfi1sTis5M7kWPQzgvRM.R6x-IsqdULdKqUpLQNUZegwz1iKAchx2tTxV4s0IAN4"
+      },
+      "expect": {
+        "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.zUi6cevWvj5MA9PuU0u8mDGcfi1sTis5M7kWPQzgvRM.R6x-IsqdULdKqUpLQNUZegwz1iKAchx2tTxV4s0IAN4",
+        "opened": {"stage": "decrypt", "error": "not a version 3 payload", "id": "klmnopqrst"}
+      }
+    },
+    {
+      "name": "seal chatq3c: another D, cid and iv",
+      "input": {
+        "op": "seal",
+        "label": "chatq-phone:",
+        "key": "8OHSw7Sllod4aVpLPC0eDwARIjNEVWZ3iJmqu8zd7v8",
+        "id": "zz22yy33xx",
+        "iv": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+        "payload": "{\"v\":3,\"act\":\"continue\",\"h\":\"zz22yy\",\"nonce\":\"CCCCCCCCCCCCCCCCCCCCCC\",\"ts\":1790000000000}",
+        "page": "chatq3c.zz22yy33xx.oKGio6SlpqeoqaqrrK2urw.VPaqkbzmLmKnuTpdWVuebiMKA5dyM63kunfmOt21TAO8-ydLWQkNVhasNKeMyzjnOEOGtN8_lCrDR-1AVN3s0dI77SruvXxNbEF_JatyjH4vtlhOZNK7U2LgT5pPp-Lt.Q12rz8vbTcohn9rrZmbxMsCFKBw1uFiNrpj6MQbAztg"
+      },
+      "expect": {
+        "message": "chatq3c.zz22yy33xx.oKGio6SlpqeoqaqrrK2urw.VPaqkbzmLmKnuTpdWVuebiMKA5dyM63kunfmOt21TAO8-ydLWQkNVhasNKeMyzjnOEOGtN8_lCrDR-1AVN3s0dI77SruvXxNbEF_JatyjH4vtlhOZNK7U2LgT5pPp-Lt.Q12rz8vbTcohn9rrZmbxMsCFKBw1uFiNrpj6MQbAztg",
+        "opened": {"stage": "ok", "error": null, "id": "zz22yy33xx"}
+      }
+    },
+    {
+      "name": "open chatq1: the MAC's last character one on, its unused bits set: the same MAC",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCV"
+      },
+      "expect": {"stage": "ok", "error": null, "id": "abcdefghij"}
+    },
+    {
+      "name": "open chatq1: the iv's last character one on: the same iv, but the MAC covers the text",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHx.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expect": {"stage": "mac", "error": "the MAC does not match", "id": "abcdefghij"}
+    },
+    {
+      "name": "open chatq1: one MAC character changed",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcZ9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expect": {"stage": "mac", "error": "the MAC does not match", "id": "abcdefghij"}
+    },
+    {
+      "name": "open chatq1: one ciphertext character changed",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd1jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expect": {"stage": "mac", "error": "the MAC does not match", "id": "abcdefghij"}
+    },
+    {
+      "name": "open chatq1: another well-formed id",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq1.bcdefghijk.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expect": {"stage": "mac", "error": "the MAC does not match", "id": "bcdefghijk"}
+    },
+    {
+      "name": "open chatq1: under another D",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "f0e1d2c3b4a5968778695a4b3c2d1e0f00112233445566778899aabbccddeeff",
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expect": {"stage": "mac", "error": "the MAC does not match", "id": "abcdefghij"}
+    },
+    {
+      "name": "open chatq1: with no D",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": null,
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expect": {"stage": "format", "error": "no phone paired", "id": null}
+    },
+    {
+      "name": "open chatq1: with a D of 31 bytes",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e",
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expect": {"stage": "format", "error": "no phone paired", "id": null}
+    },
+    {
+      "name": "open chatq1: with an empty D",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "",
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expect": {"stage": "format", "error": "no phone paired", "id": null}
+    },
+    {
+      "name": "open chatq1: the MAC a character short, 31 bytes",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUC"
+      },
+      "expect": {"stage": "format", "error": "bad encoding", "id": null}
+    },
+    {
+      "name": "open chatq1: the MAC two characters short, len%4 = 1",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRU"
+      },
+      "expect": {"stage": "format", "error": "bad encoding", "id": null}
+    },
+    {
+      "name": "open chatq1: the iv a character short, len%4 = 1",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eH.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expect": {"stage": "format", "error": "bad encoding", "id": null}
+    },
+    {
+      "name": "open chatq1: an iv of 15 bytes",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0e.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expect": {"stage": "format", "error": "bad encoding", "id": null}
+    },
+    {
+      "name": "open chatq1: an iv of 17 bytes",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHyA.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expect": {"stage": "format", "error": "bad encoding", "id": null}
+    },
+    {
+      "name": "open chatq1: an empty ciphertext",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw..7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expect": {"stage": "format", "error": "bad encoding", "id": null}
+    },
+    {
+      "name": "open chatq1: a ciphertext of 17 bytes",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLo.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expect": {"stage": "format", "error": "bad encoding", "id": null}
+    },
+    {
+      "name": "open chatq1: a MAC of 33 bytes",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCUA"
+      },
+      "expect": {"stage": "format", "error": "bad encoding", "id": null}
+    },
+    {
+      "name": "open chatq1: the iv padded with =",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw==.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expect": {"stage": "format", "error": "bad encoding", "id": null}
+    },
+    {
+      "name": "open chatq1: a + in the MAC, standard base64",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEAS+RYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expect": {"stage": "format", "error": "bad encoding", "id": null}
+    },
+    {
+      "name": "open chatq1: a line feed after the iv",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw\n.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expect": {"stage": "format", "error": "bad encoding", "id": null}
+    },
+    {
+      "name": "open chatq1: four parts",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ"
+      },
+      "expect": {"stage": "format", "error": "not a chatq reply", "id": null}
+    },
+    {
+      "name": "open chatq1: six parts",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU.AAAA"
+      },
+      "expect": {"stage": "format", "error": "not a chatq reply", "id": null}
+    },
+    {
+      "name": "open chatq1: a dot at the end",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU."
+      },
+      "expect": {"stage": "format", "error": "not a chatq reply", "id": null}
+    },
+    {
+      "name": "open chatq1: the prefix in capitals",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "CHATQ1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expect": {"stage": "format", "error": "not a chatq reply", "id": null}
+    },
+    {
+      "name": "open chatq1: the other kind's prefix",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq3c.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expect": {"stage": "format", "error": "not a chatq reply", "id": null}
+    },
+    {
+      "name": "open chatq1: the id in capitals",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq1.ABCDEFGHIJ.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expect": {"stage": "format", "error": "not a chatq reply", "id": null}
+    },
+    {
+      "name": "open chatq1: an id of 9 letters",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq1.abcdefghi.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expect": {"stage": "format", "error": "not a chatq reply", "id": null}
+    },
+    {
+      "name": "open chatq1: an id of 11 letters",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq1.abcdefghija.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expect": {"stage": "format", "error": "not a chatq reply", "id": null}
+    },
+    {
+      "name": "open chatq1: an id with a 1, no base32",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq1.abcdefghi1.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expect": {"stage": "format", "error": "not a chatq reply", "id": null}
+    },
+    {
+      "name": "open chatq1: a line feed after the id, past the format to the MAC",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq1.abcdefghij\n.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expect": {"stage": "mac", "error": "the MAC does not match", "id": "abcdefghij\n"}
+    },
+    {
+      "name": "open chatq1: CR LF after the id",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq1.abcdefghij\r\n.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expect": {"stage": "format", "error": "not a chatq reply", "id": null}
+    },
+    {
+      "name": "open chatq1: spaces, tabs and line breaks around",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": " \t\r\nchatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU \t\r\n"
+      },
+      "expect": {"stage": "ok", "error": null, "id": "abcdefghij"}
+    },
+    {
+      "name": "open chatq1: U+00A0, U+3000, U+0085 and U+2028 around, which .NET trims",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "\u00a0\u3000\u0085\u2028chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU\u00a0\u3000\u0085\u2028"
+      },
+      "expect": {"stage": "ok", "error": null, "id": "abcdefghij"}
+    },
+    {
+      "name": "open chatq1: U+FEFF in front, no white space to .NET",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "\ufeffchatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expect": {"stage": "mac", "error": "the MAC does not match", "id": "abcdefghij"}
+    },
+    {
+      "name": "open chatq1: U+200B at the end, no white space to .NET",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU\u200b"
+      },
+      "expect": {"stage": "format", "error": "bad encoding", "id": null}
+    },
+    {
+      "name": "open chatq1: U+180E in front, no white space to .NET",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "\u180echatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expectByEdition": {
+        "Desktop": {"stage": "format", "error": "not a chatq reply", "id": null},
+        "Core": {"stage": "mac", "error": "the MAC does not match", "id": "abcdefghij"}
+      }
+    },
+    {
+      "name": "open chatq1: U+0000 inside the prefix",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chat\u0000q1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expect": {"stage": "mac", "error": "the MAC does not match", "id": "abcdefghij"}
+    },
+    {
+      "name": "open chatq1: U+00AD inside the prefix",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chat\u00adq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expect": {"stage": "mac", "error": "the MAC does not match", "id": "abcdefghij"}
+    },
+    {
+      "name": "open chatq1: U+200D inside the prefix",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chat\u200dq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expect": {"stage": "mac", "error": "the MAC does not match", "id": "abcdefghij"}
+    },
+    {
+      "name": "open chatq1: U+FEFF inside the prefix",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chat\ufeffq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expect": {"stage": "mac", "error": "the MAC does not match", "id": "abcdefghij"}
+    },
+    {
+      "name": "open chatq1: U+200B inside the prefix",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chat\u200bq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expectByEdition": {
+        "Desktop": {"stage": "format", "error": "not a chatq reply", "id": null},
+        "Core": {"stage": "mac", "error": "the MAC does not match", "id": "abcdefghij"}
+      }
+    },
+    {
+      "name": "open chatq1: U+180E inside the prefix",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chat\u180eq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expectByEdition": {
+        "Desktop": {"stage": "format", "error": "not a chatq reply", "id": null},
+        "Core": {"stage": "mac", "error": "the MAC does not match", "id": "abcdefghij"}
+      }
+    },
+    {
+      "name": "open chatq1: U+007F inside the prefix",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chat\u007fq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expectByEdition": {
+        "Desktop": {"stage": "format", "error": "not a chatq reply", "id": null},
+        "Core": {"stage": "mac", "error": "the MAC does not match", "id": "abcdefghij"}
+      }
+    },
+    {
+      "name": "open chatq1: U+0378 inside the prefix",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chat\u0378q1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expectByEdition": {
+        "Desktop": {"stage": "mac", "error": "the MAC does not match", "id": "abcdefghij"},
+        "Core": {"stage": "format", "error": "not a chatq reply", "id": null}
+      }
+    },
+    {
+      "name": "open chatq1: U+E0001 inside the prefix",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chat\udb40\udc01q1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expectByEdition": {
+        "Desktop": {"stage": "format", "error": "not a chatq reply", "id": null},
+        "Core": {"stage": "mac", "error": "the MAC does not match", "id": "abcdefghij"}
+      }
+    },
+    {
+      "name": "open chatq1: U+0661 for its 1",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq\u0661.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expectByEdition": {
+        "Desktop": {"stage": "format", "error": "not a chatq reply", "id": null},
+        "Core": {"stage": "mac", "error": "the MAC does not match", "id": "abcdefghij"}
+      }
+    },
+    {
+      "name": "open chatq1: U+0967 for its 1",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq\u0967.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expectByEdition": {
+        "Desktop": {"stage": "format", "error": "not a chatq reply", "id": null},
+        "Core": {"stage": "mac", "error": "the MAC does not match", "id": "abcdefghij"}
+      }
+    },
+    {
+      "name": "open chatq1: U+104A1 for its 1",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq\ud801\udca1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expectByEdition": {
+        "Desktop": {"stage": "format", "error": "not a chatq reply", "id": null},
+        "Core": {"stage": "mac", "error": "the MAC does not match", "id": "abcdefghij"}
+      }
+    },
+    {
+      "name": "open chatq1: U+FF11 for its 1",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq\uff11.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expect": {"stage": "format", "error": "not a chatq reply", "id": null}
+    },
+    {
+      "name": "open chatq1: U+00B9 for its 1",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq\u00b9.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expect": {"stage": "format", "error": "not a chatq reply", "id": null}
+    },
+    {
+      "name": "open chatq1: U+1D7CF for its 1",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq\ud835\udfcf.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expect": {"stage": "format", "error": "not a chatq reply", "id": null}
+    },
+    {
+      "name": "open chatq1: bad encoding with no D, the encoding checked first",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": null,
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRU"
+      },
+      "expect": {"stage": "format", "error": "bad encoding", "id": null}
+    },
+    {
+      "name": "open chatq1: a wrong prefix with no D",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": null,
+        "message": "chatq3c.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expect": {"stage": "format", "error": "not a chatq reply", "id": null}
+    },
+    {
+      "name": "open chatq1: an empty id part",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq1..EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNLpF6t1lVjfh6VYt_nzxToTwFcb-jwqNcwfCnnUrMOIgCCochJ2NIiTOuW1rgOaL4F5CWrNY_53Foj0EXSySFlp0r48x4c4hAL8Lcai17UnRP29qq4W_WZyIBWyNChgFeQ.7cEASaRYNcY9fLGFD5zPWPotBionoTREbszEDeVRUCU"
+      },
+      "expect": {"stage": "format", "error": "not a chatq reply", "id": null}
+    },
+    {
+      "name": "open chatq3c: the MAC's last character one on, its unused bits set: the same MAC",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTN"
+      },
+      "expect": {"stage": "ok", "error": null, "id": "klmnopqrst"}
+    },
+    {
+      "name": "open chatq3c: the iv's last character one on: the same iv, but the MAC covers the text",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHx.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {"stage": "mac", "error": "the MAC does not match", "id": "klmnopqrst"}
+    },
+    {
+      "name": "open chatq3c: one MAC character changed",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHWcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {"stage": "mac", "error": "the MAC does not match", "id": "klmnopqrst"}
+    },
+    {
+      "name": "open chatq3c: one ciphertext character changed",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rYFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {"stage": "mac", "error": "the MAC does not match", "id": "klmnopqrst"}
+    },
+    {
+      "name": "open chatq3c: another well-formed id",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq3c.bcdefghijk.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {"stage": "mac", "error": "the MAC does not match", "id": "bcdefghijk"}
+    },
+    {
+      "name": "open chatq3c: under another D",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "f0e1d2c3b4a5968778695a4b3c2d1e0f00112233445566778899aabbccddeeff",
+        "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {"stage": "mac", "error": "the MAC does not match", "id": "klmnopqrst"}
+    },
+    {
+      "name": "open chatq3c: with no D",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": null,
+        "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {"stage": "format", "error": "no phone paired", "id": null}
+    },
+    {
+      "name": "open chatq3c: with a D of 31 bytes",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e",
+        "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {"stage": "format", "error": "no phone paired", "id": null}
+    },
+    {
+      "name": "open chatq3c: with an empty D",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "",
+        "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {"stage": "format", "error": "no phone paired", "id": null}
+    },
+    {
+      "name": "open chatq3c: the MAC a character short, 31 bytes",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuT"
+      },
+      "expect": {"stage": "format", "error": "bad encoding", "id": null}
+    },
+    {
+      "name": "open chatq3c: the MAC two characters short, len%4 = 1",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKu"
+      },
+      "expect": {"stage": "format", "error": "bad encoding", "id": null}
+    },
+    {
+      "name": "open chatq3c: the iv a character short, len%4 = 1",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eH.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {"stage": "format", "error": "bad encoding", "id": null}
+    },
+    {
+      "name": "open chatq3c: an iv of 15 bytes",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0e.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {"stage": "format", "error": "bad encoding", "id": null}
+    },
+    {
+      "name": "open chatq3c: an iv of 17 bytes",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHyA.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {"stage": "format", "error": "bad encoding", "id": null}
+    },
+    {
+      "name": "open chatq3c: an empty ciphertext",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw..28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {"stage": "format", "error": "bad encoding", "id": null}
+    },
+    {
+      "name": "open chatq3c: a ciphertext of 17 bytes",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDk.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {"stage": "format", "error": "bad encoding", "id": null}
+    },
+    {
+      "name": "open chatq3c: a MAC of 33 bytes",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTMA"
+      },
+      "expect": {"stage": "format", "error": "bad encoding", "id": null}
+    },
+    {
+      "name": "open chatq3c: the iv padded with =",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw==.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {"stage": "format", "error": "bad encoding", "id": null}
+    },
+    {
+      "name": "open chatq3c: a + in the MAC, standard base64",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQ+aAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {"stage": "format", "error": "bad encoding", "id": null}
+    },
+    {
+      "name": "open chatq3c: a line feed after the iv",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw\n.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {"stage": "format", "error": "bad encoding", "id": null}
+    },
+    {
+      "name": "open chatq3c: four parts",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0"
+      },
+      "expect": {"stage": "format", "error": "not a chatq message from the phone", "id": null}
+    },
+    {
+      "name": "open chatq3c: six parts",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM.AAAA"
+      },
+      "expect": {"stage": "format", "error": "not a chatq message from the phone", "id": null}
+    },
+    {
+      "name": "open chatq3c: a dot at the end",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM."
+      },
+      "expect": {"stage": "format", "error": "not a chatq message from the phone", "id": null}
+    },
+    {
+      "name": "open chatq3c: the prefix in capitals",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "CHATQ3C.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {"stage": "format", "error": "not a chatq message from the phone", "id": null}
+    },
+    {
+      "name": "open chatq3c: the other kind's prefix",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq1.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {"stage": "format", "error": "not a chatq message from the phone", "id": null}
+    },
+    {
+      "name": "open chatq3c: the id in capitals",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq3c.KLMNOPQRST.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {"stage": "format", "error": "not a chatq message from the phone", "id": null}
+    },
+    {
+      "name": "open chatq3c: an id of 9 letters",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq3c.klmnopqrs.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {"stage": "format", "error": "not a chatq message from the phone", "id": null}
+    },
+    {
+      "name": "open chatq3c: an id of 11 letters",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq3c.klmnopqrsta.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {"stage": "format", "error": "not a chatq message from the phone", "id": null}
+    },
+    {
+      "name": "open chatq3c: an id with a 1, no base32",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq3c.klmnopqrs1.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {"stage": "format", "error": "not a chatq message from the phone", "id": null}
+    },
+    {
+      "name": "open chatq3c: a line feed after the id, past the format to the MAC",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq3c.klmnopqrst\n.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {"stage": "mac", "error": "the MAC does not match", "id": "klmnopqrst\n"}
+    },
+    {
+      "name": "open chatq3c: CR LF after the id",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq3c.klmnopqrst\r\n.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {"stage": "format", "error": "not a chatq message from the phone", "id": null}
+    },
+    {
+      "name": "open chatq3c: spaces, tabs and line breaks around",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": " \t\r\nchatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM \t\r\n"
+      },
+      "expect": {"stage": "ok", "error": null, "id": "klmnopqrst"}
+    },
+    {
+      "name": "open chatq3c: U+00A0, U+3000, U+0085 and U+2028 around, which .NET trims",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "\u00a0\u3000\u0085\u2028chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM\u00a0\u3000\u0085\u2028"
+      },
+      "expect": {"stage": "ok", "error": null, "id": "klmnopqrst"}
+    },
+    {
+      "name": "open chatq3c: U+FEFF in front, no white space to .NET",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "\ufeffchatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {"stage": "mac", "error": "the MAC does not match", "id": "klmnopqrst"}
+    },
+    {
+      "name": "open chatq3c: U+200B at the end, no white space to .NET",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM\u200b"
+      },
+      "expect": {"stage": "format", "error": "bad encoding", "id": null}
+    },
+    {
+      "name": "open chatq3c: U+180E in front, no white space to .NET",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "\u180echatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expectByEdition": {
+        "Desktop": {"stage": "format", "error": "not a chatq message from the phone", "id": null},
+        "Core": {"stage": "mac", "error": "the MAC does not match", "id": "klmnopqrst"}
+      }
+    },
+    {
+      "name": "open chatq3c: U+0000 inside the prefix",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chat\u0000q3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {"stage": "mac", "error": "the MAC does not match", "id": "klmnopqrst"}
+    },
+    {
+      "name": "open chatq3c: U+00AD inside the prefix",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chat\u00adq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {"stage": "mac", "error": "the MAC does not match", "id": "klmnopqrst"}
+    },
+    {
+      "name": "open chatq3c: U+200D inside the prefix",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chat\u200dq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {"stage": "mac", "error": "the MAC does not match", "id": "klmnopqrst"}
+    },
+    {
+      "name": "open chatq3c: U+FEFF inside the prefix",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chat\ufeffq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {"stage": "mac", "error": "the MAC does not match", "id": "klmnopqrst"}
+    },
+    {
+      "name": "open chatq3c: U+200B inside the prefix",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chat\u200bq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expectByEdition": {
+        "Desktop": {"stage": "format", "error": "not a chatq message from the phone", "id": null},
+        "Core": {"stage": "mac", "error": "the MAC does not match", "id": "klmnopqrst"}
+      }
+    },
+    {
+      "name": "open chatq3c: U+180E inside the prefix",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chat\u180eq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expectByEdition": {
+        "Desktop": {"stage": "format", "error": "not a chatq message from the phone", "id": null},
+        "Core": {"stage": "mac", "error": "the MAC does not match", "id": "klmnopqrst"}
+      }
+    },
+    {
+      "name": "open chatq3c: U+007F inside the prefix",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chat\u007fq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expectByEdition": {
+        "Desktop": {"stage": "format", "error": "not a chatq message from the phone", "id": null},
+        "Core": {"stage": "mac", "error": "the MAC does not match", "id": "klmnopqrst"}
+      }
+    },
+    {
+      "name": "open chatq3c: U+0378 inside the prefix",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chat\u0378q3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expectByEdition": {
+        "Desktop": {"stage": "mac", "error": "the MAC does not match", "id": "klmnopqrst"},
+        "Core": {"stage": "format", "error": "not a chatq message from the phone", "id": null}
+      }
+    },
+    {
+      "name": "open chatq3c: U+E0001 inside the prefix",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chat\udb40\udc01q3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expectByEdition": {
+        "Desktop": {"stage": "format", "error": "not a chatq message from the phone", "id": null},
+        "Core": {"stage": "mac", "error": "the MAC does not match", "id": "klmnopqrst"}
+      }
+    },
+    {
+      "name": "open chatq3c: U+0663 for its 3",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq\u0663c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expectByEdition": {
+        "Desktop": {"stage": "format", "error": "not a chatq message from the phone", "id": null},
+        "Core": {"stage": "mac", "error": "the MAC does not match", "id": "klmnopqrst"}
+      }
+    },
+    {
+      "name": "open chatq3c: U+0969 for its 3",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq\u0969c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expectByEdition": {
+        "Desktop": {"stage": "format", "error": "not a chatq message from the phone", "id": null},
+        "Core": {"stage": "mac", "error": "the MAC does not match", "id": "klmnopqrst"}
+      }
+    },
+    {
+      "name": "open chatq3c: U+104A3 for its 3",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq\ud801\udca3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expectByEdition": {
+        "Desktop": {"stage": "format", "error": "not a chatq message from the phone", "id": null},
+        "Core": {"stage": "mac", "error": "the MAC does not match", "id": "klmnopqrst"}
+      }
+    },
+    {
+      "name": "open chatq3c: U+FF13 for its 3",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq\uff13c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {"stage": "format", "error": "not a chatq message from the phone", "id": null}
+    },
+    {
+      "name": "open chatq3c: U+00B3 for its 3",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq\u00b3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {"stage": "format", "error": "not a chatq message from the phone", "id": null}
+    },
+    {
+      "name": "open chatq3c: U+1D7D1 for its 3",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq\ud835\udfd1c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {"stage": "format", "error": "not a chatq message from the phone", "id": null}
+    },
+    {
+      "name": "open chatq3c: bad encoding with no D, the encoding checked first",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": null,
+        "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKu"
+      },
+      "expect": {"stage": "format", "error": "bad encoding", "id": null}
+    },
+    {
+      "name": "open chatq3c: a wrong prefix with no D",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": null,
+        "message": "chatq1.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {"stage": "format", "error": "not a chatq message from the phone", "id": null}
+    },
+    {
+      "name": "open chatq3c: an empty id part",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq3c..EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {"stage": "format", "error": "not a chatq message from the phone", "id": null}
+    },
+    {
+      "name": "open chatq1: empty",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": ""
+      },
+      "expect": {"stage": "format", "error": "not a chatq reply", "id": null}
+    },
+    {
+      "name": "open chatq1: white space only",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": " \t "
+      },
+      "expect": {"stage": "format", "error": "not a chatq reply", "id": null}
+    },
+    {
+      "name": "open chatq1: null",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": null
+      },
+      "expect": {"stage": "format", "error": "not a chatq reply", "id": null}
+    },
+    {
+      "name": "open chatq3c: null",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": null
+      },
+      "expect": {"stage": "format", "error": "not a chatq message from the phone", "id": null}
+    },
+    {
+      "name": "open chatq1: a chatq3c message given the chatq1 prefix, its MAC the phone label's",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq1.klmnopqrst.EBESExQVFhcYGRobHB0eHw.-2S6B6Mp6rXFEyNrdN-ARDkAB8S64GlZd71qIehFFLLFcUDXvNa7KPK6tOcEHsCv3zKECK8XydsziQtNHVm3bsV2Jlvg1uVOhDlhfVIA3nv2Jv6Aspsx-dpDTRlYWNPn0uX_w6yL9z6HCdzUV6m2qyrI6paFAHXRQO2E1PC1sjQPBhKpkToySBvKWUAD76k0.28EXQkaAvHVcIg3ci1y97wmoZR5IvSWti_1on5kKuTM"
+      },
+      "expect": {"stage": "mac", "error": "the MAC does not match", "id": "klmnopqrst"}
+    },
+    {
+      "name": "open chatq1: sealed under the chatq-phone: label",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.1Z_Iartwdq18jd7_pyerb55gUpxqfhAjOpdRo5ABzx53A-AGL3amRukunqAV20kQCGtn1ckM-8CePA_xmdYYkSVzpNyK7D79-VFWLkopdcIgTrJ3qDte-cQEA9YQWMB0.5OOZsQjvwiBBl0b43n_uWS0fhbGqedfpWtGFjYhheEw"
+      },
+      "expect": {"stage": "mac", "error": "the MAC does not match", "id": "abcdefghij"}
+    },
+    {
+      "name": "open chatq1: a MAC that checks out over a ciphertext that does not decrypt",
+      "input": {
+        "op": "open",
+        "label": "chatq-alert:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA.OjODu1R9eTaQHGwb2VJCfX1iGGBgX5tqAHSvp0ZU4Zg"
+      },
+      "expect": {"stage": "decrypt", "error": "could not be read: ...", "id": "abcdefghij"}
+    },
+    {
+      "name": "open chatq3c: a MAC that checks out over a ciphertext that does not decrypt",
+      "input": {
+        "op": "open",
+        "label": "chatq-phone:",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA.mvjKQki4x7YX8z-B-9wH9OTlgT4P5SdDbWPBlICsAgU"
+      },
+      "expect": {"stage": "decrypt", "error": "could not be read: ...", "id": "klmnopqrst"}
+    }
+  ]
+}

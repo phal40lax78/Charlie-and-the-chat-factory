@@ -867,6 +867,16 @@ While a job is due within 6 hours it keeps the machine from sleeping (the
 display still turns off, and a closed lid still sleeps a laptop).
 `chatqrun -Foreground` runs it in the console to watch.
 
+A native watcher, chatqd, is on its way ([native/SPEC.md](native/SPEC.md)),
+and no build of it ships yet. A developer's build in
+`bin/<version>/<target>/` beside `data/`, or one `CHATQ_CHATQD` names, is
+started in the PowerShell watcher's place, and for now hands every job to
+a PowerShell watcher. A build that fails three times in a day is set
+aside for that version, with one `failed` alert, until
+`data/native/fuse.json` is deleted. `"watcher": "ps"` in
+`data/config.json` keeps the PowerShell watcher; `CHATQ_ENGINE` set to
+`ps` or `native` decides for one shell's launches instead.
+
 ## Alerts
 
 chatq tells you how a queued prompt went - and, while you are away, how
@@ -1868,6 +1878,26 @@ low until 3 points under, so a figure on the line does not come and go,
 and is looked at 10 seconds apart at most. `overlay.memoryWarn` sets the
 percent; 0 turns it off.
 
+**It says when a program keeps growing,** on Windows, memory low yet or
+not: a level says nothing of a program taking half a GB a minute until
+it is too late to close it. Once a minute it reads each process's
+memory, and a process grown 2 GB or more since its figure 10 minutes
+back is said - `WINWORD grew 6.1 GB in 10 min, now 15.8 GB (pid 33188) -
+it may be leaking` - in `overlay.log`, in a tray balloon, and in an
+amber note while it keeps growing. Each program once in 30 minutes. A
+process each, not a program's sum, so more VS Code windows, chats or
+compilers are not a leak; one not running 10 minutes back is not
+counted. `overlay.leakGB` sets the amount; 0 turns it off.
+
+**It starts again when it holds too much.** The overlay's own memory
+climbs slowly over a day or two. After the heap compaction it runs every
+5 minutes, at 300 MB or more, 50 MB over the least it held from 30
+minutes in and an hour up, it restarts as it does for an update, once
+nothing is under way, and `overlay.log` says why. That forgets the unread
+dots, a reset ask's phone alert still waiting for you to be away, and
+when the tray last spoke of memory. `overlay.restartMB` sets the figure;
+0 turns it off.
+
 **It stays out of the way.** As a panel it never takes focus, and clicks go
 through it - all but its top strip; only while it is the console (below)
 does it take the keyboard. Along that top strip runs a bar, always there
@@ -2225,6 +2255,8 @@ charlie -Recent 10            # ten chats not open under the rest; 0 for none
 | `codexUsage` | `true` | `charlie -CodexUsage off`: Codex's line only from its rollouts, and `codex app-server` never started for it |
 | `usageSeconds` | 300 | how often usage is asked while a chat works - Codex's while Codex works (three times that while idle, and for Copilot); 60 at least |
 | `memoryWarn` | 95 | 0–99; the percent of Windows' commit limit in use at which the panel and the tray say memory runs short ([it says so](#the-overlay)); 0 for never |
+| `leakGB` | 2 | 0–64, parts of a GB too; how much one process grows in 10 minutes before the panel and the tray say it keeps growing, memory low or not ([it says so](#the-overlay)); 0 for never |
+| `restartMB` | 300 | 0–4096; the overlay's own private MB after a compaction at which it starts again, given 50 MB over where the run settled and an hour up ([it says so](#the-overlay)); 0 for never |
 
 - **Only Claude chats get live rows.** Codex and Copilot write nothing that says a
   chat is open or working, so theirs show only as queued prompts.
@@ -2979,7 +3011,8 @@ window asks about in `reload-pending/` and the overlay's answers in
 `reload-answer/`, the Claude tabs each window has open in `open-tabs/`,
 the chats a window's idle process was ended for in
 `idle-ended.json`, the C# compiler's files in `tmp/` while it builds the
-Windows calls chatq makes, and the installer's `download/` while it
+Windows calls chatq makes, a native watcher's records in `native/` once
+a build of it has run, and the installer's `download/` while it
 unpacks. No
 registry keys,
 no AppData, no scheduled task; the one line in `$PROFILE` is the only thing
@@ -3015,6 +3048,14 @@ As of September 2026 — corrections welcome.
   exactly as in the panel.
 - **StrictMode** in your profile is fine; the commands turn it off for
   themselves only.
+- **A shell's start:** the profile line loads only a stand-in for each
+  command, the aliases and the keys, and the rest of the tool the first
+  time you run a command or press Tab or Enter on its line - a shell that
+  never uses it stays some 35 MB lighter. A queued job with no watcher,
+  the phone's listening or the overlay to start loads it as the shell
+  opens, as before. Until then `Get-Help` says the tool loads on first
+  use, and on a parameter's name Ctrl+Space's menu - and Tab too, with
+  `$ChatNoKeyBindings` set - offers only the common parameters.
 - **Files held open:** transcripts are read `FileShare.ReadWrite | Delete`, since
   Codex holds every rollout open for the life of its window.
 

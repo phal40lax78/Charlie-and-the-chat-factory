@@ -1,0 +1,3024 @@
+{
+  "about": "The watcher loop's cheap gates, each run as the loop runs it against a data/ of its own. replyOpen: Test-ChatqReplyOpen (src/phone.ps1). held: Test-ChatqHeldWaiting (src/phone-extras.ps1), files aged against the clock. auto: Test-ChatqAutoWanted (src/auto-continue.ps1). soon: Send-ChatqUsageSoon (src/phone-extras.ps1) with the alert stubbed: next is the time the loop wakes for a soon alert, due the lanes whose key the process records now (sentBefore: already recorded), send those that then go (fileHas: already in data/usage-alerts.json), alerts how many were sent. route: SPEC 1.4, whether Send-ChatqAlert registers the alert as answerable (New-ChatqReplyAlert called), every gate before it held open; links is Get-ChatqReplyConfig's Links, secrets opened with protected ones all failing. pollSeconds: Get-ChatqReplyPollSeconds (src/phone-down.ps1). listenText: Get-ChatqReplyListenText (src/phone-down.ps1) under a culture, with its time separator. A file is read as the tool reads it, so a zoneless stamp is UTC to 5.1 and the zone's wall clock to pwsh 7.",
+  "cases": [
+    {
+      "name": "replyOpen: no reply block",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "replies": {"openUntil": "2026-10-15T09:30:00.0000000Z"}
+      },
+      "expect": {"open": false}
+    },
+    {
+      "name": "replyOpen: a window open",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        },
+        "replies": {"openUntil": "2026-10-15T09:30:00.0000000Z"}
+      },
+      "expect": {"open": true}
+    },
+    {
+      "name": "replyOpen: the window closed a second ago",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        },
+        "replies": {"openUntil": "2026-10-15T08:59:59.0000000Z"}
+      },
+      "expect": {"open": false}
+    },
+    {
+      "name": "replyOpen: the window ending now",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        },
+        "replies": {"openUntil": "2026-10-15T09:00:00.0000000Z"}
+      },
+      "expect": {"open": false}
+    },
+    {
+      "name": "replyOpen: on as the string TRUE",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": "TRUE",
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        },
+        "replies": {"openUntil": "2026-10-15T09:30:00.0000000Z"}
+      },
+      "expect": {"open": true}
+    },
+    {
+      "name": "replyOpen: on as the number 1",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": 1,
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        },
+        "replies": {"openUntil": "2026-10-15T09:30:00.0000000Z"}
+      },
+      "expect": {"open": true}
+    },
+    {
+      "name": "replyOpen: on as the string 1",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": "1",
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        },
+        "replies": {"openUntil": "2026-10-15T09:30:00.0000000Z"}
+      },
+      "expect": {"open": false}
+    },
+    {
+      "name": "replyOpen: on as yes",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": "yes",
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        },
+        "replies": {"openUntil": "2026-10-15T09:30:00.0000000Z"}
+      },
+      "expect": {"open": false}
+    },
+    {
+      "name": "replyOpen: switched off",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": false,
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        },
+        "replies": {"openUntil": "2026-10-15T09:30:00.0000000Z"}
+      },
+      "expect": {"open": false}
+    },
+    {
+      "name": "replyOpen: no topic",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        },
+        "replies": {"openUntil": "2026-10-15T09:30:00.0000000Z"}
+      },
+      "expect": {"open": false}
+    },
+    {
+      "name": "replyOpen: an empty topic",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": "",
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        },
+        "replies": {"openUntil": "2026-10-15T09:30:00.0000000Z"}
+      },
+      "expect": {"open": false}
+    },
+    {
+      "name": "replyOpen: a topic as a plain string",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": "t1",
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        },
+        "replies": {"openUntil": "2026-10-15T09:30:00.0000000Z"}
+      },
+      "expect": {"open": true}
+    },
+    {
+      "name": "replyOpen: no key, a pairing waiting",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "t1", "protected": false},
+            "pairing": {"id": "p1", "expires": "2026-10-15T09:05:00.0000000Z"}
+          }
+        },
+        "replies": {"openUntil": "2026-10-15T09:30:00.0000000Z"}
+      },
+      "expect": {"open": true}
+    },
+    {
+      "name": "replyOpen: no key, the pairing expired",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "t1", "protected": false},
+            "pairing": {"id": "p1", "expires": "2026-10-15T08:55:00.0000000Z"}
+          }
+        },
+        "replies": {"openUntil": "2026-10-15T09:30:00.0000000Z"}
+      },
+      "expect": {"open": false}
+    },
+    {
+      "name": "replyOpen: no key and no pairing",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"reply": {"on": true, "topic": {"value": "t1", "protected": false}}},
+        "replies": {"openUntil": "2026-10-15T09:30:00.0000000Z"}
+      },
+      "expect": {"open": false}
+    },
+    {
+      "name": "replyOpen: listening all the time",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false},
+            "listen": "always"
+          }
+        },
+        "replies": {"standing": true}
+      },
+      "expect": {"open": true}
+    },
+    {
+      "name": "replyOpen: listen ALWAYS in capitals",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false},
+            "listen": "ALWAYS"
+          }
+        },
+        "replies": {"standing": true}
+      },
+      "expect": {"open": true}
+    },
+    {
+      "name": "replyOpen: standing as the string true",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false},
+            "listen": "always"
+          }
+        },
+        "replies": {"standing": "true"}
+      },
+      "expect": {"open": true}
+    },
+    {
+      "name": "replyOpen: standing as the number 1",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false},
+            "listen": "always"
+          }
+        },
+        "replies": {"standing": 1}
+      },
+      "expect": {"open": true}
+    },
+    {
+      "name": "replyOpen: standing as the string yes",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false},
+            "listen": "always"
+          }
+        },
+        "replies": {"standing": "yes"}
+      },
+      "expect": {"open": false}
+    },
+    {
+      "name": "replyOpen: standing, listen alerts",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false},
+            "listen": "alerts"
+          }
+        },
+        "replies": {"standing": true}
+      },
+      "expect": {"open": false}
+    },
+    {
+      "name": "replyOpen: standing with no key",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "t1", "protected": false},
+            "pairing": {"id": "p1", "expires": "2026-10-15T09:05:00.0000000Z"},
+            "listen": "always"
+          }
+        },
+        "replies": {"standing": true}
+      },
+      "expect": {"open": false}
+    },
+    {
+      "name": "replyOpen: no replies.json",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        }
+      },
+      "expect": {"open": false}
+    },
+    {
+      "name": "replyOpen: replies.json not JSON",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        },
+        "repliesText": "not json"
+      },
+      "expect": {"open": false}
+    },
+    {
+      "name": "replyOpen: replies.json empty",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        },
+        "repliesText": ""
+      },
+      "expect": {"open": false}
+    },
+    {
+      "name": "replyOpen: replies.json a list of one",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        },
+        "repliesText": "[{\"openUntil\":\"2026-10-15T09:30:00.0000000Z\"}]"
+      },
+      "expect": {"open": true}
+    },
+    {
+      "name": "replyOpen: openUntil in capitals",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        },
+        "replies": {"OPENUNTIL": "2026-10-15T09:30:00.0000000Z"}
+      },
+      "expect": {"open": true}
+    },
+    {
+      "name": "replyOpen: a reply block as a string",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"reply": "on"},
+        "replies": {"openUntil": "2026-10-15T09:30:00.0000000Z"}
+      },
+      "expect": {"open": false}
+    },
+    {
+      "name": "replyOpen: a reply block as a list of one",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": [
+            {
+              "on": true,
+              "topic": {"value": "t1", "protected": false},
+              "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+            }
+          ]
+        },
+        "replies": {"openUntil": "2026-10-15T09:30:00.0000000Z"}
+      },
+      "expect": {"open": true}
+    },
+    {
+      "name": "replyOpen: a zoneless window east of UTC",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "India Standard Time",
+        "utcOffsetMinutes": 330,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        },
+        "replies": {"openUntil": "2026-10-15T14:00:00"}
+      },
+      "expectByEdition": {"Desktop": {"open": true}, "Core": {"open": false}}
+    },
+    {
+      "name": "replyOpen: a zoneless pairing expiry east of UTC",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "India Standard Time",
+        "utcOffsetMinutes": 330,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "t1", "protected": false},
+            "pairing": {"id": "p1", "expires": "2026-10-15T14:00:00"}
+          }
+        },
+        "replies": {"openUntil": "2026-10-15T09:30:00.0000000Z"}
+      },
+      "expectByEdition": {"Desktop": {"open": true}, "Core": {"open": false}}
+    },
+    {
+      "name": "replyOpen: a window with an offset, west of UTC",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "SA Pacific Standard Time",
+        "utcOffsetMinutes": -300,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        },
+        "replies": {"openUntil": "2026-10-15T04:30:00.0000000-05:00"}
+      },
+      "expect": {"open": true}
+    },
+    {
+      "name": "replyOpen: config.json with a comment and trailing commas",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "configText": "{\n  // the phone\n  \"reply\": {\"on\": true, \"topic\": {\"value\": \"t1\", \"protected\": false}, \"key\": {\"value\": \"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\", \"protected\": false},},\n}",
+        "replies": {"openUntil": "2026-10-15T09:30:00.0000000Z"}
+      },
+      "expectByEdition": {"Desktop": {"open": false}, "Core": {"open": true}}
+    },
+    {
+      "name": "replyOpen: config.json as strict JSON",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "configText": "{\"reply\": {\"on\": true, \"topic\": {\"value\": \"t1\", \"protected\": false}, \"key\": {\"value\": \"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\", \"protected\": false}}}",
+        "replies": {"openUntil": "2026-10-15T09:30:00.0000000Z"}
+      },
+      "expect": {"open": true}
+    },
+    {
+      "name": "replyOpen: config.json a list of one",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "configText": "[{\"reply\": {\"on\": true, \"topic\": {\"value\": \"t1\", \"protected\": false}, \"key\": {\"value\": \"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\", \"protected\": false}}}]",
+        "replies": {"openUntil": "2026-10-15T09:30:00.0000000Z"}
+      },
+      "expect": {"open": true}
+    },
+    {
+      "name": "replyOpen: a topic of [[0]]",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "configText": "{\"reply\": {\"on\": true, \"topic\": [[0]], \"key\": {\"value\": \"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\", \"protected\": false}}}",
+        "replies": {"openUntil": "2026-10-15T09:30:00.0000000Z"}
+      },
+      "expect": {"open": true}
+    },
+    {
+      "name": "replyOpen: a topic of [[false]]",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "configText": "{\"reply\": {\"on\": true, \"topic\": [[false]], \"key\": {\"value\": \"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\", \"protected\": false}}}",
+        "replies": {"openUntil": "2026-10-15T09:30:00.0000000Z"}
+      },
+      "expect": {"open": true}
+    },
+    {
+      "name": "replyOpen: a topic of [[]]",
+      "input": {
+        "fn": "replyOpen",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "configText": "{\"reply\": {\"on\": true, \"topic\": [[]], \"key\": {\"value\": \"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\", \"protected\": false}}}",
+        "replies": {"openUntil": "2026-10-15T09:30:00.0000000Z"}
+      },
+      "expect": {"open": false}
+    },
+    {
+      "name": "held: nothing",
+      "input": {
+        "fn": "held",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "files": []
+      },
+      "expect": {"waiting": false}
+    },
+    {
+      "name": "held: held.jsonl",
+      "input": {
+        "fn": "held",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "files": [{"name": "held.jsonl", "ageSeconds": 5}]
+      },
+      "expect": {"waiting": true}
+    },
+    {
+      "name": "held: held.jsonl a folder",
+      "input": {
+        "fn": "held",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "files": [{"name": "held.jsonl", "dir": true}]
+      },
+      "expect": {"waiting": true}
+    },
+    {
+      "name": "held: a sending claimed 11 minutes ago",
+      "input": {
+        "fn": "held",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "files": [{"name": "held-1.sending", "ageSeconds": 660}]
+      },
+      "expect": {"waiting": true}
+    },
+    {
+      "name": "held: a sending claimed 9 minutes ago",
+      "input": {
+        "fn": "held",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "files": [{"name": "held-1.sending", "ageSeconds": 540}]
+      },
+      "expect": {"waiting": false}
+    },
+    {
+      "name": "held: a sending claimed 10 minutes ago",
+      "input": {
+        "fn": "held",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "files": [{"name": "held-1.sending", "ageSeconds": 600}]
+      },
+      "expect": {"waiting": false}
+    },
+    {
+      "name": "held: a sending claimed 10 minutes and a second ago",
+      "input": {
+        "fn": "held",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "files": [{"name": "held-1.sending", "ageSeconds": 601}]
+      },
+      "expect": {"waiting": true}
+    },
+    {
+      "name": "held: a sending in capitals",
+      "input": {
+        "fn": "held",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "files": [{"name": "HELD-2.SENDING", "ageSeconds": 660}]
+      },
+      "expect": {"waiting": true}
+    },
+    {
+      "name": "held: a sending.tmp",
+      "input": {
+        "fn": "held",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "files": [{"name": "held-1.sending.tmp", "ageSeconds": 660}]
+      },
+      "expect": {"waiting": false}
+    },
+    {
+      "name": "held: a sending folder",
+      "input": {
+        "fn": "held",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "files": [{"name": "held-3.sending", "dir": true}]
+      },
+      "expect": {"waiting": false}
+    },
+    {
+      "name": "held: held.sending without the dash",
+      "input": {
+        "fn": "held",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "files": [{"name": "held.sending", "ageSeconds": 660}]
+      },
+      "expect": {"waiting": false}
+    },
+    {
+      "name": "held: held-.sending with nothing after the dash",
+      "input": {
+        "fn": "held",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "files": [{"name": "held-.sending", "ageSeconds": 660}]
+      },
+      "expect": {"waiting": true}
+    },
+    {
+      "name": "held: a sending dated ahead of the clock",
+      "input": {
+        "fn": "held",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "files": [{"name": "held-1.sending", "ageSeconds": -3600}]
+      },
+      "expect": {"waiting": false}
+    },
+    {
+      "name": "held: one old sending among fresh ones",
+      "input": {
+        "fn": "held",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "files": [
+          {"name": "held-1.sending", "ageSeconds": 30},
+          {"name": "held-2.sending", "ageSeconds": 900}
+        ]
+      },
+      "expect": {"waiting": true}
+    },
+    {
+      "name": "held: a sending in a subfolder",
+      "input": {
+        "fn": "held",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "files": [{"name": "sub/held-1.sending", "ageSeconds": 660}]
+      },
+      "expect": {"waiting": false}
+    },
+    {
+      "name": "auto: the switch on",
+      "input": {
+        "fn": "auto",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"autoContinue": "on"}
+      },
+      "expect": {"wanted": true}
+    },
+    {
+      "name": "auto: the switch on, in capitals and spaces",
+      "input": {
+        "fn": "auto",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"autoContinue": " ON "}
+      },
+      "expect": {"wanted": true}
+    },
+    {
+      "name": "auto: the switch true reads as ask",
+      "input": {
+        "fn": "auto",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"autoContinue": true}
+      },
+      "expect": {"wanted": false}
+    },
+    {
+      "name": "auto: the switch ask",
+      "input": {
+        "fn": "auto",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"autoContinue": "ask"}
+      },
+      "expect": {"wanted": false}
+    },
+    {
+      "name": "auto: the switch off",
+      "input": {
+        "fn": "auto",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"autoContinue": "off"}
+      },
+      "expect": {"wanted": false}
+    },
+    {
+      "name": "auto: no switch",
+      "input": {
+        "fn": "auto",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {}
+      },
+      "expect": {"wanted": false}
+    },
+    {
+      "name": "auto: the switch as a list of on",
+      "input": {
+        "fn": "auto",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"autoContinue": ["on"]}
+      },
+      "expect": {"wanted": true}
+    },
+    {
+      "name": "auto: the switch as the number 1",
+      "input": {
+        "fn": "auto",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"autoContinue": 1}
+      },
+      "expect": {"wanted": false}
+    },
+    {
+      "name": "auto: a chat set to always",
+      "input": {
+        "fn": "auto",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "autoState": {"chats": {"c1": {"auto": "always"}}}
+      },
+      "expect": {"wanted": true}
+    },
+    {
+      "name": "auto: a chat set to Always",
+      "input": {
+        "fn": "auto",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "autoState": {"chats": {"c1": {"auto": "Always"}}}
+      },
+      "expect": {"wanted": true}
+    },
+    {
+      "name": "auto: a chat set to never",
+      "input": {
+        "fn": "auto",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "autoState": {"chats": {"c1": {"auto": "never"}}}
+      },
+      "expect": {"wanted": false}
+    },
+    {
+      "name": "auto: a chat set to sometimes",
+      "input": {
+        "fn": "auto",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "autoState": {"chats": {"c1": {"auto": "sometimes"}}}
+      },
+      "expect": {"wanted": false}
+    },
+    {
+      "name": "auto: a chat set to always with a space",
+      "input": {
+        "fn": "auto",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "autoState": {"chats": {"c1": {"auto": "always "}}}
+      },
+      "expect": {"wanted": false}
+    },
+    {
+      "name": "auto: no chats",
+      "input": {
+        "fn": "auto",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "autoState": {"chats": {}}
+      },
+      "expect": {"wanted": false}
+    },
+    {
+      "name": "auto: the chats as a list of one",
+      "input": {
+        "fn": "auto",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "autoState": {"chats": [{"c1": {"auto": "always"}}]}
+      },
+      "expect": {"wanted": true}
+    },
+    {
+      "name": "auto: the chats as a list of two",
+      "input": {
+        "fn": "auto",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "autoState": {"chats": [{"c1": {"auto": "always"}}, {"c2": {"auto": "always"}}]}
+      },
+      "expect": {"wanted": false}
+    },
+    {
+      "name": "auto: a chat as a plain string",
+      "input": {
+        "fn": "auto",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "autoState": {"chats": {"c1": "always"}}
+      },
+      "expect": {"wanted": false}
+    },
+    {
+      "name": "auto: auto as a list of always",
+      "input": {
+        "fn": "auto",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "autoState": {"chats": {"c1": {"auto": ["always"]}}}
+      },
+      "expect": {"wanted": true}
+    },
+    {
+      "name": "auto: auto as a list of two words",
+      "input": {
+        "fn": "auto",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "autoState": {"chats": {"c1": {"auto": ["always", "never"]}}}
+      },
+      "expect": {"wanted": false}
+    },
+    {
+      "name": "auto: AUTO in capitals",
+      "input": {
+        "fn": "auto",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "autoState": {"chats": {"c1": {"AUTO": "always"}}}
+      },
+      "expect": {"wanted": true}
+    },
+    {
+      "name": "auto: the second chat set to always",
+      "input": {
+        "fn": "auto",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "autoState": {"chats": {"c1": {"auto": "never"}, "c2": {"auto": "always"}}}
+      },
+      "expect": {"wanted": true}
+    },
+    {
+      "name": "auto: the switch off and a chat set to always",
+      "input": {
+        "fn": "auto",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"autoContinue": "off"},
+        "autoState": {"chats": {"c1": {"auto": "always"}}}
+      },
+      "expect": {"wanted": true}
+    },
+    {
+      "name": "auto: auto-continue.json not JSON",
+      "input": {
+        "fn": "auto",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"autoContinue": "ask"},
+        "autoText": "not json"
+      },
+      "expect": {"wanted": false}
+    },
+    {
+      "name": "auto: auto-continue.json a list of one",
+      "input": {
+        "fn": "auto",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "autoText": "[{\"chats\":{\"c1\":{\"auto\":\"always\"}}}]"
+      },
+      "expect": {"wanted": true}
+    },
+    {
+      "name": "auto: config.json with a comment and a trailing comma",
+      "input": {
+        "fn": "auto",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "configText": "{\n  // keep going\n  \"autoContinue\": \"on\",\n}"
+      },
+      "expectByEdition": {"Desktop": {"wanted": false}, "Core": {"wanted": true}}
+    },
+    {
+      "name": "auto: config.json as strict JSON",
+      "input": {
+        "fn": "auto",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "configText": "{\"autoContinue\": \"on\"}"
+      },
+      "expect": {"wanted": true}
+    },
+    {
+      "name": "auto: config.json a list of one",
+      "input": {
+        "fn": "auto",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "configText": "[{\"autoContinue\": \"on\"}]"
+      },
+      "expect": {"wanted": true}
+    },
+    {
+      "name": "auto: config.json a list of a list of one",
+      "input": {
+        "fn": "auto",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "configText": "[[{\"autoContinue\": \"on\"}]]"
+      },
+      "expect": {"wanted": true}
+    },
+    {
+      "name": "soon: nothing blocked",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": null, "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: a reset 2 hours out wakes the loop 10 minutes before it",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T11:00:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": "2026-10-15T10:50:00.0000000Z", "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: a reset 8 minutes out alerts now",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T09:08:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": null, "due": ["s|claude|29867588"], "send": ["s|claude|29867588"], "alerts": 1}
+    },
+    {
+      "name": "soon: a reset exactly 10 minutes out alerts now",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T09:10:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": null, "due": ["s|claude|29867590"], "send": ["s|claude|29867590"], "alerts": 1}
+    },
+    {
+      "name": "soon: a reset 10 minutes and a second out waits",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T09:10:01.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": "2026-10-15T09:00:01.0000000Z", "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: a wait of 29 minutes is a guess",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T09:08:00.0000000Z",
+            "at": "2026-10-15T08:39:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": null, "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: a wait of 30 minutes counts",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T09:08:00.0000000Z",
+            "at": "2026-10-15T08:38:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": null, "due": ["s|claude|29867588"], "send": ["s|claude|29867588"], "alerts": 1}
+    },
+    {
+      "name": "soon: a block with no At",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "blocked": [{"lane": "claude", "until": "2026-10-15T09:08:00.0000000Z", "type": "limit"}],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": null, "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: a failed probe is no limit",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T09:08:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "probe failed"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": null, "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: login needed is no limit",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T09:08:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "login needed"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": null, "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: an overload in capitals is no limit",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T09:08:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "Overloaded"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": null, "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: a reset already past",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T08:59:00.0000000Z",
+            "at": "2026-10-15T07:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": null, "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: no job queued",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T09:08:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ]
+      },
+      "expect": {"next": null, "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: a job in another lane",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T09:08:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "codex", "state": "queued"}]
+      },
+      "expect": {"next": null, "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: a running job does not count",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T09:08:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "running"}]
+      },
+      "expect": {"next": null, "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: a home lane",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "blocked": [
+          {
+            "lane": "claude|work",
+            "until": "2026-10-15T09:08:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "home": "work", "state": "queued"}]
+      },
+      "expect": {
+        "next": null,
+        "due": ["s|claude|work|29867588"],
+        "send": ["s|claude|work|29867588"],
+        "alerts": 1
+      }
+    },
+    {
+      "name": "soon: a job with no home is not the home lane",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "blocked": [
+          {
+            "lane": "claude|work",
+            "until": "2026-10-15T09:08:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": null, "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: a lane key in other letters",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "blocked": [
+          {
+            "lane": "Claude",
+            "until": "2026-10-15T09:08:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": null, "due": ["s|Claude|29867588"], "send": ["s|Claude|29867588"], "alerts": 1}
+    },
+    {
+      "name": "soon: a job held past the reset",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T09:08:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [
+          {
+            "id": "j1",
+            "provider": "claude",
+            "state": "queued",
+            "notBefore": "2026-10-15T09:08:01.0000000Z"
+          }
+        ]
+      },
+      "expect": {"next": null, "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: a job held until the reset still counts",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T09:08:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [
+          {
+            "id": "j1",
+            "provider": "claude",
+            "state": "queued",
+            "notBefore": "2026-10-15T09:08:00.0000000Z"
+          }
+        ]
+      },
+      "expect": {"next": null, "due": ["s|claude|29867588"], "send": ["s|claude|29867588"], "alerts": 1}
+    },
+    {
+      "name": "soon: one job held past the reset, another not",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T09:08:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [
+          {
+            "id": "j1",
+            "provider": "claude",
+            "state": "queued",
+            "notBefore": "2026-10-15T12:00:00.0000000Z"
+          },
+          {"id": "j2", "provider": "claude", "state": "queued"}
+        ]
+      },
+      "expect": {"next": null, "due": ["s|claude|29867588"], "send": ["s|claude|29867588"], "alerts": 1}
+    },
+    {
+      "name": "soon: a zoneless notBefore east of UTC",
+      "input": {
+        "fn": "soon",
+        "zone": "India Standard Time",
+        "utcOffsetMinutes": 330,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T09:08:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued", "notBefore": "2026-10-15T09:30:00"}]
+      },
+      "expectByEdition": {
+        "Desktop": {"next": null, "due": [], "send": [], "alerts": 0},
+        "Core": {"next": null, "due": ["s|claude|29867588"], "send": ["s|claude|29867588"], "alerts": 1}
+      }
+    },
+    {
+      "name": "soon: already recorded by this process",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T11:00:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}],
+        "sentBefore": [{"lane": "claude", "until": "2026-10-15T11:00:00.0000000Z"}]
+      },
+      "expect": {"next": null, "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: recorded in other letters",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T09:08:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}],
+        "sentBefore": [{"lane": "CLAUDE", "until": "2026-10-15T09:08:00.0000000Z"}]
+      },
+      "expect": {"next": null, "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: recorded for another reset",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T09:08:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}],
+        "sentBefore": [{"lane": "claude", "until": "2026-10-15T04:08:00.0000000Z"}]
+      },
+      "expect": {"next": null, "due": ["s|claude|29867588"], "send": ["s|claude|29867588"], "alerts": 1}
+    },
+    {
+      "name": "soon: already in data/usage-alerts.json",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T09:08:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}],
+        "fileHas": [{"lane": "claude", "until": "2026-10-15T09:08:00.0000000Z"}]
+      },
+      "expect": {"next": null, "due": ["s|claude|29867588"], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: reset alerts off",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"usage": {"reset": false}},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T09:08:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": null, "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: reset as the string false is no switch",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"usage": {"reset": "false"}},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T11:00:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": "2026-10-15T10:50:00.0000000Z", "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: reset as a list of false",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"usage": {"reset": [false]}},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T11:00:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": null, "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: a usage block that is a string",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"usage": "off"},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T11:00:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": "2026-10-15T10:50:00.0000000Z", "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: soonMinutes 0 is off",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"usage": {"soonMinutes": 0}},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T09:08:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": null, "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: soonMinutes 30",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"usage": {"soonMinutes": 30}},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T11:00:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": "2026-10-15T10:30:00.0000000Z", "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: soonMinutes as the string 15",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"usage": {"soonMinutes": "15"}},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T11:00:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": "2026-10-15T10:45:00.0000000Z", "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: soonMinutes as the string 015",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"usage": {"soonMinutes": "015"}},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T11:00:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": "2026-10-15T10:45:00.0000000Z", "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: soonMinutes as a list of 20",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"usage": {"soonMinutes": [20]}},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T11:00:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": "2026-10-15T10:40:00.0000000Z", "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: soonMinutes 120, two hours out, alerts now",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"usage": {"soonMinutes": 120}},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T11:00:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": null, "due": ["s|claude|29867700"], "send": ["s|claude|29867700"], "alerts": 1}
+    },
+    {
+      "name": "soon: soonMinutes 121 is the default",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"usage": {"soonMinutes": 121}},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T11:00:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": "2026-10-15T10:50:00.0000000Z", "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: soonMinutes -5 is the default",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"usage": {"soonMinutes": -5}},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T11:00:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": "2026-10-15T10:50:00.0000000Z", "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: soonMinutes 1000 is the default",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"usage": {"soonMinutes": 1000}},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T11:00:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": "2026-10-15T10:50:00.0000000Z", "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: soonMinutes abc is the default",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"usage": {"soonMinutes": "abc"}},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T11:00:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": "2026-10-15T10:50:00.0000000Z", "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: soonMinutes true is the default",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"usage": {"soonMinutes": true}},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T11:00:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": "2026-10-15T10:50:00.0000000Z", "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: soonMinutes null is the default",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"usage": {"soonMinutes": null}},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T11:00:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": "2026-10-15T10:50:00.0000000Z", "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: soonMinutes 15 and a newline",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"usage": {"soonMinutes": "15\n"}},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T11:00:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": "2026-10-15T10:45:00.0000000Z", "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: soonMinutes 15 and a space is the default",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"usage": {"soonMinutes": "15 "}},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T11:00:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": "2026-10-15T10:50:00.0000000Z", "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: soonMinutes as a list of two is the default",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"usage": {"soonMinutes": [20, 30]}},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T11:00:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": "2026-10-15T10:50:00.0000000Z", "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: soonMinutes as an empty list is the default",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"usage": {"soonMinutes": []}},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T11:00:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": "2026-10-15T10:50:00.0000000Z", "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: a usage block as a list of one",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"usage": [{"soonMinutes": 30}]},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T11:00:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": "2026-10-15T10:30:00.0000000Z", "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: two lanes, the sooner wake wins",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "jobs": [
+          {"id": "j1", "provider": "claude", "state": "queued"},
+          {"id": "j2", "provider": "codex", "state": "queued"}
+        ],
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T11:00:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          },
+          {
+            "lane": "codex",
+            "until": "2026-10-15T10:00:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ]
+      },
+      "expect": {"next": "2026-10-15T09:50:00.0000000Z", "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "soon: two lanes, one due and one waiting",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "jobs": [
+          {"id": "j1", "provider": "claude", "state": "queued"},
+          {"id": "j2", "provider": "codex", "state": "queued"}
+        ],
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T09:08:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          },
+          {
+            "lane": "codex",
+            "until": "2026-10-15T10:00:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ]
+      },
+      "expect": {
+        "next": "2026-10-15T09:50:00.0000000Z",
+        "due": ["s|claude|29867588"],
+        "send": ["s|claude|29867588"],
+        "alerts": 1
+      }
+    },
+    {
+      "name": "soon: two lanes due at once",
+      "input": {
+        "fn": "soon",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "jobs": [
+          {"id": "j1", "provider": "claude", "state": "queued"},
+          {"id": "j2", "provider": "codex", "state": "queued"}
+        ],
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T09:08:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          },
+          {
+            "lane": "codex",
+            "until": "2026-10-15T09:05:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ]
+      },
+      "expect": {
+        "next": null,
+        "due": ["s|claude|29867588", "s|codex|29867585"],
+        "send": ["s|claude|29867588", "s|codex|29867585"],
+        "alerts": 2
+      }
+    },
+    {
+      "name": "soon: a reset 2 hours out, west of UTC",
+      "input": {
+        "fn": "soon",
+        "zone": "SA Pacific Standard Time",
+        "utcOffsetMinutes": -300,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {},
+        "blocked": [
+          {
+            "lane": "claude",
+            "until": "2026-10-15T11:00:00.0000000Z",
+            "at": "2026-10-15T08:00:00.0000000Z",
+            "type": "limit"
+          }
+        ],
+        "jobs": [{"id": "j1", "provider": "claude", "state": "queued"}]
+      },
+      "expect": {"next": "2026-10-15T10:50:00.0000000Z", "due": [], "send": [], "alerts": 0}
+    },
+    {
+      "name": "route: no reply block",
+      "input": {
+        "fn": "route",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"toast": false, "ntfy": {"topic": {"value": "n1", "protected": false}}}
+      },
+      "expect": {"links": false, "answerable": false}
+    },
+    {
+      "name": "route: on, a topic and a paired key",
+      "input": {
+        "fn": "route",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "toast": false,
+          "ntfy": {"topic": {"value": "n1", "protected": false}},
+          "reply": {
+            "on": true,
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        }
+      },
+      "expect": {"links": true, "answerable": true}
+    },
+    {
+      "name": "route: -NoReply",
+      "input": {
+        "fn": "route",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "toast": false,
+          "ntfy": {"topic": {"value": "n1", "protected": false}},
+          "reply": {
+            "on": true,
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        },
+        "noReply": true
+      },
+      "expect": {"links": true, "answerable": false}
+    },
+    {
+      "name": "route: switched off",
+      "input": {
+        "fn": "route",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "toast": false,
+          "ntfy": {"topic": {"value": "n1", "protected": false}},
+          "reply": {
+            "on": false,
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        }
+      },
+      "expect": {"links": false, "answerable": false}
+    },
+    {
+      "name": "route: on as the string true",
+      "input": {
+        "fn": "route",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "toast": false,
+          "ntfy": {"topic": {"value": "n1", "protected": false}},
+          "reply": {
+            "on": "true",
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        }
+      },
+      "expect": {"links": true, "answerable": true}
+    },
+    {
+      "name": "route: on as the number 1",
+      "input": {
+        "fn": "route",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "toast": false,
+          "ntfy": {"topic": {"value": "n1", "protected": false}},
+          "reply": {
+            "on": 1,
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        }
+      },
+      "expect": {"links": true, "answerable": true}
+    },
+    {
+      "name": "route: on as yes",
+      "input": {
+        "fn": "route",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "toast": false,
+          "ntfy": {"topic": {"value": "n1", "protected": false}},
+          "reply": {
+            "on": "yes",
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        }
+      },
+      "expect": {"links": false, "answerable": false}
+    },
+    {
+      "name": "route: no on",
+      "input": {
+        "fn": "route",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "toast": false,
+          "ntfy": {"topic": {"value": "n1", "protected": false}},
+          "reply": {
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        }
+      },
+      "expect": {"links": false, "answerable": false}
+    },
+    {
+      "name": "route: a topic as a plain string",
+      "input": {
+        "fn": "route",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "toast": false,
+          "ntfy": {"topic": {"value": "n1", "protected": false}},
+          "reply": {
+            "on": true,
+            "topic": "t1",
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        }
+      },
+      "expect": {"links": false, "answerable": false}
+    },
+    {
+      "name": "route: an empty topic",
+      "input": {
+        "fn": "route",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "toast": false,
+          "ntfy": {"topic": {"value": "n1", "protected": false}},
+          "reply": {
+            "on": true,
+            "topic": {"value": "", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        }
+      },
+      "expect": {"links": false, "answerable": false}
+    },
+    {
+      "name": "route: a topic DPAPI cannot open",
+      "input": {
+        "fn": "route",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "toast": false,
+          "ntfy": {"topic": {"value": "n1", "protected": false}},
+          "reply": {
+            "on": true,
+            "topic": {"value": "not-dpapi", "protected": true},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        }
+      },
+      "expect": {"links": false, "answerable": false}
+    },
+    {
+      "name": "route: a topic marked protected by the string false",
+      "input": {
+        "fn": "route",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "toast": false,
+          "ntfy": {"topic": {"value": "n1", "protected": false}},
+          "reply": {
+            "on": true,
+            "topic": {"value": "t1", "protected": "false"},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        }
+      },
+      "expect": {"links": false, "answerable": false}
+    },
+    {
+      "name": "route: no key, a pairing waiting",
+      "input": {
+        "fn": "route",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "toast": false,
+          "ntfy": {"topic": {"value": "n1", "protected": false}},
+          "reply": {
+            "on": true,
+            "topic": {"value": "t1", "protected": false},
+            "pairing": {"id": "p1", "expires": "2026-10-15T09:05:00.0000000Z"}
+          }
+        }
+      },
+      "expect": {"links": false, "answerable": false}
+    },
+    {
+      "name": "route: a key of 42 characters",
+      "input": {
+        "fn": "route",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "toast": false,
+          "ntfy": {"topic": {"value": "n1", "protected": false}},
+          "reply": {
+            "on": true,
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh", "protected": false}
+          }
+        }
+      },
+      "expect": {"links": false, "answerable": false}
+    },
+    {
+      "name": "route: a key of 41 characters",
+      "input": {
+        "fn": "route",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "toast": false,
+          "ntfy": {"topic": {"value": "n1", "protected": false}},
+          "reply": {
+            "on": true,
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdH", "protected": false}
+          }
+        }
+      },
+      "expect": {"links": false, "answerable": false}
+    },
+    {
+      "name": "route: a key of 44 characters",
+      "input": {
+        "fn": "route",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "toast": false,
+          "ntfy": {"topic": {"value": "n1", "protected": false}},
+          "reply": {
+            "on": true,
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8A", "protected": false}
+          }
+        }
+      },
+      "expect": {"links": false, "answerable": false}
+    },
+    {
+      "name": "route: a key whose last bits are not zero",
+      "input": {
+        "fn": "route",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "toast": false,
+          "ntfy": {"topic": {"value": "n1", "protected": false}},
+          "reply": {
+            "on": true,
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh9", "protected": false}
+          }
+        }
+      },
+      "expect": {"links": true, "answerable": true}
+    },
+    {
+      "name": "route: a key in plain base64",
+      "input": {
+        "fn": "route",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "toast": false,
+          "ntfy": {"topic": {"value": "n1", "protected": false}},
+          "reply": {
+            "on": true,
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "+AECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        }
+      },
+      "expect": {"links": false, "answerable": false}
+    },
+    {
+      "name": "route: a key padded with =",
+      "input": {
+        "fn": "route",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "toast": false,
+          "ntfy": {"topic": {"value": "n1", "protected": false}},
+          "reply": {
+            "on": true,
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=", "protected": false}
+          }
+        }
+      },
+      "expect": {"links": false, "answerable": false}
+    },
+    {
+      "name": "route: a key ending in a newline",
+      "input": {
+        "fn": "route",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "toast": false,
+          "ntfy": {"topic": {"value": "n1", "protected": false}},
+          "reply": {
+            "on": true,
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\n", "protected": false}
+          }
+        }
+      },
+      "expect": {"links": false, "answerable": false}
+    },
+    {
+      "name": "route: a key DPAPI cannot open",
+      "input": {
+        "fn": "route",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "toast": false,
+          "ntfy": {"topic": {"value": "n1", "protected": false}},
+          "reply": {
+            "on": true,
+            "topic": {"value": "t1", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": true}
+          }
+        }
+      },
+      "expect": {"links": false, "answerable": false}
+    },
+    {
+      "name": "route: a key as a plain string",
+      "input": {
+        "fn": "route",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "toast": false,
+          "ntfy": {"topic": {"value": "n1", "protected": false}},
+          "reply": {
+            "on": true,
+            "topic": {"value": "t1", "protected": false},
+            "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+          }
+        }
+      },
+      "expect": {"links": false, "answerable": false}
+    },
+    {
+      "name": "route: a reply block as a list of one",
+      "input": {
+        "fn": "route",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "toast": false,
+          "ntfy": {"topic": {"value": "n1", "protected": false}},
+          "reply": [
+            {
+              "on": true,
+              "topic": {"value": "t1", "protected": false},
+              "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+            }
+          ]
+        }
+      },
+      "expect": {"links": true, "answerable": true}
+    },
+    {
+      "name": "pollSeconds: no replies.json",
+      "input": {
+        "fn": "pollSeconds",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "inRun": false
+      },
+      "expect": {"seconds": 20}
+    },
+    {
+      "name": "pollSeconds: no replies.json, in a run",
+      "input": {
+        "fn": "pollSeconds",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "inRun": true
+      },
+      "expect": {"seconds": 30}
+    },
+    {
+      "name": "pollSeconds: hot",
+      "input": {
+        "fn": "pollSeconds",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "inRun": false,
+        "replies": {"hotUntil": "2026-10-15T09:01:00.0000000Z"}
+      },
+      "expect": {"seconds": 6}
+    },
+    {
+      "name": "pollSeconds: hot, in a run",
+      "input": {
+        "fn": "pollSeconds",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "inRun": true,
+        "replies": {"hotUntil": "2026-10-15T09:01:00.0000000Z"}
+      },
+      "expect": {"seconds": 10}
+    },
+    {
+      "name": "pollSeconds: a window open",
+      "input": {
+        "fn": "pollSeconds",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "inRun": false,
+        "replies": {"openUntil": "2026-10-15T09:30:00.0000000Z"}
+      },
+      "expect": {"seconds": 15}
+    },
+    {
+      "name": "pollSeconds: a window open, in a run",
+      "input": {
+        "fn": "pollSeconds",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "inRun": true,
+        "replies": {"openUntil": "2026-10-15T09:30:00.0000000Z"}
+      },
+      "expect": {"seconds": 30}
+    },
+    {
+      "name": "pollSeconds: hot and a window open",
+      "input": {
+        "fn": "pollSeconds",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "inRun": false,
+        "replies": {"openUntil": "2026-10-15T09:30:00.0000000Z", "hotUntil": "2026-10-15T09:01:00.0000000Z"}
+      },
+      "expect": {"seconds": 6}
+    },
+    {
+      "name": "pollSeconds: hot passed, a window open",
+      "input": {
+        "fn": "pollSeconds",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "inRun": false,
+        "replies": {"openUntil": "2026-10-15T09:30:00.0000000Z", "hotUntil": "2026-10-15T08:59:00.0000000Z"}
+      },
+      "expect": {"seconds": 15}
+    },
+    {
+      "name": "pollSeconds: hot until now",
+      "input": {
+        "fn": "pollSeconds",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "inRun": false,
+        "replies": {"hotUntil": "2026-10-15T09:00:00.0000000Z"}
+      },
+      "expect": {"seconds": 20}
+    },
+    {
+      "name": "pollSeconds: HOTUNTIL in capitals",
+      "input": {
+        "fn": "pollSeconds",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "inRun": false,
+        "replies": {"HOTUNTIL": "2026-10-15T09:01:00.0000000Z"}
+      },
+      "expect": {"seconds": 6}
+    },
+    {
+      "name": "pollSeconds: standing is no window",
+      "input": {
+        "fn": "pollSeconds",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "inRun": false,
+        "replies": {"standing": true}
+      },
+      "expect": {"seconds": 20}
+    },
+    {
+      "name": "pollSeconds: replies.json not JSON",
+      "input": {
+        "fn": "pollSeconds",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "inRun": false,
+        "repliesText": "not json"
+      },
+      "expect": {"seconds": 20}
+    },
+    {
+      "name": "pollSeconds: replies.json a list of one",
+      "input": {
+        "fn": "pollSeconds",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "inRun": false,
+        "repliesText": "[{\"hotUntil\":\"2026-10-15T09:01:00.0000000Z\"}]"
+      },
+      "expect": {"seconds": 6}
+    },
+    {
+      "name": "pollSeconds: a zoneless hotUntil east of UTC",
+      "input": {
+        "fn": "pollSeconds",
+        "zone": "India Standard Time",
+        "utcOffsetMinutes": 330,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "inRun": false,
+        "replies": {"hotUntil": "2026-10-15T09:05:00"}
+      },
+      "expectByEdition": {"Desktop": {"seconds": 6}, "Core": {"seconds": 20}}
+    },
+    {
+      "name": "listenText: a window open, en-US",
+      "input": {
+        "fn": "listenText",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "culture": "en-US",
+        "replies": {"openUntil": "2026-10-15T09:30:00.0000000Z"}
+      },
+      "expect": {"timeSep": ":", "text": "until 09:30"}
+    },
+    {
+      "name": "listenText: a window open, fi-FI",
+      "input": {
+        "fn": "listenText",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "culture": "fi-FI",
+        "replies": {"openUntil": "2026-10-15T09:30:00.0000000Z"}
+      },
+      "expect": {"timeSep": ".", "text": "until 09.30"}
+    },
+    {
+      "name": "listenText: a window open, ko-KR",
+      "input": {
+        "fn": "listenText",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "culture": "ko-KR",
+        "replies": {"openUntil": "2026-10-15T09:30:00.0000000Z"}
+      },
+      "expect": {"timeSep": ":", "text": "until 09:30"}
+    },
+    {
+      "name": "listenText: a window open, de-DE",
+      "input": {
+        "fn": "listenText",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "culture": "de-DE",
+        "replies": {"openUntil": "2026-10-15T09:30:00.0000000Z"}
+      },
+      "expect": {"timeSep": ":", "text": "until 09:30"}
+    },
+    {
+      "name": "listenText: an evening window",
+      "input": {
+        "fn": "listenText",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "culture": "en-US",
+        "replies": {"openUntil": "2026-10-15T21:05:00.0000000Z"}
+      },
+      "expect": {"timeSep": ":", "text": "until 21:05"}
+    },
+    {
+      "name": "listenText: a window open, east of UTC",
+      "input": {
+        "fn": "listenText",
+        "zone": "India Standard Time",
+        "utcOffsetMinutes": 330,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "culture": "en-US",
+        "replies": {"openUntil": "2026-10-15T09:30:00.0000000Z"}
+      },
+      "expect": {"timeSep": ":", "text": "until 15:00"}
+    },
+    {
+      "name": "listenText: a window open, west of UTC",
+      "input": {
+        "fn": "listenText",
+        "zone": "SA Pacific Standard Time",
+        "utcOffsetMinutes": -300,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "culture": "en-US",
+        "replies": {"openUntil": "2026-10-15T09:30:00.0000000Z"}
+      },
+      "expect": {"timeSep": ":", "text": "until 04:30"}
+    },
+    {
+      "name": "listenText: standing",
+      "input": {
+        "fn": "listenText",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "culture": "en-US",
+        "replies": {"standing": true}
+      },
+      "expect": {"timeSep": ":", "text": "all the time"}
+    },
+    {
+      "name": "listenText: standing as the string true",
+      "input": {
+        "fn": "listenText",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "culture": "en-US",
+        "replies": {"standing": "true"}
+      },
+      "expect": {"timeSep": ":", "text": "all the time"}
+    },
+    {
+      "name": "listenText: a window and standing",
+      "input": {
+        "fn": "listenText",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "culture": "en-US",
+        "replies": {"openUntil": "2026-10-15T09:30:00.0000000Z", "standing": true}
+      },
+      "expect": {"timeSep": ":", "text": "until 09:30"}
+    },
+    {
+      "name": "listenText: a window passed and standing",
+      "input": {
+        "fn": "listenText",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "culture": "en-US",
+        "replies": {"openUntil": "2026-10-15T08:00:00.0000000Z", "standing": true}
+      },
+      "expect": {"timeSep": ":", "text": "all the time"}
+    },
+    {
+      "name": "listenText: a window ending now",
+      "input": {
+        "fn": "listenText",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "culture": "en-US",
+        "replies": {"openUntil": "2026-10-15T09:00:00.0000000Z"}
+      },
+      "expect": {"timeSep": ":", "text": "until"}
+    },
+    {
+      "name": "listenText: no replies.json",
+      "input": {
+        "fn": "listenText",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "culture": "en-US"
+      },
+      "expect": {"timeSep": ":", "text": "until"}
+    },
+    {
+      "name": "listenText: replies.json empty",
+      "input": {
+        "fn": "listenText",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "culture": "en-US",
+        "repliesText": ""
+      },
+      "expect": {"timeSep": ":", "text": "until"}
+    },
+    {
+      "name": "listenText: replies.json not JSON",
+      "input": {
+        "fn": "listenText",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "culture": "en-US",
+        "repliesText": "not json"
+      },
+      "expect": {"timeSep": ":", "text": "until"}
+    },
+    {
+      "name": "listenText: replies.json null",
+      "input": {
+        "fn": "listenText",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "culture": "en-US",
+        "repliesText": "null"
+      },
+      "expect": {"timeSep": ":", "text": "until"}
+    },
+    {
+      "name": "listenText: replies.json a list of one",
+      "input": {
+        "fn": "listenText",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "culture": "en-US",
+        "repliesText": "[{\"openUntil\":\"2026-10-15T09:30:00.0000000Z\"}]"
+      },
+      "expect": {"timeSep": ":", "text": "until 09:30"}
+    },
+    {
+      "name": "listenText: a zoneless window east of UTC",
+      "input": {
+        "fn": "listenText",
+        "zone": "India Standard Time",
+        "utcOffsetMinutes": 330,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "culture": "en-US",
+        "replies": {"openUntil": "2026-10-15T14:00:00"}
+      },
+      "expectByEdition": {
+        "Desktop": {"timeSep": ":", "text": "until 19:30"},
+        "Core": {"timeSep": ":", "text": "until"}
+      }
+    }
+  ]
+}

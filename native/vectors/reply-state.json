@@ -1,0 +1,3900 @@
+{
+  "about": "Use-ChatqReplyState (src/phone.ps1) on data/replies.json: the file (none, json, text or hex bytes; a recipe makes the caps case) read under data/replies.lock, the change (the watcher's junk-only one: lastId and lastPolledAt; polled: lastPolledAt only; null: none) and Save-ChatqReplyState's write at now in a zone utcOffsetMinutes east, with reply.hours hours (0: from config). The answer is the saved file read back, its seen, refused and downSent sorted by name (hashtables, in no fixed order); for a recipe the alert, pick and seen names kept; or threw (locked, unreadable, invalid) and whether the file was left unchanged. repair marks a file chatqd refuses to write back (SPEC 2.2), its read and save checked one step lower.",
+  "cases": [
+    {
+      "name": "no file",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": null,
+        "change": {"lastId": "junk-1", "polled": true}
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": "junk-1",
+          "lastPolledAt": "2026-10-15T12:00:00.0000000Z",
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "no file, no change",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": null,
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "no data folder",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": null,
+        "change": {"lastId": "junk-1", "polled": true},
+        "noData": true
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": "junk-1",
+          "lastPolledAt": "2026-10-15T12:00:00.0000000Z",
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "empty file",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"text": ""},
+        "change": {"lastId": "junk-1", "polled": true}
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": "junk-1",
+          "lastPolledAt": "2026-10-15T12:00:00.0000000Z",
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "white space only",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"text": " \r\n\t "},
+        "change": {"lastId": "junk-1", "polled": true}
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": "junk-1",
+          "lastPolledAt": "2026-10-15T12:00:00.0000000Z",
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "not json",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"text": "{not json"},
+        "change": {"lastId": "junk-1", "polled": true}
+      },
+      "expect": {"threw": "unreadable", "file": "unchanged"}
+    },
+    {
+      "name": "the file is null",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"text": "null"},
+        "change": {"lastId": "junk-1", "polled": true}
+      },
+      "expect": {"threw": "unreadable", "file": "unchanged"}
+    },
+    {
+      "name": "the file is []",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"text": "[]"},
+        "change": {"lastId": "junk-1", "polled": true}
+      },
+      "expect": {"threw": "unreadable", "file": "unchanged"}
+    },
+    {
+      "name": "the file is [0]",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"text": "[0]"},
+        "change": {"lastId": "junk-1", "polled": true}
+      },
+      "expect": {"threw": "unreadable", "file": "unchanged"}
+    },
+    {
+      "name": "the file is 0",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"text": "0"},
+        "change": {"lastId": "junk-1", "polled": true}
+      },
+      "expect": {"threw": "unreadable", "file": "unchanged"}
+    },
+    {
+      "name": "the file is false",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"text": "false"},
+        "change": {"lastId": "junk-1", "polled": true}
+      },
+      "expect": {"threw": "unreadable", "file": "unchanged"}
+    },
+    {
+      "name": "the file is \"\"",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"text": "\"\""},
+        "change": {"lastId": "junk-1", "polled": true}
+      },
+      "expect": {"threw": "unreadable", "file": "unchanged"}
+    },
+    {
+      "name": "the file is \"x\"",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"text": "\"x\""},
+        "change": {"lastId": "junk-1", "polled": true}
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": "junk-1",
+          "lastPolledAt": "2026-10-15T12:00:00.0000000Z",
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "the file is 5",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"text": "5"},
+        "change": {"lastId": "junk-1", "polled": true}
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": "junk-1",
+          "lastPolledAt": "2026-10-15T12:00:00.0000000Z",
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "the file is true",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"text": "true"},
+        "change": {"lastId": "junk-1", "polled": true}
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": "junk-1",
+          "lastPolledAt": "2026-10-15T12:00:00.0000000Z",
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "a UTF-8 BOM",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"hex": "efbbbf7b226c6173744964223a226d2d31222c2273696e6365223a377d"},
+        "change": {"polled": true}
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": 7,
+          "lastId": "m-1",
+          "lastPolledAt": "2026-10-15T12:00:00.0000000Z",
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "two BOMs",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"hex": "efbbbfefbbbf7b7d"},
+        "change": {"lastId": "junk-1", "polled": true}
+      },
+      "expect": {"threw": "unreadable", "file": "unchanged"}
+    },
+    {
+      "name": "names differing only by case",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"text": "{\"lastId\":\"a\",\"LastId\":\"b\"}"},
+        "change": {"lastId": "junk-1", "polled": true}
+      },
+      "expect": {"threw": "unreadable", "file": "unchanged"}
+    },
+    {
+      "name": "names differing only by case, deeper",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {
+          "text": "{\"alerts\":{\"x\":{\"at\":\"2026-10-15T11:00:00Z\",\"AT\":\"2026-10-15T11:00:00Z\"}}}"
+        },
+        "change": {"lastId": "junk-1", "polled": true}
+      },
+      "expect": {"threw": "unreadable", "file": "unchanged"}
+    },
+    {
+      "name": "an empty name",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"text": "{\"\":1,\"lastId\":\"a\"}"},
+        "change": {"lastId": "junk-1", "polled": true}
+      },
+      "expect": {"threw": "unreadable", "file": "unchanged"}
+    },
+    {
+      "name": "an empty name, deeper",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"text": "{\"seen\":{\"\":\"2026-10-15T11:00:00Z\"}}"},
+        "change": {"lastId": "junk-1", "polled": true}
+      },
+      "expect": {"threw": "unreadable", "file": "unchanged"}
+    },
+    {
+      "name": "one name twice",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"text": "{\"lastId\":\"a\",\"lastId\":\"b\"}"},
+        "change": {"polled": true}
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": "b",
+          "lastPolledAt": "2026-10-15T12:00:00.0000000Z",
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "the lock held",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"json": {"lastId": "m-1"}},
+        "change": {"lastId": "junk-1", "polled": true},
+        "lock": "held"
+      },
+      "expect": {"threw": "locked", "file": "unchanged"}
+    },
+    {
+      "name": "invalid UTF-8",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"hex": "7b226c6173744964223a2261ff62227d"},
+        "change": {"polled": true},
+        "repair": true
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": "a\ufffdb",
+          "lastPolledAt": "2026-10-15T12:00:00.0000000Z",
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "a lone surrogate escape",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"text": "{\"lastId\":\"cut \\ud83d\"}"},
+        "change": {"polled": true},
+        "repair": true
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": "cut \ufffd",
+          "lastPolledAt": "2026-10-15T12:00:00.0000000Z",
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "a name past ASCII",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"text": "{\"lastId\":\"a\",\"since\":7,\"\u00fc\":1}"},
+        "change": {"polled": true}
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": 7,
+          "lastId": "a",
+          "lastPolledAt": "2026-10-15T12:00:00.0000000Z",
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "a line comment before the object",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"text": "// replies\n{\"lastId\":\"a\",\"since\":7}"},
+        "change": {"polled": true}
+      },
+      "expectByEdition": {
+        "Desktop": {"threw": "unreadable", "file": "unchanged"},
+        "Core": {
+          "threw": null,
+          "file": {
+            "openUntil": null,
+            "since": 7,
+            "lastId": "a",
+            "lastPolledAt": "2026-10-15T12:00:00.0000000Z",
+            "lastReplyAt": null,
+            "alerts": {},
+            "seen": {},
+            "refused": {},
+            "pairCandidates": [],
+            "picks": {},
+            "standing": false,
+            "compose": [],
+            "down": null,
+            "downSent": {},
+            "composeRefusedAt": null,
+            "hotUntil": null
+          }
+        }
+      }
+    },
+    {
+      "name": "a micro sign and a capital mu",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"text": "{\"lastId\":\"a\",\"\u00b5\":1,\"\u039c\":2}"},
+        "change": {"polled": true}
+      },
+      "expectByEdition": {
+        "Desktop": {
+          "threw": null,
+          "file": {
+            "openUntil": null,
+            "since": null,
+            "lastId": "a",
+            "lastPolledAt": "2026-10-15T12:00:00.0000000Z",
+            "lastReplyAt": null,
+            "alerts": {},
+            "seen": {},
+            "refused": {},
+            "pairCandidates": [],
+            "picks": {},
+            "standing": false,
+            "compose": [],
+            "down": null,
+            "downSent": {},
+            "composeRefusedAt": null,
+            "hotUntil": null
+          }
+        },
+        "Core": {"threw": "unreadable", "file": "unchanged"}
+      }
+    },
+    {
+      "name": "the junk-only change",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {
+          "json": {
+            "openUntil": "2026-10-15T14:00:00.0000000Z",
+            "since": 1760529600,
+            "lastId": "m-41",
+            "lastPolledAt": "2026-10-15T11:55:00.0000000Z",
+            "lastReplyAt": "2026-10-15T11:00:00.0000000Z",
+            "alerts": {
+              "k7": {
+                "at": "2026-10-15T11:00:00.0000000Z",
+                "expires": "2026-10-15T23:00:00.0000000Z",
+                "event": "done",
+                "jobId": "j1",
+                "seq": 3,
+                "sessionId": "s1",
+                "provider": "claude",
+                "title": "t1",
+                "uses": 1,
+                "path": "C:\\w\\a.jsonl",
+                "cwd": "C:\\w",
+                "home": null,
+                "mark": "j1@3",
+                "len": 1200
+              }
+            },
+            "seen": {"n1": "2026-10-15T11:59:00.0000000Z", "n0": "2026-10-13T00:00:00.0000000Z"},
+            "refused": {"k7": "2026-10-15T11:30:00.0000000Z"},
+            "pairCandidates": [
+              {
+                "id": "c1",
+                "pid": "p1",
+                "d": {"value": "dmFsdWU=", "protected": false},
+                "label": "phone",
+                "code": "123456",
+                "at": "2026-10-15T11:58:00.0000000Z",
+                "expires": "2026-10-15T12:10:00.0000000Z"
+              }
+            ],
+            "picks": {
+              "abcdef": {
+                "kind": "job",
+                "jobId": "j1",
+                "at": "2026-10-15T11:00:00.0000000Z",
+                "expires": "2026-10-15T23:00:00.0000000Z"
+              }
+            },
+            "standing": true,
+            "compose": [{"at": "2026-10-15T11:50:00.0000000Z", "act": "new"}],
+            "down": {"day": "2026-10-15", "full": 1, "other": 2},
+            "downSent": {"m1": {"at": "2026-10-15T10:00:00.0000000Z", "attached": true}},
+            "composeRefusedAt": "2026-10-15T11:40:00.0000000Z",
+            "hotUntil": "2026-10-15T12:30:00.0000000Z"
+          }
+        },
+        "change": {"lastId": "junk-1", "polled": true}
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": "2026-10-15T14:00:00.0000000Z",
+          "since": 1760529600,
+          "lastId": "junk-1",
+          "lastPolledAt": "2026-10-15T12:00:00.0000000Z",
+          "lastReplyAt": "2026-10-15T11:00:00.0000000Z",
+          "alerts": {
+            "k7": {
+              "at": "2026-10-15T11:00:00.0000000Z",
+              "expires": "2026-10-15T23:00:00.0000000Z",
+              "event": "done",
+              "jobId": "j1",
+              "seq": 3,
+              "sessionId": "s1",
+              "provider": "claude",
+              "title": "t1",
+              "uses": 1,
+              "path": "C:\\w\\a.jsonl",
+              "cwd": "C:\\w",
+              "home": null,
+              "mark": "j1@3",
+              "len": 1200
+            }
+          },
+          "seen": {"n1": "2026-10-15T11:59:00.0000000Z"},
+          "refused": {"k7": "2026-10-15T11:30:00.0000000Z"},
+          "pairCandidates": [
+            {
+              "id": "c1",
+              "pid": "p1",
+              "d": {"value": "dmFsdWU=", "protected": false},
+              "label": "phone",
+              "code": "123456",
+              "at": "2026-10-15T11:58:00.0000000Z",
+              "expires": "2026-10-15T12:10:00.0000000Z"
+            }
+          ],
+          "picks": {
+            "abcdef": {
+              "kind": "job",
+              "jobId": "j1",
+              "at": "2026-10-15T11:00:00.0000000Z",
+              "expires": "2026-10-15T23:00:00.0000000Z"
+            }
+          },
+          "standing": true,
+          "compose": [{"at": "2026-10-15T11:50:00.0000000Z", "act": "new"}],
+          "down": {"day": "2026-10-15", "full": 1, "other": 2},
+          "downSent": {"m1": {"at": "2026-10-15T10:00:00.0000000Z", "attached": true}},
+          "composeRefusedAt": "2026-10-15T11:40:00.0000000Z",
+          "hotUntil": "2026-10-15T12:30:00.0000000Z"
+        }
+      }
+    },
+    {
+      "name": "lastPolledAt only",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {
+          "json": {
+            "openUntil": "2026-10-15T14:00:00.0000000Z",
+            "since": 1760529600,
+            "lastId": "m-41",
+            "lastPolledAt": "2026-10-15T11:55:00.0000000Z",
+            "lastReplyAt": "2026-10-15T11:00:00.0000000Z",
+            "alerts": {
+              "k7": {
+                "at": "2026-10-15T11:00:00.0000000Z",
+                "expires": "2026-10-15T23:00:00.0000000Z",
+                "event": "done",
+                "jobId": "j1",
+                "seq": 3,
+                "sessionId": "s1",
+                "provider": "claude",
+                "title": "t1",
+                "uses": 1,
+                "path": "C:\\w\\a.jsonl",
+                "cwd": "C:\\w",
+                "home": null,
+                "mark": "j1@3",
+                "len": 1200
+              }
+            },
+            "seen": {"n1": "2026-10-15T11:59:00.0000000Z", "n0": "2026-10-13T00:00:00.0000000Z"},
+            "refused": {"k7": "2026-10-15T11:30:00.0000000Z"},
+            "pairCandidates": [
+              {
+                "id": "c1",
+                "pid": "p1",
+                "d": {"value": "dmFsdWU=", "protected": false},
+                "label": "phone",
+                "code": "123456",
+                "at": "2026-10-15T11:58:00.0000000Z",
+                "expires": "2026-10-15T12:10:00.0000000Z"
+              }
+            ],
+            "picks": {
+              "abcdef": {
+                "kind": "job",
+                "jobId": "j1",
+                "at": "2026-10-15T11:00:00.0000000Z",
+                "expires": "2026-10-15T23:00:00.0000000Z"
+              }
+            },
+            "standing": true,
+            "compose": [{"at": "2026-10-15T11:50:00.0000000Z", "act": "new"}],
+            "down": {"day": "2026-10-15", "full": 1, "other": 2},
+            "downSent": {"m1": {"at": "2026-10-15T10:00:00.0000000Z", "attached": true}},
+            "composeRefusedAt": "2026-10-15T11:40:00.0000000Z",
+            "hotUntil": "2026-10-15T12:30:00.0000000Z"
+          }
+        },
+        "change": {"polled": true}
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": "2026-10-15T14:00:00.0000000Z",
+          "since": 1760529600,
+          "lastId": "m-41",
+          "lastPolledAt": "2026-10-15T12:00:00.0000000Z",
+          "lastReplyAt": "2026-10-15T11:00:00.0000000Z",
+          "alerts": {
+            "k7": {
+              "at": "2026-10-15T11:00:00.0000000Z",
+              "expires": "2026-10-15T23:00:00.0000000Z",
+              "event": "done",
+              "jobId": "j1",
+              "seq": 3,
+              "sessionId": "s1",
+              "provider": "claude",
+              "title": "t1",
+              "uses": 1,
+              "path": "C:\\w\\a.jsonl",
+              "cwd": "C:\\w",
+              "home": null,
+              "mark": "j1@3",
+              "len": 1200
+            }
+          },
+          "seen": {"n1": "2026-10-15T11:59:00.0000000Z"},
+          "refused": {"k7": "2026-10-15T11:30:00.0000000Z"},
+          "pairCandidates": [
+            {
+              "id": "c1",
+              "pid": "p1",
+              "d": {"value": "dmFsdWU=", "protected": false},
+              "label": "phone",
+              "code": "123456",
+              "at": "2026-10-15T11:58:00.0000000Z",
+              "expires": "2026-10-15T12:10:00.0000000Z"
+            }
+          ],
+          "picks": {
+            "abcdef": {
+              "kind": "job",
+              "jobId": "j1",
+              "at": "2026-10-15T11:00:00.0000000Z",
+              "expires": "2026-10-15T23:00:00.0000000Z"
+            }
+          },
+          "standing": true,
+          "compose": [{"at": "2026-10-15T11:50:00.0000000Z", "act": "new"}],
+          "down": {"day": "2026-10-15", "full": 1, "other": 2},
+          "downSent": {"m1": {"at": "2026-10-15T10:00:00.0000000Z", "attached": true}},
+          "composeRefusedAt": "2026-10-15T11:40:00.0000000Z",
+          "hotUntil": "2026-10-15T12:30:00.0000000Z"
+        }
+      }
+    },
+    {
+      "name": "no change",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {
+          "json": {
+            "openUntil": "2026-10-15T14:00:00.0000000Z",
+            "since": 1760529600,
+            "lastId": "m-41",
+            "lastPolledAt": "2026-10-15T11:55:00.0000000Z",
+            "lastReplyAt": "2026-10-15T11:00:00.0000000Z",
+            "alerts": {
+              "k7": {
+                "at": "2026-10-15T11:00:00.0000000Z",
+                "expires": "2026-10-15T23:00:00.0000000Z",
+                "event": "done",
+                "jobId": "j1",
+                "seq": 3,
+                "sessionId": "s1",
+                "provider": "claude",
+                "title": "t1",
+                "uses": 1,
+                "path": "C:\\w\\a.jsonl",
+                "cwd": "C:\\w",
+                "home": null,
+                "mark": "j1@3",
+                "len": 1200
+              }
+            },
+            "seen": {"n1": "2026-10-15T11:59:00.0000000Z", "n0": "2026-10-13T00:00:00.0000000Z"},
+            "refused": {"k7": "2026-10-15T11:30:00.0000000Z"},
+            "pairCandidates": [
+              {
+                "id": "c1",
+                "pid": "p1",
+                "d": {"value": "dmFsdWU=", "protected": false},
+                "label": "phone",
+                "code": "123456",
+                "at": "2026-10-15T11:58:00.0000000Z",
+                "expires": "2026-10-15T12:10:00.0000000Z"
+              }
+            ],
+            "picks": {
+              "abcdef": {
+                "kind": "job",
+                "jobId": "j1",
+                "at": "2026-10-15T11:00:00.0000000Z",
+                "expires": "2026-10-15T23:00:00.0000000Z"
+              }
+            },
+            "standing": true,
+            "compose": [{"at": "2026-10-15T11:50:00.0000000Z", "act": "new"}],
+            "down": {"day": "2026-10-15", "full": 1, "other": 2},
+            "downSent": {"m1": {"at": "2026-10-15T10:00:00.0000000Z", "attached": true}},
+            "composeRefusedAt": "2026-10-15T11:40:00.0000000Z",
+            "hotUntil": "2026-10-15T12:30:00.0000000Z"
+          }
+        },
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": "2026-10-15T14:00:00.0000000Z",
+          "since": 1760529600,
+          "lastId": "m-41",
+          "lastPolledAt": "2026-10-15T11:55:00.0000000Z",
+          "lastReplyAt": "2026-10-15T11:00:00.0000000Z",
+          "alerts": {
+            "k7": {
+              "at": "2026-10-15T11:00:00.0000000Z",
+              "expires": "2026-10-15T23:00:00.0000000Z",
+              "event": "done",
+              "jobId": "j1",
+              "seq": 3,
+              "sessionId": "s1",
+              "provider": "claude",
+              "title": "t1",
+              "uses": 1,
+              "path": "C:\\w\\a.jsonl",
+              "cwd": "C:\\w",
+              "home": null,
+              "mark": "j1@3",
+              "len": 1200
+            }
+          },
+          "seen": {"n1": "2026-10-15T11:59:00.0000000Z"},
+          "refused": {"k7": "2026-10-15T11:30:00.0000000Z"},
+          "pairCandidates": [
+            {
+              "id": "c1",
+              "pid": "p1",
+              "d": {"value": "dmFsdWU=", "protected": false},
+              "label": "phone",
+              "code": "123456",
+              "at": "2026-10-15T11:58:00.0000000Z",
+              "expires": "2026-10-15T12:10:00.0000000Z"
+            }
+          ],
+          "picks": {
+            "abcdef": {
+              "kind": "job",
+              "jobId": "j1",
+              "at": "2026-10-15T11:00:00.0000000Z",
+              "expires": "2026-10-15T23:00:00.0000000Z"
+            }
+          },
+          "standing": true,
+          "compose": [{"at": "2026-10-15T11:50:00.0000000Z", "act": "new"}],
+          "down": {"day": "2026-10-15", "full": 1, "other": 2},
+          "downSent": {"m1": {"at": "2026-10-15T10:00:00.0000000Z", "attached": true}},
+          "composeRefusedAt": "2026-10-15T11:40:00.0000000Z",
+          "hotUntil": "2026-10-15T12:30:00.0000000Z"
+        }
+      }
+    },
+    {
+      "name": "top-level fields as PowerShell casts them",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {
+          "text": "{\"openUntil\":\"2026-10-15T21:00:00+09:00\",\"since\":1.5,\"lastId\":123,\"lastPolledAt\":5,\"lastReplyAt\":\"tomorrow\",\"standing\":1,\"composeRefusedAt\":true,\"hotUntil\":null}"
+        },
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": "2026-10-15T12:00:00.0000000Z",
+          "since": 2,
+          "lastId": "123",
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": true,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "since \"42\"",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"text": "{\"since\":\"42\"}"},
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": 42,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "since 0",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"text": "{\"since\":0}"},
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "since true",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"text": "{\"since\":true}"},
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": 1,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "since \"abc\"",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"text": "{\"since\":\"abc\"}"},
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "since 1e20",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"text": "{\"since\":1e20}"},
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "since \"-5\"",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"text": "{\"since\":\"-5\"}"},
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": -5,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "since {}",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"text": "{\"since\":{}}"},
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "lastId true",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"text": "{\"lastId\":true}"},
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": "True",
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "lastId 0",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"text": "{\"lastId\":0}"},
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "lastId \"\"",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"text": "{\"lastId\":\"\"}"},
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "names it does not know",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"json": {"lastId": "a", "foo": 1, "bar": {"x": 1}}},
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": "a",
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "names in any case",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {
+          "json": {
+            "OpenUntil": "2026-10-15T14:00:00Z",
+            "LASTID": "a",
+            "Alerts": {
+              "q1": {
+                "AT": "2026-10-15T11:00:00.0000000Z",
+                "Expires": "2026-10-15T13:00:00.0000000Z",
+                "Event": "done"
+              }
+            },
+            "Standing": true
+          }
+        },
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": "2026-10-15T14:00:00.0000000Z",
+          "since": null,
+          "lastId": "a",
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {
+            "q1": {
+              "at": "2026-10-15T11:00:00.0000000Z",
+              "expires": "2026-10-15T13:00:00.0000000Z",
+              "event": "done",
+              "jobId": null,
+              "seq": null,
+              "sessionId": null,
+              "provider": null,
+              "title": null,
+              "uses": 0,
+              "path": null,
+              "cwd": null
+            }
+          },
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": true,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "a stamp with no zone",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"json": {"openUntil": "2026-10-15T21:00:00"}},
+        "change": null
+      },
+      "expectByEdition": {
+        "Desktop": {
+          "threw": null,
+          "file": {
+            "openUntil": "2026-10-15T21:00:00.0000000Z",
+            "since": null,
+            "lastId": null,
+            "lastPolledAt": null,
+            "lastReplyAt": null,
+            "alerts": {},
+            "seen": {},
+            "refused": {},
+            "pairCandidates": [],
+            "picks": {},
+            "standing": false,
+            "compose": [],
+            "down": null,
+            "downSent": {},
+            "composeRefusedAt": null,
+            "hotUntil": null
+          }
+        },
+        "Core": {
+          "threw": null,
+          "file": {
+            "openUntil": "2026-10-15T12:00:00.0000000Z",
+            "since": null,
+            "lastId": null,
+            "lastPolledAt": null,
+            "lastReplyAt": null,
+            "alerts": {},
+            "seen": {},
+            "refused": {},
+            "pairCandidates": [],
+            "picks": {},
+            "standing": false,
+            "compose": [],
+            "down": null,
+            "downSent": {},
+            "composeRefusedAt": null,
+            "hotUntil": null
+          }
+        }
+      }
+    },
+    {
+      "name": "a stamp with no zone, west of UTC",
+      "input": {
+        "utcOffsetMinutes": -300,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"json": {"openUntil": "2026-10-15T21:00:00"}},
+        "change": null
+      },
+      "expectByEdition": {
+        "Desktop": {
+          "threw": null,
+          "file": {
+            "openUntil": "2026-10-15T21:00:00.0000000Z",
+            "since": null,
+            "lastId": null,
+            "lastPolledAt": null,
+            "lastReplyAt": null,
+            "alerts": {},
+            "seen": {},
+            "refused": {},
+            "pairCandidates": [],
+            "picks": {},
+            "standing": false,
+            "compose": [],
+            "down": null,
+            "downSent": {},
+            "composeRefusedAt": null,
+            "hotUntil": null
+          }
+        },
+        "Core": {
+          "threw": null,
+          "file": {
+            "openUntil": "2026-10-16T02:00:00.0000000Z",
+            "since": null,
+            "lastId": null,
+            "lastPolledAt": null,
+            "lastReplyAt": null,
+            "alerts": {},
+            "seen": {},
+            "refused": {},
+            "pairCandidates": [],
+            "picks": {},
+            "standing": false,
+            "compose": [],
+            "down": null,
+            "downSent": {},
+            "composeRefusedAt": null,
+            "hotUntil": null
+          }
+        }
+      }
+    },
+    {
+      "name": "a stamp with no zone and a space",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"json": {"openUntil": "2026-10-15 21:00:00"}},
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": "2026-10-15T21:00:00.0000000Z",
+          "since": null,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "a stamp as \\/Date(ms)\\/",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"text": "{\"openUntil\":\"\\/Date(1760529600000)\\/\"}"},
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": "2025-10-15T12:00:00.0000000Z",
+          "since": null,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "an alert with every field",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {
+          "json": {
+            "alerts": {
+              "q1": {
+                "at": "2026-10-15T11:00:00.0000000Z",
+                "expires": "2026-10-15T13:00:00.0000000Z",
+                "event": "permit",
+                "jobId": "j9",
+                "seq": 4,
+                "sessionId": "s9",
+                "provider": "codex",
+                "title": "\ud55c\uae00 \ud83d\ude00",
+                "uses": 2,
+                "path": "C:\\w\\x.jsonl",
+                "cwd": "C:\\w",
+                "home": "C:\\h",
+                "live": true,
+                "usage": "soon",
+                "permit": {
+                  "run": "r1",
+                  "rid": "q",
+                  "digest": "abc",
+                  "until": "2026-10-15T21:30:00+09:00",
+                  "state": "asked",
+                  "tool": "Bash",
+                  "toolUseId": "tu1",
+                  "asked": "2026-10-15T11:00:00Z",
+                  "answeredAt": null
+                },
+                "mark": "m9",
+                "seen": "2026-10-15T11:01:00Z",
+                "len": 345
+              }
+            }
+          }
+        },
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {
+            "q1": {
+              "at": "2026-10-15T11:00:00.0000000Z",
+              "expires": "2026-10-15T13:00:00.0000000Z",
+              "event": "permit",
+              "jobId": "j9",
+              "seq": 4,
+              "sessionId": "s9",
+              "provider": "codex",
+              "title": "\ud55c\uae00 \ud83d\ude00",
+              "uses": 2,
+              "path": "C:\\w\\x.jsonl",
+              "cwd": "C:\\w",
+              "home": "C:\\h",
+              "live": true,
+              "usage": "soon",
+              "permit": {
+                "run": "r1",
+                "rid": "q",
+                "digest": "abc",
+                "until": "2026-10-15T12:30:00.0000000Z",
+                "state": "asked",
+                "tool": "Bash",
+                "toolUseId": "tu1",
+                "asked": "2026-10-15T11:00:00.0000000Z",
+                "answeredAt": null
+              },
+              "mark": "m9",
+              "seen": "2026-10-15T11:01:00.0000000Z",
+              "len": 345
+            }
+          },
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "alerts past their expiry",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {
+          "json": {
+            "alerts": {
+              "e1": {"at": "2026-10-15T10:01:00.0000000Z", "expires": "2026-10-15T11:00:00.0000000Z"},
+              "e2": {"at": "2026-10-15T10:02:00.0000000Z", "expires": "2026-10-15T12:00:00.0000000Z"},
+              "e3": {"at": "2026-10-15T10:03:00.0000000Z", "expires": "2026-10-15T12:00:00.0000001Z"},
+              "e4": {"at": "2026-10-15T10:04:00.0000000Z", "expires": null},
+              "e5": {"at": "2026-10-15T10:05:00.0000000Z", "expires": "garbage"},
+              "e6": {"at": "2026-10-15T10:06:00.0000000Z"}
+            }
+          }
+        },
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {
+            "e3": {
+              "at": "2026-10-15T10:03:00.0000000Z",
+              "expires": "2026-10-15T12:00:00.0000001Z",
+              "event": "",
+              "jobId": null,
+              "seq": null,
+              "sessionId": null,
+              "provider": null,
+              "title": null,
+              "uses": 0,
+              "path": null,
+              "cwd": null
+            }
+          },
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "alert fields as PowerShell casts them",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {
+          "json": {
+            "alerts": {
+              "c1": {
+                "at": "2026-10-15T10:01:00.0000000Z",
+                "expires": "2026-10-15T13:00:00.0000000Z",
+                "event": 5,
+                "seq": "0",
+                "uses": "3",
+                "home": null,
+                "live": "TRUE",
+                "usage": "",
+                "mark": 5,
+                "len": null
+              },
+              "c2": {
+                "at": "2026-10-15T10:02:00.0000000Z",
+                "expires": "2026-10-15T13:00:00.0000000Z",
+                "event": true,
+                "jobId": false,
+                "seq": 0,
+                "title": 0,
+                "uses": " 7 ",
+                "home": "",
+                "live": "1",
+                "len": "abc"
+              },
+              "c3": {
+                "at": "2026-10-15T10:03:00.0000000Z",
+                "expires": "2026-10-15T13:00:00.0000000Z",
+                "seq": 2.5,
+                "uses": 2.5,
+                "live": 1,
+                "len": "12"
+              },
+              "c4": {
+                "at": "2026-10-15T10:04:00.0000000Z",
+                "expires": "2026-10-15T13:00:00.0000000Z",
+                "seq": "-3",
+                "uses": true,
+                "live": false,
+                "len": 2.5
+              },
+              "c5": {
+                "at": "2026-10-15T10:05:00.0000000Z",
+                "expires": "2026-10-15T13:00:00.0000000Z",
+                "uses": null,
+                "len": true,
+                "seen": "garbage",
+                "mark": ""
+              }
+            }
+          }
+        },
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {
+            "c1": {
+              "at": "2026-10-15T10:01:00.0000000Z",
+              "expires": "2026-10-15T13:00:00.0000000Z",
+              "event": "5",
+              "jobId": null,
+              "seq": 0,
+              "sessionId": null,
+              "provider": null,
+              "title": null,
+              "uses": 3,
+              "path": null,
+              "cwd": null,
+              "home": null,
+              "live": true,
+              "mark": "5",
+              "len": 0
+            },
+            "c2": {
+              "at": "2026-10-15T10:02:00.0000000Z",
+              "expires": "2026-10-15T13:00:00.0000000Z",
+              "event": "True",
+              "jobId": null,
+              "seq": null,
+              "sessionId": null,
+              "provider": null,
+              "title": null,
+              "uses": 7,
+              "path": null,
+              "cwd": null,
+              "home": null
+            },
+            "c3": {
+              "at": "2026-10-15T10:03:00.0000000Z",
+              "expires": "2026-10-15T13:00:00.0000000Z",
+              "event": "",
+              "jobId": null,
+              "seq": 2,
+              "sessionId": null,
+              "provider": null,
+              "title": null,
+              "uses": 2,
+              "path": null,
+              "cwd": null,
+              "live": true,
+              "len": 12
+            },
+            "c4": {
+              "at": "2026-10-15T10:04:00.0000000Z",
+              "expires": "2026-10-15T13:00:00.0000000Z",
+              "event": "",
+              "jobId": null,
+              "seq": -3,
+              "sessionId": null,
+              "provider": null,
+              "title": null,
+              "uses": 1,
+              "path": null,
+              "cwd": null,
+              "len": 2
+            },
+            "c5": {
+              "at": "2026-10-15T10:05:00.0000000Z",
+              "expires": "2026-10-15T13:00:00.0000000Z",
+              "event": "",
+              "jobId": null,
+              "seq": null,
+              "sessionId": null,
+              "provider": null,
+              "title": null,
+              "uses": 0,
+              "path": null,
+              "cwd": null,
+              "len": 1
+            }
+          },
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "alerts that are no object",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {
+          "json": {
+            "alerts": {
+              "a": null,
+              "b": 0,
+              "c": "",
+              "d": "x",
+              "e": 5,
+              "f": true,
+              "g": [],
+              "h": {"at": "2026-10-15T11:00:00.0000000Z", "expires": "2026-10-15T13:00:00.0000000Z"}
+            }
+          }
+        },
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {
+            "h": {
+              "at": "2026-10-15T11:00:00.0000000Z",
+              "expires": "2026-10-15T13:00:00.0000000Z",
+              "event": "",
+              "jobId": null,
+              "seq": null,
+              "sessionId": null,
+              "provider": null,
+              "title": null,
+              "uses": 0,
+              "path": null,
+              "cwd": null
+            }
+          },
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "permit blocks",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {
+          "json": {
+            "alerts": {
+              "p1": {
+                "at": "2026-10-15T10:01:00.0000000Z",
+                "expires": "2026-10-15T13:00:00.0000000Z",
+                "permit": {
+                  "RUN": "r",
+                  "rid": 5,
+                  "digest": "",
+                  "until": "garbage",
+                  "state": true,
+                  "Tool": "Bash",
+                  "toolUseId": 0,
+                  "asked": 5,
+                  "answeredAt": "2026-10-15T11:00:00.0000000Z"
+                }
+              },
+              "p2": {
+                "at": "2026-10-15T10:02:00.0000000Z",
+                "expires": "2026-10-15T13:00:00.0000000Z",
+                "permit": "x"
+              },
+              "p3": {
+                "at": "2026-10-15T10:03:00.0000000Z",
+                "expires": "2026-10-15T13:00:00.0000000Z",
+                "permit": {}
+              },
+              "p4": {
+                "at": "2026-10-15T10:04:00.0000000Z",
+                "expires": "2026-10-15T13:00:00.0000000Z",
+                "permit": []
+              },
+              "p5": {
+                "at": "2026-10-15T10:05:00.0000000Z",
+                "expires": "2026-10-15T13:00:00.0000000Z",
+                "permit": ["x"]
+              },
+              "p6": {
+                "at": "2026-10-15T10:06:00.0000000Z",
+                "expires": "2026-10-15T13:00:00.0000000Z",
+                "permit": 0
+              }
+            }
+          }
+        },
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {
+            "p1": {
+              "at": "2026-10-15T10:01:00.0000000Z",
+              "expires": "2026-10-15T13:00:00.0000000Z",
+              "event": "",
+              "jobId": null,
+              "seq": null,
+              "sessionId": null,
+              "provider": null,
+              "title": null,
+              "uses": 0,
+              "path": null,
+              "cwd": null,
+              "permit": {
+                "run": "r",
+                "rid": "5",
+                "digest": null,
+                "until": null,
+                "state": "True",
+                "tool": "Bash",
+                "toolUseId": "0",
+                "asked": null,
+                "answeredAt": "2026-10-15T11:00:00.0000000Z"
+              }
+            },
+            "p2": {
+              "at": "2026-10-15T10:02:00.0000000Z",
+              "expires": "2026-10-15T13:00:00.0000000Z",
+              "event": "",
+              "jobId": null,
+              "seq": null,
+              "sessionId": null,
+              "provider": null,
+              "title": null,
+              "uses": 0,
+              "path": null,
+              "cwd": null,
+              "permit": {
+                "run": null,
+                "rid": null,
+                "digest": null,
+                "until": null,
+                "state": null,
+                "tool": null,
+                "toolUseId": null,
+                "asked": null,
+                "answeredAt": null
+              }
+            },
+            "p3": {
+              "at": "2026-10-15T10:03:00.0000000Z",
+              "expires": "2026-10-15T13:00:00.0000000Z",
+              "event": "",
+              "jobId": null,
+              "seq": null,
+              "sessionId": null,
+              "provider": null,
+              "title": null,
+              "uses": 0,
+              "path": null,
+              "cwd": null,
+              "permit": {
+                "run": null,
+                "rid": null,
+                "digest": null,
+                "until": null,
+                "state": null,
+                "tool": null,
+                "toolUseId": null,
+                "asked": null,
+                "answeredAt": null
+              }
+            },
+            "p4": {
+              "at": "2026-10-15T10:04:00.0000000Z",
+              "expires": "2026-10-15T13:00:00.0000000Z",
+              "event": "",
+              "jobId": null,
+              "seq": null,
+              "sessionId": null,
+              "provider": null,
+              "title": null,
+              "uses": 0,
+              "path": null,
+              "cwd": null
+            },
+            "p5": {
+              "at": "2026-10-15T10:05:00.0000000Z",
+              "expires": "2026-10-15T13:00:00.0000000Z",
+              "event": "",
+              "jobId": null,
+              "seq": null,
+              "sessionId": null,
+              "provider": null,
+              "title": null,
+              "uses": 0,
+              "path": null,
+              "cwd": null,
+              "permit": {
+                "run": null,
+                "rid": null,
+                "digest": null,
+                "until": null,
+                "state": null,
+                "tool": null,
+                "toolUseId": null,
+                "asked": null,
+                "answeredAt": null
+              }
+            },
+            "p6": {
+              "at": "2026-10-15T10:06:00.0000000Z",
+              "expires": "2026-10-15T13:00:00.0000000Z",
+              "event": "",
+              "jobId": null,
+              "seq": null,
+              "sessionId": null,
+              "provider": null,
+              "title": null,
+              "uses": 0,
+              "path": null,
+              "cwd": null
+            }
+          },
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "alerts oldest first",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {
+          "json": {
+            "alerts": {
+              "z1": {"at": "2026-10-15T11:30:00.0000000Z", "expires": "2026-10-15T13:00:00.0000000Z"},
+              "z2": {"at": "2026-10-15T10:00:00.0000000Z", "expires": "2026-10-15T13:00:00.0000000Z"},
+              "z3": {"at": null, "expires": "2026-10-15T13:00:00.0000000Z"},
+              "z4": {"at": "2026-10-15T11:00:00+00:00", "expires": "2026-10-15T13:00:00.0000000Z"}
+            }
+          }
+        },
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {
+            "z3": {
+              "at": null,
+              "expires": "2026-10-15T13:00:00.0000000Z",
+              "event": "",
+              "jobId": null,
+              "seq": null,
+              "sessionId": null,
+              "provider": null,
+              "title": null,
+              "uses": 0,
+              "path": null,
+              "cwd": null
+            },
+            "z2": {
+              "at": "2026-10-15T10:00:00.0000000Z",
+              "expires": "2026-10-15T13:00:00.0000000Z",
+              "event": "",
+              "jobId": null,
+              "seq": null,
+              "sessionId": null,
+              "provider": null,
+              "title": null,
+              "uses": 0,
+              "path": null,
+              "cwd": null
+            },
+            "z4": {
+              "at": "2026-10-15T11:00:00.0000000Z",
+              "expires": "2026-10-15T13:00:00.0000000Z",
+              "event": "",
+              "jobId": null,
+              "seq": null,
+              "sessionId": null,
+              "provider": null,
+              "title": null,
+              "uses": 0,
+              "path": null,
+              "cwd": null
+            },
+            "z1": {
+              "at": "2026-10-15T11:30:00.0000000Z",
+              "expires": "2026-10-15T13:00:00.0000000Z",
+              "event": "",
+              "jobId": null,
+              "seq": null,
+              "sessionId": null,
+              "provider": null,
+              "title": null,
+              "uses": 0,
+              "path": null,
+              "cwd": null
+            }
+          },
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "a use count no number",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {
+          "json": {
+            "alerts": {
+              "x": {
+                "at": "2026-10-15T11:00:00.0000000Z",
+                "expires": "2026-10-15T11:00:00.0000000Z",
+                "uses": "abc"
+              }
+            }
+          }
+        },
+        "change": {"lastId": "junk-1", "polled": true}
+      },
+      "expect": {"threw": "invalid", "file": "unchanged"}
+    },
+    {
+      "name": "a use count past Int32",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {
+          "json": {
+            "alerts": {
+              "x": {
+                "at": "2026-10-15T11:00:00.0000000Z",
+                "expires": "2026-10-15T13:00:00.0000000Z",
+                "uses": 10000000000
+              }
+            }
+          }
+        },
+        "change": {"lastId": "junk-1", "polled": true}
+      },
+      "expect": {"threw": "invalid", "file": "unchanged"}
+    },
+    {
+      "name": "a use count that is an object",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {
+          "json": {
+            "alerts": {
+              "x": {
+                "at": "2026-10-15T11:00:00.0000000Z",
+                "expires": "2026-10-15T13:00:00.0000000Z",
+                "uses": {"n": 1}
+              }
+            }
+          }
+        },
+        "change": {"lastId": "junk-1", "polled": true}
+      },
+      "expect": {"threw": "invalid", "file": "unchanged"}
+    },
+    {
+      "name": "a use count that is a list",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {
+          "json": {
+            "alerts": {
+              "x": {
+                "at": "2026-10-15T11:00:00.0000000Z",
+                "expires": "2026-10-15T13:00:00.0000000Z",
+                "uses": [5]
+              }
+            }
+          }
+        },
+        "change": {"lastId": "junk-1", "polled": true}
+      },
+      "expect": {"threw": "invalid", "file": "unchanged"}
+    },
+    {
+      "name": "a seq past Int32",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {
+          "json": {
+            "alerts": {
+              "x": {
+                "at": "2026-10-15T11:00:00.0000000Z",
+                "expires": "2026-10-15T13:00:00.0000000Z",
+                "seq": "99999999999"
+              }
+            }
+          }
+        },
+        "change": {"lastId": "junk-1", "polled": true}
+      },
+      "expect": {"threw": "invalid", "file": "unchanged"}
+    },
+    {
+      "name": "200 alerts and 300 picks at most",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": null,
+        "change": {"lastId": "junk-1", "polled": true},
+        "recipe": {
+          "alerts": 205,
+          "alertBase": "2026-10-14T00:00:00Z",
+          "alertStep": 37,
+          "alertExpires": "2026-10-16T00:00:00.0000000Z",
+          "picks": 305,
+          "pickBase": "2026-10-15T00:00:00Z",
+          "pickStep": 37,
+          "pickExpires": "2026-10-16T00:00:00.0000000Z",
+          "seen": {
+            "s1": "2026-10-13T23:53:00.0000000Z",
+            "s2": "2026-10-13T23:55:00.0000000Z",
+            "s3": "2026-10-13T23:56:00.0000000Z",
+            "s4": "2026-10-14T11:00:00.0000000Z"
+          }
+        }
+      },
+      "expect": {
+        "threw": null,
+        "alerts": [
+          "a050",
+          "a183",
+          "a111",
+          "a039",
+          "a172",
+          "a100",
+          "a028",
+          "a161",
+          "a089",
+          "a017",
+          "a150",
+          "a078",
+          "a006",
+          "a139",
+          "a067",
+          "a200",
+          "a128",
+          "a056",
+          "a189",
+          "a117",
+          "a045",
+          "a178",
+          "a106",
+          "a034",
+          "a167",
+          "a095",
+          "a023",
+          "a156",
+          "a084",
+          "a012",
+          "a145",
+          "a073",
+          "a001",
+          "a134",
+          "a062",
+          "a195",
+          "a123",
+          "a051",
+          "a184",
+          "a112",
+          "a040",
+          "a173",
+          "a101",
+          "a029",
+          "a162",
+          "a090",
+          "a018",
+          "a151",
+          "a079",
+          "a007",
+          "a140",
+          "a068",
+          "a201",
+          "a129",
+          "a057",
+          "a190",
+          "a118",
+          "a046",
+          "a179",
+          "a107",
+          "a035",
+          "a168",
+          "a096",
+          "a024",
+          "a157",
+          "a085",
+          "a013",
+          "a146",
+          "a074",
+          "a002",
+          "a135",
+          "a063",
+          "a196",
+          "a124",
+          "a052",
+          "a185",
+          "a113",
+          "a041",
+          "a174",
+          "a102",
+          "a030",
+          "a163",
+          "a091",
+          "a019",
+          "a152",
+          "a080",
+          "a008",
+          "a141",
+          "a069",
+          "a202",
+          "a130",
+          "a058",
+          "a191",
+          "a119",
+          "a047",
+          "a180",
+          "a108",
+          "a036",
+          "a169",
+          "a097",
+          "a025",
+          "a158",
+          "a086",
+          "a014",
+          "a147",
+          "a075",
+          "a003",
+          "a136",
+          "a064",
+          "a197",
+          "a125",
+          "a053",
+          "a186",
+          "a114",
+          "a042",
+          "a175",
+          "a103",
+          "a031",
+          "a164",
+          "a092",
+          "a020",
+          "a153",
+          "a081",
+          "a009",
+          "a142",
+          "a070",
+          "a203",
+          "a131",
+          "a059",
+          "a192",
+          "a120",
+          "a048",
+          "a181",
+          "a109",
+          "a037",
+          "a170",
+          "a098",
+          "a026",
+          "a159",
+          "a087",
+          "a015",
+          "a148",
+          "a076",
+          "a004",
+          "a137",
+          "a065",
+          "a198",
+          "a126",
+          "a054",
+          "a187",
+          "a115",
+          "a043",
+          "a176",
+          "a104",
+          "a032",
+          "a165",
+          "a093",
+          "a021",
+          "a154",
+          "a082",
+          "a010",
+          "a143",
+          "a071",
+          "a204",
+          "a132",
+          "a060",
+          "a193",
+          "a121",
+          "a049",
+          "a182",
+          "a110",
+          "a038",
+          "a171",
+          "a099",
+          "a027",
+          "a160",
+          "a088",
+          "a016",
+          "a149",
+          "a077",
+          "a005",
+          "a138",
+          "a066",
+          "a199",
+          "a127",
+          "a055",
+          "a188",
+          "a116",
+          "a044",
+          "a177",
+          "a105",
+          "a033",
+          "a166",
+          "a094",
+          "a022",
+          "a155",
+          "a083",
+          "a011",
+          "a144",
+          "a072"
+        ],
+        "picks": [
+          "aaaaff",
+          "aaaagg",
+          "aaaahh",
+          "aaaaii",
+          "aaaajj",
+          "aaaaaz",
+          "aaaab2",
+          "aaaac3",
+          "aaaad4",
+          "aaaae5",
+          "aaaaf6",
+          "aaaag7",
+          "aaaaia",
+          "aaaajb",
+          "aaaaar",
+          "aaaabs",
+          "aaaact",
+          "aaaadu",
+          "aaaaev",
+          "aaaafw",
+          "aaaagx",
+          "aaaahy",
+          "aaaaiz",
+          "aaaaaj",
+          "aaaabk",
+          "aaaacl",
+          "aaaadm",
+          "aaaaen",
+          "aaaafo",
+          "aaaagp",
+          "aaaahq",
+          "aaaair",
+          "aaaaab",
+          "aaaabc",
+          "aaaacd",
+          "aaaade",
+          "aaaaef",
+          "aaaafg",
+          "aaaagh",
+          "aaaahi",
+          "aaaaij",
+          "aaaajk",
+          "aaaaa2",
+          "aaaab3",
+          "aaaac4",
+          "aaaad5",
+          "aaaae6",
+          "aaaaf7",
+          "aaaaha",
+          "aaaaib",
+          "aaaajc",
+          "aaaaas",
+          "aaaabt",
+          "aaaacu",
+          "aaaadv",
+          "aaaaew",
+          "aaaafx",
+          "aaaagy",
+          "aaaahz",
+          "aaaai2",
+          "aaaaak",
+          "aaaabl",
+          "aaaacm",
+          "aaaadn",
+          "aaaaeo",
+          "aaaafp",
+          "aaaagq",
+          "aaaahr",
+          "aaaais",
+          "aaaaac",
+          "aaaabd",
+          "aaaace",
+          "aaaadf",
+          "aaaaeg",
+          "aaaafh",
+          "aaaagi",
+          "aaaahj",
+          "aaaaik",
+          "aaaajl",
+          "aaaaa3",
+          "aaaab4",
+          "aaaac5",
+          "aaaad6",
+          "aaaae7",
+          "aaaaga",
+          "aaaahb",
+          "aaaaic",
+          "aaaajd",
+          "aaaaat",
+          "aaaabu",
+          "aaaacv",
+          "aaaadw",
+          "aaaaex",
+          "aaaafy",
+          "aaaagz",
+          "aaaah2",
+          "aaaai3",
+          "aaaaal",
+          "aaaabm",
+          "aaaacn",
+          "aaaado",
+          "aaaaep",
+          "aaaafq",
+          "aaaagr",
+          "aaaahs",
+          "aaaait",
+          "aaaaad",
+          "aaaabe",
+          "aaaacf",
+          "aaaadg",
+          "aaaaeh",
+          "aaaafi",
+          "aaaagj",
+          "aaaahk",
+          "aaaail",
+          "aaaajm",
+          "aaaaa4",
+          "aaaab5",
+          "aaaac6",
+          "aaaad7",
+          "aaaafa",
+          "aaaagb",
+          "aaaahc",
+          "aaaaid",
+          "aaaaje",
+          "aaaaau",
+          "aaaabv",
+          "aaaacw",
+          "aaaadx",
+          "aaaaey",
+          "aaaafz",
+          "aaaag2",
+          "aaaah3",
+          "aaaai4",
+          "aaaaam",
+          "aaaabn",
+          "aaaaco",
+          "aaaadp",
+          "aaaaeq",
+          "aaaafr",
+          "aaaags",
+          "aaaaht",
+          "aaaaiu",
+          "aaaaae",
+          "aaaabf",
+          "aaaacg",
+          "aaaadh",
+          "aaaaei",
+          "aaaafj",
+          "aaaagk",
+          "aaaahl",
+          "aaaaim",
+          "aaaajn",
+          "aaaaa5",
+          "aaaab6",
+          "aaaac7",
+          "aaaaea",
+          "aaaafb",
+          "aaaagc",
+          "aaaahd",
+          "aaaaie",
+          "aaaajf",
+          "aaaaav",
+          "aaaabw",
+          "aaaacx",
+          "aaaady",
+          "aaaaez",
+          "aaaaf2",
+          "aaaag3",
+          "aaaah4",
+          "aaaai5",
+          "aaaaan",
+          "aaaabo",
+          "aaaacp",
+          "aaaadq",
+          "aaaaer",
+          "aaaafs",
+          "aaaagt",
+          "aaaahu",
+          "aaaaiv",
+          "aaaaaf",
+          "aaaabg",
+          "aaaach",
+          "aaaadi",
+          "aaaaej",
+          "aaaafk",
+          "aaaagl",
+          "aaaahm",
+          "aaaain",
+          "aaaajo",
+          "aaaaa6",
+          "aaaab7",
+          "aaaada",
+          "aaaaeb",
+          "aaaafc",
+          "aaaagd",
+          "aaaahe",
+          "aaaaif",
+          "aaaajg",
+          "aaaaaw",
+          "aaaabx",
+          "aaaacy",
+          "aaaadz",
+          "aaaae2",
+          "aaaaf3",
+          "aaaag4",
+          "aaaah5",
+          "aaaai6",
+          "aaaaao",
+          "aaaabp",
+          "aaaacq",
+          "aaaadr",
+          "aaaaes",
+          "aaaaft",
+          "aaaagu",
+          "aaaahv",
+          "aaaaiw",
+          "aaaaag",
+          "aaaabh",
+          "aaaaci",
+          "aaaadj",
+          "aaaaek",
+          "aaaafl",
+          "aaaagm",
+          "aaaahn",
+          "aaaaio",
+          "aaaajp",
+          "aaaaa7",
+          "aaaaca",
+          "aaaadb",
+          "aaaaec",
+          "aaaafd",
+          "aaaage",
+          "aaaahf",
+          "aaaaig",
+          "aaaajh",
+          "aaaaax",
+          "aaaaby",
+          "aaaacz",
+          "aaaad2",
+          "aaaae3",
+          "aaaaf4",
+          "aaaag5",
+          "aaaah6",
+          "aaaai7",
+          "aaaaap",
+          "aaaabq",
+          "aaaacr",
+          "aaaads",
+          "aaaaet",
+          "aaaafu",
+          "aaaagv",
+          "aaaahw",
+          "aaaaix",
+          "aaaaah",
+          "aaaabi",
+          "aaaacj",
+          "aaaadk",
+          "aaaael",
+          "aaaafm",
+          "aaaagn",
+          "aaaaho",
+          "aaaaip",
+          "aaaajq",
+          "aaaaba",
+          "aaaacb",
+          "aaaadc",
+          "aaaaed",
+          "aaaafe",
+          "aaaagf",
+          "aaaahg",
+          "aaaaih",
+          "aaaaji",
+          "aaaaay",
+          "aaaabz",
+          "aaaac2",
+          "aaaad3",
+          "aaaae4",
+          "aaaaf5",
+          "aaaag6",
+          "aaaah7",
+          "aaaaja",
+          "aaaaaq",
+          "aaaabr",
+          "aaaacs",
+          "aaaadt",
+          "aaaaeu",
+          "aaaafv",
+          "aaaagw",
+          "aaaahx",
+          "aaaaiy",
+          "aaaaai",
+          "aaaabj",
+          "aaaack",
+          "aaaadl",
+          "aaaaem",
+          "aaaafn",
+          "aaaago",
+          "aaaahp",
+          "aaaaiq"
+        ],
+        "seen": ["s3", "s4"]
+      }
+    },
+    {
+      "name": "nonces kept a day and 20 minutes",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {
+          "json": {
+            "seen": {
+              "s1": "2026-10-14T11:40:00.0000000Z",
+              "s2": "2026-10-14T11:40:00.0000001Z",
+              "s3": "2026-10-14T11:00:00.0000000Z",
+              "s4": null,
+              "s5": "garbage",
+              "s6": "2026-10-15T13:00:00.0000000Z",
+              "s7": "2026-10-15T21:00:00+09:00"
+            }
+          }
+        },
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {
+            "s2": "2026-10-14T11:40:00.0000001Z",
+            "s6": "2026-10-15T13:00:00.0000000Z",
+            "s7": "2026-10-15T12:00:00.0000000Z"
+          },
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "nonces kept while an alert is out",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {
+          "json": {
+            "alerts": {
+              "a1": {"at": "2026-10-14T05:00:00.0000000Z", "expires": "2026-10-15T13:00:00.0000000Z"},
+              "a2": {"at": "2026-10-13T00:00:00.0000000Z", "expires": "2026-10-15T11:00:00.0000000Z"}
+            },
+            "seen": {
+              "s1": "2026-10-14T04:50:00.0000000Z",
+              "s2": "2026-10-14T04:50:00.0000001Z",
+              "s3": "2026-10-14T04:49:00.0000000Z",
+              "s4": "2026-10-14T11:00:00.0000000Z",
+              "s5": "2026-10-13T12:00:00.0000000Z"
+            }
+          }
+        },
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {
+            "a1": {
+              "at": "2026-10-14T05:00:00.0000000Z",
+              "expires": "2026-10-15T13:00:00.0000000Z",
+              "event": "",
+              "jobId": null,
+              "seq": null,
+              "sessionId": null,
+              "provider": null,
+              "title": null,
+              "uses": 0,
+              "path": null,
+              "cwd": null
+            }
+          },
+          "seen": {"s2": "2026-10-14T04:50:00.0000001Z", "s4": "2026-10-14T11:00:00.0000000Z"},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "reply.hours from config.json",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 0,
+        "file": {
+          "json": {
+            "seen": {
+              "s1": "2026-10-15T09:40:00.0000000Z",
+              "s2": "2026-10-15T09:40:00.0000001Z",
+              "s3": "2026-10-15T09:00:00.0000000Z",
+              "s4": "2026-10-15T07:40:00.0000000Z",
+              "s5": "2026-10-15T07:40:00.0000001Z",
+              "s6": "2026-10-14T23:40:00.0000000Z",
+              "s7": "2026-10-14T23:40:00.0000001Z",
+              "s8": "2026-10-14T11:40:00.0000000Z",
+              "s9": "2026-10-14T11:40:00.0000001Z"
+            }
+          }
+        },
+        "change": null,
+        "config": {"reply": {"hours": 1}}
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {"s2": "2026-10-15T09:40:00.0000001Z"},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "reply.hours as a string",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 0,
+        "file": {
+          "json": {
+            "seen": {
+              "s1": "2026-10-15T09:40:00.0000000Z",
+              "s2": "2026-10-15T09:40:00.0000001Z",
+              "s3": "2026-10-15T09:00:00.0000000Z",
+              "s4": "2026-10-15T07:40:00.0000000Z",
+              "s5": "2026-10-15T07:40:00.0000001Z",
+              "s6": "2026-10-14T23:40:00.0000000Z",
+              "s7": "2026-10-14T23:40:00.0000001Z",
+              "s8": "2026-10-14T11:40:00.0000000Z",
+              "s9": "2026-10-14T11:40:00.0000001Z"
+            }
+          }
+        },
+        "change": null,
+        "config": {"reply": {"hours": "6"}}
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {
+            "s1": "2026-10-15T09:40:00.0000000Z",
+            "s2": "2026-10-15T09:40:00.0000001Z",
+            "s3": "2026-10-15T09:00:00.0000000Z",
+            "s4": "2026-10-15T07:40:00.0000000Z",
+            "s5": "2026-10-15T07:40:00.0000001Z",
+            "s7": "2026-10-14T23:40:00.0000001Z"
+          },
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "reply.hours below zero",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 0,
+        "file": {
+          "json": {
+            "seen": {
+              "s1": "2026-10-15T09:40:00.0000000Z",
+              "s2": "2026-10-15T09:40:00.0000001Z",
+              "s3": "2026-10-15T09:00:00.0000000Z",
+              "s4": "2026-10-15T07:40:00.0000000Z",
+              "s5": "2026-10-15T07:40:00.0000001Z",
+              "s6": "2026-10-14T23:40:00.0000000Z",
+              "s7": "2026-10-14T23:40:00.0000001Z",
+              "s8": "2026-10-14T11:40:00.0000000Z",
+              "s9": "2026-10-14T11:40:00.0000001Z"
+            }
+          }
+        },
+        "change": null,
+        "config": {"reply": {"hours": -1}}
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {
+            "s1": "2026-10-15T09:40:00.0000000Z",
+            "s2": "2026-10-15T09:40:00.0000001Z",
+            "s3": "2026-10-15T09:00:00.0000000Z",
+            "s4": "2026-10-15T07:40:00.0000000Z",
+            "s5": "2026-10-15T07:40:00.0000001Z",
+            "s6": "2026-10-14T23:40:00.0000000Z",
+            "s7": "2026-10-14T23:40:00.0000001Z",
+            "s9": "2026-10-14T11:40:00.0000001Z"
+          },
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "reply.hours in any case",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 0,
+        "file": {
+          "json": {
+            "seen": {
+              "s1": "2026-10-15T09:40:00.0000000Z",
+              "s2": "2026-10-15T09:40:00.0000001Z",
+              "s3": "2026-10-15T09:00:00.0000000Z",
+              "s4": "2026-10-15T07:40:00.0000000Z",
+              "s5": "2026-10-15T07:40:00.0000001Z",
+              "s6": "2026-10-14T23:40:00.0000000Z",
+              "s7": "2026-10-14T23:40:00.0000001Z",
+              "s8": "2026-10-14T11:40:00.0000000Z",
+              "s9": "2026-10-14T11:40:00.0000001Z"
+            }
+          }
+        },
+        "change": null,
+        "config": {"Reply": {"Hours": 1}}
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {"s2": "2026-10-15T09:40:00.0000001Z"},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "reply no object",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 0,
+        "file": {
+          "json": {
+            "seen": {
+              "s1": "2026-10-15T09:40:00.0000000Z",
+              "s2": "2026-10-15T09:40:00.0000001Z",
+              "s3": "2026-10-15T09:00:00.0000000Z",
+              "s4": "2026-10-15T07:40:00.0000000Z",
+              "s5": "2026-10-15T07:40:00.0000001Z",
+              "s6": "2026-10-14T23:40:00.0000000Z",
+              "s7": "2026-10-14T23:40:00.0000001Z",
+              "s8": "2026-10-14T11:40:00.0000000Z",
+              "s9": "2026-10-14T11:40:00.0000001Z"
+            }
+          }
+        },
+        "change": null,
+        "config": {"reply": "x"}
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {
+            "s1": "2026-10-15T09:40:00.0000000Z",
+            "s2": "2026-10-15T09:40:00.0000001Z",
+            "s3": "2026-10-15T09:00:00.0000000Z",
+            "s4": "2026-10-15T07:40:00.0000000Z",
+            "s5": "2026-10-15T07:40:00.0000001Z",
+            "s6": "2026-10-14T23:40:00.0000000Z",
+            "s7": "2026-10-14T23:40:00.0000001Z",
+            "s9": "2026-10-14T11:40:00.0000001Z"
+          },
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "no config.json",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 0,
+        "file": {
+          "json": {
+            "seen": {
+              "s1": "2026-10-15T09:40:00.0000000Z",
+              "s2": "2026-10-15T09:40:00.0000001Z",
+              "s3": "2026-10-15T09:00:00.0000000Z",
+              "s4": "2026-10-15T07:40:00.0000000Z",
+              "s5": "2026-10-15T07:40:00.0000001Z",
+              "s6": "2026-10-14T23:40:00.0000000Z",
+              "s7": "2026-10-14T23:40:00.0000001Z",
+              "s8": "2026-10-14T11:40:00.0000000Z",
+              "s9": "2026-10-14T11:40:00.0000001Z"
+            }
+          }
+        },
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {
+            "s1": "2026-10-15T09:40:00.0000000Z",
+            "s2": "2026-10-15T09:40:00.0000001Z",
+            "s3": "2026-10-15T09:00:00.0000000Z",
+            "s4": "2026-10-15T07:40:00.0000000Z",
+            "s5": "2026-10-15T07:40:00.0000001Z",
+            "s6": "2026-10-14T23:40:00.0000000Z",
+            "s7": "2026-10-14T23:40:00.0000001Z",
+            "s9": "2026-10-14T11:40:00.0000001Z"
+          },
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "hours given, not read",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 2,
+        "file": {
+          "json": {
+            "seen": {
+              "s1": "2026-10-15T09:40:00.0000000Z",
+              "s2": "2026-10-15T09:40:00.0000001Z",
+              "s3": "2026-10-15T09:00:00.0000000Z",
+              "s4": "2026-10-15T07:40:00.0000000Z",
+              "s5": "2026-10-15T07:40:00.0000001Z",
+              "s6": "2026-10-14T23:40:00.0000000Z",
+              "s7": "2026-10-14T23:40:00.0000001Z",
+              "s8": "2026-10-14T11:40:00.0000000Z",
+              "s9": "2026-10-14T11:40:00.0000001Z"
+            }
+          }
+        },
+        "change": null,
+        "config": {"reply": {"hours": 1}}
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {
+            "s1": "2026-10-15T09:40:00.0000000Z",
+            "s2": "2026-10-15T09:40:00.0000001Z",
+            "s3": "2026-10-15T09:00:00.0000000Z",
+            "s5": "2026-10-15T07:40:00.0000001Z"
+          },
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "refusals kept an hour",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {
+          "json": {
+            "refused": {
+              "r1": "2026-10-15T11:00:00.0000000Z",
+              "r2": "2026-10-15T11:00:00.0000001Z",
+              "r3": "2026-10-15T10:00:00.0000000Z",
+              "r4": null,
+              "r5": "garbage",
+              "r6": "2026-10-15T13:00:00.0000000Z"
+            }
+          }
+        },
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {"r2": "2026-10-15T11:00:00.0000001Z", "r6": "2026-10-15T13:00:00.0000000Z"},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "pairing answers",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {
+          "json": {
+            "pairCandidates": [
+              {
+                "id": "c1",
+                "pid": "p1",
+                "d": {"value": "x", "protected": true},
+                "label": "phone",
+                "code": "111111",
+                "at": "2026-10-15T11:00:00.0000000Z",
+                "expires": "2026-10-15T13:00:00.0000000Z"
+              },
+              {
+                "id": "c2",
+                "pid": "p2",
+                "d": {"value": "y", "protected": false},
+                "label": "l",
+                "code": "c",
+                "at": "2026-10-15T11:00:00.0000000Z",
+                "expires": "2026-10-15T12:00:00.0000000Z"
+              },
+              {"pid": "p3", "d": {"value": "z"}, "expires": "2026-10-15T13:00:00.0000000Z"},
+              {"id": "c4", "pid": "p4", "expires": "2026-10-15T13:00:00.0000000Z"},
+              {"id": "c5", "pid": 0, "d": {"value": "q"}, "expires": "2026-10-15T13:00:00.0000000Z"},
+              null,
+              {
+                "id": 42,
+                "pid": "p7",
+                "d": "raw",
+                "code": 5,
+                "expires": "2026-10-15T13:00:00.0000000Z"
+              }
+            ]
+          }
+        },
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [
+            {
+              "id": "c1",
+              "pid": "p1",
+              "d": {"value": "x", "protected": true},
+              "label": "phone",
+              "code": "111111",
+              "at": "2026-10-15T11:00:00.0000000Z",
+              "expires": "2026-10-15T13:00:00.0000000Z"
+            },
+            {
+              "id": "42",
+              "pid": "p7",
+              "d": "raw",
+              "label": "",
+              "code": "5",
+              "at": null,
+              "expires": "2026-10-15T13:00:00.0000000Z"
+            }
+          ],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "one pairing answer, not in a list",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {
+          "json": {
+            "pairCandidates": {
+              "id": "c1",
+              "pid": "p1",
+              "d": {"value": "x", "protected": true},
+              "label": "phone",
+              "code": "1",
+              "at": "2026-10-15T11:00:00.0000000Z",
+              "expires": "2026-10-15T13:00:00.0000000Z"
+            }
+          }
+        },
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [
+            {
+              "id": "c1",
+              "pid": "p1",
+              "d": {"value": "x", "protected": true},
+              "label": "phone",
+              "code": "1",
+              "at": "2026-10-15T11:00:00.0000000Z",
+              "expires": "2026-10-15T13:00:00.0000000Z"
+            }
+          ],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "picks",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {
+          "json": {
+            "picks": {
+              "abcdef": {
+                "kind": "job",
+                "sessionId": "s",
+                "provider": "claude",
+                "path": "p",
+                "cwd": "c",
+                "home": null,
+                "title": "t",
+                "jobId": "j",
+                "seq": "3",
+                "mark": "m",
+                "len": 0,
+                "at": "2026-10-15T10:00:00Z",
+                "expires": "2026-10-15T13:00:00.0000000Z"
+              },
+              "QWERTY": {
+                "kind": "upper",
+                "at": "2026-10-15T10:01:00Z",
+                "expires": "2026-10-15T13:00:00.0000000Z"
+              },
+              "abcde1": {
+                "kind": "digit",
+                "at": "2026-10-15T10:02:00Z",
+                "expires": "2026-10-15T13:00:00.0000000Z"
+              },
+              "abcde7": {
+                "kind": "k",
+                "at": "2026-10-15T10:03:00Z",
+                "expires": "2026-10-15T13:00:00.0000000Z",
+                "seq": 0,
+                "title": "",
+                "len": "abc",
+                "home": "C:\\h"
+              },
+              "abcdefg": {
+                "kind": "long",
+                "at": "2026-10-15T10:04:00Z",
+                "expires": "2026-10-15T13:00:00.0000000Z"
+              },
+              "abcdeg\n": {
+                "kind": "newline",
+                "at": "2026-10-15T10:05:00Z",
+                "expires": "2026-10-15T13:00:00.0000000Z"
+              },
+              "abc": {
+                "kind": "short",
+                "at": "2026-10-15T10:06:00Z",
+                "expires": "2026-10-15T13:00:00.0000000Z"
+              },
+              "zzzzzz": {
+                "kind": "old",
+                "at": "2026-10-15T10:07:00Z",
+                "expires": "2026-10-15T11:00:00.0000000Z"
+              },
+              "qqqqqq": null,
+              "rrrrrr": {"kind": 5, "at": "2026-10-15T10:08:00Z", "expires": "2026-10-15T12:00:00.0000001Z"}
+            }
+          }
+        },
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {
+            "abcdef": {
+              "kind": "job",
+              "sessionId": "s",
+              "provider": "claude",
+              "path": "p",
+              "cwd": "c",
+              "home": null,
+              "title": "t",
+              "jobId": "j",
+              "seq": 3,
+              "mark": "m",
+              "len": 0,
+              "at": "2026-10-15T10:00:00.0000000Z",
+              "expires": "2026-10-15T13:00:00.0000000Z"
+            },
+            "abcde7": {
+              "kind": "k",
+              "home": "C:\\h",
+              "at": "2026-10-15T10:03:00.0000000Z",
+              "expires": "2026-10-15T13:00:00.0000000Z"
+            },
+            "abcdeg\n": {
+              "kind": "newline",
+              "at": "2026-10-15T10:05:00.0000000Z",
+              "expires": "2026-10-15T13:00:00.0000000Z"
+            },
+            "rrrrrr": {
+              "kind": "5",
+              "at": "2026-10-15T10:08:00.0000000Z",
+              "expires": "2026-10-15T12:00:00.0000001Z"
+            }
+          },
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "compose acts",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {
+          "json": {
+            "compose": [
+              {"at": "2026-10-15T11:30:00Z", "act": "new"},
+              {"at": "2026-10-15T11:00:00.0000000Z", "act": "old"},
+              {"at": "2026-10-15T11:00:00.0000001Z", "act": 5},
+              {"at": null, "act": "x"},
+              {"act": "y"},
+              null,
+              {"at": "garbage", "act": "g"},
+              {"at": "2026-10-15T11:45:00Z"}
+            ]
+          }
+        },
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [
+            {"at": "2026-10-15T11:30:00.0000000Z", "act": "new"},
+            {"at": "2026-10-15T11:00:00.0000001Z", "act": "5"},
+            {"at": "2026-10-15T11:45:00.0000000Z", "act": ""}
+          ],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "one compose act, not in a list",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"json": {"compose": {"at": "2026-10-15T11:30:00Z", "act": "new"}}},
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [{"at": "2026-10-15T11:30:00.0000000Z", "act": "new"}],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "down, and the board's times",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {
+          "json": {
+            "down": {"day": "2026-10-15", "full": "3", "other": 2.5},
+            "standing": "TRUE",
+            "composeRefusedAt": "2026-10-15T21:00:00+09:00",
+            "hotUntil": "garbage"
+          }
+        },
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": true,
+          "compose": [],
+          "down": {"day": "2026-10-15", "full": 3, "other": 2},
+          "downSent": {},
+          "composeRefusedAt": "2026-10-15T12:00:00.0000000Z",
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "down without a day",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"json": {"down": {"full": 1}, "standing": "yes"}},
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "down counts no number",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {"json": {"down": {"day": "d", "full": "abc"}}},
+        "change": {"lastId": "junk-1", "polled": true}
+      },
+      "expect": {"threw": "invalid", "file": "unchanged"}
+    },
+    {
+      "name": "whole answers sent",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {
+          "json": {
+            "downSent": {
+              "m1": {"at": "2026-10-15T01:00:00Z", "attached": true},
+              "m2": {"at": "2026-10-15T00:00:00Z", "attached": true},
+              "m3": {"at": "2026-10-15T00:00:00.0000001Z", "attached": "0"},
+              "m4": null,
+              "m5": {"at": "2026-10-15T06:00:00Z"},
+              "m6": {"at": "garbage", "attached": true},
+              "m7": {"at": "2026-10-15T07:00:00Z", "attached": 0}
+            }
+          }
+        },
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {
+            "m1": {"at": "2026-10-15T01:00:00.0000000Z", "attached": true},
+            "m3": {"at": "2026-10-15T00:00:00.0000001Z", "attached": true},
+            "m5": {"at": "2026-10-15T06:00:00.0000000Z", "attached": false},
+            "m7": {"at": "2026-10-15T07:00:00.0000000Z", "attached": false}
+          },
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    },
+    {
+      "name": "parts that are no object",
+      "input": {
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T12:00:00Z",
+        "hours": 12,
+        "file": {
+          "json": {
+            "alerts": "x",
+            "seen": 5,
+            "refused": true,
+            "picks": [1, 2],
+            "downSent": "y",
+            "compose": "z",
+            "down": "w",
+            "pairCandidates": "v"
+          }
+        },
+        "change": null
+      },
+      "expect": {
+        "threw": null,
+        "file": {
+          "openUntil": null,
+          "since": null,
+          "lastId": null,
+          "lastPolledAt": null,
+          "lastReplyAt": null,
+          "alerts": {},
+          "seen": {},
+          "refused": {},
+          "pairCandidates": [],
+          "picks": {},
+          "standing": false,
+          "compose": [],
+          "down": null,
+          "downSent": {},
+          "composeRefusedAt": null,
+          "hotUntil": null
+        }
+      }
+    }
+  ]
+}

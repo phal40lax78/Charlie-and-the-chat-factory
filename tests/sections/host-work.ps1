@@ -597,6 +597,7 @@ Section 'what took a window down'
 # config, jobs, markers and notes are put back.
 $ecWas = @{ Alive = $script:ChatHostAliveSeam; Logs = $script:ChatHostLogRootsSeam; Table = $script:ChatProcessTableSeam; Mem = $script:ChatMemorySeam
     Top = $script:ChatMemoryTopSeam; Usage = $script:ChatOverlayUsageSeam; Spawn = $script:ChatqSpawn; Balloon = $script:ChatOverlayBalloonSeam
+    Sums = $script:ChatMemorySumsSeam
 }
 $ecCfgWas = Read-TestFile $script:ChatqConfigPath
 $ecStateWas = Read-TestFile $script:ChatqAutoPath
@@ -917,6 +918,10 @@ Check 'config: the crash continue off and the memory warning at 95% unless chose
     (Get-ChatOverlayConfig ([pscustomobject]@{ overlay = [pscustomobject]@{ memoryWarn = -5 } })).memoryWarn -eq 0 -and
     (& $ecCrash $true) -and (& $ecCrash 'on') -and (& $ecCrash ' TRUE ') -and -not (& $ecCrash 'yes') -and -not (& $ecCrash $false) -and
     -not (& $ecCrash 'off') -and -not (Get-ChatqAutoContinueCrash ([pscustomobject]@{ x = 1 }))) "$($ecC0.autoContinueCrash) $($ecC0.memoryWarn)"
+$ecCo = { param($k, $v) (Get-ChatOverlayConfig ([pscustomobject]@{ overlay = [pscustomobject]@{ $k = $v } })).$k }
+Check 'config: the leak warning at 2 GB and the memory restart at 300 MB unless chosen, held to 0..64 and 0..4096; a part of a GB kept' (
+    $ecC0.leakGB -eq 2 -and $ecC0.restartMB -eq 300 -and (& $ecCo 'leakGB' 100) -eq 64 -and (& $ecCo 'leakGB' -1) -eq 0 -and (& $ecCo 'leakGB' 0.5) -eq 0.5 -and
+    (& $ecCo 'restartMB' 99999) -eq 4096 -and (& $ecCo 'restartMB' -5) -eq 0 -and (& $ecCo 'restartMB' 0) -eq 0) "$($ecC0.leakGB) $($ecC0.restartMB)"
 $null = Set-ChatqAutoContinueCrash -Value $true
 $ecSetOn = (Get-ChatqConfig).autoContinueCrash -eq $true -and (Get-ChatqAutoContinueCrash)
 $null = Set-ChatqAutoContinueCrash -Value $false
@@ -1136,6 +1141,148 @@ Check 'the overlay''s pass: a host''s carries it in the header and its first not
     $emSn.header.memory -and $emSn.header.memory.percent -eq 96 -and @($emSn.header.notes)[0].kind -eq 'memory' -and -not $emCx.MemSaid -and
     $null -eq $emSnN.header.memory) "$($emSn.header.memory | ConvertTo-Json -Compress)"
 
+# A program growing fast (Update-ChatOverlayLeaks), as Word did on
+# 2026-10-19: a stand-in for each program's bytes by name with each of its
+# processes', counting its walks; a look each minute for an hour, Word
+# growing 0.61 GB a minute to minute 45 and then still, Code still at 9.8,
+# a program first there at minute 10 holding 5 GB, and claude a new 0.3 GB
+# process each minute - its sum 3 GB more in 10 minutes, no process grown
+$script:EcSums = @{}
+$script:EcWalks = 0
+$script:ChatMemorySumsSeam = { $script:EcWalks++; $script:EcSums }
+$lkSet = { param([double]$Min)
+    $w = (9.7 + 0.61 * [Math]::Min($Min, 45)) * 1GB
+    $cl = @{}
+    foreach ($i in 0..[int]$Min) { $cl[9000 + $i] = 0.3GB }
+    $script:EcSums = @{ WINWORD = @{ Bytes = $w; Procs = @{ 33188 = $w } }; Code = @{ Bytes = 9.8GB; Procs = @{ 4242 = 9.8GB } }
+        claude = @{ Bytes = 0.3GB * $cl.Count; Procs = $cl }
+    }
+    if ($Min -ge 10) { $script:EcSums['Fresh'] = @{ Bytes = 5GB; Procs = @{ 777 = 5GB } } }
+}
+$lkC = New-ChatOverlayContext
+$lkSaid = [System.Collections.Generic.List[object]]::new()
+$lkGrowing = @{}
+foreach ($m in 0..60) {
+    & $lkSet $m
+    $g = @(Update-ChatOverlayLeaks $lkC $emT.AddMinutes($m) -Act)
+    $lkGrowing[$m] = $g
+    if ($lkC.LeakNews) { foreach ($n in @($lkC.LeakNews)) { $lkSaid.Add("$m $(Format-ChatOverlayLeakText $n)") }; $lkC.LeakNews = $null }
+    if ($m -eq 10) { $lkHalf = @(Update-ChatOverlayLeaks $lkC $emT.AddMinutes(10.5) -Act); $lkWalks10 = $script:EcWalks; $lkNews10 = $lkC.LeakNews }
+}
+$lkText = 'WINWORD grew 6.1 GB in 10 min, now 15.8 GB (pid 33188) - it may be leaking'
+$lkLog = [System.IO.File]::ReadAllText((Join-Path $script:ChatqLogDir 'overlay.log'), $utf8)
+Check 'a program growing: nothing for its first 10 minutes; grown 6.1 GB since the look 10 minutes back - its pid, said in the log and kept for the tray; a program still, not there then, or growing by new processes of its name, not' (
+    -not @($lkGrowing[9]).Count -and @($lkGrowing[10]).Count -eq 1 -and $lkGrowing[10][0].name -eq 'WINWORD' -and $lkGrowing[10][0].pid -eq 33188 -and
+    $lkGrowing[10][0].grewGB -eq 6.1 -and $lkGrowing[10][0].nowGB -eq 15.8 -and $lkGrowing[10][0].minutes -eq 10 -and
+    (Format-ChatOverlayLeakText $lkGrowing[10][0]) -eq $lkText -and $lkSaid[0] -eq "10 $lkText" -and $lkLog.Contains($lkText) -and
+    -not @(@($lkGrowing.Values) | ForEach-Object { $_ } | Where-Object { $_.name -ne 'WINWORD' }).Count) "$($lkGrowing[10] | ConvertTo-Json -Compress) / $($lkSaid -join ' / ')"
+Check 'looked at a minute apart, one walk of the processes each; said again only 30 minutes on while it grows; the note gone 10 minutes after it stops; 15 minutes of samples kept' (
+    @($lkHalf).Count -eq 1 -and $lkWalks10 -eq 11 -and $null -eq $lkNews10 -and $script:EcWalks -eq 61 -and
+    $lkSaid.Count -eq 2 -and $lkSaid[1] -like '40 WINWORD grew 6.1 GB in 10 min, now 34.1 GB (pid 33188)*' -and
+    @($lkGrowing[51]).Count -eq 1 -and -not @($lkGrowing[52]).Count -and -not @($lkGrowing[60]).Count -and @($lkC.LeakSamples).Count -eq 16) (
+    "$(@($lkHalf).Count) $lkWalks10 $($script:EcWalks) $(@($lkC.LeakSamples).Count) / $($lkSaid -join ' / ')")
+# -Peek finds it and says nothing; the next pass that acts says it, from
+# the same look. leakGB 0 never walks.
+$lkP = New-ChatOverlayContext
+& $lkSet 0
+$null = Update-ChatOverlayLeaks $lkP $emT
+& $lkSet 10
+$lkP1 = @(Update-ChatOverlayLeaks $lkP $emT.AddMinutes(10))
+$lkPNews = $lkP.LeakNews
+$lkPW = $script:EcWalks
+$lkP2 = @(Update-ChatOverlayLeaks $lkP $emT.AddMinutes(10.2) -Act)
+$lkOffC = New-ChatOverlayContext
+$lkOffC.Config = [pscustomobject]@{ leakGB = 0 }
+$lkOff = @(Update-ChatOverlayLeaks $lkOffC $emT -Act)
+Check 'leakGB 0 is never, with no walk; a pass that only looks (-Peek) says nothing, and the next that acts says it' (
+    @($lkP1).Count -eq 1 -and $null -eq $lkPNews -and @($lkP2).Count -eq 1 -and @($lkP.LeakNews).Count -eq 1 -and $script:EcWalks -eq $lkPW -and
+    -not $lkOff.Count -and $script:EcWalks -eq $lkPW) "$(@($lkP1).Count) $(@($lkP.LeakNews).Count) $($script:EcWalks) $lkPW"
+# memory low in the same minute: its top programs from the leak look's
+# listing, with no walk of their own until it is a minute old
+$script:ChatMemoryTopSeam = $null
+$lkM = New-ChatOverlayContext
+& $lkSet 12
+$null = Update-ChatOverlayLeaks $lkM $emT -Act
+$lkMW = $script:EcWalks
+$lkMem = & $emAt 3.5 5 $lkM -Act
+$lkMW1 = $script:EcWalks
+$null = & $emAt 3.5 70 $lkM -Act
+$lkMW2 = $script:EcWalks
+$script:ChatMemoryTopSeam = $ecWas.Top
+Check 'memory''s top programs read the leak look''s listing - one walk a minute, whichever asks first' (
+    (@($lkMem.top) -join ', ') -eq 'WINWORD 17 GB, Code 9.8 GB, Fresh 5 GB' -and $lkMW1 -eq $lkMW -and $lkMW2 -eq $lkMW + 1) "$(@($lkMem.top) -join ', ') $lkMW $lkMW1 $lkMW2"
+# the panel's note and the tray's balloon: Word's alone, then with memory low
+$lkNotes = @(Get-ChatOverlayNotes ([pscustomobject]@{ usage = @(); usageWhy = $null; watcher = 'none'; next = $null; error = $null; memory = $em2; ask = $null; reload = @(); leaks = @($lkGrowing[10]) }))
+$script:EcBalloons.Clear()
+$lkH = @{ Ctx = $lkC; Closing = $false; BalloonKind = $null; BalloonKeys = @() }
+$lkC.LeakNews = @($lkGrowing[10])
+Show-ChatOverlayMemory $lkH
+$lkC.LeakNews = @($lkGrowing[10])
+$lkC.MemNews = $em2
+Show-ChatOverlayMemory $lkH
+Show-ChatOverlayMemory $lkH
+$lkB = @($script:EcBalloons)
+Check 'the panel''s note for it after memory''s, as a warning; the tray''s balloon titled for it, or one balloon saying both with memory low' (
+    $lkNotes[0].kind -eq 'memory' -and $lkNotes[1].kind -eq 'leak' -and $lkNotes[1].tone -eq 'warn' -and $lkNotes[1].text -eq $lkText -and
+    $lkB.Count -eq 2 -and $lkB[0].Kind -eq 'leak' -and $lkB[0].Title -eq 'Charlie - a program keeps growing' -and $lkB[0].Text -like "$lkText. Closing it*" -and
+    $lkB[1].Kind -eq 'memory' -and $lkB[1].Title -eq 'Charlie - memory low' -and $lkB[1].Text -like "96% used, 3.5 GB left - most: Code 9.8 GB, claude 3.1 GB. $lkText. A VS Code window*" -and
+    $null -eq $lkC.LeakNews -and $null -eq $lkC.MemNews) "$($lkB | ConvertTo-Json -Compress)"
+$lkCx = New-ChatOverlayContext
+$lkCx.WantAsk = $true
+$script:EcMem = @{ Limit = 100GB; Free = 50GB }
+$lkCx.LeakSamples = @(@{ At = (Get-Date).AddMinutes(-11); Bytes = @{ '33188|WINWORD' = 9.7GB } })
+$script:EcSums = @{ WINWORD = @{ Bytes = 15.8GB; Procs = @{ 33188 = 15.8GB } } }
+$lkSn = Invoke-ChatOverlayCycle $lkCx -Peek
+$lkSnN = Invoke-ChatOverlayCycle (New-ChatOverlayContext) -Peek
+Check 'the overlay''s pass: a host''s carries the growing program in the header and a note, a -Peek one saying nothing; charlie -Print''s looks at nothing' (
+    @($lkSn.header.leaks).Count -eq 1 -and $lkSn.header.leaks[0].name -eq 'WINWORD' -and @($lkSn.header.notes | Where-Object { $_.kind -eq 'leak' }).Count -eq 1 -and
+    $null -eq $lkCx.LeakNews -and -not @($lkSnN.header.leaks).Count) "$($lkSn.header.leaks | ConvertTo-Json -Compress)"
+# a walk that throws: its minute has no listing, not the one before it
+$lkT = New-ChatOverlayContext
+& $lkSet 0
+$null = Get-ChatOverlayProcessSums $lkT $emT
+$script:ChatMemorySumsSeam = { throw 'no walk' }
+try { $null = Get-ChatOverlayProcessSums $lkT $emT.AddMinutes(1) } catch {}
+$lkTSums = try { Get-ChatOverlayProcessSums $lkT $emT.AddMinutes(1.5) } catch { 'walked again' }
+$script:ChatMemorySumsSeam = { $script:EcWalks++; $script:EcSums }
+Check 'a walk of the processes that throws leaves its minute no listing, not the minute before''s' (
+    $null -eq $lkTSums -and $lkT.SumsAt -eq $emT.AddMinutes(1)) "$(if ($lkTSums -is [hashtable]) { @($lkTSums.Keys) -join ',' } else { $lkTSums }) $($lkT.SumsAt)"
+# the real walk, on Windows: this process's own name in it, its bytes
+# summed, this process among its processes; read, nothing more
+$script:ChatMemorySumsSeam = $null
+$lkReal = Get-ChatMemorySums
+$script:ChatMemorySumsSeam = { $script:EcWalks++; $script:EcSums }
+$lkMe = [System.Diagnostics.Process]::GetCurrentProcess().ProcessName
+$lkMine = if ($lkReal -is [hashtable] -and $lkReal[$lkMe]) { $lkReal[$lkMe] }
+Check 'the real walk of the processes: each program''s bytes by name, with each of its processes'' by pid, this one among them' (
+    -not $script:ChatqIsWindows -or ($lkMine -and $lkMine.Procs[[int]$PID] -gt 0 -and $lkMine.Bytes -ge $lkMine.Procs[[int]$PID])) "$lkMe $(if ($lkMine) { "$($lkMine.Bytes) $($lkMine.Procs.Count)" })"
+
+# The overlay's own memory (Update-ChatOverlayRestartDue): a compaction's
+# figure that many minutes into a run, against overlay.restartMB 300
+$rsAt = { param($X, [double]$Min, $MB) Update-ChatOverlayRestartDue $X $MB $emT.AddMinutes($Min); $X.MemRestart }
+$rsNew = { param([int]$Limit = 300) @{ StartedAt = $emT; Settled = $null; MemRestart = $null; Ctx = @{ Config = [pscustomobject]@{ restartMB = $Limit } } } }
+$rs1 = & $rsNew
+$rs1a = @((& $rsAt $rs1 3 239), (& $rsAt $rs1 28 200), (& $rsAt $rs1 30 262), (& $rsAt $rs1 35 255), (& $rsAt $rs1 55 330))
+$rs1Settled = $rs1.Settled
+$rs1b = & $rsAt $rs1 60 330
+$rs1c = & $rsAt $rs1 65 400
+$rs2 = & $rsNew
+$rs2a = @((& $rsAt $rs2 30 290), (& $rsAt $rs2 90 320), (& $rsAt $rs2 95 $null))
+$rs2b = & $rsAt $rs2 95 340
+$rs3 = & $rsNew
+$rs3a = @((& $rsAt $rs3 10 999), (& $rsAt $rs3 61 999), (& $rsAt $rs3 120 1040))
+$rs4 = & $rsNew 0
+$rs4a = @((& $rsAt $rs4 30 200), (& $rsAt $rs4 120 999))
+$rs5 = & $rsNew
+$rs5a = @((& $rsAt $rs5 30 200), (& $rsAt $rs5 120 290))
+$rsText = 'private 330 MB after the heap compacted, over overlay.restartMB 300 and 75 over where this run settled - restarting to give it back'
+Check 'the overlay''s memory: settled at its least from 30 minutes in; a restart due at restartMB and 50 over that, an hour in, said why - and kept once due' (
+    -not @($rs1a | Where-Object { $_ }).Count -and $rs1Settled -eq 255 -and $rs1b -eq $rsText -and $rs1c -eq $rsText) "$rs1Settled / $rs1b / $rs1c"
+Check 'never under 50 over where it settled, for a figure that is not there, in the first hour, under restartMB, or with restartMB 0 - so a run that starts high never loops' (
+    -not @($rs2a | Where-Object { $_ }).Count -and $rs2b -like 'private 340 MB *, over overlay.restartMB 300 and 50 over*' -and
+    -not @($rs3a | Where-Object { $_ }).Count -and $rs3.Settled -eq 999 -and -not @($rs4a | Where-Object { $_ }).Count -and -not @($rs5a | Where-Object { $_ }).Count) (
+    "$rs2b / $($rs3.Settled) / $(@($rs3a) -join ',') / $(@($rs4a) -join ',') / $(@($rs5a) -join ',')")
+
 # the tray's item (Set-ChatOverlayCrashChoice), on a host of its own
 $efH = @{ Ctx = (New-ChatOverlayContext); Menu = $null; ViewKey = 'k' }
 $efH.Ctx.CutAt = Get-Date
@@ -1154,5 +1301,6 @@ $script:ChatHostAliveSeam = $ecWas.Alive
 $script:ChatHostLogRootsSeam = $ecWas.Logs
 $script:ChatMemorySeam = $ecWas.Mem
 $script:ChatMemoryTopSeam = $ecWas.Top
+$script:ChatMemorySumsSeam = $ecWas.Sums
 $script:ChatOverlayBalloonSeam = $ecWas.Balloon
 Remove-Item -LiteralPath $ecRoot -Recurse -Force -EA SilentlyContinue

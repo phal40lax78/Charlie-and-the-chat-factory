@@ -25,10 +25,106 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tests\run-tests.ps1   # Wind
 pwsh -NoProfile -File tests/run-tests.ps1                                  # PowerShell 7
 node tests/extension-check.js                                              # the VS Code extension
 node tests/overlay-mac-check.js                                            # the overlay's macOS panel (JXA)
+cargo test --manifest-path native/Cargo.toml                               # chatqd, the native watcher (Rust)
 ```
 
 The exit code is the number of failed checks, and `-Keep` leaves the sandbox
 behind for poking at. It uses no Pester, no network and no model.
+`cargo test` needs Rust, with the MSVC toolchain on Windows, and the
+network once for its crates. `native.ps1`'s checks of the real chatqd run
+only with a release build of `native/Cargo.toml`'s version at
+`native/target/release/chatqd.exe` - S55's first step makes one, and a
+version bump wants it made again - and are skipped, said in yellow,
+without it.
+
+**chatqd's other checks**, which CI runs too and a change to `native/`
+passes first:
+
+```powershell
+cargo clippy --manifest-path native/Cargo.toml --workspace --all-targets -- -D warnings
+cargo fmt --manifest-path native/Cargo.toml --all --check
+cargo doc --manifest-path native/Cargo.toml --workspace --no-deps          # no warnings
+```
+
+Run from the repo's root, cargo uses the installed stable; inside
+`native/`, rustup reads `native/rust-toolchain.toml` and wants 1.99.0,
+CI's, which it downloads if it has none by that name. A release build
+from the root needs `--config native/.cargo/config.toml`: cargo reads
+that file from the current folder only, and `build.rs` refuses a release
+build without its `crt-static`. Inside `native/` it is found by itself.
+
+The macOS code (`sys/mac.rs` and every `cfg(not(windows))` branch) is
+linted here, not built: once `rustup target add aarch64-apple-darwin
+x86_64-apple-darwin`, the clippy line above with `--target
+aarch64-apple-darwin`, then with `--target x86_64-apple-darwin`. Only the
+`native-macos` CI leg builds and runs it ([CI](#ci)). Its first lint, at
+0.10.15, found one error: a Windows-only test module's import unused off
+Windows.
+
+`cargo deny check`, inside `native/` where `deny.toml` is, holds the
+crates to no advisory, the licences that file lists and crates.io alone.
+CI runs it; locally it needs `cargo install cargo-deny`.
+
+**The contract vectors.** `native/vectors/*.json` hold what chatqd must
+answer as the PowerShell side does (native/SPEC.md 6.1). `tests/vectors.ps1`
+makes each one again from the PowerShell functions it pins and compares it
+with the file; the self-test's `native contract vectors` section runs it.
+After changing a function a vector pins, write them again under both
+PowerShells, 5.1 first, which merges their answers:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\vectors.ps1 -Write   # then the same under pwsh
+```
+
+`-Only stamps,culture` limits a run to some files, `-Keep` leaves its
+sandbox behind, and the exit code is the number of files that differ.
+`cargo test` then checks the Rust side against the same files.
+
+A case either has one answer for both PowerShells or one for each, and a
+check without `-Write` answers only for the PowerShell it runs under: so
+run it under both, as the self-test's two legs do. `-Write` keeps the
+other PowerShell's answers wherever a case's input is unchanged
+([Merge-NvCase](tests/vectors/common.ps1)), which is why the second run
+completes the first; until it has run, the check says how many cases
+have no answer for the other one yet. Nineteen files are made this way,
+one generator each in `tests/vectors/`; `launch.json` is written by
+hand, and the `native watcher launch` section checks it case by case.
+They were made on Windows 11 22631 under 5.1 and pwsh 7.6.6, and still
+pass under 7.6.7. Some answers come from that build's own tables (5.1's
+NLS collation, pwsh 7's ICU, the order of an environment block), so a
+machine on another build may differ there: write them again and look at
+what moved before taking it.
+
+Some cases cannot be files, because the other PowerShell cannot read the
+answer back: a `__type` name (5.1 drops or refuses it), two names one
+edition folds and the other keeps apart (µ and Μ, ς and Σ), an integer
+past a long (each edition reads the other's answer as its own, so the
+file never settles) and nesting to each edition's depth limit. Unit tests
+in `json.rs` pin those from probes:
+[a_type_hint_is_5_1s_alone](native/crates/chatq-core/src/json.rs),
+[keys_twin_by_case_as_each_edition_folds](native/crates/chatq-core/src/json.rs),
+[twenty_digits_are_a_big_integer_in_pwsh_7](native/crates/chatq-core/src/json.rs),
+[nesting_as_deep_as_each_convertfrom_json_reads](native/crates/chatq-core/src/json.rs)
+and [names_fold_as_each_dotnet_folds](native/crates/chatq-core/src/json.rs).
+
+**The live checks.** What no file can hold - this user's DPAPI keys, this
+PC's zone around its summer-time changes - is asked of a real chatqd
+build by [Invoke-NvLiveChecks](tests/vectors/live.ps1): a secret
+`Protect-ChatqSecret` sealed, one `Unprotect-ChatqSecret` cannot open,
+and stamps around each change, as `Get-Date` renders them and as
+`ConvertTo-ChatqDate` reads them from JSON. The self-test runs them in
+this PC's zone when the build is there; by hand:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\vectors.ps1 -Live native\target\release\chatqd.exe   # then the same under pwsh
+```
+
+`-Live` makes no vectors, keeps a sandbox of its own
+(`tests/.sandbox/vectors-live-<edition>`, so it can run beside a check),
+and its exit code is the number of checks that fail. This PC keeps Korea
+time, with no changes in it, so the gap and overlap cases run only in CI,
+under Pacific time ([CI](#ci)). To run them here, `tzutil /s` would change
+this PC's own zone: that is Tier 1, so ask first, and set it back.
 
 In VS Code the same runs are tasks in `.vscode/tasks.json`, each a status
 bar button through the actboy168.tasks extension: **Quick checks** (the
@@ -60,7 +156,7 @@ permit section takes the bridge's pwsh leg from a `pwsh` on the PATH alone.
   index sync would read this machine's real Copilot chats.
 - **A private copy.** The script and its `src/` are dot-sourced from a copy
   in the sandbox, so the run gets its own `data/`. `CHATQ_ALLPARTS`, set for
-  the run and every child it starts, loads all 25 parts - the overlay's
+  the run and every child it starts, loads all 26 parts - the overlay's
   three among them, which a shell's load leaves out.
 - **Never in a git worktree of this repo.** VS Code's git extension opens
   every worktree of an open repository as one of its own
@@ -139,7 +235,10 @@ permit section takes the bridge's pwsh leg from a `pwsh` on the PATH alone.
   4 points of that machine's 31.6 GB at its peak, about 1.3 GB: start one
   under 90%.
 
-What it covers (at 0.10.14, 1805 checks in `run-tests.ps1` under 5.1
+What it covers (at 0.10.15, 1862 checks in `run-tests.ps1` under 5.1
+and 1863 under pwsh 7, 479 in `extension-check.js`, 261, 138 and 39, and
+147 in `cargo test` - chatq-core's 115 unit tests, its 20 vector runners
+and `rx_sync.rs`, and chatqd's 11; at 0.10.14, 1805 checks in `run-tests.ps1` under 5.1
 and 1806 under pwsh 7, 479 in `extension-check.js`, 261, 138 and 39; at
 0.10.13, 1805 checks in `run-tests.ps1` under 5.1
 and 1806 under pwsh 7, 474 in `extension-check.js`, 261, 138 and 39; at
@@ -182,13 +281,16 @@ pwsh 7, 279, 250, 78 and 35):
 | a reload on the overlay | `tests/sections/reload-ask.ps1`, with `data/reload-pending/` files as the extension writes them, a BOM included, for this test's own pid: one entry a window, its newest ask, how many it has open; a window gone - a pid no process has - its file removed, and one whose pid is alive but started three days after the file says removed as reused; no ask left, or no folder, nothing; `Write-ChatReloadAnswer` - no BOM, the ask's id, the answer and a UTC time `Date.parse` reads; two windows asking at once - this process and another whose start time can be read - an entry each, and the pass takes both; a pass puts it in `header.reload` and a `reload` note (`<window> needs a reload - <why>`), the tray tooltip counts it; answered here → left out, and shown again 30 s on if the window never took it; the chips - **reload**, **reload anyway** where the notice's is, and **later**, no open or delete - and the banner no row count takes for a row; a release on the chip pressed alone answering; the answer from the chip written, the banner gone in the redraw at once, the panel's line saying it |
 | background work | `tests/sections/background.ps1`, after reload safety, on a chat of its own: a workflow, an agent and a background shell each start something (`Step-ChatBackgroundLine`), and a shell counts only with `-Shells` - the reload checks leave it out; the ends - a `<task-notification>` and its `queued_command` copy, a `TaskStop` result (none for one that failed), a workflow's run record written since its start (one from before is the run a resumed run keeps the id of), an agent's own transcript ending its turn - never mid tool call, owed a result, mid-stream, refused (Claude Code tries a fallback model), out of tokens, or untouched since the start - its last word read whole past a 100 KB report or 90 KB of record after it, and past keys that differ only in case (Windows PowerShell's JSON refuses those; checked against all 2,626 agent transcripts on the dev machine, none read differently from the whole file); SendMessage waking a reported agent starts it again at the wake's time; `-SkipPrint` and `-Since`; `Get-ChatBackgroundTasks` held by neither a killed workflow nor a finished agent; `Update-ChatBackgroundScan` finding the same, a last line half written waiting with the rest counted read, then read from where it stopped, 300 bytes a call with longer lines taken whole, a shrunk file read afresh; lines longer than its 40 KB piece searched a piece at a time - a word the piece's end cuts in two, the line after one with no word, a word in a long line's first piece - the same in one call, 300 bytes a call, and 1 byte a call, where the piece is held to four times what is kept for a cut word; the overlay - an idle chat with a workflow out a working row, `workflow 7m`, a busy one `working` as ever, a start older than the process none, a fresh cache the same answer; a shell `shell 4m` while `Get-ChatShellChildCount` finds a shell under the chat, none when it finds none, and the transcript's word where it cannot tell; two starts and one shell running - the newest, and its time; a print-mode run's shells counted; the count over all the chat's processes, unknown if any is; on Windows a count from Toolhelp32 in milliseconds; a chat the limit cut off reads cut off, not `shell`, and is counted from the cut-off, not from when the shell began; past its slice one transcript a pass, all with `-Whole`; the words for one kind, several, and a mix |
 | completion | one completer per command: `chatq 3` completes nothing, `chatq` never offers Copilot, subagent chats only with `-All`, hex completes an id, a hex-looking title still completes, a typographic apostrophe quoted; the cycler skips subagents and, for `chatq`, Copilot; a tail left mid-line comes off a `chatq` line |
-| install | one profile line replaces chatrm's and chatq's; uninstall leaves the rest of the profile; `chatinstall` moves a running watcher and overlay to the new copy, and `-NoRestart` leaves them; `Test-ChatProfileLine` counts only a line loading this copy, never an old tool's; the script copied without `src/` names the parts missing and defines no command; a shell's load leaves out the overlay's three parts - every call from the other 22 into them one already looked at, reached only from inside them or from the phone setup's window, never at a top level - and, loaded in a process of its own, has `charlie`, `chatconsole` and the console's folders without them, the same under `CHATQ_OVERLAY` but for stand-ins of the overlay's two hosts, and all 25 under `CHATQ_ALLPARTS`; a role's load (`CHATQ_ROLE`, [Get-ChatqPermitLaunch](src/permit.ps1) and [ask-hook.ps1](src/ask-hook.ps1) set it): each list in the loader holds every part its entry reaches - [Start-ChatqPermitBridge](src/permit.ps1)'s 9 parts, [Start-ChatqAskHook](src/ask.ps1)'s 15 - by the commands it calls, `${function:}` references, `Verb-Chat*` names in strings and the variables it reads but never sets, followed through each part's top level; loaded in a process of its own, the bridge's parts alone with `CHATQ_ALLPARTS` set or not, the hook's alone, `CHATQ_ROLE` gone from the environment once read, and a role not known loading as a shell; an older copy's launch - `CHATQ_OVERLAY` alone, the overlay's host or the phone setup's window called by name - started again through this copy's own, why the overlay's could not start thrown for the old launch to log, the phone setup's staying until the window it started holds the lock or a caller's wait is up; the phone setup's window, started for real, with every part and none of `CHATQ_OVERLAY`, `CHATQ_ALLPARTS` or Bypass once loaded; every C# compile in `src/` goes through [Invoke-ChatCompile](src/queue.ps1), its files in a folder of its own in `data/tmp`, gone after, and `TEMP` put back, a failed one's too; a day-old folder there - what a process killed mid-compile left - swept by the next compile, a young one kept; a `data/tmp` csc cannot work in - too long, or a character outside the PC's code page - left alone, and `TEMP` with it; `chatoverlay`, the overlay's old name, an alias of `charlie` set Global like `chatqnotify`'s, and a case-sensitive sweep of `src/*.ps1` and the loader finding the word only on the alias line, in `charlie`'s help note, in the helper windows' titles and in the macOS App Nap reason - every other place says `charlie` |
+| install | one profile line replaces chatrm's and chatq's; uninstall leaves the rest of the profile; `chatinstall` moves a running watcher and overlay to the new copy, and `-NoRestart` leaves them; `Test-ChatProfileLine` counts only a line loading this copy, never an old tool's; the script copied without `src/` names the parts missing and defines no command; a shell's load leaves out the overlay's three parts - every call from the other 23 into them one already looked at, reached only from inside them or from the phone setup's window, never at a top level - and, loaded in a process of its own, has `charlie`, `chatconsole` and the console's folders without them, the same under `CHATQ_OVERLAY` but for stand-ins of the overlay's two hosts, and all 26 under `CHATQ_ALLPARTS`; a role's load (`CHATQ_ROLE`, [Get-ChatqPermitLaunch](src/permit.ps1) and [ask-hook.ps1](src/ask-hook.ps1) set it): each list in the loader holds every part its entry reaches - [Start-ChatqPermitBridge](src/permit.ps1)'s 10 parts, [Start-ChatqAskHook](src/ask.ps1)'s 16 - by the commands it calls, `${function:}` references, `Verb-Chat*` names in strings and the variables it reads but never sets, followed through each part's top level; loaded in a process of its own, the bridge's parts alone with `CHATQ_ALLPARTS` set or not, the hook's alone, `CHATQ_ROLE` gone from the environment once read, and a role not known loading as a shell; an older copy's launch - `CHATQ_OVERLAY` alone, the overlay's host or the phone setup's window called by name - started again through this copy's own, why the overlay's could not start thrown for the old launch to log, the phone setup's staying until the window it started holds the lock or a caller's wait is up; the phone setup's window, started for real, with every part and none of `CHATQ_OVERLAY`, `CHATQ_ALLPARTS` or Bypass once loaded; every C# compile in `src/` goes through [Invoke-ChatCompile](src/queue.ps1), its files in a folder of its own in `data/tmp`, gone after, and `TEMP` put back, a failed one's too; a day-old folder there - what a process killed mid-compile left - swept by the next compile, a young one kept; a `data/tmp` csc cannot work in - too long, or a character outside the PC's code page - left alone, and `TEMP` with it; `chatoverlay`, the overlay's old name, an alias of `charlie` set Global like `chatqnotify`'s, and a case-sensitive sweep of `src/*.ps1` and the loader finding the word only on the alias line, in `charlie`'s help note, in the helper windows' titles and in the macOS App Nap reason - every other place says `charlie` |
+| a profile's lazy load | `tests/sections/lazy-shell.ps1`, after `find-delete.ps1`, each check in a fresh process of its own - its `$PROFILE` a profile beside a copy of the tool, the copy's own `data/`, the five names that keep a load whole gone from its environment: [Enter-ChatShell](src/shell.ps1) defines a stand-in for each of `$ChatShellCommands` - every `chat*` command and `charlie` in `src/`, and nothing else - the aliases and the key handlers, and none of the tool; `Get-Command` finds each stand-in and Get-Help says the tool loads on first use, then has the tool's own help; [Get-ChatShellKeyAction](src/shell.ps1) loading on Tab or Enter on a command's line, an alias's too, and doing what the tool's handler does on every other key and line; Tab on an argument loading the tool and completing as a whole load does, before the load and after; the files read before the load ([Get-ChatShellPaths](src/shell.ps1)) the tool's own, and `ChatClaudeHome` too; the key handlers and the arrows' old bindings kept through the load; the tool loaded once; `chatq -New .` and `chatfind` run first, where the shell is, seeing what a whole load sees; a second dot-source before the load harmless, one after it the whole tool again; positional, switch, `-Switch:$false`, named and piped input through a stand-in as typed ([Invoke-ChatShellStub](src/shell.ps1)), and a `-Name:value` beside a plain switch, `-Verbose` or an array, and a quoted `'-S:'`, each as the command itself takes it; a load that stops part way - a part that throws after `chatq`'s - saying so, and `charlie`, which it did not reach, saying it did not load rather than calling itself; nothing in `$Error` that a whole load does not file; lazy under StrictMode; the whole tool with `CHATQ_WATCHER`, `CHATQ_OVERLAY`, `CHATQ_ALLPARTS`, `CLAUDECODE` or `CHATQ_ROLE` set, and for a dot-source at the prompt; [Test-ChatShellDuty](src/shell.ps1) against [Start-ChatShellDuties](src/shell.ps1) run for real, the watcher's and the overlay's launches in their seams, over 21 cases of queue, phone and overlay files and locks - yes wherever a duty acts, no where none would, yes with nothing done only for an unpaired phone with an alert out and a config that will not read; Charlie closed by hand this sign-in ([Test-ChatOverlayClosedByHand](src/overlay-data.ps1), the sign-in read by [Get-ChatShellSignInAt](src/shell.ps1)) a no, one closed in a sign-in before, or a state that will not read, a yes; and a real profile load whose gate says yes loading the tool and marking the phone's listening, the next one staying lazy. Where the test runs with no interactive session, only that a profile's load is the whole tool there |
 | extension: the terminal half | `tests/extension-check.js`, `setup.js` and `build.js` with no PowerShell started: the loader's version read, an unreadable one (`0.8.0-rc1`) no version, and compared by number; the decision - nothing there → install, older → update, the same → nothing, newer → left, a loader of no readable version → left and said once, a folder holding other files → nothing written, not even `data/`, a git work tree at the folder or above it → never written, the difference said once per version pair, no payload → nothing; when the profile is looked at at all and when asked (never after Never, after Not now at the next version, always from the palette); the lock - taken, refused, taken over once stale, and a place that cannot be written thrown rather than read as another window; `setUp` in a sandbox folder: installed parts first with no `.new` left, the same again copies nothing, settled it starts no PowerShell, updated, a newer copy left, nothing copied while another window holds the lock, a copy that fails said once a version with no `.new` and no half install; the profile step with PowerShell stood in for: Add runs `chatinstall` where the line was missing and checks again, after an update also where it was, one restart; Add with the line still missing after it → no "Added", the answer not kept, and said; a policy that would stop the line → the question says so and scripts are allowed before the line is written; a policy that will not change → no line, and said; a PowerShell that gives no answer → neither asked about nor installed into; a line already there that never runs → the policy offered once a version; Never kept until the palette asks; setup runs one at a time, a palette run after a start's rather than dropped, and an `onReady` joining a run already going called once that run's loader is ready, or at once where it was; `onReady` called the moment the copy put the loader there, or at once where it was there already, before the profile step - which may never end - and never for a folder it did not install into; the build: the loader's own part list, every part present, the extension's version the script's, an SVG image caught and a link to one not, the listing README free of them; the old extension on the same file → none of it watched here and one window offers it away, another within 10 minutes not, on another file than `chatManager.folder`'s → this one handles its own; without it both files watched in the tool folder, and the overlay's answer to a reload; `chatManager.folder`, `~` in it, a relative one refused for the default, the old `signalFile` taken only as a `data/reload-request`, and `chatManagerReload.*` read where the new ones are unset |
 | StrictMode | dot-sourced and used from a `Set-StrictMode -Version Latest` shell — once as the tests run it, once as a real shell loads it (not the watcher, without the overlay's parts, no queue yet, stop on the first error; `autoStart` off in its copy, or the shell-start path would put a real overlay on the screen) |
 | runner | stdin byte-exact on 5.1 (Hangul, quotes, `\`, `%`, newlines, no BOM); API key and `CLAUDECODE` kept out; 400 KB of stderr without deadlock; timeout kills the whole tree; argument quoting round-trips through a compiled echo exe, and through the same exe behind a `.cmd` with `& | < > ^ ( )` and a lone `%` in its arguments; for a `.cmd` or `.bat` only, a `"`, a `%name%` or a line break refused and named (`Get-ChatqCmdArgRefusal`), and only there are `& | < > ^ ( )` quoted |
 | codex app-server client | `tests/sections/codex-appserver.ps1`, [Invoke-ChatqCodexRpc](src/codex-appserver.ps1) against the fake's app-server mode (`FAKE_APPSERVER`), no real codex: a rate-limit read whole, with exactly `initialize`, `initialized` and the read sent; `initialize` naming chatq and asking for the experimental API only with `-Experimental`; notifications passed by, and a request of the server's own - with the very id the read went out with - refused (-32601) and never taken for the reply; started on the given `CODEX_HOME` with `OPENAI_API_KEY` emptied, and gone once the replies are in; `thread/list` sent with `useStateDbOnly` true whether false or nothing was passed ([Get-ChatqCodexRpcParams](src/codex-appserver.ps1), a hashtable or an object, every other method's params left alone); several requests in one start, each reply to its own, one answered with an error `$null` and the rest standing; a method the server does not know said in its words; a refused `initialize` ending it there; a request that hangs timed out with the server and its parent gone, in well under 20 s; stdin held open until every reply is in - the fake reads stdin beside its work and exits the moment it ends, dropping a request still held by `FAKE_SLEEP`, as 0.159.2 does (S-A4), so a 2 s reply is taken by [Invoke-ChatqCodexRpc](src/codex-appserver.ps1) and lost to a session whose stdin is closed once the request is out; a home that is not there said, nothing started and no folder made; a codex that will not start, and one that ends before it answers, no data and never a throw |
 | codex usage, asked live | `tests/sections/codex-appserver.ps1`, against the fake's app-server mode and `tests/fixtures/usage/codex-ratelimits.json` (the real 0.159.2 answer of S-A4, account id scrubbed): [ConvertFrom-ChatqCodexRateLimitsReply](src/queue.ps1) reading a free plan's one 43200-minute window as `month` / `monthly`, its plan, `ordinaryUsageAllowed` and no credits; windows with no length named by place (primary 5h, secondary week), the per-limit `codex` bucket standing in for an empty `rateLimits`, credits read, no window no answer; a rollout's 43200-minute window `month` too; the overlay's fetch ([Start-ChatqCodexUsageFetch](src/overlay-data.ps1) / [Complete-ChatqCodexUsageFetch](src/overlay-data.ps1)) returning nothing on a pass that waits for nothing, then the month and plan, exactly `initialize`, `initialized` and the read sent, the server gone, and the same answer after; an error said and not quiet, a home that is not there quiet; a codex older than the floor never started - said by [Invoke-ChatqCodexRpc](src/codex-appserver.ps1), quiet to the overlay - and one upgraded in place since, its old version still cached, read again by `--version` and started; `-CodexUsage off` with an ask out ([Update-ChatOverlayUsage](src/overlay-data.ps1)) dropping the ask and ending its server; the probe ([Get-ChatqCodexLiveLimit](src/queue.ps1) inside [Invoke-ChatqProbe](src/queue.ps1)): a full 5 h window ahead limited until its reset with `NoTurn` and no `exec` run, a limit the server says is reached limited with no reset, room left and credits past a full window both left to the `exec` turn |
 | jobs | queueing records cwd and mode; the prompt file is named after the chat; done / limited / needs-input / skipped `-Continue`, judged by the chat's last turn with no mode or model read ([Invoke-ChatqJob](src/watcher.ps1)) / busy chat deferred / idle live chat run, with a reload request for that window; 529 mid-run; an interrupted run failed and not resent; `chatqrm -Force` with no watcher |
+| native watcher launch | `tests/sections/native.ps1`, after `watcher.ps1`: [Get-ChatqWatcherEngine](src/watcher.ps1) on every case of `native/vectors/launch.json`, which [launch::decide](native/crates/chatq-core/src/launch.rs) runs too (`cargo test`, `crates/chatq-core/tests/launch_vectors.rs`) - one table for both launchers; with no chatqd the launch is the PowerShell one it was, no config, JSON or loader read and nothing written; the native launch's arguments and its culture block; each strike - a launch never acked, a crash, a failed preflight, a start that throws - makes that same launch the PowerShell watcher's; a process older than the scripts on disk decides for the loader's version on disk ([Get-ChatqLoaderVersion](src/watcher.ps1)) - its `bin/` folder, its strikes, its preflight - and with no loader to read starts the PowerShell watcher; a relative `CHATQ_CHATQD` is the binary in the process's folder, as chatqd resolves it, not the one at PowerShell's location; the third in a day blows the fuse, one `failed` alert through the real [Send-ChatqAlert](src/alerts.ps1), and none where no binary is there to run; with a build of `native/Cargo.toml`'s version at `native/target/release/chatqd.exe` (else skipped, said in yellow: none, or one a version bump left behind): preflight through the real exe (pass, exit 2, will not start), a real native launch in a throwaway root that acks and leaves, and its respawn finding PowerShell's `verified.json` pass and starting the arguments PowerShell did; with that build, the checks no vector file can hold, asked of the real chatqd (`tests/vectors/live.ps1`): a secret PowerShell protected with DPAPI, and this PC's own zone around its DST changes |
+| native contract vectors | `tests/sections/native.ps1`, last: `tests/vectors.ps1`, in a process of its own so its clock, zone and culture stand-ins end with it, makes every `native/vectors/*.json` again from the PowerShell functions it pins and compares it with the file, one check per file - the same files `cargo test`'s `*_vectors.rs` runners hold chatq-core to (native/SPEC.md 6.1); among them what people type into `config.json` - comments, trailing commas, quotes, bare names - as each PowerShell reads it (`json-compat.json`'s `config` cases), and the reply and auto-continue gates on such a config, which pwsh 7 reads and 5.1 takes for empty (`gates.json`) |
 | job core | a job `chatq` makes has the fields it always had, in their order, plus `sendNow` and `effortAtQueue`; a row by its id, exact and in any case, never fuzzy; `New-ChatqJob` says why and leaves nothing behind for an empty prompt, a Copilot chat, a continue with files, a chat whose transcript is gone, a file gone before it was copied; first, send now, a model, a not-before time, a staged file moved in and a pasted image; two jobs for one chat inside a second get ids of their own, and a job is found by its whole id even when the other's id starts with it (a prefix match found both and returned neither, and the watcher spun on the first); the first one put first sorts ahead; files go only to a job still waiting; `Remove-ChatqJob` takes the prompt and files; a job's number held from the moment its slot is taken - a job made while a slot has no `.json` yet, as a `chatq` editor tab still open, gets the next number, a prompt file and an id of its own (it had taken the same number, and written over the tab's file), the folder that held the id gone once the `.json` is saved with no file in it, and a slot given up gives its number back; `data/job-numbers.lock` held by another process for longer than its 3 s, and the job is made all the same; two processes making 12 jobs each for one chat at once - no number, id or prompt file taken twice, none lost; a run's log read as entries, a tail read reading fewer, and read while a run holds it open to write (`File.ReadLines` threw there); `Stop-ChatqJobRun` leaves a job that already ended as it ended; `Request-ChatqWatcher` never waits - the wake to a running watcher, a start when none runs, 'waiting' then 'failed' after 10 s, one that was running when poked and has gone since started again once; the console's Remove on a console with no window, timed by the clicks' own times: a click asks, 150 ms on is a double-click and no answer, `Update-ChatConsoleAsks` at 5.1 s puts it back, a click at 7 s asks again and one at 8.5 s removes; `Get-ChatConsoleRemoveStep` over -1, 150, 399, 400, 5000, 7000, 7001 and `Get-ChatConsoleSince` across the tick count's wrap; `Remove-ChatqJob` refuses a job running on disk though the caller's copy says queued, and logs no removal; `Set-ChatqJobRunAs` changes a waiting Claude job's mode and model, `''` giving the chat's own back, and refuses one already sent and a model holding a space |
 | new chats | the job's session id chosen when it is queued and its transcript's path known, named by the prompt's first line; its first run is `--session-id` and `--name`, no `--resume`, and lands where it said; a window on that folder is offered the reload, in words of its own; the chat it made is found by id and the next prompt resumes it; limited after its prompt landed, it goes on as "continue" in that same chat, and its reload is offered when that finishes, not lost with the run the limit cut; filed by Claude under a folder that is not the slug (`CLAUDE_CODE_PROJECT_DIR_NAME` in the fake; a path over 200 characters does the same), it is found by its id, kept, and a requeue resumes it - the fake refuses a second `--session-id`, as `claude.exe` does; a title with `"` and `&` reaches `claude.cmd` whole but for those, and nothing after it is lost to cmd.exe; deleted since, its continue fails as a chat gone and nothing starts; a folder that is not there, or no prompt, makes no job; a new chat at a drive's root keeps `C:\` and Claude's slug `C--`; a job with no session never breaks the cut-off list; `chatq -New` (the rest of it is the attachments row's) in the mode and on the model given, `-WhatIf` saying `as a new chat starts`, and a `-Model` holding a quote refused with nothing queued; with no `-Prompt` the (stood-in) editor on a slot of its own - what was written there queued, the slot's folder gone and its number the job's alone (one prompt file holds it), no file said missed (a `$null` had printed `could not take in  - it goes without it`), a tab left empty queuing nothing and giving the number back - an `-Attach` file keeping its name, and `-Paste`'s text going under `-Prompt` with no editor; a job whose `-Model` `claude.cmd` cannot carry (written before the refusal, or by hand): its run failed with the reason and no process started, its own `--settings` file and the permit's folder gone, a Codex run the same, the probe `Refused` with nothing started, a chat's own model it cannot carry probed without `--model` - a Codex chat's without `-m`, still at low effort - and the watcher failing that job while its lane stays open - not blocked, no probe miss counted |
 | Claude Code's lists | the rule as the extension has it (`Get-ChatEntrypointIn`, `Get-ChatUnlistedWhy`), case for case; `Repair-ChatListed` on sandbox transcripts - hidden by its tail, one line as the extension writes it, its write time kept, a second look adds none; a last line lacking its end; hidden by its head untouched; a process busy in it, or a print-mode run - by its kind, or an `sdk-cli` entrypoint under `interactive` - held; one idle, mended; no file, none made; a job run into a chat hidden by its tail lists it again as it ends, and `watcher.log` says so, while a new chat's first record, an SDK's, is left; the open and run requests carry the transcript's path where given, and no such field where not; the append lands after a record another writer added since the open - it never writes over one - and makes no file; `Repair-ChatListedAll` over the index lists again a chat hidden by its tail and never run into or opened since - one in use held and untouched, a side transcript and a Codex row passed over, a second pass none - and `chatclean` does it, naming the chat, with its ghost picker declined |
@@ -231,25 +333,59 @@ pwsh 7, 279, 250, 78 and 35):
 | overlay: recent panel | in a child `powershell.exe -STA` of its own (with the size checks the `-EncodedCommand` line had passed Windows' 32 K limit): Recent under the open rows - a faint header, a compact line each that the open chip takes, none counted as a row; a row that finished a turn unseen with the accent dot on its tile's top right corner, the others none; collapsed, no Recent, and the one line saying `1 new`; the chip on a recent line kept through a redraw, and gone when its line goes; the settings box's Recent off, 5 or 10, the one in force filled, kept in `config.json`, and a pass run at once to build it; the height cap from WPF's own scale - the room from the panel's top edge down a stood-in screen 1020 pixels tall, over `TransformToDevice.M11` - and not the window rect's ratio to its width, which a drag can put out of step: a rect that disagrees is passed over; the cap going by the panel's top edge, worked out again as a grip drag is let go higher up a screen 500 pixels tall, more rows drawn at once; dropped at the screen's foot, still one row; `Get-ChatOverlayHeightCap` alone, the working area's own top counted; Recent drawn as `overlay.recent` of the snapshot's `recent` then its `recentMore`, a count set live redrawing unsaved, 0 no header; the bottom edge dragged past every open row bringing Recent lines from the pool, live, and let go saving Recent's count and not `maxRows`, the list split anew and the box's chip lit; back up, the Recent lines going first, then a row, only what changed saved, and Recent taken to none lighting Off; a press let go where it was saving nothing, and down again the open row coming back before the Recent lines; the top edge by the screen's foot bringing back a Recent line the foot cut for a line's travel up, the count kept, the bottom held |
 | overlay: tiles | in a child `powershell.exe -STA` of its own, shown off every screen, eight rows of every state: each tile's border in its state's colour, its ground washed in for a chat that needs you or works - an alpha of `38` and `1A` on dark - and bare for the rest, a queued job's border dashed; the ghost of every segment under five cells lit in that colour; the mark by where the chat runs - VS Code, a terminal, a queued prompt's run, not known - and a ring for one open nowhere, a filled triangle in it while its job runs; the shape each character lights - a blank none, a minus the middle bar alone, the separator two dots or a small h or d, an h's upper stroke on the left and a d's on the right; the clocks as built - `HhMM` working, waiting or idle, no seconds, `DDdHH` past 99 hours, down to a reset or a send, dashes for a job with no time; the timer's own tick ([Invoke-ChatOverlayTick](src/overlay-windows.ps1)) moving each to now, none while the panel is hidden, and setting when the next tick comes on a timer never started; every tile as wide and 36 units tall full, 21 and narrower compact, so every title starts in one column. Against a copy broken three ways - no next tick set, an h drawn as a d, no triangle while a job runs - the tick, character and mark checks fail and the other five pass. The dark look's ornaments, in a child of their own at width 260 with three idle rows, each render through `RenderTargetBitmap` at 96 dpi as its height and a hash: the frame's child a Grid of the gold line, the crest and the stack, the first two neither hit-testable nor filled, the flourish alone in the crest, all in the `trim` brush; the ornaments taking no room, their desired size 0 and the frame as tall as the stack and its chrome within 0.01; the flourish's right edge clear of the buttons (at most the window's width less the bar's indent and 22 units a button) and inside the top strip; the light look drawing the same as the frame with the stack alone, dark differing, and dark again restoring them. The chats' titles in the serif ([Set-ChatOverlaySerif](src/overlay-windows.ps1)): in dark each title's face the palette's serif, its line held at the sans line (`$script:ChatOverlaySansLine`, within 0.001 of a sans `TextBlock`'s measured height at 12), and a full row and a Recent line with no project as tall in dark as in light within 0.01; in light the same elements with no face or line height of their own, and the light render as it was; and the console's list, its text at 12.5: a Recent line's title in the serif, its line held at the console's own sans line (`SansLine`, within 0.001 of a sans `TextBlock`'s measured height at 12.5), as tall in dark as in light within 0.01, light holding none |
 | overlay: hover card | `tests/sections/hover-card.ps1`, on transcripts written for it in the sandbox. The read of a transcript's end ([Read-ChatOverlayCardTail](src/overlay-data.ps1)): the newest four calls, newest first, each with what it works on, the one with no result yet going since its line's time - in a parallel batch, one whose result has not come though a later one's has, and none once all are in; your newest prompt and Claude's newest words, each with its time, and the file's length; a turn done, Claude's words whole and Claude Code's own copy of your prompt; stopped by you, and when, the call you turned down not going and a prompt after it starting again; Claude Code's own records - a background task's news, a skill's text, a side chat, a limit's words - neither yours nor Claude's; a slash command as typed and Hangul as written; your words past the file VS Code says is open and past a picture's hundreds of KB, a picture alone a turn with no words; a prompt from before Claude Code marked them, and one you typed starting with a tag as its own records do, in a list or as words alone; only the window's end read, and the line its start cuts passed over; a last line longer than the window read in one four times as big, till a whole line is in it; a last line with no newline yet not read, and no transcript no error; the newest todo list's count and the item under way. What the card says ([Get-ChatOverlayCardModel](src/overlay-data.ps1)): NOW, the call going and on what and its clock's start, an MCP tool by its own name; WAITS in waiting's colour - the call it asks to make, a question, a plan to approve, and needing input the row's words, else `needs you` - a question's and a plan's secrets hidden as a command's are; RUNNING for a queued run; a chat at work on no call, the row's words and no clock; FINISHED, STOPPED, a Recent chat's own tone, and with no transcript the row's time; CUT OFF and QUEUED in their own words; TASKS while items are left, its own call not among those before. Where it reads ([Get-ChatOverlayCardSource](src/overlay-data.ps1)): an open chat's transcript with the prompt the pass found, a cut-off row's own, a Recent chat's by its id, a gone one none; a queued prompt's chat's and the prompt it sends, a Codex one's rollout unread; which prompt wins, a prompt sent after Claude's words after them, and a picture alone no prompt rather than an older one. Pure: a file by its path from the chat's folder in forward slashes, a long one by the folders nearest its name that fit 28 characters, anything else as it came but for what looks like a secret ([Format-ChatOverlayCardArg](src/overlay-data.ps1)); a call's telling key, a question before the words under it ([Get-ChatOverlayToolArg](src/overlay-data.ps1)); a JSON string's first line unescaped, 600 characters at most ([Get-ChatOverlayJsonText](src/overlay-data.ps1)); the times `13:05`, `Tue 13:05` and `Oct 3`; the side with more room, the left on a tie, level with its row and kept on the screen ([Get-ChatOverlayCardPlacement](src/overlay-windows.ps1)); the rows a card is for. Then in a child `powershell.exe -STA` of its own, off every screen: the card's window click-through, never activated, in neither Alt+Tab nor the taskbar, titled `Charlie card`; after a rest on a row and not before, a queued prompt's card though its chip has nothing to offer; the pointer gone, the card kept a moment, then gone; an open chat's card with its chip, drawn; the clock put right by the timer's own tick ([Invoke-ChatOverlayTick](src/overlay-windows.ps1)), and the transcript read again on a pass only once it grew; none while the settings box is open, a redraw without its row or the panel hidden taking it; on the right with no room on the left, held on the screen by its foot; a banner's chip but never a card, and none folded, mid-drag, out of a full screen's way or in the console; the light look on the panel's light ground; the panel's opacity, as the card comes up and as the slider moves; a speech bubble's tail out of the side facing the panel, on either side, its tip within the row's height, a card held up off the screen's foot too ([Set-ChatOverlayCardShape](src/overlay-windows.ps1)) - a tail always on the left with its tip at the top fails it; no project, place or title on the card, its row saying whose it is. Against a copy with the card's half of [overlay-data.ps1](src/overlay-data.ps1) as it stood before the review, the five prompt, long-line and secret checks fail and the other 38 pass; with the line the window's start cuts read as whole, the cut-line check alone fails |
-| overlay: life | in a child `powershell.exe -STA`, shown off every screen: a (stood-in) full screen hides the panel with nothing saved and shows it again once it ends; shown by hand during one, kept until it ends and out of the way at the next; hidden to the tray meanwhile, the tray's word holding; a stop marks the close against the sign-in, a restart does not, and with no sign-in known × stops at once and keeps nothing; a changed code stamp restarting it on the timer's pass, but not mid-drag, with the console up, a slider not at rest or out of a full screen's way; the native full-screen call compiled and answering 0 to 7, and its answers read (2, 3 and 4 hold the screen, 0, 1, 5, 6 and 7 do not); × with the sign-in known kept, said in a balloon, the panel gone at once; in its 4 s unlock, collapse, hide, another × and any other balloon dropped, the hotkey taking the close back (shown, unkept, the stop called off, the panel not unlocked), a restart turned into the stop with the close kept, and a `show` command left after the last pass read as the 4 s end and taking it back; the process stopped 4 s on by the close's own timer; the heap collected by the first pass past its time, not before, then again by the first pass 5 minutes on and not before that, and - in a process of its own - 64 MB of big buffers freed between ones still held given back and said in the log; and in another, a tick that threw past its catch every time, in the pointer check's place, its timer set going again after each throw ([Register-ChatOverlayUiCatch](src/overlay-windows.ps1)), and the 1 s timer's place - slower, stopping itself on its second tick - neither held back by those throws nor started again by the five after its stop, the throw said in the log once |
+| overlay: life | in a child `powershell.exe -STA`, shown off every screen: a (stood-in) full screen hides the panel with nothing saved and shows it again once it ends; shown by hand during one, kept until it ends and out of the way at the next; hidden to the tray meanwhile, the tray's word holding; a stop marks the close against the sign-in, a restart does not, and with no sign-in known × stops at once and keeps nothing; a changed code stamp restarting it on the timer's pass, but not mid-drag, with the console up, a slider not at rest or out of a full screen's way; the native full-screen call compiled and answering 0 to 7, and its answers read (2, 3 and 4 hold the screen, 0, 1, 5, 6 and 7 do not); × with the sign-in known kept, said in a balloon, the panel gone at once; in its 4 s unlock, collapse, hide, another × and any other balloon dropped, the hotkey taking the close back (shown, unkept, the stop called off, the panel not unlocked), a restart turned into the stop with the close kept, and a `show` command left after the last pass read as the 4 s end and taking it back; the process stopped 4 s on by the close's own timer; the heap collected by the first pass past its time, not before, then again by the first pass 5 minutes on and not before that; a compaction leaving 330 MB an hour in, 75 over where the run settled, flagging a memory restart mid-drag and the next pass restarting through the `restart` verb, why said in the log; and - in a process of its own - 64 MB of big buffers freed between ones still held given back and said in the log, the private MB after returned alone; and in another, a tick that threw past its catch every time, in the pointer check's place, its timer set going again after each throw ([Register-ChatOverlayUiCatch](src/overlay-windows.ps1)), and the 1 s timer's place - slower, stopping itself on its second tick - neither held back by those throws nor started again by the five after its stop, the throw said in the log once |
 | overlay: macOS panel | `tests/overlay-mac-check.js`: the JXA pulled out of `src/overlay-mac.ps1`, pure ASCII, free of `?.` and `??`, compiled; its countdowns, bars, lines, row cap, prompt toggle, unlocked hint, commands taken once and only when newer than the panel, the menu bar count; the theme chosen from the config and the OS, both looks with every colour, usage as a line a provider ending in its time, or as bars when set; opacity held to 0.3-1; a terminal's chat marked `>_`, one a queued prompt runs in a play triangle, and one in VS Code neither; no unread mark - a row that says unread drawn as any other, the dot being Windows only; the gold line round the panel (`frameLine`): the trim colour, its three parts, in dark and none in light; and every colour the Mac names that Windows also names the Windows dark value over 255 to two places, within 0.006 - more than 15 of them compared, all 18 the Mac names today, out of a Windows dark palette read at more than 20 keys |
 
 ### CI
 
-`.github/workflows/test.yml` runs on `windows-latest`, once under Windows
-PowerShell 5.1 and once under PowerShell 7, and fails on any failed check. The
-5.1 leg also fails on a non-ASCII byte in any `.ps1` — the runner is en-US, so
-the CP949 problem that rule exists for would never show there. The 7 leg
-runs the extension check and the overlay's macOS check with node, which
+`.github/workflows/test.yml` runs the self-test on `windows-latest`, once
+under Windows PowerShell 5.1 and once under PowerShell 7, and fails on any
+failed check. The 5.1 leg also fails on a non-ASCII byte in any `.ps1` —
+the runner is en-US, so the CP949 problem that rule exists for would
+never show there. The 7 leg runs the extension check and the overlay's macOS check with node, which
 evens out the two legs' time. It also packs the extension with
 `vsce package`, whose `vscode:prepublish` is `extension/build.js`:
 a version that is not the script's, a script that is not ASCII, or an SVG in
 the listing's README or CHANGELOG fails the run before vsce reads the manifest.
 
-`.github/workflows/publish.yml` calls `test.yml` before it publishes a `v*`
-tag, and refuses a tag that is not `package.json`'s version or a version
-with no section in `CHANGELOG.md`. That step was run locally against
-0.7.0. Run by hand on 2026-09-25, the workflow signed in and the publisher
+chatqd has two legs of its own in `test.yml`, each running cargo inside
+`native/`, on `rust-toolchain.toml`'s 1.99.0:
+- **`native-windows`** (`windows-latest`) makes the release build first,
+  for `x86_64-pc-windows-msvc`, and uploads it, so the PowerShell legs
+  get an exe whatever a later step finds. Then `cargo fmt --check`,
+  clippy with `-D warnings`, `cargo test`, and the live checks under two
+  zones: for Pacific time, which has summer time, and Korea time, which
+  has none, `tzutil /s` and then `tests/vectors.ps1 -Live` against that
+  exe under 5.1 and under pwsh 7. Last, `cargo deny check`.
+- **`native-macos`** (`macos-latest`, Apple silicon) adds both Apple
+  targets, and Rosetta where it is missing. Then fmt, clippy,
+  `cargo test` natively and again for `x86_64-apple-darwin` under
+  Rosetta, both release builds, and one universal binary from them with
+  `lipo`. That binary is signed again after `lipo` (ad hoc,
+  `codesign --force --sign -`), checked with `codesign --verify --strict`,
+  run as `chatqd version` natively and under `arch -x86_64`, and uploaded
+  as a `.tar.gz`, which keeps its 0755 mode.
+
+The PowerShell legs wait for `native-windows`, whether or not it passed,
+and download its exe into `native/target/release/`, where `native.ps1`
+looks for a developer's build. With no exe they still run, and
+`native.ps1`'s checks of the real chatqd say so and skip. Those legs stay
+on the runner's UTC.
+
+`.github/workflows/release.yml` is the dry run of chatqd's release
+(native/SPEC.md 7, M0), started by hand only (`workflow_dispatch`). It
+calls `test.yml`, then names both builds as `install.ps1` will ask for
+them - `chatqd-<version>-x86_64-pc-windows-msvc.zip` and
+`chatqd-<version>-universal-apple-darwin.tar.gz`, the version from
+`native/Cargo.toml` - checks the Mac binary is still `-rwxr-xr-x` inside
+its tar, writes `SHA256SUMS`, and uploads the three as one artifact. It
+signs nothing, has no tag trigger and makes no GitHub release; those come
+with the real release (SPEC 4.7, 4.8).
+
+`.github/workflows/publish.yml` calls `test.yml`, chatqd's legs above
+included, before it publishes a `v*` tag, and refuses a tag that is not
+`package.json`'s version or a version with no section in `CHANGELOG.md`.
+That step was run locally against 0.7.0. Run by hand on 2026-09-25, the workflow signed in and the publisher
 accepted it (S32 item 7); publishing itself waits for the first tag.
 
 `docs/make-icon.py` makes `extension/icon.png`, the Marketplace icon, from
@@ -655,7 +791,31 @@ stood-in commit limit (`ChatMemorySeam`, `ChatMemoryTopSeam`): quiet at
 half, low at 96% with the figures, held until under 92%, looked at 10 s
 apart and the top programs a minute apart, the tray told once in 15
 minutes, 0 never, a `-Peek` pass silent; the panel's note first; the
-balloon's words; and the tray item's verb
+balloon's words. A program growing
+([Update-ChatOverlayLeaks](src/overlay-data.ps1)), over a stand-in for
+each program's bytes by name with each of its processes'
+(`ChatMemorySumsSeam`), a look a minute for an hour as Word grew on
+2026-10-19: nothing in the first 10 minutes; 6.1 GB grown since the look
+10 minutes back said with its pid, in the log and for the tray; a
+program still, not there 10 minutes back, or whose sum grows 3 GB by a
+new process each minute (claude's), never; one walk a minute, a second
+look inside it cached; said again 30 minutes on while it grows, not
+before; gone 10 minutes after it stops; 15 minutes of samples kept;
+`leakGB` 0 never, with no walk; a `-Peek` look silent and the next pass
+that acts saying it; memory's top programs read from the same walk, none
+of their own until it is a minute old; its note after memory's; the
+balloon its own, or one saying both with memory low; the host's pass
+carrying it in the header, a `-Peek` one saying nothing, `-Print`'s not
+looking; a walk that throws leaving its minute no listing
+([Get-ChatOverlayProcessSums](src/overlay-data.ps1)), not the minute
+before's; and the real walk, this process's name in it and its own pid
+among that name's. Config `leakGB` 2 and `restartMB` 300 unless chosen,
+held to 0..64 (a part kept) and 0..4096. The overlay's own memory
+([Update-ChatOverlayRestartDue](src/overlay-windows.ps1)): settled at
+its least from 30 minutes in, a restart due at 300 MB and 50 over that
+an hour in, its words, kept once due; never under 50 over, for no
+figure, in the first hour, under the limit, or at 0 - a run all of whose
+figures are high never due. And the tray item's verb
 ([Set-ChatOverlayCrashChoice](src/overlay-windows.ps1)).
 
 `tests/extension-check.js` stands in for the script's verdict
@@ -1567,7 +1727,22 @@ live overlay, read-only.
       moment the pointer is on it, with no rest, and goes back as it
       leaves; a click on it opens the chat and leaves the pick where it
       was; a click on the tile, the words or past a short title picks the
-      row; the bin goes red on one click and dim again within 5 s.
+      row; the bin goes red on one click and dim again within 5 s. Rest
+      on one row, then another: the chip never shows the last row's name
+      there, lit, for a frame.
+
+      Read back on this PC 2026-10-16, at 125% scaling, dark theme, panel
+      opacity 0.87, from a second panel with the pointer faked
+      (`ChatOverlayPointerSeam`) and the screen captured every few ms:
+      all of the above but the real open and the console's tile and
+      words. It found and fixed two faults the suite cannot see: the
+      copy's ground showed as a box over the row (the copy now has none
+      and the row's own name is hidden under it,
+      [Set-ChatOverlayChipNameHidden](src/overlay-windows.ps1)), and for
+      a frame the chip came up with the last row's lit name
+      ([ChatOverlayNative.HideLastPicture](src/overlay-windows.ps1)).
+      Still to see by hand: 150% scaling, a real pointer and click, the
+      chat really opening.
 - **S25, a new chat from `claude -p`** - half run. Claude Code 2.1.281 took
   `claude -p --session-id <uuid> --name "chatq spike"` in a scratch folder:
   the init line carried that id, the transcript landed at
@@ -2491,6 +2666,74 @@ live overlay, read-only.
   6. **A subagent asks** (FUTURE_WORK.md, "A card on a chat whose subagent
      asks"): a chat whose foreground Agent runs a Bash call that asks -
      note what the row and the card say.
+- **S54, a shell that opens light, for real** (CHANGELOG, 0.10.15). The
+  checks run each profile load in a fresh process of its own; a real
+  terminal, its PSReadLine and VS Code's shell integration are only seen
+  here.
+  1. **Light.** In a new VS Code terminal, the shell's private bytes,
+     `(Get-Process -Id $PID).PrivateMemorySize64 / 1MB`, near 73 where
+     they were 108, and `Get-Command Get-ChatqJobs -EA 0` finds nothing.
+  2. **First use.** `chat` waits about half a second, then prints the
+     cheat sheet; `Get-ChatqJobs` is there after, and a second `chat`
+     does not wait.
+  3. **The keys.** In another new terminal, `chatq ` and Tab loads the
+     tool and offers chats; Shift+Tab, the arrows and Enter on a chat
+     line do what they did; `chatrm -Pro` and Tab completes the
+     parameter's name.
+  4. **Duties.** With a job queued and no watcher, a new terminal starts
+     the watcher as it opens, as before; with the overlay closed by hand
+     since sign-in, a new terminal stays light.
+  5. **The PowerShell extension's terminal** (`Visual Studio Code Host`)
+     opens light too, and `chat` there loads the tool.
+- **S55, the native watcher's first step on this PC** (native/SPEC.md,
+  M0; CHANGELOG, 0.10.15). The checks start the real chatqd only in a
+  throwaway root; this PC's own `data/` and a real queue are only seen
+  here.
+  1. **Built.** From the repo's root, `cargo build --release
+     --manifest-path native/Cargo.toml --config native/.cargo/config.toml`
+     (`build.rs` refuses a release build without that config's
+     `crt-static`), and `native/target/release/chatqd.exe` copied to
+     `bin/<version>/x86_64-pc-windows-msvc/` by hand, since no script
+     stages a build yet (DEFERRED.md, "A script that stages a chatqd
+     build"). From the root it builds with the installed stable, not
+     CI's 1.99.0. Nothing else is set.
+  2. **An empty queue.** The next launch starts chatqd: `watcher.log`
+     says `queue empty` and stopped, the lock is free, `last.json` in
+     `data/native/` says `empty`, and no `pending.json` is left.
+  3. **A job.** Queue one: `chatqd.log` shows the handoff, and the
+     PowerShell watcher logs `carrying on` and runs it.
+  4. **Stopped while it waits.** With `hold` in the file
+     `CHATQ_NATIVE_SEAMS` names, `chatqrun -Stop` while chatqd waits
+     ends it, the lock freed.
+  5. **Its memory.** chatqd's private bytes while it waits under `hold`,
+     `wake` touched meanwhile, written here as taken under the seam. The
+     Rust work's own run measured 1.1 MB private and 5.2 MB working set.
+  6. **Killed.** End chatqd in Task Manager: the next shell's start
+     records one `crash` strike in `fuse.json`, starts a PowerShell
+     watcher, and the decision after still says native.
+  7. **Gone.** Rename the exe's folder: the next launch starts the
+     PowerShell watcher, with no strike and no alert.
+  8. **An update.** With the loader's version bumped and only the new
+     `bin/<version>/` there, a restart goes native at the new version.
+- **S56, a program growing and the overlay's own restart, on this PC**
+  (CHANGELOG, 0.10.15). The checks stand in for the processes and for
+  the overlay's figure; Windows' own listing on a busy PC, the tray and a
+  real restart are only seen here.
+  1. **Growing.** With `overlay.leakGB` set to 0.5, a PowerShell of its
+     own that takes 100 MB a minute and holds it: within about 12 minutes
+     of its start (it has to be in the look 10 minutes back),
+     `overlay.log` has `powershell grew ... in 10 min, now ... (pid ...) -
+     it may be leaking`, the pid its own and not the overlay's, the panel
+     an amber note, the tray one balloon; not again within 30 minutes.
+     Stopped, the note goes within 10 minutes.
+  2. **The cost.** The overlay's processor time over 10 minutes, the look
+     on and with `leakGB` 0: no step a minute that the panel shows.
+  3. **A restart.** On an overlay up over an hour whose last compaction
+     in the log is 50 MB or more over its least since 30 minutes in,
+     `overlay.restartMB` set at or under that figure and read by the
+     overlay: at the next compaction, within 5 minutes, the log says why,
+     then `overlay ... stopped - a memory restart, to give back what this
+     run held`, and a new overlay starts; not while the console is open.
 
 ### Permissions from the phone (S35)
 

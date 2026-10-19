@@ -1,0 +1,1771 @@
+{
+  "about": "JSON files as Read-ChatqJson (src/queue.ps1) reads them under each PowerShell - Get-Content -Raw -Encoding UTF8 | ConvertFrom-Json, then return - and whether the read needed a repair (SPEC 2.2). input: the file as bytes (hex), as text written as UTF-8, or as pretty: text exactly as chatqd's writer (json::to_pretty) writes it. expect: {value, repaired}; value is null where Read-ChatqJson returns $null, objects keep their order, a [datetime] is {date: its 'o' in Korea Standard Time}. Cases by an edition are files its Save-ChatqJson (ConvertTo-Json -Depth 8) wrote.",
+  "cases": [
+    {
+      "name": "config a line comment",
+      "input": {"text": "{\n  // quiet hours\n  \"a\": 1\n}"},
+      "expectByEdition": {
+        "Desktop": {"value": null, "repaired": false},
+        "Core": {"value": {"a": 1}, "repaired": false}
+      }
+    },
+    {
+      "name": "config a block comment",
+      "input": {"text": "{ /* x */ \"a\": 1 }"},
+      "expectByEdition": {
+        "Desktop": {"value": null, "repaired": false},
+        "Core": {"value": {"a": 1}, "repaired": false}
+      }
+    },
+    {
+      "name": "config a line comment, CRLF",
+      "input": {"text": "{\r\n  // quiet hours\r\n  \"a\": 1\r\n}"},
+      "expectByEdition": {
+        "Desktop": {"value": null, "repaired": false},
+        "Core": {"value": {"a": 1}, "repaired": false}
+      }
+    },
+    {
+      "name": "config a comment with an apostrophe",
+      "input": {"text": "{\n  // it's quiet\n  \"a\": 1\n}"},
+      "expectByEdition": {
+        "Desktop": {"value": null, "repaired": false},
+        "Core": {"value": {"a": 1}, "repaired": false}
+      }
+    },
+    {
+      "name": "config a trailing comma",
+      "input": {"text": "{\"a\":1,}"},
+      "expectByEdition": {
+        "Desktop": {"value": null, "repaired": false},
+        "Core": {"value": {"a": 1}, "repaired": false}
+      }
+    },
+    {
+      "name": "config a trailing comma in a list",
+      "input": {"text": "{\"a\":[1,2,],\"b\":1}"},
+      "expectByEdition": {
+        "Desktop": {"value": null, "repaired": false},
+        "Core": {"value": {"a": [1, 2], "b": 1}, "repaired": false}
+      }
+    },
+    {
+      "name": "config single quotes",
+      "input": {"text": "{'a':'x'}"},
+      "expect": {"value": {"a": "x"}, "repaired": false}
+    },
+    {
+      "name": "config a mark, then a comment",
+      "input": {"bytes": "efbbbf2f2f20630a7b2261223a317d"},
+      "expectByEdition": {
+        "Desktop": {"value": null, "repaired": false},
+        "Core": {"value": {"a": 1}, "repaired": false}
+      }
+    },
+    {
+      "name": "config slashes in a string",
+      "input": {"text": "{\"u\":\"https://ntfy.sh//x\",\"v\":\"/* no */\"}"},
+      "expect": {"value": {"u": "https://ntfy.sh//x", "v": "/* no */"}, "repaired": false}
+    },
+    {
+      "name": "config a line comment after the object",
+      "input": {"text": "{\"a\":1}\n// end"},
+      "expectByEdition": {
+        "Desktop": {"value": null, "repaired": false},
+        "Core": {"value": {"a": 1}, "repaired": false}
+      }
+    },
+    {
+      "name": "config a line comment after the object, then a line break",
+      "input": {"text": "{\"a\":1}\n// end\n"},
+      "expectByEdition": {
+        "Desktop": {"value": null, "repaired": false},
+        "Core": {"value": {"a": 1}, "repaired": false}
+      }
+    },
+    {
+      "name": "config a bare // after the object",
+      "input": {"text": "{\"a\":1}\n//"},
+      "expect": {"value": null, "repaired": false}
+    },
+    {
+      "name": "config a bare // after the object, then a line break",
+      "input": {"text": "{\"a\":1}\n//\n"},
+      "expectByEdition": {
+        "Desktop": {"value": null, "repaired": false},
+        "Core": {"value": {"a": 1}, "repaired": false}
+      }
+    },
+    {
+      "name": "config a block comment after the object",
+      "input": {"text": "{\"a\":1}/* end */"},
+      "expectByEdition": {
+        "Desktop": {"value": null, "repaired": false},
+        "Core": {"value": {"a": 1}, "repaired": false}
+      }
+    },
+    {
+      "name": "config an open block comment after the object",
+      "input": {"text": "{\"a\":1}/* end"},
+      "expect": {"value": null, "repaired": false}
+    },
+    {
+      "name": "config a comment before the colon",
+      "input": {"text": "{\"a\" /* x */ : 1}"},
+      "expect": {"value": null, "repaired": false}
+    },
+    {
+      "name": "config a comment after the colon",
+      "input": {"text": "{\"a\": /* x */ 1}"},
+      "expectByEdition": {
+        "Desktop": {"value": null, "repaired": false},
+        "Core": {"value": {"a": 1}, "repaired": false}
+      }
+    },
+    {
+      "name": "config a comment before the comma",
+      "input": {"text": "{\"a\": 1 /* x */, \"b\": 2}"},
+      "expectByEdition": {
+        "Desktop": {"value": null, "repaired": false},
+        "Core": {"value": {"a": 1, "b": 2}, "repaired": false}
+      }
+    },
+    {
+      "name": "config a comment in a list",
+      "input": {"text": "{\"a\":[1 /* x */, 2]}"},
+      "expectByEdition": {
+        "Desktop": {"value": null, "repaired": false},
+        "Core": {"value": {"a": [1, 2]}, "repaired": false}
+      }
+    },
+    {
+      "name": "config a comment before a list",
+      "input": {"text": "/* c */ [1]"},
+      "expectByEdition": {"Desktop": {"value": null, "repaired": false}, "Core": {"value": 1, "repaired": false}}
+    },
+    {
+      "name": "config a comment alone",
+      "input": {"text": "// nothing"},
+      "expect": {"value": null, "repaired": false}
+    },
+    {
+      "name": "config a bare name",
+      "input": {"text": "{a: 1}"},
+      "expect": {"value": {"a": 1}, "repaired": false}
+    },
+    {
+      "name": "config a bare name with a dash",
+      "input": {"text": "{quiet-hours: 1}"},
+      "expectByEdition": {
+        "Desktop": {"value": {"quiet-hours": 1}, "repaired": false},
+        "Core": {"value": null, "repaired": false}
+      }
+    },
+    {
+      "name": "config a no-break space before the first name",
+      "input": {"text": "{\u00a0\"a\":1}"},
+      "expect": {"value": {"a": 1}, "repaired": false}
+    },
+    {
+      "name": "config a raw tab in a string",
+      "input": {"text": "{\"a\":\"x\ty\"}"},
+      "expect": {"value": {"a": "x\ty"}, "repaired": false}
+    },
+    {
+      "name": "config a raw line break in a string",
+      "input": {"text": "{\"a\":\"x\ny\"}"},
+      "expect": {"value": {"a": "x\ny"}, "repaired": false}
+    },
+    {
+      "name": "config True",
+      "input": {"text": "{\"a\":True}"},
+      "expect": {"value": null, "repaired": false}
+    },
+    {
+      "name": "config a hash comment",
+      "input": {"text": "{ # x\n \"a\":1}"},
+      "expect": {"value": null, "repaired": false}
+    },
+    {
+      "name": "lenient NaN",
+      "input": {"text": "{\"a\":NaN}"},
+      "expect": {"value": {"a": "NaN"}, "repaired": false}
+    },
+    {
+      "name": "lenient Infinity",
+      "input": {"text": "{\"a\":Infinity}"},
+      "expect": {"value": {"a": "Infinity"}, "repaired": false}
+    },
+    {
+      "name": "lenient -Infinity",
+      "input": {"text": "{\"a\":-Infinity}"},
+      "expect": {"value": {"a": "-Infinity"}, "repaired": false}
+    },
+    {
+      "name": "lenient past a double",
+      "input": {"text": "{\"a\":1e400}"},
+      "expectByEdition": {
+        "Desktop": {"value": null, "repaired": false},
+        "Core": {"value": {"a": "Infinity"}, "repaired": false}
+      }
+    },
+    {
+      "name": "lenient undefined",
+      "input": {"text": "{\"a\":undefined}"},
+      "expectByEdition": {
+        "Desktop": {"value": null, "repaired": false},
+        "Core": {"value": {"a": null}, "repaired": false}
+      }
+    },
+    {
+      "name": "lenient hex",
+      "input": {"text": "{\"a\":0x10}"},
+      "expectByEdition": {
+        "Desktop": {"value": null, "repaired": false},
+        "Core": {"value": {"a": 16}, "repaired": false}
+      }
+    },
+    {
+      "name": "lenient octal",
+      "input": {"text": "{\"a\":010}"},
+      "expectByEdition": {
+        "Desktop": {"value": {"a": 10}, "repaired": false},
+        "Core": {"value": {"a": 8}, "repaired": false}
+      }
+    },
+    {
+      "name": "lenient an empty list slot",
+      "input": {"text": "{\"a\":[1,,2]}"},
+      "expectByEdition": {
+        "Desktop": {"value": null, "repaired": false},
+        "Core": {"value": {"a": [1, null, 2]}, "repaired": false}
+      }
+    },
+    {
+      "name": "lenient a NUL between tokens",
+      "input": {"text": "{\"a\":\u00001}"},
+      "expectByEdition": {
+        "Desktop": {"value": null, "repaired": false},
+        "Core": {"value": {"a": 1}, "repaired": false}
+      }
+    },
+    {
+      "name": "lenient a plus sign",
+      "input": {"text": "{\"a\":+5}"},
+      "expectByEdition": {
+        "Desktop": {"value": {"a": 5}, "repaired": false},
+        "Core": {"value": null, "repaired": false}
+      }
+    },
+    {
+      "name": "lenient no digit before the point",
+      "input": {"text": "{\"a\":-.5}"},
+      "expect": {"value": {"a": -0.5}, "repaired": false}
+    },
+    {
+      "name": "lenient a dash after the digits",
+      "input": {"text": "{\"a\":5-}"},
+      "expectByEdition": {
+        "Desktop": {"value": {"a": -5}, "repaired": false},
+        "Core": {"value": null, "repaired": false}
+      }
+    },
+    {
+      "name": "lenient decimals",
+      "input": {"text": "{\"a\":1.50,\"b\":1e3,\"c\":-0.0}"},
+      "expect": {"value": {"a": 1.5, "b": 1000, "c": 0}, "repaired": false}
+    },
+    {
+      "name": "lenient a dollar name",
+      "input": {"text": "{$k:1}"},
+      "expectByEdition": {
+        "Desktop": {"value": null, "repaired": false},
+        "Core": {"value": {"$k": 1}, "repaired": false}
+      }
+    },
+    {
+      "name": "lenient a spaced escape",
+      "input": {"text": "{\"a\":\"\\u 041\"}"},
+      "expectByEdition": {
+        "Desktop": {"value": {"a": "A"}, "repaired": false},
+        "Core": {"value": null, "repaired": false}
+      }
+    },
+    {
+      "name": "decode ff (never UTF-8)",
+      "input": {"bytes": "7b2274223a2261ff62227d"},
+      "expect": {"value": {"t": "a\ufffdb"}, "repaired": true}
+    },
+    {
+      "name": "decode c0 80 (overlong)",
+      "input": {"bytes": "7b2274223a2261c08062227d"},
+      "expect": {"value": {"t": "a\ufffd\ufffdb"}, "repaired": true}
+    },
+    {
+      "name": "decode e0 80 80 (overlong)",
+      "input": {"bytes": "7b2274223a2261e0808062227d"},
+      "expectByEdition": {
+        "Desktop": {"value": {"t": "a\ufffd\ufffdb"}, "repaired": true},
+        "Core": {"value": {"t": "a\ufffd\ufffd\ufffdb"}, "repaired": true}
+      }
+    },
+    {
+      "name": "decode ed a0 80 (a surrogate)",
+      "input": {"bytes": "7b2274223a2261eda08062227d"},
+      "expectByEdition": {
+        "Desktop": {"value": {"t": "a\ufffd\ufffdb"}, "repaired": true},
+        "Core": {"value": {"t": "a\ufffd\ufffd\ufffdb"}, "repaired": true}
+      }
+    },
+    {
+      "name": "decode ed a0 bd ed b8 80 (a CESU-8 pair)",
+      "input": {"bytes": "7b2274223a2261eda0bdedb88062227d"},
+      "expectByEdition": {
+        "Desktop": {"value": {"t": "a\ufffd\ufffd\ufffd\ufffdb"}, "repaired": true},
+        "Core": {"value": {"t": "a\ufffd\ufffd\ufffd\ufffd\ufffd\ufffdb"}, "repaired": true}
+      }
+    },
+    {
+      "name": "decode f0 80 80 80 (overlong)",
+      "input": {"bytes": "7b2274223a2261f080808062227d"},
+      "expectByEdition": {
+        "Desktop": {"value": {"t": "a\ufffd\ufffd\ufffdb"}, "repaired": true},
+        "Core": {"value": {"t": "a\ufffd\ufffd\ufffd\ufffdb"}, "repaired": true}
+      }
+    },
+    {
+      "name": "decode f4 90 80 80 (past U+10FFFF)",
+      "input": {"bytes": "7b2274223a2261f490808062227d"},
+      "expectByEdition": {
+        "Desktop": {"value": {"t": "a\ufffd\ufffd\ufffdb"}, "repaired": true},
+        "Core": {"value": {"t": "a\ufffd\ufffd\ufffd\ufffdb"}, "repaired": true}
+      }
+    },
+    {
+      "name": "decode f8 88 80 80 80 (five bytes)",
+      "input": {"bytes": "7b2274223a2261f88880808062227d"},
+      "expect": {"value": {"t": "a\ufffd\ufffd\ufffd\ufffd\ufffdb"}, "repaired": true}
+    },
+    {
+      "name": "decode fc 84 80 80 80 80 (six bytes)",
+      "input": {"bytes": "7b2274223a2261fc848080808062227d"},
+      "expect": {"value": {"t": "a\ufffd\ufffd\ufffd\ufffd\ufffd\ufffdb"}, "repaired": true}
+    },
+    {
+      "name": "decode e2 82 (cut short)",
+      "input": {"bytes": "7b2274223a2261e28262227d"},
+      "expect": {"value": {"t": "a\ufffdb"}, "repaired": true}
+    },
+    {
+      "name": "decode f0 9f 98 (cut short)",
+      "input": {"bytes": "7b2274223a2261f09f9862227d"},
+      "expect": {"value": {"t": "a\ufffdb"}, "repaired": true}
+    },
+    {
+      "name": "decode e2 then e2 82 ac",
+      "input": {"bytes": "7b2274223a2261e2e282ac62227d"},
+      "expect": {"value": {"t": "a\ufffd\u20acb"}, "repaired": true}
+    },
+    {
+      "name": "decode 80 (a stray)",
+      "input": {"bytes": "7b2274223a22618062227d"},
+      "expect": {"value": {"t": "a\ufffdb"}, "repaired": true}
+    },
+    {
+      "name": "decode bf bf (strays)",
+      "input": {"bytes": "7b2274223a2261bfbf62227d"},
+      "expect": {"value": {"t": "a\ufffd\ufffdb"}, "repaired": true}
+    },
+    {
+      "name": "decode e0 80 41",
+      "input": {"bytes": "7b2274223a2261e0804162227d"},
+      "expectByEdition": {
+        "Desktop": {"value": {"t": "a\ufffdAb"}, "repaired": true},
+        "Core": {"value": {"t": "a\ufffd\ufffdAb"}, "repaired": true}
+      }
+    },
+    {
+      "name": "decode f4 90 80 41",
+      "input": {"bytes": "7b2274223a2261f490804162227d"},
+      "expectByEdition": {
+        "Desktop": {"value": {"t": "a\ufffd\ufffdAb"}, "repaired": true},
+        "Core": {"value": {"t": "a\ufffd\ufffd\ufffdAb"}, "repaired": true}
+      }
+    },
+    {
+      "name": "decode ed af 41",
+      "input": {"bytes": "7b2274223a2261edaf4162227d"},
+      "expectByEdition": {
+        "Desktop": {"value": {"t": "a\ufffdAb"}, "repaired": true},
+        "Core": {"value": {"t": "a\ufffd\ufffdAb"}, "repaired": true}
+      }
+    },
+    {
+      "name": "decode f0 8f",
+      "input": {"bytes": "7b2274223a2261f08f62227d"},
+      "expectByEdition": {
+        "Desktop": {"value": {"t": "a\ufffdb"}, "repaired": true},
+        "Core": {"value": {"t": "a\ufffd\ufffdb"}, "repaired": true}
+      }
+    },
+    {
+      "name": "decode c1",
+      "input": {"bytes": "7b2274223a2261c162227d"},
+      "expect": {"value": {"t": "a\ufffdb"}, "repaired": true}
+    },
+    {
+      "name": "decode f5",
+      "input": {"bytes": "7b2274223a2261f562227d"},
+      "expect": {"value": {"t": "a\ufffdb"}, "repaired": true}
+    },
+    {
+      "name": "decode ef bf bd (a U+FFFD that is text)",
+      "input": {"bytes": "7b2274223a2261efbfbd62227d"},
+      "expect": {"value": {"t": "a\ufffdb"}, "repaired": false}
+    },
+    {
+      "name": "decode f0 9f 98 80 (an emoji)",
+      "input": {"bytes": "7b2274223a2261f09f988062227d"},
+      "expect": {"value": {"t": "a\ud83d\ude00b"}, "repaired": false}
+    },
+    {
+      "name": "decode ed 95 9c (hangul)",
+      "input": {"bytes": "7b2274223a2261ed959c62227d"},
+      "expect": {"value": {"t": "a\ud55cb"}, "repaired": false}
+    },
+    {
+      "name": "end e2 82 after the object",
+      "input": {"bytes": "7b2274223a317de282"},
+      "expectByEdition": {"Desktop": {"value": {"t": 1}, "repaired": true}, "Core": {"value": null, "repaired": true}}
+    },
+    {
+      "name": "end c3 after the object",
+      "input": {"bytes": "7b2274223a317dc3"},
+      "expectByEdition": {"Desktop": {"value": {"t": 1}, "repaired": true}, "Core": {"value": null, "repaired": true}}
+    },
+    {
+      "name": "end ff after the object",
+      "input": {"bytes": "7b2274223a317dff"},
+      "expect": {"value": null, "repaired": true}
+    },
+    {
+      "name": "end f0 9f 98 after a line break",
+      "input": {"bytes": "7b2274223a317d0af09f98"},
+      "expectByEdition": {"Desktop": {"value": {"t": 1}, "repaired": true}, "Core": {"value": null, "repaired": true}}
+    },
+    {
+      "name": "mark utf-8",
+      "input": {"bytes": "efbbbf7b2274223a2278ed959c227d"},
+      "expect": {"value": {"t": "x\ud55c"}, "repaired": false}
+    },
+    {
+      "name": "mark utf-8 twice",
+      "input": {"bytes": "efbbbfefbbbf7b2274223a2278ed959c227d"},
+      "expect": {"value": null, "repaired": false}
+    },
+    {
+      "name": "mark utf-16le",
+      "input": {"bytes": "fffe7b002200740022003a00220078005cd522007d00"},
+      "expect": {"value": {"t": "x\ud55c"}, "repaired": false}
+    },
+    {
+      "name": "mark utf-16be",
+      "input": {"bytes": "feff007b002200740022003a00220078d55c0022007d"},
+      "expect": {"value": {"t": "x\ud55c"}, "repaired": false}
+    },
+    {
+      "name": "mark utf-32le",
+      "input": {
+        "bytes": "fffe00007b0000002200000074000000220000003a00000022000000780000005cd50000220000007d000000"
+      },
+      "expect": {"value": {"t": "x\ud55c"}, "repaired": false}
+    },
+    {
+      "name": "mark utf-32be",
+      "input": {
+        "bytes": "0000feff0000007b0000002200000074000000220000003a00000022000000780000d55c000000220000007d"
+      },
+      "expect": {"value": {"t": "x\ud55c"}, "repaired": false}
+    },
+    {
+      "name": "mark utf-16le, a lone high half",
+      "input": {"bytes": "fffe7b002200740022003a0022003dd8780022007d00"},
+      "expect": {"value": {"t": "\ufffdx"}, "repaired": true}
+    },
+    {
+      "name": "mark utf-16le, a lone low half",
+      "input": {"bytes": "fffe7b002200740022003a00220000dc780022007d00"},
+      "expect": {"value": {"t": "\ufffdx"}, "repaired": true}
+    },
+    {
+      "name": "mark utf-16le, an odd byte at the end",
+      "input": {"bytes": "fffe7b002200740022003a002200780022007d0041"},
+      "expectByEdition": {
+        "Desktop": {"value": {"t": "x"}, "repaired": true},
+        "Core": {"value": null, "repaired": true}
+      }
+    },
+    {
+      "name": "mark utf-32le, past U+10FFFF",
+      "input": {"bytes": "fffe00007b0000002200000074000000220000003a0000002200000000001100220000007d000000"},
+      "expect": {"value": {"t": "\ufffd"}, "repaired": true}
+    },
+    {
+      "name": "mark utf-16le alone",
+      "input": {"bytes": "fffe"},
+      "expect": {"value": null, "repaired": false}
+    },
+    {
+      "name": "mark utf-8 alone",
+      "input": {"bytes": "efbbbf"},
+      "expect": {"value": null, "repaired": false}
+    },
+    {
+      "name": "mark utf-8 cut short",
+      "input": {"bytes": "efbb"},
+      "expect": {"value": null, "repaired": true}
+    },
+    {"name": "empty file", "input": {"bytes": ""}, "expect": {"value": null, "repaired": false}},
+    {"name": "one byte fe", "input": {"bytes": "fe"}, "expect": {"value": null, "repaired": true}},
+    {
+      "name": "white space only",
+      "input": {"text": " \r\n\t "},
+      "expect": {"value": null, "repaired": false}
+    },
+    {"name": "null", "input": {"text": "null"}, "expect": {"value": null, "repaired": false}},
+    {
+      "name": "escape a high half cut off",
+      "input": {"text": "{\"t\":\"cut \\ud83d\"}"},
+      "expect": {"value": {"t": "cut \ufffd"}, "repaired": true}
+    },
+    {
+      "name": "escape a lone low half",
+      "input": {"text": "{\"t\":\"\\ude00x\"}"},
+      "expect": {"value": {"t": "\ufffdx"}, "repaired": true}
+    },
+    {
+      "name": "escape a pair",
+      "input": {"text": "{\"t\":\"\\ud83d\\ude00\"}"},
+      "expect": {"value": {"t": "\ud83d\ude00"}, "repaired": false}
+    },
+    {
+      "name": "escape a pair in upper case",
+      "input": {"text": "{\"t\":\"\\uD83D\\uDE00\"}"},
+      "expect": {"value": {"t": "\ud83d\ude00"}, "repaired": false}
+    },
+    {
+      "name": "escape a pair in mixed case",
+      "input": {"text": "{\"t\":\"\\uD83d\\uDe00\"}"},
+      "expect": {"value": {"t": "\ud83d\ude00"}, "repaired": false}
+    },
+    {
+      "name": "escape high, high, low",
+      "input": {"text": "{\"t\":\"\\ud83d\\ud83d\\ude00\"}"},
+      "expect": {"value": {"t": "\ufffd\ud83d\ude00"}, "repaired": true}
+    },
+    {
+      "name": "escape a high half, then A",
+      "input": {"text": "{\"t\":\"\\ud83d\\u0041\"}"},
+      "expect": {"value": {"t": "\ufffdA"}, "repaired": true}
+    },
+    {
+      "name": "escape a high half, then a line break",
+      "input": {"text": "{\"t\":\"\\ud83d\\n\"}"},
+      "expect": {"value": {"t": "\ufffd\n"}, "repaired": true}
+    },
+    {
+      "name": "escape a high half at the end",
+      "input": {"text": "{\"t\":\"x\\ud83d\"}"},
+      "expect": {"value": {"t": "x\ufffd"}, "repaired": true}
+    },
+    {
+      "name": "escape an escaped backslash before u",
+      "input": {"text": "{\"t\":\"\\\\ud83d\"}"},
+      "expect": {"value": {"t": "\\ud83d"}, "repaired": false}
+    },
+    {
+      "name": "escape a high half in a name",
+      "input": {"text": "{\"x\\ud83d\":1}"},
+      "expect": {"value": {"x\ufffd": 1}, "repaired": true}
+    },
+    {
+      "name": "escape U+FFFD itself",
+      "input": {"text": "{\"t\":\"\\uFFFD\"}"},
+      "expect": {"value": {"t": "\ufffd"}, "repaired": false}
+    },
+    {
+      "name": "escape every kind",
+      "input": {"text": "{\"t\":\"\\\"\\\\\\/\\b\\f\\n\\r\\t\\u0041\\u00e9\\u0000\"}"},
+      "expect": {"value": {"t": "\"\\/\u0008\u000c\n\r\tA\u00e9\u0000"}, "repaired": false}
+    },
+    {
+      "name": "name twice by case",
+      "input": {"text": "{\"a\":1,\"A\":2}"},
+      "expect": {"value": null, "repaired": false}
+    },
+    {
+      "name": "name twice by case, nested",
+      "input": {"text": "{\"x\":{\"a\":1,\"A\":2}}"},
+      "expect": {"value": null, "repaired": false}
+    },
+    {
+      "name": "name twice by case, in a list",
+      "input": {"text": "{\"x\":[{\"b\":1,\"B\":2}]}"},
+      "expect": {"value": null, "repaired": false}
+    },
+    {
+      "name": "name e acute in both cases",
+      "input": {"text": "{\"\u00e9\":1,\"\u00c9\":2}"},
+      "expect": {"value": null, "repaired": false}
+    },
+    {
+      "name": "name sharp s and SS",
+      "input": {"text": "{\"\u00df\":1,\"SS\":2}"},
+      "expect": {"value": {"\u00df": 1, "SS": 2}, "repaired": false}
+    },
+    {
+      "name": "name dotless i and I",
+      "input": {"text": "{\"\u0131\":1,\"I\":2}"},
+      "expect": {"value": {"\u0131": 1, "I": 2}, "repaired": false}
+    },
+    {
+      "name": "name dotted I and i",
+      "input": {"text": "{\"\u0130\":1,\"i\":2}"},
+      "expect": {"value": {"\u0130": 1, "i": 2}, "repaired": false}
+    },
+    {
+      "name": "name long s and S",
+      "input": {"text": "{\"\u017f\":1,\"S\":2}"},
+      "expect": {"value": {"\u017f": 1, "S": 2}, "repaired": false}
+    },
+    {
+      "name": "name kelvin and k",
+      "input": {"text": "{\"\u212a\":1,\"k\":2}"},
+      "expect": {"value": {"\u212a": 1, "k": 2}, "repaired": false}
+    },
+    {
+      "name": "name omega in both cases",
+      "input": {"text": "{\"\u03a9\":1,\"\u03c9\":2}"},
+      "expect": {"value": null, "repaired": false}
+    },
+    {
+      "name": "name y diaeresis in both cases",
+      "input": {"text": "{\"\u00ff\":1,\"\u0178\":2}"},
+      "expect": {"value": null, "repaired": false}
+    },
+    {
+      "name": "name alpha with iota below and beside",
+      "input": {"text": "{\"\u1fb3\":1,\"\u1fbc\":2}"},
+      "expect": {"value": null, "repaired": false}
+    },
+    {
+      "name": "name Georgian nuskhuri and asomtavruli",
+      "input": {"text": "{\"\u2d00\":1,\"\u10a0\":2}"},
+      "expect": {"value": null, "repaired": false}
+    },
+    {
+      "name": "name full-width a in both cases",
+      "input": {"text": "{\"\uff41\":1,\"\uff21\":2}"},
+      "expect": {"value": null, "repaired": false}
+    },
+    {
+      "name": "name sharp s and capital sharp s",
+      "input": {"text": "{\"\u00df\":1,\"\u1e9e\":2}"},
+      "expect": {"value": {"\u00df": 1, "\u1e9e": 2}, "repaired": false}
+    },
+    {
+      "name": "name a ring and angstrom",
+      "input": {"text": "{\"\u00e5\":1,\"\u212b\":2}"},
+      "expect": {"value": {"\u00e5": 1, "\u212b": 2}, "repaired": false}
+    },
+    {
+      "name": "name apostrophe n and N",
+      "input": {"text": "{\"\u0149\":1,\"N\":2}"},
+      "expect": {"value": {"\u0149": 1, "N": 2}, "repaired": false}
+    },
+    {
+      "name": "name empty",
+      "input": {"text": "{\"\":1}"},
+      "expect": {"value": null, "repaired": false}
+    },
+    {
+      "name": "name empty, nested",
+      "input": {"text": "{\"x\":{\"\":1}}"},
+      "expect": {"value": null, "repaired": false}
+    },
+    {
+      "name": "name empty, in a list",
+      "input": {"text": "{\"x\":[{\"\":1}]}"},
+      "expect": {"value": null, "repaired": false}
+    },
+    {
+      "name": "name twice",
+      "input": {"text": "{\"a\":1,\"b\":2,\"a\":3}"},
+      "expectByEdition": {
+        "Desktop": {"value": {"a": 3, "b": 2}, "repaired": false},
+        "Core": {"value": {"b": 2, "a": 3}, "repaired": false}
+      }
+    },
+    {
+      "name": "name twice, two of them",
+      "input": {"text": "{\"a\":1,\"b\":2,\"c\":3,\"a\":4,\"b\":5}"},
+      "expectByEdition": {
+        "Desktop": {"value": {"a": 4, "b": 5, "c": 3}, "repaired": false},
+        "Core": {"value": {"c": 3, "a": 4, "b": 5}, "repaired": false}
+      }
+    },
+    {
+      "name": "name twice, objects",
+      "input": {"text": "{\"o\":{\"x\":1},\"p\":0,\"o\":{\"y\":2}}"},
+      "expectByEdition": {
+        "Desktop": {"value": {"o": {"y": 2}, "p": 0}, "repaired": false},
+        "Core": {"value": {"p": 0, "o": {"y": 2}}, "repaired": false}
+      }
+    },
+    {
+      "name": "name twice, then by case",
+      "input": {"text": "{\"a\":1,\"a\":2,\"A\":3}"},
+      "expect": {"value": null, "repaired": false}
+    },
+    {
+      "name": "name by case, then twice",
+      "input": {"text": "{\"a\":1,\"A\":2,\"a\":3}"},
+      "expect": {"value": null, "repaired": false}
+    },
+    {
+      "name": "name psobject",
+      "input": {"text": "{\"psobject\":1}"},
+      "expect": {"value": null, "repaired": false}
+    },
+    {
+      "name": "name PSBase, nested",
+      "input": {"text": "{\"x\":{\"PSBase\":1}}"},
+      "expect": {"value": null, "repaired": false}
+    },
+    {"name": "top []", "input": {"text": "[]"}, "expect": {"value": null, "repaired": false}},
+    {
+      "name": "top [\"x\"]",
+      "input": {"text": "[\"x\"]"},
+      "expect": {"value": "x", "repaired": false}
+    },
+    {
+      "name": "top [1,2]",
+      "input": {"text": "[1,2]"},
+      "expect": {"value": [1, 2], "repaired": false}
+    },
+    {
+      "name": "top [[1]]",
+      "input": {"text": "[[1]]"},
+      "expectByEdition": {"Desktop": {"value": [1], "repaired": false}, "Core": {"value": 1, "repaired": false}}
+    },
+    {
+      "name": "top [[]]",
+      "input": {"text": "[[]]"},
+      "expectByEdition": {"Desktop": {"value": [], "repaired": false}, "Core": {"value": null, "repaired": false}}
+    },
+    {"name": "top [{}]", "input": {"text": "[{}]"}, "expect": {"value": {}, "repaired": false}},
+    {
+      "name": "top [[1,2]]",
+      "input": {"text": "[[1,2]]"},
+      "expect": {"value": [1, 2], "repaired": false}
+    },
+    {
+      "name": "top [[[5]]]",
+      "input": {"text": "[[[5]]]"},
+      "expectByEdition": {"Desktop": {"value": [[5]], "repaired": false}, "Core": {"value": [5], "repaired": false}}
+    },
+    {
+      "name": "top [null]",
+      "input": {"text": "[null]"},
+      "expect": {"value": null, "repaired": false}
+    },
+    {
+      "name": "top [[1],[2]]",
+      "input": {"text": "[[1],[2]]"},
+      "expect": {"value": [[1], [2]], "repaired": false}
+    },
+    {"name": "top \"x\"", "input": {"text": "\"x\""}, "expect": {"value": "x", "repaired": false}},
+    {"name": "top 1", "input": {"text": "1"}, "expect": {"value": 1, "repaired": false}},
+    {"name": "top true", "input": {"text": "true"}, "expect": {"value": true, "repaired": false}},
+    {"name": "top {}", "input": {"text": "{}"}, "expect": {"value": {}, "repaired": false}},
+    {
+      "name": "number integers",
+      "input": {
+        "text": "{\"a\":0,\"b\":-0,\"c\":2147483647,\"d\":2147483648,\"e\":-2147483649,\"f\":9007199254740993,\"g\":9223372036854775807,\"h\":-9223372036854775808}"
+      },
+      "expect": {
+        "value": {
+          "a": 0,
+          "b": 0,
+          "c": 2147483647,
+          "d": 2147483648,
+          "e": -2147483649,
+          "f": 9007199254740993,
+          "g": 9223372036854775807,
+          "h": -9223372036854775808
+        },
+        "repaired": false
+      }
+    },
+    {
+      "name": "number fractions",
+      "input": {
+        "text": "{\"a\":1.5,\"b\":0.1,\"c\":-0.0,\"d\":1.0,\"e\":100.0,\"f\":0.30000000000000004,\"g\":-1.25}"
+      },
+      "expect": {
+        "value": {"a": 1.5, "b": 0.1, "c": 0, "d": 1, "e": 100, "f": 0.30000000000000004, "g": -1.25},
+        "repaired": false
+      }
+    },
+    {
+      "name": "number exponents",
+      "input": {"text": "{\"a\":1e2,\"b\":1E+2,\"c\":1.5e-7,\"d\":1e300,\"e\":2.5E-5,\"f\":1e15}"},
+      "expect": {
+        "value": {"a": 100, "b": 100, "c": 1.5E-07, "d": 1E+300, "e": 2.5E-05, "f": 1000000000000000},
+        "repaired": false
+      }
+    },
+    {
+      "name": "date iso",
+      "input": {
+        "text": "{\"a\":\"2026-10-15T01:02:03.1Z\",\"b\":\"2026-10-15T01:02:03+0900\",\"c\":\"2026-10-15T01:02:03.1234567-05:30\",\"d\":\"2026-10-15T24:00:00Z\",\"e\":\"2026-02-30T01:02:03Z\",\"f\":\"0001-01-01T00:00:00Z\",\"g\":\"9999-12-31T23:59:59.9999999Z\",\"h\":\"2026-10-15T01:02:03.000Z\",\"i\":\"2026-10-15t01:02:03Z\",\"j\":\"2026-10-15T01:02:03z\"}"
+      },
+      "expectByEdition": {
+        "Desktop": {
+          "value": {
+            "a": "2026-10-15T01:02:03.1Z",
+            "b": "2026-10-15T01:02:03+0900",
+            "c": "2026-10-15T01:02:03.1234567-05:30",
+            "d": "2026-10-15T24:00:00Z",
+            "e": "2026-02-30T01:02:03Z",
+            "f": "0001-01-01T00:00:00Z",
+            "g": "9999-12-31T23:59:59.9999999Z",
+            "h": "2026-10-15T01:02:03.000Z",
+            "i": "2026-10-15t01:02:03Z",
+            "j": "2026-10-15T01:02:03z"
+          },
+          "repaired": false
+        },
+        "Core": {
+          "value": {
+            "a": {"date": "2026-10-15T01:02:03.1000000Z"},
+            "b": {"date": "2026-10-15T01:02:03.0000000+09:00"},
+            "c": {"date": "2026-10-15T15:32:03.1234567+09:00"},
+            "d": {"date": "2026-10-16T00:00:00.0000000Z"},
+            "e": "2026-02-30T01:02:03Z",
+            "f": {"date": "0001-01-01T00:00:00.0000000Z"},
+            "g": {"date": "9999-12-31T23:59:59.9999999Z"},
+            "h": {"date": "2026-10-15T01:02:03.0000000Z"},
+            "i": "2026-10-15t01:02:03Z",
+            "j": {"date": "2026-10-15T01:02:03.0000000Z"}
+          },
+          "repaired": false
+        }
+      }
+    },
+    {
+      "name": "date iso, more",
+      "input": {
+        "text": "{\"a\":\"2026-10-15T01:02:03.1234567\",\"b\":\"2026-10-15T01:02:03.12\",\"c\":\"20261015T010203Z\",\"d\":\"2026-10-15T01:02:03-00:00\",\"e\":\"2026-10-15T01:02:03+14:00\",\"f\":\"2026-10-15T01:02:03+15:00\",\"g\":\"2026-10-15T01:02:60Z\",\"h\":\"2026-10-15 T01:02:03Z\",\"i\":\"2026-10-15T1:02:03Z\",\"j\":\"2026-10-15\"}"
+      },
+      "expectByEdition": {
+        "Desktop": {
+          "value": {
+            "a": "2026-10-15T01:02:03.1234567",
+            "b": "2026-10-15T01:02:03.12",
+            "c": "20261015T010203Z",
+            "d": "2026-10-15T01:02:03-00:00",
+            "e": "2026-10-15T01:02:03+14:00",
+            "f": "2026-10-15T01:02:03+15:00",
+            "g": "2026-10-15T01:02:60Z",
+            "h": "2026-10-15 T01:02:03Z",
+            "i": "2026-10-15T1:02:03Z",
+            "j": "2026-10-15"
+          },
+          "repaired": false
+        },
+        "Core": {
+          "value": {
+            "a": {"date": "2026-10-15T01:02:03.1234567"},
+            "b": {"date": "2026-10-15T01:02:03.1200000"},
+            "c": "20261015T010203Z",
+            "d": {"date": "2026-10-15T10:02:03.0000000+09:00"},
+            "e": {"date": "2026-10-14T20:02:03.0000000+09:00"},
+            "f": {"date": "2026-10-14T19:02:03.0000000+09:00"},
+            "g": "2026-10-15T01:02:60Z",
+            "h": "2026-10-15 T01:02:03Z",
+            "i": "2026-10-15T1:02:03Z",
+            "j": "2026-10-15"
+          },
+          "repaired": false
+        }
+      }
+    },
+    {
+      "name": "date fraction digits",
+      "input": {
+        "text": "{\"a\":\"2026-10-15T01:02:03.5Z\",\"b\":\"2026-10-15T01:02:03.1234567+09:00\",\"c\":\"2026-10-15T01:02:03.12345678Z\",\"d\":\"2026-10-15T01:02:03.Z\",\"e\":\"2026-10-15T24:00:00.0Z\",\"f\":\"2026-10-15T24:00:00.1Z\"}"
+      },
+      "expectByEdition": {
+        "Desktop": {
+          "value": {
+            "a": "2026-10-15T01:02:03.5Z",
+            "b": "2026-10-15T01:02:03.1234567+09:00",
+            "c": "2026-10-15T01:02:03.12345678Z",
+            "d": "2026-10-15T01:02:03.Z",
+            "e": "2026-10-15T24:00:00.0Z",
+            "f": "2026-10-15T24:00:00.1Z"
+          },
+          "repaired": false
+        },
+        "Core": {
+          "value": {
+            "a": {"date": "2026-10-15T01:02:03.5000000Z"},
+            "b": {"date": "2026-10-15T01:02:03.1234567+09:00"},
+            "c": "2026-10-15T01:02:03.12345678Z",
+            "d": "2026-10-15T01:02:03.Z",
+            "e": {"date": "2026-10-16T00:00:00.0000000Z"},
+            "f": "2026-10-15T24:00:00.1Z"
+          },
+          "repaired": false
+        }
+      }
+    },
+    {
+      "name": "date zone forms",
+      "input": {
+        "text": "{\"a\":\"2026-10-15T01:02:03+09\",\"b\":\"2026-10-15T01:02:03+0930\",\"c\":\"2026-10-15T01:02:03:30\",\"d\":\"2026-10-15T01:02:0330\",\"e\":\"2026-10-15T01:02:03+09:3\",\"f\":\"2026-10-15T01:02:03+09:00Z\",\"g\":\"2026-10-15T01:02:03 +09:00\",\"h\":\"2026-10-15T01:02:03+9:00\",\"i\":\"2026-10-15T01:02:03-00:30\"}"
+      },
+      "expectByEdition": {
+        "Desktop": {
+          "value": {
+            "a": "2026-10-15T01:02:03+09",
+            "b": "2026-10-15T01:02:03+0930",
+            "c": "2026-10-15T01:02:03:30",
+            "d": "2026-10-15T01:02:0330",
+            "e": "2026-10-15T01:02:03+09:3",
+            "f": "2026-10-15T01:02:03+09:00Z",
+            "g": "2026-10-15T01:02:03 +09:00",
+            "h": "2026-10-15T01:02:03+9:00",
+            "i": "2026-10-15T01:02:03-00:30"
+          },
+          "repaired": false
+        },
+        "Core": {
+          "value": {
+            "a": {"date": "2026-10-15T01:02:03.0000000+09:00"},
+            "b": {"date": "2026-10-15T00:32:03.0000000+09:00"},
+            "c": {"date": "2026-10-15T01:02:03.0000000"},
+            "d": {"date": "2026-10-15T01:02:03.0000000"},
+            "e": "2026-10-15T01:02:03+09:3",
+            "f": "2026-10-15T01:02:03+09:00Z",
+            "g": "2026-10-15T01:02:03 +09:00",
+            "h": "2026-10-15T01:02:03+9:00",
+            "i": {"date": "2026-10-15T10:32:03.0000000+09:00"}
+          },
+          "repaired": false
+        }
+      }
+    },
+    {
+      "name": "date at the ends of time",
+      "input": {
+        "text": "{\"a\":\"0001-01-01T00:00:00+09:00\",\"b\":\"0001-01-01T10:00:00+09:00\",\"c\":\"9999-12-31T23:00:00-05:00\",\"d\":\"9999-12-31T20:00:00+00:00\",\"e\":\"0001-01-01T00:00:00Z\",\"f\":\"9999-12-31T23:59:59.9999999-00:30\"}"
+      },
+      "expectByEdition": {
+        "Desktop": {
+          "value": {
+            "a": "0001-01-01T00:00:00+09:00",
+            "b": "0001-01-01T10:00:00+09:00",
+            "c": "9999-12-31T23:00:00-05:00",
+            "d": "9999-12-31T20:00:00+00:00",
+            "e": "0001-01-01T00:00:00Z",
+            "f": "9999-12-31T23:59:59.9999999-00:30"
+          },
+          "repaired": false
+        },
+        "Core": {
+          "value": {
+            "a": {"date": "0001-01-01T00:00:00.0000000+09:00"},
+            "b": {"date": "0001-01-01T10:00:00.0000000+09:00"},
+            "c": {"date": "9999-12-31T23:59:59.9999999+09:00"},
+            "d": {"date": "9999-12-31T23:59:59.9999999+09:00"},
+            "e": {"date": "0001-01-01T00:00:00.0000000Z"},
+            "f": {"date": "9999-12-31T23:59:59.9999999+09:00"}
+          },
+          "repaired": false
+        }
+      }
+    },
+    {
+      "name": "date hour 24 past the end of time",
+      "input": {"text": "{\"a\":\"9999-12-31T24:00:00Z\"}"},
+      "expectByEdition": {
+        "Desktop": {"value": {"a": "9999-12-31T24:00:00Z"}, "repaired": false},
+        "Core": {"value": null, "repaired": false}
+      }
+    },
+    {
+      "name": "date a digit that is not ASCII",
+      "input": {"text": "{\"a\":\"\u0662026-10-15T01:02:03Z\"}"},
+      "expect": {"value": {"a": "\u0662026-10-15T01:02:03Z"}, "repaired": false}
+    },
+    {
+      "name": "date ms forms",
+      "input": {
+        "text": "{\"a\":\"/Date(0)/\",\"b\":\"/Date(-1)/\",\"c\":\"/Date(1760490123000+0900)/\",\"d\":\"/Date(abc)/\",\"e\":\"\\/Date(1760490123000+0900)\\/\",\"f\":\"\\/Date(-62135596800000)\\/\",\"g\":\"\\/Date(1760490123000)\\/x\",\"h\":\"/Date(1760490123000)/ \",\"i\":\"2026-10-15T01:02:03+09\",\"j\":\"2026-10-15T01:02:03.1234567+09:00:00\"}"
+      },
+      "expectByEdition": {
+        "Desktop": {
+          "value": {
+            "a": "/Date(0)/",
+            "b": "/Date(-1)/",
+            "c": "/Date(1760490123000+0900)/",
+            "d": "/Date(abc)/",
+            "e": {"date": "2025-10-15T01:02:03.0000000Z"},
+            "f": {"date": "0001-01-01T00:00:00.0000000Z"},
+            "g": "/Date(1760490123000)/x",
+            "h": "/Date(1760490123000)/ ",
+            "i": "2026-10-15T01:02:03+09",
+            "j": "2026-10-15T01:02:03.1234567+09:00:00"
+          },
+          "repaired": false
+        },
+        "Core": {
+          "value": {
+            "a": {"date": "1970-01-01T00:00:00.0000000Z"},
+            "b": {"date": "1969-12-31T23:59:59.9990000Z"},
+            "c": {"date": "2025-10-15T10:02:03.0000000+09:00"},
+            "d": "/Date(abc)/",
+            "e": {"date": "2025-10-15T10:02:03.0000000+09:00"},
+            "f": {"date": "0001-01-01T00:00:00.0000000Z"},
+            "g": "/Date(1760490123000)/x",
+            "h": "/Date(1760490123000)/ ",
+            "i": {"date": "2026-10-15T01:02:03.0000000+09:00"},
+            "j": "2026-10-15T01:02:03.1234567+09:00:00"
+          },
+          "repaired": false
+        }
+      }
+    },
+    {
+      "name": "date ms forms of 5.1",
+      "input": {
+        "text": "{\"a\":\"\\/Date(1760490123000-0130)\\/\",\"b\":\"\\/Date(1760490123000Z)\\/\",\"c\":\"\\/Date( 1)\\/\",\"d\":\"\\/Date(+1)\\/\",\"e\":\"\\/date(1)\\/\",\"f\":\"\\/Date(1)\\/\",\"g\":\"\\/Date(1760490123000+09)\\/\",\"h\":\"\\/Date(-1)\\/\",\"i\":\"\\/Date(1760490123000ab)\\/\",\"j\":\"\\/Date()\\/\"}"
+      },
+      "expectByEdition": {
+        "Desktop": {
+          "value": {
+            "a": {"date": "2025-10-15T01:02:03.0000000Z"},
+            "b": {"date": "2025-10-15T01:02:03.0000000Z"},
+            "c": "/Date( 1)/",
+            "d": "/Date(+1)/",
+            "e": "/date(1)/",
+            "f": {"date": "1970-01-01T00:00:00.0010000Z"},
+            "g": "/Date(1760490123000+09)/",
+            "h": {"date": "1969-12-31T23:59:59.9990000Z"},
+            "i": "/Date(1760490123000ab)/",
+            "j": "/Date()/"
+          },
+          "repaired": false
+        },
+        "Core": {
+          "value": {
+            "a": {"date": "2025-10-15T10:02:03.0000000+09:00"},
+            "b": "/Date(1760490123000Z)/",
+            "c": "/Date( 1)/",
+            "d": "/Date(+1)/",
+            "e": "/date(1)/",
+            "f": {"date": "1970-01-01T00:00:00.0010000Z"},
+            "g": {"date": "2025-10-15T10:02:03.0000000+09:00"},
+            "h": {"date": "1969-12-31T23:59:59.9990000Z"},
+            "i": "/Date(1760490123000ab)/",
+            "j": "/Date()/"
+          },
+          "repaired": false
+        }
+      }
+    },
+    {
+      "name": "date ms half escaped",
+      "input": {"text": "{\"a\":\"\\/Date(1)/\",\"b\":\"/Date(1)\\/\",\"c\":\"\\u002fDate(1)\\u002f\"}"},
+      "expectByEdition": {
+        "Desktop": {"value": {"a": "/Date(1)/", "b": "/Date(1)/", "c": "/Date(1)/"}, "repaired": false},
+        "Core": {
+          "value": {
+            "a": {"date": "1970-01-01T00:00:00.0010000Z"},
+            "b": {"date": "1970-01-01T00:00:00.0010000Z"},
+            "c": {"date": "1970-01-01T00:00:00.0010000Z"}
+          },
+          "repaired": false
+        }
+      }
+    },
+    {
+      "name": "date ms past the end of time",
+      "input": {"text": "{\"a\":\"\\/Date(253402300800000)\\/\"}"},
+      "expect": {"value": null, "repaired": false}
+    },
+    {
+      "name": "date ms that wraps around",
+      "input": {"text": "{\"a\":\"\\/Date(99999999999999999)\\/\"}"},
+      "expect": {"value": null, "repaired": false}
+    },
+    {
+      "name": "date ms past a long",
+      "input": {
+        "text": "{\"a\":\"\\/Date(99999999999999999999)\\/\",\"b\":\"/Date(99999999999999999999)/\"}"
+      },
+      "expect": {
+        "value": {"a": "/Date(99999999999999999999)/", "b": "/Date(99999999999999999999)/"},
+        "repaired": false
+      }
+    },
+    {
+      "name": "date ms of the least long",
+      "input": {"text": "{\"a\":\"\\/Date(-9223372036854775808)\\/\"}"},
+      "expect": {"value": {"a": {"date": "1970-01-01T00:00:00.0000000Z"}}, "repaired": false}
+    },
+    {
+      "name": "date ms of 19 digits past a long",
+      "input": {"text": "{\"a\":\"\\/Date(9223372036854775809)\\/\"}"},
+      "expect": {"value": {"a": "/Date(9223372036854775809)/"}, "repaired": false}
+    },
+    {
+      "name": "date ms of 19 digits past a long, negative",
+      "input": {"text": "{\"a\":\"\\/Date(-9223372036854775809)\\/\"}"},
+      "expect": {"value": {"a": "/Date(-9223372036854775809)/"}, "repaired": false}
+    },
+    {
+      "name": "date in a list, never in a name",
+      "input": {"text": "{\"\\/Date(1)\\/\":[\"2026-10-15T01:02:03Z\",\"\\/Date(2)\\/\"]}"},
+      "expectByEdition": {
+        "Desktop": {
+          "value": {"/Date(1)/": ["2026-10-15T01:02:03Z", {"date": "1970-01-01T00:00:00.0020000Z"}]},
+          "repaired": false
+        },
+        "Core": {
+          "value": {
+            "/Date(1)/": [{"date": "2026-10-15T01:02:03.0000000Z"}, {"date": "1970-01-01T00:00:00.0020000Z"}]
+          },
+          "repaired": false
+        }
+      }
+    },
+    {
+      "name": "date at the top",
+      "input": {"text": "\"2026-10-15T01:02:03Z\""},
+      "expectByEdition": {
+        "Desktop": {"value": "2026-10-15T01:02:03Z", "repaired": false},
+        "Core": {"value": {"date": "2026-10-15T01:02:03.0000000Z"}, "repaired": false}
+      }
+    },
+    {
+      "name": "date ms of 20 digits",
+      "input": {"text": "{\"a\":\"\\/Date(00000000000000000001)\\/\"}"},
+      "expectByEdition": {
+        "Desktop": {"value": {"a": {"date": "1970-01-01T00:00:00.0010000Z"}}, "repaired": false},
+        "Core": {"value": {"a": "/Date(00000000000000000001)/"}, "repaired": false}
+      }
+    },
+    {
+      "name": "date iso in single quotes",
+      "input": {"text": "{'a':'2026-10-15T01:02:03Z'}"},
+      "expectByEdition": {
+        "Desktop": {"value": {"a": "2026-10-15T01:02:03Z"}, "repaired": false},
+        "Core": {"value": {"a": {"date": "2026-10-15T01:02:03.0000000Z"}}, "repaired": false}
+      }
+    },
+    {
+      "name": "date ms in single quotes",
+      "input": {"text": "{'a':'\\/Date(1)\\/'}"},
+      "expectByEdition": {
+        "Desktop": {"value": {"a": "/Date(1)/"}, "repaired": false},
+        "Core": {"value": {"a": {"date": "1970-01-01T00:00:00.0010000Z"}}, "repaired": false}
+      }
+    },
+    {
+      "name": "date hour 24 past the end of time, no zone",
+      "input": {"text": "{\"a\":\"9999-12-31T24:00:00\"}"},
+      "expectByEdition": {
+        "Desktop": {"value": {"a": "9999-12-31T24:00:00"}, "repaired": false},
+        "Core": {"value": null, "repaired": false}
+      }
+    },
+    {
+      "name": "bad text after the object",
+      "input": {"text": "{\"a\":1} x"},
+      "expect": {"value": null, "repaired": false}
+    },
+    {
+      "name": "bad two objects",
+      "input": {"text": "{\"a\":1}{\"b\":2}"},
+      "expect": {"value": null, "repaired": false}
+    },
+    {
+      "name": "bad escape",
+      "input": {"text": "{\"a\":\"\\x\"}"},
+      "expect": {"value": null, "repaired": false}
+    },
+    {
+      "name": "bad string never closed",
+      "input": {"text": "{\"a\":\"x"},
+      "expect": {"value": null, "repaired": false}
+    },
+    {
+      "name": "bad object never closed",
+      "input": {"text": "{\"a\":1"},
+      "expect": {"value": null, "repaired": false}
+    },
+    {
+      "name": "chatqd wrote a job",
+      "input": {
+        "pretty": "{\n  \"id\": \"j-1\",\n  \"kind\": \"prompt\",\n  \"state\": \"queued\",\n  \"seq\": 3,\n  \"createdAt\": \"2026-10-15T01:02:03.1234567Z\",\n  \"prompt\": \"\ud55c\uae00 \\\"q\\\" <&> \\\\\",\n  \"chat\": {\n    \"title\": \"t\",\n    \"session\": null\n  },\n  \"tags\": [\n    \"a\"\n  ],\n  \"steps\": [],\n  \"meta\": {},\n  \"first\": false,\n  \"cost\": 0.25\n}"
+      },
+      "expectByEdition": {
+        "Desktop": {
+          "value": {
+            "id": "j-1",
+            "kind": "prompt",
+            "state": "queued",
+            "seq": 3,
+            "createdAt": "2026-10-15T01:02:03.1234567Z",
+            "prompt": "\ud55c\uae00 \"q\" <&> \\",
+            "chat": {"title": "t", "session": null},
+            "tags": ["a"],
+            "steps": [],
+            "meta": {},
+            "first": false,
+            "cost": 0.25
+          },
+          "repaired": false
+        },
+        "Core": {
+          "value": {
+            "id": "j-1",
+            "kind": "prompt",
+            "state": "queued",
+            "seq": 3,
+            "createdAt": {"date": "2026-10-15T01:02:03.1234567Z"},
+            "prompt": "\ud55c\uae00 \"q\" <&> \\",
+            "chat": {"title": "t", "session": null},
+            "tags": ["a"],
+            "steps": [],
+            "meta": {},
+            "first": false,
+            "cost": 0.25
+          },
+          "repaired": false
+        }
+      }
+    },
+    {
+      "name": "chatqd wrote text",
+      "input": {
+        "pretty": "{\n  \"t\": \"\u00e9\ud55c\ud83d\ude00\u2028\u0085\u007f <>&'\",\n  \"c\": \"\\u0000\\b\\t\\n\\f\\r\\u001f\\\"\\\\/\"\n}"
+      },
+      "expect": {
+        "value": {
+          "t": "\u00e9\ud55c\ud83d\ude00\u2028\u0085\u007f <>&'",
+          "c": "\u0000\u0008\t\n\u000c\r\u001f\"\\/"
+        },
+        "repaired": false
+      }
+    },
+    {
+      "name": "chatqd wrote stamps",
+      "input": {
+        "pretty": "{\n  \"utc\": \"2026-10-15T01:02:03.1234567Z\",\n  \"local\": \"2026-10-15T10:02:03+09:00\",\n  \"west\": \"2026-10-14T20:02:03-05:00\",\n  \"plain\": \"2026-10-15T01:02:03\",\n  \"ms\": \"/Date(1760490123000)/\",\n  \"day\": \"2026-10-15\"\n}"
+      },
+      "expectByEdition": {
+        "Desktop": {
+          "value": {
+            "utc": "2026-10-15T01:02:03.1234567Z",
+            "local": "2026-10-15T10:02:03+09:00",
+            "west": "2026-10-14T20:02:03-05:00",
+            "plain": "2026-10-15T01:02:03",
+            "ms": "/Date(1760490123000)/",
+            "day": "2026-10-15"
+          },
+          "repaired": false
+        },
+        "Core": {
+          "value": {
+            "utc": {"date": "2026-10-15T01:02:03.1234567Z"},
+            "local": {"date": "2026-10-15T10:02:03.0000000+09:00"},
+            "west": {"date": "2026-10-15T10:02:03.0000000+09:00"},
+            "plain": {"date": "2026-10-15T01:02:03.0000000"},
+            "ms": {"date": "2025-10-15T01:02:03.0000000Z"},
+            "day": "2026-10-15"
+          },
+          "repaired": false
+        }
+      }
+    },
+    {
+      "name": "chatqd wrote numbers",
+      "input": {
+        "pretty": "{\n  \"i\": 1,\n  \"neg\": -2147483649,\n  \"big\": 9223372036854775807,\n  \"f\": 1.5,\n  \"one\": 1.0,\n  \"e15\": 1000000000000000.0,\n  \"small\": 1e-7,\n  \"pi\": 3.14159,\n  \"max\": 1.7976931348623157e+308,\n  \"zero\": -0.0\n}"
+      },
+      "expect": {
+        "value": {
+          "i": 1,
+          "neg": -2147483649,
+          "big": 9223372036854775807,
+          "f": 1.5,
+          "one": 1,
+          "e15": 1000000000000000,
+          "small": 1E-07,
+          "pi": 3.14159,
+          "max": 1.7976931348623157E+308,
+          "zero": 0
+        },
+        "repaired": false
+      }
+    },
+    {
+      "name": "chatqd wrote ten levels",
+      "input": {
+        "pretty": "{\n  \"l9\": {\n    \"l8\": {\n      \"l7\": {\n        \"l6\": {\n          \"l5\": {\n            \"l4\": {\n              \"l3\": {\n                \"l2\": {\n                  \"l1\": {\n                    \"l0\": \"leaf\"\n                  }\n                }\n              }\n            }\n          }\n        }\n      }\n    }\n  }\n}"
+      },
+      "expect": {
+        "value": {"l9": {"l8": {"l7": {"l6": {"l5": {"l4": {"l3": {"l2": {"l1": {"l0": "leaf"}}}}}}}}}},
+        "repaired": false
+      }
+    },
+    {
+      "name": "chatqd wrote a list of one",
+      "input": {"pretty": "[\n  \"x\"\n]"},
+      "expect": {"value": "x", "repaired": false}
+    },
+    {
+      "name": "chatqd wrote a list of objects",
+      "input": {"pretty": "[\n  {\n    \"a\": 1\n  },\n  {\n    \"a\": 2\n  }\n]"},
+      "expect": {"value": [{"a": 1}, {"a": 2}], "repaired": false}
+    },
+    {
+      "name": "chatqd wrote lists in a list",
+      "input": {"pretty": "{\n  \"a\": [\n    [\n      1\n    ],\n    []\n  ]\n}"},
+      "expect": {"value": {"a": [[1], []]}, "repaired": false}
+    },
+    {
+      "name": "chatqd wrote an empty object",
+      "input": {"pretty": "{}"},
+      "expect": {"value": {}, "repaired": false}
+    },
+    {
+      "name": "Desktop wrote escapes",
+      "by": "Desktop",
+      "input": {
+        "bytes": "7b0d0a202020202274223a202022615c7530303363625c75303033655c75303032365c7530303237635c75303032375c22645c5c652f667f5c75303038355c7532303238c3a9ed959c222c0d0a202020202263223a2020225c75303030305c625c745c6e5c665c725c7530303166220d0a7d"
+      },
+      "expect": {
+        "value": {
+          "t": "a<b>&'c'\"d\\e/f\u007f\u0085\u2028\u00e9\ud55c",
+          "c": "\u0000\u0008\t\n\u000c\r\u001f"
+        },
+        "repaired": false
+      }
+    },
+    {
+      "name": "Desktop wrote lone surrogates",
+      "by": "Desktop",
+      "input": {
+        "bytes": "7b0d0a202020202274223a20202263757420efbfbd222c0d0a202020202275223a202022efbfbd78222c0d0a202020202270616972223a202022f09f9880220d0a7d"
+      },
+      "expect": {"value": {"t": "cut \ufffd", "u": "\ufffdx", "pair": "\ud83d\ude00"}, "repaired": false}
+    },
+    {
+      "name": "Desktop wrote lists",
+      "by": "Desktop",
+      "input": {
+        "bytes": "7b0d0a20202020226f6e65223a20205b0d0a202020202020202020202020202020202278220d0a2020202020202020202020205d2c0d0a20202020226f6e65496e74223a20205b0d0a20202020202020202020202020202020202020370d0a2020202020202020202020202020205d2c0d0a2020202022656d707479223a20205b0d0a0d0a20202020202020202020202020205d2c0d0a20202020226e6573746564223a20205b0d0a202020202020202020202020202020202020205b0d0a20202020202020202020202020202020202020202020202278220d0a202020202020202020202020202020202020205d0d0a2020202020202020202020202020205d2c0d0a20202020226c697374223a20205b0d0a20202020202020202020202020202020202261220d0a202020202020202020202020205d2c0d0a20202020226e756c6c73223a20205b0d0a2020202020202020202020202020202020206e756c6c0d0a20202020202020202020202020205d0d0a7d"
+      },
+      "expect": {
+        "value": {
+          "one": ["x"],
+          "oneInt": [7],
+          "empty": [],
+          "nested": [["x"]],
+          "list": ["a"],
+          "nulls": [null]
+        },
+        "repaired": false
+      }
+    },
+    {
+      "name": "Desktop wrote a list kept whole",
+      "by": "Desktop",
+      "input": {
+        "bytes": "7b0d0a202020202261223a20207b0d0a20202020202020202020202020202276616c7565223a20205b0d0a202020202020202020202020202020202020202020202020202020202278220d0a2020202020202020202020202020202020202020202020205d2c0d0a202020202020202020202020202022436f756e74223a2020310d0a202020202020202020207d2c0d0a202020202262223a20207b0d0a20202020202020202020202020202263223a20205b0d0a202020202020202020202020202020202020202020202020310d0a20202020202020202020202020202020202020205d0d0a202020202020202020207d0d0a7d"
+      },
+      "expect": {"value": {"a": {"value": ["x"], "Count": 1}, "b": {"c": [1]}}, "repaired": false}
+    },
+    {
+      "name": "Desktop wrote dates",
+      "by": "Desktop",
+      "input": {
+        "bytes": "7b0d0a2020202022757463223a2020225c2f446174652831373932303236313233313233295c2f222c0d0a20202020226c6f63616c223a2020225c2f446174652831373932303236313233303030295c2f222c0d0a2020202022756e73706563223a2020225c2f446174652831373931393933373233303030295c2f222c0d0a20202020227469636b73223a2020225c2f446174652831373932303236313233313233295c2f222c0d0a20202020226d696e223a2020225c2f44617465282d3632313335353936383030303030295c2f220d0a7d"
+      },
+      "expect": {
+        "value": {
+          "utc": {"date": "2026-10-15T01:02:03.1230000Z"},
+          "local": {"date": "2026-10-15T01:02:03.0000000Z"},
+          "unspec": {"date": "2026-10-14T16:02:03.0000000Z"},
+          "ticks": {"date": "2026-10-15T01:02:03.1230000Z"},
+          "min": {"date": "0001-01-01T00:00:00.0000000Z"}
+        },
+        "repaired": false
+      }
+    },
+    {
+      "name": "Desktop wrote deep ordered",
+      "by": "Desktop",
+      "input": {
+        "bytes": "7b0d0a20202020226c39223a20207b0d0a202020202020202020202020202020226c38223a20207b0d0a2020202020202020202020202020202020202020202020202020226c37223a20207b0d0a20202020202020202020202020202020202020202020202020202020202020202020202020226c36223a20207b0d0a202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020226c35223a20207b0d0a2020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020226c34223a20207b0d0a20202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020226c33223a20207b0d0a202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020226c32223a20207b0d0a2020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020226c31223a20202253797374656d2e436f6c6c656374696f6e732e5370656369616c697a65642e4f72646572656444696374696f6e617279220d0a202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020207d0d0a20202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020207d0d0a2020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020207d0d0a202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020207d0d0a20202020202020202020202020202020202020202020202020202020202020202020202020202020202020207d0d0a2020202020202020202020202020202020202020202020202020202020202020207d0d0a202020202020202020202020202020202020202020207d0d0a20202020202020202020207d0d0a7d"
+      },
+      "expect": {
+        "value": {
+          "l9": {
+            "l8": {
+              "l7": {
+                "l6": {
+                  "l5": {"l4": {"l3": {"l2": {"l1": "System.Collections.Specialized.OrderedDictionary"}}}}
+                }
+              }
+            }
+          }
+        },
+        "repaired": false
+      }
+    },
+    {
+      "name": "Desktop wrote deep object",
+      "by": "Desktop",
+      "input": {
+        "bytes": "7b0d0a20202020226c39223a20207b0d0a202020202020202020202020202020226c38223a20207b0d0a2020202020202020202020202020202020202020202020202020226c37223a20207b0d0a20202020202020202020202020202020202020202020202020202020202020202020202020226c36223a20207b0d0a202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020226c35223a20207b0d0a2020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020226c34223a20207b0d0a20202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020226c33223a20207b0d0a202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020226c32223a20207b0d0a2020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020226c31223a202022407b6c303d6c6561667d220d0a202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020207d0d0a20202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020207d0d0a2020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020207d0d0a202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020207d0d0a20202020202020202020202020202020202020202020202020202020202020202020202020202020202020207d0d0a2020202020202020202020202020202020202020202020202020202020202020207d0d0a202020202020202020202020202020202020202020207d0d0a20202020202020202020207d0d0a7d"
+      },
+      "expect": {
+        "value": {"l9": {"l8": {"l7": {"l6": {"l5": {"l4": {"l3": {"l2": {"l1": "@{l0=leaf}"}}}}}}}}},
+        "repaired": false
+      }
+    },
+    {
+      "name": "Desktop wrote deep hashtable",
+      "by": "Desktop",
+      "input": {
+        "bytes": "7b0d0a20202020226c38223a20207b0d0a202020202020202020202020202020226c37223a20207b0d0a2020202020202020202020202020202020202020202020202020226c36223a20207b0d0a20202020202020202020202020202020202020202020202020202020202020202020202020226c35223a20207b0d0a202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020226c34223a20207b0d0a2020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020226c33223a20207b0d0a20202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020226c32223a20207b0d0a202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020226c31223a20207b0d0a2020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020226c30223a20202253797374656d2e436f6c6c656374696f6e732e486173687461626c65220d0a202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020207d0d0a20202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020207d0d0a2020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020207d0d0a202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020207d0d0a20202020202020202020202020202020202020202020202020202020202020202020202020202020202020207d0d0a2020202020202020202020202020202020202020202020202020202020202020207d0d0a202020202020202020202020202020202020202020207d0d0a20202020202020202020207d0d0a7d"
+      },
+      "expect": {
+        "value": {
+          "l8": {
+            "l7": {"l6": {"l5": {"l4": {"l3": {"l2": {"l1": {"l0": "System.Collections.Hashtable"}}}}}}}
+          }
+        },
+        "repaired": false
+      }
+    },
+    {
+      "name": "Desktop wrote numbers",
+      "by": "Desktop",
+      "input": {
+        "bytes": "7b0d0a202020202269223a2020312c0d0a20202020226c223a2020323134373438333634382c0d0a202020202264223a2020312e352c0d0a2020202022646563223a2020312e352c0d0a2020202022626967223a202031452b3330302c0d0a20202020226e6567223a2020302c0d0a202020202266223a2020302e312c0d0a202020202274696e79223a202031452d30370d0a7d"
+      },
+      "expect": {
+        "value": {
+          "i": 1,
+          "l": 2147483648,
+          "d": 1.5,
+          "dec": 1.5,
+          "big": 1E+300,
+          "neg": 0,
+          "f": 0.1,
+          "tiny": 1E-07
+        },
+        "repaired": false
+      }
+    },
+    {
+      "name": "Desktop wrote truth",
+      "by": "Desktop",
+      "input": {
+        "bytes": "7b0d0a202020202274223a2020747275652c0d0a202020202266223a202066616c73652c0d0a20202020226e223a20206e756c6c0d0a7d"
+      },
+      "expect": {"value": {"t": true, "f": false, "n": null}, "repaired": false}
+    },
+    {
+      "name": "Desktop wrote a list of one",
+      "by": "Desktop",
+      "input": {"bytes": "227822"},
+      "expect": {"value": "x", "repaired": false}
+    },
+    {
+      "name": "Desktop wrote a list of two",
+      "by": "Desktop",
+      "input": {"bytes": "5b0d0a202020202278222c0d0a202020202279220d0a5d"},
+      "expect": {"value": ["x", "y"], "repaired": false}
+    },
+    {
+      "name": "Desktop wrote an empty name",
+      "by": "Desktop",
+      "input": {"bytes": "7b0d0a2020202022223a2020310d0a7d"},
+      "expect": {"value": null, "repaired": false}
+    },
+    {
+      "name": "Desktop wrote a job read back",
+      "by": "Desktop",
+      "input": {
+        "bytes": "7b0d0a20202020226964223a2020226a2d31222c0d0a20202020226b696e64223a20202270726f6d7074222c0d0a20202020227374617465223a202022717565756564222c0d0a2020202022736571223a2020332c0d0a2020202022637265617465644174223a202022323032362d31302d31355430313a30323a30332e313233343536375a222c0d0a2020202022737461727465644174223a202022323032362d31302d31355431303a30323a30332e352b30393a3030222c0d0a20202020226174223a2020222f446174652831373630343930313233303030292f222c0d0a202020202270726f6d7074223a202022ed959ceab880205c22715c22205c75303033635c75303032365c7530303365222c0d0a202020202263686174223a20207b0d0a2020202020202020202020202020202020227469746c65223a20202274222c0d0a20202020202020202020202020202020202273657373696f6e223a20206e756c6c0d0a202020202020202020202020207d2c0d0a202020202274616773223a20205b0d0a20202020202020202020202020202020202261220d0a202020202020202020202020205d2c0d0a20202020227374657073223a20205b0d0a0d0a20202020202020202020202020205d2c0d0a20202020226669727374223a202066616c73650d0a7d"
+      },
+      "expectByEdition": {
+        "Desktop": {
+          "value": {
+            "id": "j-1",
+            "kind": "prompt",
+            "state": "queued",
+            "seq": 3,
+            "createdAt": "2026-10-15T01:02:03.1234567Z",
+            "startedAt": "2026-10-15T10:02:03.5+09:00",
+            "at": "/Date(1760490123000)/",
+            "prompt": "\ud55c\uae00 \"q\" <&>",
+            "chat": {"title": "t", "session": null},
+            "tags": ["a"],
+            "steps": [],
+            "first": false
+          },
+          "repaired": false
+        },
+        "Core": {
+          "value": {
+            "id": "j-1",
+            "kind": "prompt",
+            "state": "queued",
+            "seq": 3,
+            "createdAt": {"date": "2026-10-15T01:02:03.1234567Z"},
+            "startedAt": {"date": "2026-10-15T10:02:03.5000000+09:00"},
+            "at": {"date": "2025-10-15T01:02:03.0000000Z"},
+            "prompt": "\ud55c\uae00 \"q\" <&>",
+            "chat": {"title": "t", "session": null},
+            "tags": ["a"],
+            "steps": [],
+            "first": false
+          },
+          "repaired": false
+        }
+      }
+    },
+    {
+      "name": "Core wrote escapes",
+      "by": "Core",
+      "input": {
+        "bytes": "7b0d0a20202274223a2022613c623e262763275c22645c5c652f667f5c75303038355c7532303238c3a9ed959c222c0d0a20202263223a20225c75303030305c625c745c6e5c665c725c7530303166220d0a7d"
+      },
+      "expect": {
+        "value": {
+          "t": "a<b>&'c'\"d\\e/f\u007f\u0085\u2028\u00e9\ud55c",
+          "c": "\u0000\u0008\t\n\u000c\r\u001f"
+        },
+        "repaired": false
+      }
+    },
+    {
+      "name": "Core wrote lone surrogates",
+      "by": "Core",
+      "input": {
+        "bytes": "7b0d0a20202274223a202263757420efbfbd222c0d0a20202275223a2022efbfbd78222c0d0a20202270616972223a2022f09f9880220d0a7d"
+      },
+      "expect": {"value": {"t": "cut \ufffd", "u": "\ufffdx", "pair": "\ud83d\ude00"}, "repaired": false}
+    },
+    {
+      "name": "Core wrote lists",
+      "by": "Core",
+      "input": {
+        "bytes": "7b0d0a2020226f6e65223a205b0d0a202020202278220d0a20205d2c0d0a2020226f6e65496e74223a205b0d0a20202020370d0a20205d2c0d0a202022656d707479223a205b5d2c0d0a2020226e6573746564223a205b0d0a202020205b0d0a2020202020202278220d0a202020205d0d0a20205d2c0d0a2020226c697374223a205b0d0a202020202261220d0a20205d2c0d0a2020226e756c6c73223a205b0d0a202020206e756c6c0d0a20205d0d0a7d"
+      },
+      "expect": {
+        "value": {
+          "one": ["x"],
+          "oneInt": [7],
+          "empty": [],
+          "nested": [["x"]],
+          "list": ["a"],
+          "nulls": [null]
+        },
+        "repaired": false
+      }
+    },
+    {
+      "name": "Core wrote a list kept whole",
+      "by": "Core",
+      "input": {
+        "bytes": "7b0d0a20202261223a205b0d0a202020202278220d0a20205d2c0d0a20202262223a207b0d0a202020202263223a205b0d0a202020202020310d0a202020205d0d0a20207d0d0a7d"
+      },
+      "expect": {"value": {"a": ["x"], "b": {"c": [1]}}, "repaired": false}
+    },
+    {
+      "name": "Core wrote dates",
+      "by": "Core",
+      "input": {
+        "bytes": "7b0d0a202022757463223a2022323032362d31302d31355430313a30323a30332e3132335a222c0d0a2020226c6f63616c223a2022323032362d31302d31355431303a30323a30332b30393a3030222c0d0a202022756e73706563223a2022323032362d31302d31355430313a30323a3033222c0d0a2020227469636b73223a2022323032362d31302d31355430313a30323a30332e313233343536375a222c0d0a2020226d696e223a2022303030312d30312d30315430303a30303a3030220d0a7d"
+      },
+      "expectByEdition": {
+        "Desktop": {
+          "value": {
+            "utc": "2026-10-15T01:02:03.123Z",
+            "local": "2026-10-15T10:02:03+09:00",
+            "unspec": "2026-10-15T01:02:03",
+            "ticks": "2026-10-15T01:02:03.1234567Z",
+            "min": "0001-01-01T00:00:00"
+          },
+          "repaired": false
+        },
+        "Core": {
+          "value": {
+            "utc": {"date": "2026-10-15T01:02:03.1230000Z"},
+            "local": {"date": "2026-10-15T10:02:03.0000000+09:00"},
+            "unspec": {"date": "2026-10-15T01:02:03.0000000"},
+            "ticks": {"date": "2026-10-15T01:02:03.1234567Z"},
+            "min": {"date": "0001-01-01T00:00:00.0000000"}
+          },
+          "repaired": false
+        }
+      }
+    },
+    {
+      "name": "Core wrote deep ordered",
+      "by": "Core",
+      "input": {
+        "bytes": "7b0d0a2020226c39223a207b0d0a20202020226c38223a207b0d0a202020202020226c37223a207b0d0a2020202020202020226c36223a207b0d0a20202020202020202020226c35223a207b0d0a202020202020202020202020226c34223a207b0d0a2020202020202020202020202020226c33223a207b0d0a20202020202020202020202020202020226c32223a207b0d0a202020202020202020202020202020202020226c31223a202253797374656d2e436f6c6c656374696f6e732e5370656369616c697a65642e4f72646572656444696374696f6e617279220d0a202020202020202020202020202020207d0d0a20202020202020202020202020207d0d0a2020202020202020202020207d0d0a202020202020202020207d0d0a20202020202020207d0d0a2020202020207d0d0a202020207d0d0a20207d0d0a7d"
+      },
+      "expect": {
+        "value": {
+          "l9": {
+            "l8": {
+              "l7": {
+                "l6": {
+                  "l5": {"l4": {"l3": {"l2": {"l1": "System.Collections.Specialized.OrderedDictionary"}}}}
+                }
+              }
+            }
+          }
+        },
+        "repaired": false
+      }
+    },
+    {
+      "name": "Core wrote deep object",
+      "by": "Core",
+      "input": {
+        "bytes": "7b0d0a2020226c39223a207b0d0a20202020226c38223a207b0d0a202020202020226c37223a207b0d0a2020202020202020226c36223a207b0d0a20202020202020202020226c35223a207b0d0a202020202020202020202020226c34223a207b0d0a2020202020202020202020202020226c33223a207b0d0a20202020202020202020202020202020226c32223a207b0d0a202020202020202020202020202020202020226c31223a2022407b6c303d6c6561667d220d0a202020202020202020202020202020207d0d0a20202020202020202020202020207d0d0a2020202020202020202020207d0d0a202020202020202020207d0d0a20202020202020207d0d0a2020202020207d0d0a202020207d0d0a20207d0d0a7d"
+      },
+      "expect": {
+        "value": {"l9": {"l8": {"l7": {"l6": {"l5": {"l4": {"l3": {"l2": {"l1": "@{l0=leaf}"}}}}}}}}},
+        "repaired": false
+      }
+    },
+    {
+      "name": "Core wrote deep hashtable",
+      "by": "Core",
+      "input": {
+        "bytes": "7b0d0a2020226c38223a207b0d0a20202020226c37223a207b0d0a202020202020226c36223a207b0d0a2020202020202020226c35223a207b0d0a20202020202020202020226c34223a207b0d0a202020202020202020202020226c33223a207b0d0a2020202020202020202020202020226c32223a207b0d0a20202020202020202020202020202020226c31223a207b0d0a202020202020202020202020202020202020226c30223a202253797374656d2e436f6c6c656374696f6e732e486173687461626c65220d0a202020202020202020202020202020207d0d0a20202020202020202020202020207d0d0a2020202020202020202020207d0d0a202020202020202020207d0d0a20202020202020207d0d0a2020202020207d0d0a202020207d0d0a20207d0d0a7d"
+      },
+      "expect": {
+        "value": {
+          "l8": {
+            "l7": {"l6": {"l5": {"l4": {"l3": {"l2": {"l1": {"l0": "System.Collections.Hashtable"}}}}}}}
+          }
+        },
+        "repaired": false
+      }
+    },
+    {
+      "name": "Core wrote numbers",
+      "by": "Core",
+      "input": {
+        "bytes": "7b0d0a20202269223a20312c0d0a2020226c223a20323134373438333634382c0d0a20202264223a20312e352c0d0a202022646563223a20312e352c0d0a202022626967223a2031452b3330302c0d0a2020226e6567223a202d302e302c0d0a20202266223a20302e312c0d0a20202274696e79223a2031452d30370d0a7d"
+      },
+      "expect": {
+        "value": {
+          "i": 1,
+          "l": 2147483648,
+          "d": 1.5,
+          "dec": 1.5,
+          "big": 1E+300,
+          "neg": 0,
+          "f": 0.1,
+          "tiny": 1E-07
+        },
+        "repaired": false
+      }
+    },
+    {
+      "name": "Core wrote truth",
+      "by": "Core",
+      "input": {
+        "bytes": "7b0d0a20202274223a20747275652c0d0a20202266223a2066616c73652c0d0a2020226e223a206e756c6c0d0a7d"
+      },
+      "expect": {"value": {"t": true, "f": false, "n": null}, "repaired": false}
+    },
+    {
+      "name": "Core wrote a list of one",
+      "by": "Core",
+      "input": {"bytes": "227822"},
+      "expect": {"value": "x", "repaired": false}
+    },
+    {
+      "name": "Core wrote a list of two",
+      "by": "Core",
+      "input": {"bytes": "5b0d0a20202278222c0d0a20202279220d0a5d"},
+      "expect": {"value": ["x", "y"], "repaired": false}
+    },
+    {
+      "name": "Core wrote an empty name",
+      "by": "Core",
+      "input": {"bytes": "7b0d0a202022223a20310d0a7d"},
+      "expect": {"value": null, "repaired": false}
+    },
+    {
+      "name": "Core wrote a job read back",
+      "by": "Core",
+      "input": {
+        "bytes": "7b0d0a2020226964223a20226a2d31222c0d0a2020226b696e64223a202270726f6d7074222c0d0a2020227374617465223a2022717565756564222c0d0a202022736571223a20332c0d0a202022637265617465644174223a2022323032362d31302d31355430313a30323a30332e313233343536375a222c0d0a202022737461727465644174223a2022323032362d31302d31355431303a30323a30332e352b30393a3030222c0d0a2020226174223a2022323032352d31302d31355430313a30323a30335a222c0d0a20202270726f6d7074223a2022ed959ceab880205c22715c22203c263e222c0d0a20202263686174223a207b0d0a20202020227469746c65223a202274222c0d0a202020202273657373696f6e223a206e756c6c0d0a20207d2c0d0a20202274616773223a205b0d0a202020202261220d0a20205d2c0d0a2020227374657073223a205b5d2c0d0a2020226669727374223a2066616c73650d0a7d"
+      },
+      "expectByEdition": {
+        "Desktop": {
+          "value": {
+            "id": "j-1",
+            "kind": "prompt",
+            "state": "queued",
+            "seq": 3,
+            "createdAt": "2026-10-15T01:02:03.1234567Z",
+            "startedAt": "2026-10-15T10:02:03.5+09:00",
+            "at": "2025-10-15T01:02:03Z",
+            "prompt": "\ud55c\uae00 \"q\" <&>",
+            "chat": {"title": "t", "session": null},
+            "tags": ["a"],
+            "steps": [],
+            "first": false
+          },
+          "repaired": false
+        },
+        "Core": {
+          "value": {
+            "id": "j-1",
+            "kind": "prompt",
+            "state": "queued",
+            "seq": 3,
+            "createdAt": {"date": "2026-10-15T01:02:03.1234567Z"},
+            "startedAt": {"date": "2026-10-15T10:02:03.5000000+09:00"},
+            "at": {"date": "2025-10-15T01:02:03.0000000Z"},
+            "prompt": "\ud55c\uae00 \"q\" <&>",
+            "chat": {"title": "t", "session": null},
+            "tags": ["a"],
+            "steps": [],
+            "first": false
+          },
+          "repaired": false
+        }
+      }
+    }
+  ]
+}

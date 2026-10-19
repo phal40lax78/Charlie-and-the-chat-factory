@@ -1,0 +1,726 @@
+{
+  "about": "The lines the logs get. Add-ChatqLogLine (src/queue.ps1): local (Get-Date).ToString('o'), two spaces, the text and LF onto data/logs/<name> as UTF-8 without a BOM, the file first moved over <name>.1 when past 1 MB (1048576 bytes). Write-ChatqReplyLog (src/phone.ps1): each run of CR and LF one space, as 'phone: <text>' in watcher.log and as itself in replies.log. Send-ChatqAlert (src/alerts.ps1): <o> TAB <event> TAB <text> LF onto alerts.log before any channel, each run of \\s in the text one space, the event as it came. A log case runs its steps and answers every file in logs/ with its text; a roll case lays files down from a recipe (n bytes, byte i LF where i % 100 is 99, else x), adds one line, and answers each file's size and the last line of the one written to. Rust: log::add_log_line_in, write_reply_log, add_alert_line",
+  "cases": [
+    {
+      "name": "line-first",
+      "input": {
+        "kind": "log",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "steps": [
+          {
+            "at": "2026-10-15T01:00:00Z",
+            "act": "line",
+            "log": "watcher.log",
+            "text": "watcher 4242 started (9.8.7)"
+          }
+        ]
+      },
+      "expect": {
+        "files": [
+          {
+            "name": "watcher.log",
+            "text": "2026-10-15T10:00:00.0000000+09:00  watcher 4242 started (9.8.7)\n"
+          }
+        ]
+      }
+    },
+    {
+      "name": "line-ticks",
+      "input": {
+        "kind": "log",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "steps": [
+          {"at": "2026-10-15T01:00:00.1234567Z", "act": "line", "log": "jobs.log", "text": "a"},
+          {"at": "2026-10-15T01:00:00.5Z", "act": "line", "log": "jobs.log", "text": "b"},
+          {"at": "2026-10-15T01:00:00.0000001Z", "act": "line", "log": "jobs.log", "text": "c"},
+          {"at": "2026-10-15T01:00:59.9999999Z", "act": "line", "log": "jobs.log", "text": "d"}
+        ]
+      },
+      "expect": {
+        "files": [
+          {
+            "name": "jobs.log",
+            "text": "2026-10-15T10:00:00.1234567+09:00  a\n2026-10-15T10:00:00.5000000+09:00  b\n2026-10-15T10:00:00.0000001+09:00  c\n2026-10-15T10:00:59.9999999+09:00  d\n"
+          }
+        ]
+      }
+    },
+    {
+      "name": "line-negative-zone",
+      "input": {
+        "kind": "log",
+        "zone": "SA Pacific Standard Time",
+        "utcOffsetMinutes": -300,
+        "steps": [{"at": "2026-10-15T01:00:00Z", "act": "line", "log": "watcher.log", "text": "west"}]
+      },
+      "expect": {"files": [{"name": "watcher.log", "text": "2026-10-14T20:00:00.0000000-05:00  west\n"}]}
+    },
+    {
+      "name": "line-half-hour-zone",
+      "input": {
+        "kind": "log",
+        "zone": "India Standard Time",
+        "utcOffsetMinutes": 330,
+        "steps": [{"at": "2026-10-15T01:00:00Z", "act": "line", "log": "watcher.log", "text": "half"}]
+      },
+      "expect": {"files": [{"name": "watcher.log", "text": "2026-10-15T06:30:00.0000000+05:30  half\n"}]}
+    },
+    {
+      "name": "line-zero-offset",
+      "input": {
+        "kind": "log",
+        "zone": "Greenwich Standard Time",
+        "utcOffsetMinutes": 0,
+        "steps": [{"at": "2026-10-15T01:00:00Z", "act": "line", "log": "watcher.log", "text": "zero"}]
+      },
+      "expect": {"files": [{"name": "watcher.log", "text": "2026-10-15T01:00:00.0000000+00:00  zero\n"}]}
+    },
+    {
+      "name": "line-new-year",
+      "input": {
+        "kind": "log",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "steps": [
+          {
+            "at": "2026-12-31T14:59:59.9999999Z",
+            "act": "line",
+            "log": "watcher.log",
+            "text": "last tick of the year"
+          },
+          {"at": "2026-12-31T15:00:00Z", "act": "line", "log": "watcher.log", "text": "midnight"}
+        ]
+      },
+      "expect": {
+        "files": [
+          {
+            "name": "watcher.log",
+            "text": "2026-12-31T23:59:59.9999999+09:00  last tick of the year\n2027-01-01T00:00:00.0000000+09:00  midnight\n"
+          }
+        ]
+      }
+    },
+    {
+      "name": "line-texts",
+      "input": {
+        "kind": "log",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "steps": [
+          {"at": "2026-10-15T01:00:00Z", "act": "line", "log": "watcher.log", "text": ""},
+          {"at": "2026-10-15T01:00:00Z", "act": "line", "log": "watcher.log", "text": null},
+          {
+            "at": "2026-10-15T01:00:00Z",
+            "act": "line",
+            "log": "watcher.log",
+            "text": "two\r\nlines and a\ttab"
+          },
+          {
+            "at": "2026-10-15T01:00:00Z",
+            "act": "line",
+            "log": "watcher.log",
+            "text": "caf\u00e9 \u4e2d\u6587 \ud83d\ude00 \u00b7"
+          },
+          {"at": "2026-10-15T01:00:00Z", "act": "line", "log": "watcher.log", "text": "  spaced  "},
+          {
+            "at": "2026-10-15T01:00:00Z",
+            "act": "line",
+            "log": "watcher.log",
+            "text": "ends in a line feed\n"
+          }
+        ]
+      },
+      "expect": {
+        "files": [
+          {
+            "name": "watcher.log",
+            "text": "2026-10-15T10:00:00.0000000+09:00  \n2026-10-15T10:00:00.0000000+09:00  \n2026-10-15T10:00:00.0000000+09:00  two\r\nlines and a\ttab\n2026-10-15T10:00:00.0000000+09:00  caf\u00e9 \u4e2d\u6587 \ud83d\ude00 \u00b7\n2026-10-15T10:00:00.0000000+09:00    spaced  \n2026-10-15T10:00:00.0000000+09:00  ends in a line feed\n\n"
+          }
+        ]
+      }
+    },
+    {
+      "name": "line-two-logs",
+      "input": {
+        "kind": "log",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "steps": [
+          {"at": "2026-10-15T01:00:00Z", "act": "line", "log": "watcher.log", "text": "one"},
+          {"at": "2026-10-15T01:00:01Z", "act": "line", "log": "jobs.log", "text": "two"},
+          {"at": "2026-10-15T01:00:02Z", "act": "line", "log": "watcher.log", "text": "three"}
+        ]
+      },
+      "expect": {
+        "files": [
+          {"name": "jobs.log", "text": "2026-10-15T10:00:01.0000000+09:00  two\n"},
+          {
+            "name": "watcher.log",
+            "text": "2026-10-15T10:00:00.0000000+09:00  one\n2026-10-15T10:00:02.0000000+09:00  three\n"
+          }
+        ]
+      }
+    },
+    {
+      "name": "reply-plain",
+      "input": {
+        "kind": "log",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "steps": [{"at": "2026-10-15T01:00:00Z", "act": "reply", "text": "reply to j7: sent"}]
+      },
+      "expect": {
+        "files": [
+          {"name": "replies.log", "text": "2026-10-15T10:00:00.0000000+09:00  reply to j7: sent\n"},
+          {
+            "name": "watcher.log",
+            "text": "2026-10-15T10:00:00.0000000+09:00  phone: reply to j7: sent\n"
+          }
+        ]
+      }
+    },
+    {
+      "name": "reply-line-breaks",
+      "input": {
+        "kind": "log",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "steps": [
+          {
+            "at": "2026-10-15T01:00:00Z",
+            "act": "reply",
+            "text": "line one\r\nline two\n\nline three\rend"
+          }
+        ]
+      },
+      "expect": {
+        "files": [
+          {
+            "name": "replies.log",
+            "text": "2026-10-15T10:00:00.0000000+09:00  line one line two line three end\n"
+          },
+          {
+            "name": "watcher.log",
+            "text": "2026-10-15T10:00:00.0000000+09:00  phone: line one line two line three end\n"
+          }
+        ]
+      }
+    },
+    {
+      "name": "reply-breaks-at-ends",
+      "input": {
+        "kind": "log",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "steps": [{"at": "2026-10-15T01:00:00Z", "act": "reply", "text": "\r\n\r\nlead and trail\n"}]
+      },
+      "expect": {
+        "files": [
+          {"name": "replies.log", "text": "2026-10-15T10:00:00.0000000+09:00   lead and trail \n"},
+          {
+            "name": "watcher.log",
+            "text": "2026-10-15T10:00:00.0000000+09:00  phone:  lead and trail \n"
+          }
+        ]
+      }
+    },
+    {
+      "name": "reply-other-breaks",
+      "input": {
+        "kind": "log",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "steps": [
+          {
+            "at": "2026-10-15T01:00:00Z",
+            "act": "reply",
+            "text": "tab\there\u2028ls\u2029ps\u0085nel\u000bvt\u000cff  two"
+          }
+        ]
+      },
+      "expect": {
+        "files": [
+          {
+            "name": "replies.log",
+            "text": "2026-10-15T10:00:00.0000000+09:00  tab\there\u2028ls\u2029ps\u0085nel\u000bvt\u000cff  two\n"
+          },
+          {
+            "name": "watcher.log",
+            "text": "2026-10-15T10:00:00.0000000+09:00  phone: tab\there\u2028ls\u2029ps\u0085nel\u000bvt\u000cff  two\n"
+          }
+        ]
+      }
+    },
+    {
+      "name": "reply-unicode",
+      "input": {
+        "kind": "log",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "steps": [
+          {
+            "at": "2026-10-15T01:00:00Z",
+            "act": "reply",
+            "text": "caf\u00e9 \u4e2d\u6587 \ud83d\ude00 \u00b7"
+          }
+        ]
+      },
+      "expect": {
+        "files": [
+          {
+            "name": "replies.log",
+            "text": "2026-10-15T10:00:00.0000000+09:00  caf\u00e9 \u4e2d\u6587 \ud83d\ude00 \u00b7\n"
+          },
+          {
+            "name": "watcher.log",
+            "text": "2026-10-15T10:00:00.0000000+09:00  phone: caf\u00e9 \u4e2d\u6587 \ud83d\ude00 \u00b7\n"
+          }
+        ]
+      }
+    },
+    {
+      "name": "reply-empty",
+      "input": {
+        "kind": "log",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "steps": [
+          {"at": "2026-10-15T01:00:00Z", "act": "reply", "text": ""},
+          {"at": "2026-10-15T01:00:01Z", "act": "reply", "text": null},
+          {"at": "2026-10-15T01:00:02Z", "act": "reply", "text": "\n"}
+        ]
+      },
+      "expect": {
+        "files": [
+          {
+            "name": "replies.log",
+            "text": "2026-10-15T10:00:00.0000000+09:00  \n2026-10-15T10:00:01.0000000+09:00  \n2026-10-15T10:00:02.0000000+09:00   \n"
+          },
+          {
+            "name": "watcher.log",
+            "text": "2026-10-15T10:00:00.0000000+09:00  phone: \n2026-10-15T10:00:01.0000000+09:00  phone: \n2026-10-15T10:00:02.0000000+09:00  phone:  \n"
+          }
+        ]
+      }
+    },
+    {
+      "name": "reply-among-watcher-lines",
+      "input": {
+        "kind": "log",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "steps": [
+          {
+            "at": "2026-10-15T01:00:00Z",
+            "act": "line",
+            "log": "watcher.log",
+            "text": "watcher 4242 started (9.8.7)"
+          },
+          {"at": "2026-10-15T01:00:01Z", "act": "reply", "text": "reply: done\r\nnext"},
+          {"at": "2026-10-15T01:00:02Z", "act": "line", "log": "watcher.log", "text": "pass"}
+        ]
+      },
+      "expect": {
+        "files": [
+          {"name": "replies.log", "text": "2026-10-15T10:00:01.0000000+09:00  reply: done next\n"},
+          {
+            "name": "watcher.log",
+            "text": "2026-10-15T10:00:00.0000000+09:00  watcher 4242 started (9.8.7)\n2026-10-15T10:00:01.0000000+09:00  phone: reply: done next\n2026-10-15T10:00:02.0000000+09:00  pass\n"
+          }
+        ]
+      }
+    },
+    {
+      "name": "alert-plain",
+      "input": {
+        "kind": "log",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "steps": [
+          {
+            "at": "2026-10-15T01:00:00Z",
+            "act": "alert",
+            "event": "done",
+            "text": "Release notes \u00b7 done \u00b7 4m"
+          }
+        ]
+      },
+      "expect": {
+        "files": [
+          {
+            "name": "alerts.log",
+            "text": "2026-10-15T10:00:00.0000000+09:00\tdone\tRelease notes \u00b7 done \u00b7 4m\n"
+          }
+        ]
+      }
+    },
+    {
+      "name": "alert-every-white-space",
+      "input": {
+        "kind": "log",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "steps": [
+          {
+            "at": "2026-10-15T01:00:00Z",
+            "act": "alert",
+            "event": "test",
+            "text": "w\tw\nw\u000bw\u000cw\rw w\u0085w\u00a0w\u1680w\u2000w\u2001w\u2002w\u2003w\u2004w\u2005w\u2006w\u2007w\u2008w\u2009w\u200aw\u2028w\u2029w\u202fw\u205fw\u3000w"
+          }
+        ]
+      },
+      "expect": {
+        "files": [
+          {
+            "name": "alerts.log",
+            "text": "2026-10-15T10:00:00.0000000+09:00\ttest\tw w w w w w w w w w w w w w w w w w w w w w w w w w\n"
+          }
+        ]
+      }
+    },
+    {
+      "name": "alert-no-white-space",
+      "input": {
+        "kind": "log",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "steps": [
+          {
+            "at": "2026-10-15T01:00:00Z",
+            "act": "alert",
+            "event": "test",
+            "text": "n\u0000n\u001cn\u001dn\u001en\u001fn\u007fn\u180en\u200bn\u200cn\u200dn\u2060n\ufeffn"
+          }
+        ]
+      },
+      "expect": {
+        "files": [
+          {
+            "name": "alerts.log",
+            "text": "2026-10-15T10:00:00.0000000+09:00\ttest\tn\u0000n\u001cn\u001dn\u001en\u001fn\u007fn\u180en\u200bn\u200cn\u200dn\u2060n\ufeffn\n"
+          }
+        ]
+      }
+    },
+    {
+      "name": "alert-runs",
+      "input": {
+        "kind": "log",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "steps": [
+          {
+            "at": "2026-10-15T01:00:00Z",
+            "act": "alert",
+            "event": "failed",
+            "text": "a \t \r\n  b\u00a0\u3000c\n\n\nd"
+          }
+        ]
+      },
+      "expect": {
+        "files": [{"name": "alerts.log", "text": "2026-10-15T10:00:00.0000000+09:00\tfailed\ta b c d\n"}]
+      }
+    },
+    {
+      "name": "alert-ends",
+      "input": {
+        "kind": "log",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "steps": [
+          {
+            "at": "2026-10-15T01:00:00Z",
+            "act": "alert",
+            "event": "limited",
+            "text": "\t lead and trail \r\n"
+          }
+        ]
+      },
+      "expect": {
+        "files": [
+          {
+            "name": "alerts.log",
+            "text": "2026-10-15T10:00:00.0000000+09:00\tlimited\t lead and trail \n"
+          }
+        ]
+      }
+    },
+    {
+      "name": "alert-event-as-it-came",
+      "input": {
+        "kind": "log",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "steps": [
+          {"at": "2026-10-15T01:00:00Z", "act": "alert", "event": "needs input", "text": "x"},
+          {"at": "2026-10-15T01:00:01Z", "act": "alert", "event": "odd\tevent  two", "text": "y"},
+          {"at": "2026-10-15T01:00:02Z", "act": "alert", "event": "broken\r\nevent", "text": "z"},
+          {"at": "2026-10-15T01:00:03Z", "act": "alert", "event": "", "text": "no event"},
+          {"at": "2026-10-15T01:00:04Z", "act": "alert", "event": null, "text": "null event"}
+        ]
+      },
+      "expect": {
+        "files": [
+          {
+            "name": "alerts.log",
+            "text": "2026-10-15T10:00:00.0000000+09:00\tneeds input\tx\n2026-10-15T10:00:01.0000000+09:00\todd\tevent  two\ty\n2026-10-15T10:00:02.0000000+09:00\tbroken\r\nevent\tz\n2026-10-15T10:00:03.0000000+09:00\t\tno event\n2026-10-15T10:00:04.0000000+09:00\t\tnull event\n"
+          }
+        ]
+      }
+    },
+    {
+      "name": "alert-empty-text",
+      "input": {
+        "kind": "log",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "steps": [
+          {"at": "2026-10-15T01:00:00Z", "act": "alert", "event": "done", "text": ""},
+          {"at": "2026-10-15T01:00:01Z", "act": "alert", "event": "done", "text": null},
+          {"at": "2026-10-15T01:00:02Z", "act": "alert", "event": "done", "text": "\r\n"}
+        ]
+      },
+      "expect": {
+        "files": [
+          {
+            "name": "alerts.log",
+            "text": "2026-10-15T10:00:00.0000000+09:00\tdone\t\n2026-10-15T10:00:01.0000000+09:00\tdone\t\n2026-10-15T10:00:02.0000000+09:00\tdone\t \n"
+          }
+        ]
+      }
+    },
+    {
+      "name": "alert-about-a-job",
+      "input": {
+        "kind": "log",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "steps": [
+          {
+            "at": "2026-10-15T01:00:00Z",
+            "act": "alert",
+            "event": "done",
+            "text": "Release notes \u00b7 4m \u00b7 2 turns",
+            "title": "Release notes"
+          }
+        ]
+      },
+      "expect": {
+        "files": [
+          {
+            "name": "alerts.log",
+            "text": "2026-10-15T10:00:00.0000000+09:00\tdone\tRelease notes \u00b7 4m \u00b7 2 turns\n"
+          }
+        ]
+      }
+    },
+    {
+      "name": "alert-long",
+      "input": {
+        "kind": "log",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "steps": [
+          {
+            "at": "2026-10-15T01:00:00Z",
+            "act": "alert",
+            "event": "reply",
+            "text": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+          }
+        ]
+      },
+      "expect": {
+        "files": [
+          {
+            "name": "alerts.log",
+            "text": "2026-10-15T10:00:00.0000000+09:00\treply\tyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\n"
+          }
+        ]
+      }
+    },
+    {
+      "name": "alert-half-hour-zone",
+      "input": {
+        "kind": "log",
+        "zone": "India Standard Time",
+        "utcOffsetMinutes": 330,
+        "steps": [
+          {"at": "2026-10-15T01:00:00.25Z", "act": "alert", "event": "done", "text": "first"},
+          {"at": "2026-10-15T18:29:59Z", "act": "alert", "event": "failed", "text": "second"}
+        ]
+      },
+      "expect": {
+        "files": [
+          {
+            "name": "alerts.log",
+            "text": "2026-10-15T06:30:00.2500000+05:30\tdone\tfirst\n2026-10-15T23:59:59.0000000+05:30\tfailed\tsecond\n"
+          }
+        ]
+      }
+    },
+    {
+      "name": "all-three",
+      "input": {
+        "kind": "log",
+        "zone": "SA Pacific Standard Time",
+        "utcOffsetMinutes": -300,
+        "steps": [
+          {"at": "2026-10-15T01:00:00Z", "act": "line", "log": "watcher.log", "text": "pass"},
+          {
+            "at": "2026-10-15T01:00:01Z",
+            "act": "alert",
+            "event": "reply",
+            "text": "an answer\r\nin two lines"
+          },
+          {"at": "2026-10-15T01:00:02Z", "act": "reply", "text": "an answer\r\nin two lines"}
+        ]
+      },
+      "expect": {
+        "files": [
+          {
+            "name": "alerts.log",
+            "text": "2026-10-14T20:00:01.0000000-05:00\treply\tan answer in two lines\n"
+          },
+          {
+            "name": "replies.log",
+            "text": "2026-10-14T20:00:02.0000000-05:00  an answer in two lines\n"
+          },
+          {
+            "name": "watcher.log",
+            "text": "2026-10-14T20:00:00.0000000-05:00  pass\n2026-10-14T20:00:02.0000000-05:00  phone: an answer in two lines\n"
+          }
+        ]
+      }
+    },
+    {
+      "name": "roll-at-1mb",
+      "input": {
+        "kind": "roll",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "files": [{"name": "watcher.log", "bytes": 1048576}],
+        "log": "watcher.log",
+        "text": "after the roll"
+      },
+      "expect": {
+        "files": [{"name": "watcher.log", "size": 1048626}],
+        "tail": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx2026-10-15T10:00:00.0000000+09:00  after the roll\n"
+      }
+    },
+    {
+      "name": "roll-past-1mb",
+      "input": {
+        "kind": "roll",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "files": [{"name": "watcher.log", "bytes": 1048577}],
+        "log": "watcher.log",
+        "text": "after the roll"
+      },
+      "expect": {
+        "files": [{"name": "watcher.log", "size": 50}, {"name": "watcher.log.1", "size": 1048577}],
+        "tail": "2026-10-15T10:00:00.0000000+09:00  after the roll\n"
+      }
+    },
+    {
+      "name": "roll-well-past",
+      "input": {
+        "kind": "roll",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "files": [{"name": "watcher.log", "bytes": 3000000}],
+        "log": "watcher.log",
+        "text": "after the roll"
+      },
+      "expect": {
+        "files": [{"name": "watcher.log", "size": 50}, {"name": "watcher.log.1", "size": 3000000}],
+        "tail": "2026-10-15T10:00:00.0000000+09:00  after the roll\n"
+      }
+    },
+    {
+      "name": "roll-over-the-old",
+      "input": {
+        "kind": "roll",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "files": [{"name": "watcher.log", "bytes": 1048600}, {"name": "watcher.log.1", "bytes": 4321}],
+        "log": "watcher.log",
+        "text": "after the roll"
+      },
+      "expect": {
+        "files": [{"name": "watcher.log", "size": 50}, {"name": "watcher.log.1", "size": 1048600}],
+        "tail": "2026-10-15T10:00:00.0000000+09:00  after the roll\n"
+      }
+    },
+    {
+      "name": "roll-old-left-alone",
+      "input": {
+        "kind": "roll",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "files": [{"name": "watcher.log", "bytes": 300}, {"name": "watcher.log.1", "bytes": 1048577}],
+        "log": "watcher.log",
+        "text": "after the roll"
+      },
+      "expect": {
+        "files": [{"name": "watcher.log", "size": 350}, {"name": "watcher.log.1", "size": 1048577}],
+        "tail": "2026-10-15T10:00:00.0000000+09:00  after the roll\n"
+      }
+    },
+    {
+      "name": "roll-empty-file",
+      "input": {
+        "kind": "roll",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "files": [{"name": "watcher.log", "bytes": 0}],
+        "log": "watcher.log",
+        "text": "after the roll"
+      },
+      "expect": {
+        "files": [{"name": "watcher.log", "size": 50}],
+        "tail": "2026-10-15T10:00:00.0000000+09:00  after the roll\n"
+      }
+    },
+    {
+      "name": "roll-no-file",
+      "input": {
+        "kind": "roll",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "files": [],
+        "log": "watcher.log",
+        "text": "after the roll"
+      },
+      "expect": {
+        "files": [{"name": "watcher.log", "size": 50}],
+        "tail": "2026-10-15T10:00:00.0000000+09:00  after the roll\n"
+      }
+    },
+    {
+      "name": "roll-only-its-own",
+      "input": {
+        "kind": "roll",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "files": [{"name": "jobs.log", "bytes": 1048577}, {"name": "replies.log", "bytes": 2000}],
+        "log": "replies.log",
+        "text": "after the roll"
+      },
+      "expect": {
+        "files": [{"name": "jobs.log", "size": 1048577}, {"name": "replies.log", "size": 2050}],
+        "tail": "2026-10-15T10:00:00.0000000+09:00  after the roll\n"
+      }
+    }
+  ]
+}

@@ -1027,6 +1027,15 @@ Set-ChatOverlayNameLit `$nm `$false -Now
 `$backTo = @(`$nm | ForEach-Object { @(`$_.Children[0]) + @(`$_.Children[0].Inlines) } | Where-Object { `$_.Tag -is [System.Windows.Media.SolidColorBrush] } | ForEach-Object { `$_.Foreground.Color -eq `$_.Tag.Color })
 `$litOk = `$nm.Count -eq 2 -and `$litOn -eq '1///0/True 1/14/1/0/True' -and `$litDown -eq '1///1/True 1/14/1/1/True' -and `$litOff -like '0///0/* 0/0/0/0/*' -and
     `$backTo.Count -eq 2 -and `$backTo -notcontains `$false
+# the copy with no ground but one to take the click, the row's own name
+# hidden under it - and shown again as the chip goes
+`$els = @(`$H.ChipName | ForEach-Object { `$_.El })
+`$dn0 = @(& `$drawnNames @(`$H.Stack.Children | Where-Object { `$_.Tag -and `$_.Tag -isnot [string] })[0])
+Set-ChatOverlayChipNameHidden `$H `$els
+`$hidOk = `$els.Count -eq 2 -and `$els[0] -eq `$dn0[0] -and `$els[1] -eq `$dn0[1] -and (@(`$els | ForEach-Object Opacity) -join ',') -eq '0,0' -and
+    -not @(`$H.ChipNameBox.Children | Where-Object { `$_.Background.Color.A -ne 1 }).Count
+Set-ChatOverlayChipNameHidden `$H
+`$litOk = `$litOk -and `$hidOk -and (@(`$els | ForEach-Object Opacity) -join ',') -eq '1,1' -and -not @(`$H.ChipHid).Count
 `$two = `$kids.Count -eq 3 -and (@(`$kids | ForEach-Object { `$_.Tag }) -join ',') -eq 'dont,open,delete' -and `$kids[0].Child.Text -eq "don't continue" -and
     `$kids[0].ToolTip -like '#12 auto-continues 13:01. Don''t send*' -and `$H.ChipHint -is [System.Windows.Controls.TextBlock] -and -not `$H.ChipHint.Text -and
     `$H.ChipDelGlyph -eq `$kids[2].Child.Child -and `$sr -and `$tr -and `$tr[1] -ge (`$sr[1] + `$sr[3]) -and
@@ -1112,7 +1121,7 @@ if (`$null -ne `$stateWas) { [IO.File]::WriteAllText(`$script:ChatqAutoPath, `$s
     Check 'the tray''s item is checked as config.json has it, and toggles on and ask through Invoke-ChatOverlayVerb' ($aw[2] -eq 'True') "$acOut"
     Check 'the tray''s toggle is held while the console runs a loop of its own' ($aw[3] -eq 'True') "$acOut"
     Check 'seven rows fit: with the panel at the screen''s top, the settings box goes under the bar, over the rows, on the screen' ($aw[4] -eq 'True') "$acOut"
-    Check 'the chip window over an auto row: don''t continue, the state in the tooltip - on a full row on the title''s line under the state, flush right, compact left of the state - the bin over the row''s own, and the name - project and title, or the compact line - drawn again over the row''s, trimmed the same; lit, its text the accent''s, underlined, the open''s glyph at its end, a unit lower pressed, back as it was' ($aw[5] -eq 'True') "$acOut"
+    Check 'the chip window over an auto row: don''t continue, the state in the tooltip - on a full row on the title''s line under the state, flush right, compact left of the state - the bin over the row''s own, and the name - project and title, or the compact line - drawn again over the row''s, trimmed the same, with no ground, the row''s own hidden under it and back after; lit, its text the accent''s, underlined, the open''s glyph at its end, a unit lower pressed, back as it was' ($aw[5] -eq 'True') "$acOut"
     Check 'a press on one chip released on the other does nothing; on the same chip it acts - the name''s project and title one chip; an unarmed chip takes no click' ($aw[6] -eq 'True' -and $aw[7] -eq 'True' -and $aw[8] -eq 'True') "$acOut"
     Check 'a plain row''s chip: its name and delete alone, the bin over the row''s own at its right end' ($aw[9] -eq 'True') "$acOut"
     Check 'collapsed, the one line counts the cut-off chats auto-continue will continue' ($aw[10] -eq 'True') "$acOut"

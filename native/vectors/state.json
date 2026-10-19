@@ -1,0 +1,1865 @@
+{
+  "about": "data/state.json across a handoff: Save-ChatqWatchState (src/watcher.ps1) writes pid, version, startedAt, heartbeat, current, next, blocked, outage, authAlerted, handoff, listening in that order, and Restore-ChatqWatchState reads it back only after a handoff: a limit already over, or an outage with no since, is dropped. Save cases: the file (pid as PID; blocked, outage and authAlerted sorted) and its restore; restore cases: the text state.rs writes, or one by hand, and what the restore makes of it. Rust: state::WatchState::to_json, restore_in",
+  "cases": [
+    {
+      "name": "save-full",
+      "input": {
+        "kind": "save",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "version": "9.8.7",
+        "state": {
+          "startedAt": "2026-10-15T00:00:00.0000000Z",
+          "current": "j1",
+          "next": "2026-10-15T01:20:00.0000000Z",
+          "handoff": true,
+          "listening": false,
+          "blocked": [
+            {
+              "lane": "claude",
+              "until": "2026-10-15T03:00:00.0000000Z",
+              "type": "session",
+              "source": "probe",
+              "at": "2026-10-15T00:30:00.0000000Z"
+            },
+            {
+              "lane": "codex|acct\\.codex-b",
+              "until": "2026-10-15T05:30:00.1234567Z",
+              "type": "weekly",
+              "source": "transcript"
+            }
+          ],
+          "outage": [
+            {
+              "lane": "claude",
+              "since": "2026-10-15T00:40:00.0000000Z",
+              "next": "2026-10-15T01:10:00.0000000Z",
+              "lastProbe": "2026-10-15T00:55:00.0000000Z",
+              "status": "major_outage",
+              "attempts": 3,
+              "alerted": true,
+              "reminded": false,
+              "autoJob": null
+            },
+            {
+              "lane": "codex",
+              "since": "2026-10-15T00:50:00.0000000Z",
+              "next": "2026-10-15T01:05:00.0000000Z",
+              "lastProbe": "2026-10-15T00:50:00.0000000Z",
+              "status": null,
+              "attempts": 1,
+              "alerted": false,
+              "reminded": true,
+              "autoJob": "j7"
+            }
+          ],
+          "authAlerted": [
+            {"lane": "claude", "on": true},
+            {"lane": "codex", "on": false},
+            {"lane": "codex|acct\\.codex-b", "on": true}
+          ]
+        }
+      },
+      "expect": {
+        "file": {
+          "pid": "PID",
+          "version": "9.8.7",
+          "startedAt": "2026-10-15T00:00:00.0000000Z",
+          "heartbeat": "2026-10-15T01:00:00.0000000Z",
+          "current": "j1",
+          "next": "2026-10-15T01:20:00.0000000Z",
+          "blocked": {
+            "claude": {
+              "at": "2026-10-15T00:30:00.0000000Z",
+              "source": "probe",
+              "type": "session",
+              "until": "2026-10-15T03:00:00.0000000Z"
+            },
+            "codex|acct\\.codex-b": {"source": "transcript", "type": "weekly", "until": "2026-10-15T05:30:00.1234567Z"}
+          },
+          "outage": {
+            "claude": {
+              "alerted": true,
+              "attempts": 3,
+              "autoJob": null,
+              "lastProbe": "2026-10-15T00:55:00.0000000Z",
+              "next": "2026-10-15T01:10:00.0000000Z",
+              "reminded": false,
+              "since": "2026-10-15T00:40:00.0000000Z",
+              "status": "major_outage"
+            },
+            "codex": {
+              "alerted": false,
+              "attempts": 1,
+              "autoJob": "j7",
+              "lastProbe": "2026-10-15T00:50:00.0000000Z",
+              "next": "2026-10-15T01:05:00.0000000Z",
+              "reminded": true,
+              "since": "2026-10-15T00:50:00.0000000Z",
+              "status": null
+            }
+          },
+          "authAlerted": ["claude", "codex|acct\\.codex-b"],
+          "handoff": true,
+          "listening": false
+        },
+        "restored": {
+          "restored": true,
+          "blocked": {
+            "claude": {
+              "until": "2026-10-15T03:00:00.0000000Z",
+              "type": "session",
+              "source": "probe",
+              "at": "2026-10-15T00:30:00.0000000Z"
+            },
+            "codex|acct\\.codex-b": {"until": "2026-10-15T05:30:00.1234567Z", "type": "weekly", "source": "transcript"}
+          },
+          "outage": {
+            "claude": {
+              "since": "2026-10-15T00:40:00.0000000Z",
+              "next": "2026-10-15T01:10:00.0000000Z",
+              "lastProbe": "2026-10-15T00:55:00.0000000Z",
+              "status": "major_outage",
+              "attempts": 3,
+              "alerted": true,
+              "reminded": false,
+              "autoJob": ""
+            },
+            "codex": {
+              "since": "2026-10-15T00:50:00.0000000Z",
+              "next": "2026-10-15T01:05:00.0000000Z",
+              "lastProbe": "2026-10-15T00:50:00.0000000Z",
+              "status": null,
+              "attempts": 1,
+              "alerted": false,
+              "reminded": true,
+              "autoJob": "j7"
+            }
+          },
+          "authAlerted": ["claude", "codex|acct\\.codex-b"]
+        }
+      }
+    },
+    {
+      "name": "save-empty",
+      "input": {
+        "kind": "save",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "version": "9.8.7",
+        "state": {
+          "startedAt": "2026-10-15T00:00:00.0000000Z",
+          "current": null,
+          "next": null,
+          "handoff": false,
+          "listening": false,
+          "blocked": [],
+          "outage": [],
+          "authAlerted": []
+        }
+      },
+      "expect": {
+        "file": {
+          "pid": "PID",
+          "version": "9.8.7",
+          "startedAt": "2026-10-15T00:00:00.0000000Z",
+          "heartbeat": "2026-10-15T01:00:00.0000000Z",
+          "current": null,
+          "next": null,
+          "blocked": {},
+          "outage": {},
+          "authAlerted": [],
+          "handoff": false,
+          "listening": false
+        },
+        "restored": {"restored": false, "blocked": {}, "outage": {}, "authAlerted": []}
+      }
+    },
+    {
+      "name": "save-handoff-empty",
+      "input": {
+        "kind": "save",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "version": "9.8.7",
+        "state": {
+          "startedAt": "2026-10-15T00:00:00.0000000Z",
+          "current": null,
+          "next": null,
+          "handoff": true,
+          "listening": false,
+          "blocked": [],
+          "outage": [],
+          "authAlerted": []
+        }
+      },
+      "expect": {
+        "file": {
+          "pid": "PID",
+          "version": "9.8.7",
+          "startedAt": "2026-10-15T00:00:00.0000000Z",
+          "heartbeat": "2026-10-15T01:00:00.0000000Z",
+          "current": null,
+          "next": null,
+          "blocked": {},
+          "outage": {},
+          "authAlerted": [],
+          "handoff": true,
+          "listening": false
+        },
+        "restored": {"restored": true, "blocked": {}, "outage": {}, "authAlerted": []}
+      }
+    },
+    {
+      "name": "save-listening",
+      "input": {
+        "kind": "save",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "version": "9.8.7",
+        "state": {
+          "startedAt": "2026-10-15T00:00:00.0000000Z",
+          "current": null,
+          "next": null,
+          "handoff": true,
+          "listening": true,
+          "blocked": [],
+          "outage": [],
+          "authAlerted": [{"lane": "claude", "on": false}]
+        }
+      },
+      "expect": {
+        "file": {
+          "pid": "PID",
+          "version": "9.8.7",
+          "startedAt": "2026-10-15T00:00:00.0000000Z",
+          "heartbeat": "2026-10-15T01:00:00.0000000Z",
+          "current": null,
+          "next": null,
+          "blocked": {},
+          "outage": {},
+          "authAlerted": [],
+          "handoff": true,
+          "listening": true
+        },
+        "restored": {"restored": true, "blocked": {}, "outage": {}, "authAlerted": []}
+      }
+    },
+    {
+      "name": "save-one-alerted",
+      "input": {
+        "kind": "save",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "version": "9.8.7",
+        "state": {
+          "startedAt": "2026-10-15T00:00:00.0000000Z",
+          "current": null,
+          "next": null,
+          "handoff": true,
+          "listening": false,
+          "blocked": [],
+          "outage": [],
+          "authAlerted": [{"lane": "codex", "on": true}, {"lane": "claude", "on": false}]
+        }
+      },
+      "expect": {
+        "file": {
+          "pid": "PID",
+          "version": "9.8.7",
+          "startedAt": "2026-10-15T00:00:00.0000000Z",
+          "heartbeat": "2026-10-15T01:00:00.0000000Z",
+          "current": null,
+          "next": null,
+          "blocked": {},
+          "outage": {},
+          "authAlerted": ["codex"],
+          "handoff": true,
+          "listening": false
+        },
+        "restored": {"restored": true, "blocked": {}, "outage": {}, "authAlerted": ["codex"]}
+      }
+    },
+    {
+      "name": "save-past-until",
+      "input": {
+        "kind": "save",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "version": "9.8.7",
+        "state": {
+          "startedAt": "2026-10-15T00:00:00.0000000Z",
+          "current": null,
+          "next": null,
+          "handoff": true,
+          "listening": false,
+          "blocked": [
+            {
+              "lane": "a",
+              "until": "2026-10-15T00:59:59.9999999Z",
+              "type": "session",
+              "source": "probe"
+            },
+            {
+              "lane": "b",
+              "until": "2026-10-15T01:00:00.0000000Z",
+              "type": "session",
+              "source": "probe"
+            },
+            {
+              "lane": "c",
+              "until": "2026-10-15T01:00:00.0000001Z",
+              "type": "session",
+              "source": "probe"
+            }
+          ],
+          "outage": [],
+          "authAlerted": []
+        }
+      },
+      "expect": {
+        "file": {
+          "pid": "PID",
+          "version": "9.8.7",
+          "startedAt": "2026-10-15T00:00:00.0000000Z",
+          "heartbeat": "2026-10-15T01:00:00.0000000Z",
+          "current": null,
+          "next": null,
+          "blocked": {
+            "a": {"source": "probe", "type": "session", "until": "2026-10-15T00:59:59.9999999Z"},
+            "b": {"source": "probe", "type": "session", "until": "2026-10-15T01:00:00.0000000Z"},
+            "c": {"source": "probe", "type": "session", "until": "2026-10-15T01:00:00.0000001Z"}
+          },
+          "outage": {},
+          "authAlerted": [],
+          "handoff": true,
+          "listening": false
+        },
+        "restored": {
+          "restored": true,
+          "blocked": {"c": {"until": "2026-10-15T01:00:00.0000001Z", "type": "session", "source": "probe"}},
+          "outage": {},
+          "authAlerted": []
+        }
+      }
+    },
+    {
+      "name": "save-zero-offset",
+      "input": {
+        "kind": "save",
+        "zone": "Greenwich Standard Time",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T01:00:00Z",
+        "version": "9.8.7",
+        "state": {
+          "startedAt": "2026-10-15T00:00:00.0000000Z",
+          "current": "j1",
+          "next": "2026-10-15T01:20:00.0000000Z",
+          "handoff": true,
+          "listening": false,
+          "blocked": [
+            {
+              "lane": "claude",
+              "until": "2026-10-15T03:00:00.0000000Z",
+              "type": "session",
+              "source": "probe",
+              "at": "2026-10-15T00:30:00.0000000Z"
+            },
+            {
+              "lane": "codex|acct\\.codex-b",
+              "until": "2026-10-15T05:30:00.1234567Z",
+              "type": "weekly",
+              "source": "transcript"
+            }
+          ],
+          "outage": [
+            {
+              "lane": "claude",
+              "since": "2026-10-15T00:40:00.0000000Z",
+              "next": "2026-10-15T01:10:00.0000000Z",
+              "lastProbe": "2026-10-15T00:55:00.0000000Z",
+              "status": "major_outage",
+              "attempts": 3,
+              "alerted": true,
+              "reminded": false,
+              "autoJob": null
+            },
+            {
+              "lane": "codex",
+              "since": "2026-10-15T00:50:00.0000000Z",
+              "next": "2026-10-15T01:05:00.0000000Z",
+              "lastProbe": "2026-10-15T00:50:00.0000000Z",
+              "status": null,
+              "attempts": 1,
+              "alerted": false,
+              "reminded": true,
+              "autoJob": "j7"
+            }
+          ],
+          "authAlerted": [
+            {"lane": "claude", "on": true},
+            {"lane": "codex", "on": false},
+            {"lane": "codex|acct\\.codex-b", "on": true}
+          ]
+        }
+      },
+      "expect": {
+        "file": {
+          "pid": "PID",
+          "version": "9.8.7",
+          "startedAt": "2026-10-15T00:00:00.0000000Z",
+          "heartbeat": "2026-10-15T01:00:00.0000000Z",
+          "current": "j1",
+          "next": "2026-10-15T01:20:00.0000000Z",
+          "blocked": {
+            "claude": {
+              "at": "2026-10-15T00:30:00.0000000Z",
+              "source": "probe",
+              "type": "session",
+              "until": "2026-10-15T03:00:00.0000000Z"
+            },
+            "codex|acct\\.codex-b": {"source": "transcript", "type": "weekly", "until": "2026-10-15T05:30:00.1234567Z"}
+          },
+          "outage": {
+            "claude": {
+              "alerted": true,
+              "attempts": 3,
+              "autoJob": null,
+              "lastProbe": "2026-10-15T00:55:00.0000000Z",
+              "next": "2026-10-15T01:10:00.0000000Z",
+              "reminded": false,
+              "since": "2026-10-15T00:40:00.0000000Z",
+              "status": "major_outage"
+            },
+            "codex": {
+              "alerted": false,
+              "attempts": 1,
+              "autoJob": "j7",
+              "lastProbe": "2026-10-15T00:50:00.0000000Z",
+              "next": "2026-10-15T01:05:00.0000000Z",
+              "reminded": true,
+              "since": "2026-10-15T00:50:00.0000000Z",
+              "status": null
+            }
+          },
+          "authAlerted": ["claude", "codex|acct\\.codex-b"],
+          "handoff": true,
+          "listening": false
+        },
+        "restored": {
+          "restored": true,
+          "blocked": {
+            "claude": {
+              "until": "2026-10-15T03:00:00.0000000Z",
+              "type": "session",
+              "source": "probe",
+              "at": "2026-10-15T00:30:00.0000000Z"
+            },
+            "codex|acct\\.codex-b": {"until": "2026-10-15T05:30:00.1234567Z", "type": "weekly", "source": "transcript"}
+          },
+          "outage": {
+            "claude": {
+              "since": "2026-10-15T00:40:00.0000000Z",
+              "next": "2026-10-15T01:10:00.0000000Z",
+              "lastProbe": "2026-10-15T00:55:00.0000000Z",
+              "status": "major_outage",
+              "attempts": 3,
+              "alerted": true,
+              "reminded": false,
+              "autoJob": ""
+            },
+            "codex": {
+              "since": "2026-10-15T00:50:00.0000000Z",
+              "next": "2026-10-15T01:05:00.0000000Z",
+              "lastProbe": "2026-10-15T00:50:00.0000000Z",
+              "status": null,
+              "attempts": 1,
+              "alerted": false,
+              "reminded": true,
+              "autoJob": "j7"
+            }
+          },
+          "authAlerted": ["claude", "codex|acct\\.codex-b"]
+        }
+      }
+    },
+    {
+      "name": "save-negative-zone",
+      "input": {
+        "kind": "save",
+        "zone": "SA Pacific Standard Time",
+        "utcOffsetMinutes": -300,
+        "now": "2026-10-15T01:00:00Z",
+        "version": "9.8.7",
+        "state": {
+          "startedAt": "2026-10-15T00:00:00.0000000Z",
+          "current": "j1",
+          "next": "2026-10-15T01:20:00.0000000Z",
+          "handoff": true,
+          "listening": false,
+          "blocked": [
+            {
+              "lane": "claude",
+              "until": "2026-10-15T03:00:00.0000000Z",
+              "type": "session",
+              "source": "probe",
+              "at": "2026-10-15T00:30:00.0000000Z"
+            },
+            {
+              "lane": "codex|acct\\.codex-b",
+              "until": "2026-10-15T05:30:00.1234567Z",
+              "type": "weekly",
+              "source": "transcript"
+            }
+          ],
+          "outage": [
+            {
+              "lane": "claude",
+              "since": "2026-10-15T00:40:00.0000000Z",
+              "next": "2026-10-15T01:10:00.0000000Z",
+              "lastProbe": "2026-10-15T00:55:00.0000000Z",
+              "status": "major_outage",
+              "attempts": 3,
+              "alerted": true,
+              "reminded": false,
+              "autoJob": null
+            },
+            {
+              "lane": "codex",
+              "since": "2026-10-15T00:50:00.0000000Z",
+              "next": "2026-10-15T01:05:00.0000000Z",
+              "lastProbe": "2026-10-15T00:50:00.0000000Z",
+              "status": null,
+              "attempts": 1,
+              "alerted": false,
+              "reminded": true,
+              "autoJob": "j7"
+            }
+          ],
+          "authAlerted": [
+            {"lane": "claude", "on": true},
+            {"lane": "codex", "on": false},
+            {"lane": "codex|acct\\.codex-b", "on": true}
+          ]
+        }
+      },
+      "expect": {
+        "file": {
+          "pid": "PID",
+          "version": "9.8.7",
+          "startedAt": "2026-10-15T00:00:00.0000000Z",
+          "heartbeat": "2026-10-15T01:00:00.0000000Z",
+          "current": "j1",
+          "next": "2026-10-15T01:20:00.0000000Z",
+          "blocked": {
+            "claude": {
+              "at": "2026-10-15T00:30:00.0000000Z",
+              "source": "probe",
+              "type": "session",
+              "until": "2026-10-15T03:00:00.0000000Z"
+            },
+            "codex|acct\\.codex-b": {"source": "transcript", "type": "weekly", "until": "2026-10-15T05:30:00.1234567Z"}
+          },
+          "outage": {
+            "claude": {
+              "alerted": true,
+              "attempts": 3,
+              "autoJob": null,
+              "lastProbe": "2026-10-15T00:55:00.0000000Z",
+              "next": "2026-10-15T01:10:00.0000000Z",
+              "reminded": false,
+              "since": "2026-10-15T00:40:00.0000000Z",
+              "status": "major_outage"
+            },
+            "codex": {
+              "alerted": false,
+              "attempts": 1,
+              "autoJob": "j7",
+              "lastProbe": "2026-10-15T00:50:00.0000000Z",
+              "next": "2026-10-15T01:05:00.0000000Z",
+              "reminded": true,
+              "since": "2026-10-15T00:50:00.0000000Z",
+              "status": null
+            }
+          },
+          "authAlerted": ["claude", "codex|acct\\.codex-b"],
+          "handoff": true,
+          "listening": false
+        },
+        "restored": {
+          "restored": true,
+          "blocked": {
+            "claude": {
+              "until": "2026-10-15T03:00:00.0000000Z",
+              "type": "session",
+              "source": "probe",
+              "at": "2026-10-15T00:30:00.0000000Z"
+            },
+            "codex|acct\\.codex-b": {"until": "2026-10-15T05:30:00.1234567Z", "type": "weekly", "source": "transcript"}
+          },
+          "outage": {
+            "claude": {
+              "since": "2026-10-15T00:40:00.0000000Z",
+              "next": "2026-10-15T01:10:00.0000000Z",
+              "lastProbe": "2026-10-15T00:55:00.0000000Z",
+              "status": "major_outage",
+              "attempts": 3,
+              "alerted": true,
+              "reminded": false,
+              "autoJob": ""
+            },
+            "codex": {
+              "since": "2026-10-15T00:50:00.0000000Z",
+              "next": "2026-10-15T01:05:00.0000000Z",
+              "lastProbe": "2026-10-15T00:50:00.0000000Z",
+              "status": null,
+              "attempts": 1,
+              "alerted": false,
+              "reminded": true,
+              "autoJob": "j7"
+            }
+          },
+          "authAlerted": ["claude", "codex|acct\\.codex-b"]
+        }
+      }
+    },
+    {
+      "name": "save-escapes",
+      "input": {
+        "kind": "save",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "version": "9.8.7",
+        "state": {
+          "startedAt": "x\u0001\u0008\u000c\u001f\u007f\t\r\ny",
+          "current": "emoji \ud83d\ude00 \u2028\u00a0/<>&'",
+          "next": "x\u0001\u0008\u000c\u001f\u007f\t\r\ny",
+          "handoff": true,
+          "listening": false,
+          "blocked": [
+            {
+              "lane": "claude|home\\\u00e9l\u00e8ve\\.claude",
+              "until": "2026-10-15T03:00:00.0000000Z",
+              "type": "x\u0001\u0008\u000c\u001f\u007f\t\r\ny",
+              "source": "emoji \ud83d\ude00 \u2028\u00a0/<>&'"
+            },
+            {
+              "lane": "tab\tlane",
+              "until": "2026-10-15T04:00:00.0000000Z",
+              "type": "\"",
+              "source": "\\"
+            }
+          ],
+          "outage": [
+            {
+              "lane": "codex|\"quoted\" \u4e2d\u6587",
+              "since": "2026-10-15T00:40:00.0000000Z",
+              "next": "2026-10-15T01:10:00.0000000Z",
+              "lastProbe": "2026-10-15T00:55:00.0000000Z",
+              "status": "emoji \ud83d\ude00 \u2028\u00a0/<>&'",
+              "attempts": 2,
+              "alerted": true,
+              "reminded": true,
+              "autoJob": "x\u0001\u0008\u000c\u001f\u007f\t\r\ny"
+            }
+          ],
+          "authAlerted": [
+            {"lane": "codex|\"quoted\" \u4e2d\u6587", "on": true},
+            {"lane": "claude|home\\\u00e9l\u00e8ve\\.claude", "on": true}
+          ]
+        }
+      },
+      "expect": {
+        "file": {
+          "pid": "PID",
+          "version": "9.8.7",
+          "startedAt": "x\u0001\u0008\u000c\u001f\u007f\t\r\ny",
+          "heartbeat": "2026-10-15T01:00:00.0000000Z",
+          "current": "emoji \ud83d\ude00 \u2028\u00a0/<>&'",
+          "next": "x\u0001\u0008\u000c\u001f\u007f\t\r\ny",
+          "blocked": {
+            "claude|home\\\u00e9l\u00e8ve\\.claude": {
+              "source": "emoji \ud83d\ude00 \u2028\u00a0/<>&'",
+              "type": "x\u0001\u0008\u000c\u001f\u007f\t\r\ny",
+              "until": "2026-10-15T03:00:00.0000000Z"
+            },
+            "tab\tlane": {"source": "\\", "type": "\"", "until": "2026-10-15T04:00:00.0000000Z"}
+          },
+          "outage": {
+            "codex|\"quoted\" \u4e2d\u6587": {
+              "alerted": true,
+              "attempts": 2,
+              "autoJob": "x\u0001\u0008\u000c\u001f\u007f\t\r\ny",
+              "lastProbe": "2026-10-15T00:55:00.0000000Z",
+              "next": "2026-10-15T01:10:00.0000000Z",
+              "reminded": true,
+              "since": "2026-10-15T00:40:00.0000000Z",
+              "status": "emoji \ud83d\ude00 \u2028\u00a0/<>&'"
+            }
+          },
+          "authAlerted": ["claude|home\\\u00e9l\u00e8ve\\.claude", "codex|\"quoted\" \u4e2d\u6587"],
+          "handoff": true,
+          "listening": false
+        },
+        "restored": {
+          "restored": true,
+          "blocked": {
+            "claude|home\\\u00e9l\u00e8ve\\.claude": {
+              "until": "2026-10-15T03:00:00.0000000Z",
+              "type": "x\u0001\u0008\u000c\u001f\u007f\t\r\ny",
+              "source": "emoji \ud83d\ude00 \u2028\u00a0/<>&'"
+            },
+            "tab\tlane": {"until": "2026-10-15T04:00:00.0000000Z", "type": "\"", "source": "\\"}
+          },
+          "outage": {
+            "codex|\"quoted\" \u4e2d\u6587": {
+              "since": "2026-10-15T00:40:00.0000000Z",
+              "next": "2026-10-15T01:10:00.0000000Z",
+              "lastProbe": "2026-10-15T00:55:00.0000000Z",
+              "status": "emoji \ud83d\ude00 \u2028\u00a0/<>&'",
+              "attempts": 2,
+              "alerted": true,
+              "reminded": true,
+              "autoJob": "x\u0001\u0008\u000c\u001f\u007f\t\r\ny"
+            }
+          },
+          "authAlerted": ["claude|home\\\u00e9l\u00e8ve\\.claude", "codex|\"quoted\" \u4e2d\u6587"]
+        }
+      }
+    },
+    {
+      "name": "rust-full",
+      "input": {
+        "kind": "restore",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "version": "9.8.7",
+        "heartbeat": "2026-10-15T00:59:00.0000000Z",
+        "state": {
+          "startedAt": "2026-10-15T00:00:00.0000000Z",
+          "current": "j1",
+          "next": "2026-10-15T01:20:00.0000000Z",
+          "handoff": true,
+          "listening": false,
+          "blocked": [
+            {
+              "lane": "claude",
+              "until": "2026-10-15T03:00:00.0000000Z",
+              "type": "session",
+              "source": "probe",
+              "at": "2026-10-15T00:30:00.0000000Z"
+            },
+            {
+              "lane": "codex|acct\\.codex-b",
+              "until": "2026-10-15T05:30:00.1234567Z",
+              "type": "weekly",
+              "source": "transcript"
+            }
+          ],
+          "outage": [
+            {
+              "lane": "claude",
+              "since": "2026-10-15T00:40:00.0000000Z",
+              "next": "2026-10-15T01:10:00.0000000Z",
+              "lastProbe": "2026-10-15T00:55:00.0000000Z",
+              "status": "major_outage",
+              "attempts": 3,
+              "alerted": true,
+              "reminded": false,
+              "autoJob": null
+            },
+            {
+              "lane": "codex",
+              "since": "2026-10-15T00:50:00.0000000Z",
+              "next": "2026-10-15T01:05:00.0000000Z",
+              "lastProbe": "2026-10-15T00:50:00.0000000Z",
+              "status": null,
+              "attempts": 1,
+              "alerted": false,
+              "reminded": true,
+              "autoJob": "j7"
+            }
+          ],
+          "authAlerted": [
+            {"lane": "claude", "on": true},
+            {"lane": "codex", "on": false},
+            {"lane": "codex|acct\\.codex-b", "on": true}
+          ]
+        },
+        "text": "{\n  \"pid\": 4242,\n  \"version\": \"9.8.7\",\n  \"startedAt\": \"2026-10-15T00:00:00.0000000Z\",\n  \"heartbeat\": \"2026-10-15T00:59:00.0000000Z\",\n  \"current\": \"j1\",\n  \"next\": \"2026-10-15T01:20:00.0000000Z\",\n  \"blocked\": {\n    \"claude\": {\n      \"until\": \"2026-10-15T03:00:00.0000000Z\",\n      \"type\": \"session\",\n      \"source\": \"probe\",\n      \"at\": \"2026-10-15T00:30:00.0000000Z\"\n    },\n    \"codex|acct\\\\.codex-b\": {\n      \"until\": \"2026-10-15T05:30:00.1234567Z\",\n      \"type\": \"weekly\",\n      \"source\": \"transcript\"\n    }\n  },\n  \"outage\": {\n    \"claude\": {\n      \"since\": \"2026-10-15T00:40:00.0000000Z\",\n      \"next\": \"2026-10-15T01:10:00.0000000Z\",\n      \"lastProbe\": \"2026-10-15T00:55:00.0000000Z\",\n      \"status\": \"major_outage\",\n      \"attempts\": 3,\n      \"alerted\": true,\n      \"reminded\": false,\n      \"autoJob\": null\n    },\n    \"codex\": {\n      \"since\": \"2026-10-15T00:50:00.0000000Z\",\n      \"next\": \"2026-10-15T01:05:00.0000000Z\",\n      \"lastProbe\": \"2026-10-15T00:50:00.0000000Z\",\n      \"status\": null,\n      \"attempts\": 1,\n      \"alerted\": false,\n      \"reminded\": true,\n      \"autoJob\": \"j7\"\n    }\n  },\n  \"authAlerted\": [\n    \"claude\",\n    \"codex|acct\\\\.codex-b\"\n  ],\n  \"handoff\": true,\n  \"listening\": false\n}"
+      },
+      "expect": {
+        "restored": true,
+        "blocked": {
+          "claude": {
+            "until": "2026-10-15T03:00:00.0000000Z",
+            "type": "session",
+            "source": "probe",
+            "at": "2026-10-15T00:30:00.0000000Z"
+          },
+          "codex|acct\\.codex-b": {"until": "2026-10-15T05:30:00.1234567Z", "type": "weekly", "source": "transcript"}
+        },
+        "outage": {
+          "claude": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:10:00.0000000Z",
+            "lastProbe": "2026-10-15T00:55:00.0000000Z",
+            "status": "major_outage",
+            "attempts": 3,
+            "alerted": true,
+            "reminded": false,
+            "autoJob": ""
+          },
+          "codex": {
+            "since": "2026-10-15T00:50:00.0000000Z",
+            "next": "2026-10-15T01:05:00.0000000Z",
+            "lastProbe": "2026-10-15T00:50:00.0000000Z",
+            "status": null,
+            "attempts": 1,
+            "alerted": false,
+            "reminded": true,
+            "autoJob": "j7"
+          }
+        },
+        "authAlerted": ["claude", "codex|acct\\.codex-b"]
+      }
+    },
+    {
+      "name": "rust-handoff-false",
+      "input": {
+        "kind": "restore",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "version": "9.8.7",
+        "heartbeat": "2026-10-15T00:59:00.0000000Z",
+        "state": {
+          "startedAt": "2026-10-15T00:00:00.0000000Z",
+          "current": null,
+          "next": null,
+          "handoff": false,
+          "listening": false,
+          "blocked": [
+            {
+              "lane": "claude",
+              "until": "2026-10-15T03:00:00.0000000Z",
+              "type": "session",
+              "source": "probe",
+              "at": "2026-10-15T00:30:00.0000000Z"
+            },
+            {
+              "lane": "codex|acct\\.codex-b",
+              "until": "2026-10-15T05:30:00.1234567Z",
+              "type": "weekly",
+              "source": "transcript"
+            }
+          ],
+          "outage": [],
+          "authAlerted": []
+        },
+        "text": "{\n  \"pid\": 4242,\n  \"version\": \"9.8.7\",\n  \"startedAt\": \"2026-10-15T00:00:00.0000000Z\",\n  \"heartbeat\": \"2026-10-15T00:59:00.0000000Z\",\n  \"current\": null,\n  \"next\": null,\n  \"blocked\": {\n    \"claude\": {\n      \"until\": \"2026-10-15T03:00:00.0000000Z\",\n      \"type\": \"session\",\n      \"source\": \"probe\",\n      \"at\": \"2026-10-15T00:30:00.0000000Z\"\n    },\n    \"codex|acct\\\\.codex-b\": {\n      \"until\": \"2026-10-15T05:30:00.1234567Z\",\n      \"type\": \"weekly\",\n      \"source\": \"transcript\"\n    }\n  },\n  \"outage\": {},\n  \"authAlerted\": [],\n  \"handoff\": false,\n  \"listening\": false\n}"
+      },
+      "expect": {"restored": false, "blocked": {}, "outage": {}, "authAlerted": []}
+    },
+    {
+      "name": "rust-empty",
+      "input": {
+        "kind": "restore",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "version": "9.8.7",
+        "heartbeat": "2026-10-15T00:59:00.0000000Z",
+        "state": {
+          "startedAt": "2026-10-15T00:00:00.0000000Z",
+          "current": null,
+          "next": null,
+          "handoff": true,
+          "listening": false,
+          "blocked": [],
+          "outage": [],
+          "authAlerted": []
+        },
+        "text": "{\n  \"pid\": 4242,\n  \"version\": \"9.8.7\",\n  \"startedAt\": \"2026-10-15T00:00:00.0000000Z\",\n  \"heartbeat\": \"2026-10-15T00:59:00.0000000Z\",\n  \"current\": null,\n  \"next\": null,\n  \"blocked\": {},\n  \"outage\": {},\n  \"authAlerted\": [],\n  \"handoff\": true,\n  \"listening\": false\n}"
+      },
+      "expect": {"restored": true, "blocked": {}, "outage": {}, "authAlerted": []}
+    },
+    {
+      "name": "rust-escapes",
+      "input": {
+        "kind": "restore",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "version": "9.8.7",
+        "heartbeat": "2026-10-15T00:59:00.0000000Z",
+        "state": {
+          "startedAt": "x\u0001\u0008\u000c\u001f\u007f\t\r\ny",
+          "current": "emoji \ud83d\ude00 \u2028\u00a0/<>&'",
+          "next": "x\u0001\u0008\u000c\u001f\u007f\t\r\ny",
+          "handoff": true,
+          "listening": false,
+          "blocked": [
+            {
+              "lane": "claude|home\\\u00e9l\u00e8ve\\.claude",
+              "until": "2026-10-15T03:00:00.0000000Z",
+              "type": "x\u0001\u0008\u000c\u001f\u007f\t\r\ny",
+              "source": "emoji \ud83d\ude00 \u2028\u00a0/<>&'"
+            },
+            {
+              "lane": "tab\tlane",
+              "until": "2026-10-15T04:00:00.0000000Z",
+              "type": "\"",
+              "source": "\\"
+            }
+          ],
+          "outage": [
+            {
+              "lane": "codex|\"quoted\" \u4e2d\u6587",
+              "since": "2026-10-15T00:40:00.0000000Z",
+              "next": "2026-10-15T01:10:00.0000000Z",
+              "lastProbe": "2026-10-15T00:55:00.0000000Z",
+              "status": "emoji \ud83d\ude00 \u2028\u00a0/<>&'",
+              "attempts": 2,
+              "alerted": true,
+              "reminded": true,
+              "autoJob": "x\u0001\u0008\u000c\u001f\u007f\t\r\ny"
+            }
+          ],
+          "authAlerted": [
+            {"lane": "codex|\"quoted\" \u4e2d\u6587", "on": true},
+            {"lane": "claude|home\\\u00e9l\u00e8ve\\.claude", "on": true}
+          ]
+        },
+        "text": "{\n  \"pid\": 4242,\n  \"version\": \"9.8.7\",\n  \"startedAt\": \"x\\u0001\\b\\f\\u001f\u007f\\t\\r\\ny\",\n  \"heartbeat\": \"2026-10-15T00:59:00.0000000Z\",\n  \"current\": \"emoji \ud83d\ude00 \u2028\u00a0/<>&'\",\n  \"next\": \"x\\u0001\\b\\f\\u001f\u007f\\t\\r\\ny\",\n  \"blocked\": {\n    \"claude|home\\\\\u00e9l\u00e8ve\\\\.claude\": {\n      \"until\": \"2026-10-15T03:00:00.0000000Z\",\n      \"type\": \"x\\u0001\\b\\f\\u001f\u007f\\t\\r\\ny\",\n      \"source\": \"emoji \ud83d\ude00 \u2028\u00a0/<>&'\"\n    },\n    \"tab\\tlane\": {\n      \"until\": \"2026-10-15T04:00:00.0000000Z\",\n      \"type\": \"\\\"\",\n      \"source\": \"\\\\\"\n    }\n  },\n  \"outage\": {\n    \"codex|\\\"quoted\\\" \u4e2d\u6587\": {\n      \"since\": \"2026-10-15T00:40:00.0000000Z\",\n      \"next\": \"2026-10-15T01:10:00.0000000Z\",\n      \"lastProbe\": \"2026-10-15T00:55:00.0000000Z\",\n      \"status\": \"emoji \ud83d\ude00 \u2028\u00a0/<>&'\",\n      \"attempts\": 2,\n      \"alerted\": true,\n      \"reminded\": true,\n      \"autoJob\": \"x\\u0001\\b\\f\\u001f\u007f\\t\\r\\ny\"\n    }\n  },\n  \"authAlerted\": [\n    \"codex|\\\"quoted\\\" \u4e2d\u6587\",\n    \"claude|home\\\\\u00e9l\u00e8ve\\\\.claude\"\n  ],\n  \"handoff\": true,\n  \"listening\": false\n}"
+      },
+      "expect": {
+        "restored": true,
+        "blocked": {
+          "claude|home\\\u00e9l\u00e8ve\\.claude": {
+            "until": "2026-10-15T03:00:00.0000000Z",
+            "type": "x\u0001\u0008\u000c\u001f\u007f\t\r\ny",
+            "source": "emoji \ud83d\ude00 \u2028\u00a0/<>&'"
+          },
+          "tab\tlane": {"until": "2026-10-15T04:00:00.0000000Z", "type": "\"", "source": "\\"}
+        },
+        "outage": {
+          "codex|\"quoted\" \u4e2d\u6587": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:10:00.0000000Z",
+            "lastProbe": "2026-10-15T00:55:00.0000000Z",
+            "status": "emoji \ud83d\ude00 \u2028\u00a0/<>&'",
+            "attempts": 2,
+            "alerted": true,
+            "reminded": true,
+            "autoJob": "x\u0001\u0008\u000c\u001f\u007f\t\r\ny"
+          }
+        },
+        "authAlerted": ["claude|home\\\u00e9l\u00e8ve\\.claude", "codex|\"quoted\" \u4e2d\u6587"]
+      }
+    },
+    {
+      "name": "rust-negative-zone",
+      "input": {
+        "kind": "restore",
+        "zone": "SA Pacific Standard Time",
+        "utcOffsetMinutes": -300,
+        "now": "2026-10-15T01:00:00Z",
+        "version": "9.8.7",
+        "heartbeat": "2026-10-15T00:59:00.0000000Z",
+        "state": {
+          "startedAt": "2026-10-15T00:00:00.0000000Z",
+          "current": "j1",
+          "next": "2026-10-15T01:20:00.0000000Z",
+          "handoff": true,
+          "listening": false,
+          "blocked": [
+            {
+              "lane": "claude",
+              "until": "2026-10-15T03:00:00.0000000Z",
+              "type": "session",
+              "source": "probe",
+              "at": "2026-10-15T00:30:00.0000000Z"
+            },
+            {
+              "lane": "codex|acct\\.codex-b",
+              "until": "2026-10-15T05:30:00.1234567Z",
+              "type": "weekly",
+              "source": "transcript"
+            }
+          ],
+          "outage": [
+            {
+              "lane": "claude",
+              "since": "2026-10-15T00:40:00.0000000Z",
+              "next": "2026-10-15T01:10:00.0000000Z",
+              "lastProbe": "2026-10-15T00:55:00.0000000Z",
+              "status": "major_outage",
+              "attempts": 3,
+              "alerted": true,
+              "reminded": false,
+              "autoJob": null
+            },
+            {
+              "lane": "codex",
+              "since": "2026-10-15T00:50:00.0000000Z",
+              "next": "2026-10-15T01:05:00.0000000Z",
+              "lastProbe": "2026-10-15T00:50:00.0000000Z",
+              "status": null,
+              "attempts": 1,
+              "alerted": false,
+              "reminded": true,
+              "autoJob": "j7"
+            }
+          ],
+          "authAlerted": [
+            {"lane": "claude", "on": true},
+            {"lane": "codex", "on": false},
+            {"lane": "codex|acct\\.codex-b", "on": true}
+          ]
+        },
+        "text": "{\n  \"pid\": 4242,\n  \"version\": \"9.8.7\",\n  \"startedAt\": \"2026-10-15T00:00:00.0000000Z\",\n  \"heartbeat\": \"2026-10-15T00:59:00.0000000Z\",\n  \"current\": \"j1\",\n  \"next\": \"2026-10-15T01:20:00.0000000Z\",\n  \"blocked\": {\n    \"claude\": {\n      \"until\": \"2026-10-15T03:00:00.0000000Z\",\n      \"type\": \"session\",\n      \"source\": \"probe\",\n      \"at\": \"2026-10-15T00:30:00.0000000Z\"\n    },\n    \"codex|acct\\\\.codex-b\": {\n      \"until\": \"2026-10-15T05:30:00.1234567Z\",\n      \"type\": \"weekly\",\n      \"source\": \"transcript\"\n    }\n  },\n  \"outage\": {\n    \"claude\": {\n      \"since\": \"2026-10-15T00:40:00.0000000Z\",\n      \"next\": \"2026-10-15T01:10:00.0000000Z\",\n      \"lastProbe\": \"2026-10-15T00:55:00.0000000Z\",\n      \"status\": \"major_outage\",\n      \"attempts\": 3,\n      \"alerted\": true,\n      \"reminded\": false,\n      \"autoJob\": null\n    },\n    \"codex\": {\n      \"since\": \"2026-10-15T00:50:00.0000000Z\",\n      \"next\": \"2026-10-15T01:05:00.0000000Z\",\n      \"lastProbe\": \"2026-10-15T00:50:00.0000000Z\",\n      \"status\": null,\n      \"attempts\": 1,\n      \"alerted\": false,\n      \"reminded\": true,\n      \"autoJob\": \"j7\"\n    }\n  },\n  \"authAlerted\": [\n    \"claude\",\n    \"codex|acct\\\\.codex-b\"\n  ],\n  \"handoff\": true,\n  \"listening\": false\n}"
+      },
+      "expect": {
+        "restored": true,
+        "blocked": {
+          "claude": {
+            "until": "2026-10-15T03:00:00.0000000Z",
+            "type": "session",
+            "source": "probe",
+            "at": "2026-10-15T00:30:00.0000000Z"
+          },
+          "codex|acct\\.codex-b": {"until": "2026-10-15T05:30:00.1234567Z", "type": "weekly", "source": "transcript"}
+        },
+        "outage": {
+          "claude": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:10:00.0000000Z",
+            "lastProbe": "2026-10-15T00:55:00.0000000Z",
+            "status": "major_outage",
+            "attempts": 3,
+            "alerted": true,
+            "reminded": false,
+            "autoJob": ""
+          },
+          "codex": {
+            "since": "2026-10-15T00:50:00.0000000Z",
+            "next": "2026-10-15T01:05:00.0000000Z",
+            "lastProbe": "2026-10-15T00:50:00.0000000Z",
+            "status": null,
+            "attempts": 1,
+            "alerted": false,
+            "reminded": true,
+            "autoJob": "j7"
+          }
+        },
+        "authAlerted": ["claude", "codex|acct\\.codex-b"]
+      }
+    },
+    {
+      "name": "handoff-text-false",
+      "input": {
+        "kind": "restore",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "text": "{\"handoff\":\"false\",\"authAlerted\":[\"claude\"]}"
+      },
+      "expect": {"restored": true, "blocked": {}, "outage": {}, "authAlerted": ["claude"]}
+    },
+    {
+      "name": "handoff-zero",
+      "input": {
+        "kind": "restore",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "text": "{\"handoff\":0,\"authAlerted\":[\"claude\"]}"
+      },
+      "expect": {"restored": false, "blocked": {}, "outage": {}, "authAlerted": []}
+    },
+    {
+      "name": "handoff-empty-list",
+      "input": {
+        "kind": "restore",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "text": "{\"handoff\":[],\"authAlerted\":[\"claude\"]}"
+      },
+      "expect": {"restored": false, "blocked": {}, "outage": {}, "authAlerted": []}
+    },
+    {
+      "name": "handoff-list-one",
+      "input": {
+        "kind": "restore",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "text": "{\"handoff\":[1],\"authAlerted\":[\"claude\"]}"
+      },
+      "expect": {"restored": true, "blocked": {}, "outage": {}, "authAlerted": ["claude"]}
+    },
+    {
+      "name": "handoff-list-zero",
+      "input": {
+        "kind": "restore",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "text": "{\"handoff\":[0],\"authAlerted\":[\"claude\"]}"
+      },
+      "expect": {"restored": false, "blocked": {}, "outage": {}, "authAlerted": []}
+    },
+    {
+      "name": "handoff-object",
+      "input": {
+        "kind": "restore",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "text": "{\"handoff\":{},\"authAlerted\":[\"claude\"]}"
+      },
+      "expect": {"restored": true, "blocked": {}, "outage": {}, "authAlerted": ["claude"]}
+    },
+    {
+      "name": "handoff-missing",
+      "input": {
+        "kind": "restore",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "text": "{\"authAlerted\":[\"claude\"]}"
+      },
+      "expect": {"restored": false, "blocked": {}, "outage": {}, "authAlerted": []}
+    },
+    {
+      "name": "not-objects",
+      "input": {
+        "kind": "restore",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "text": "{\"handoff\":true,\"blocked\":\"x\",\"outage\":5}"
+      },
+      "expect": {"restored": true, "blocked": {}, "outage": {}, "authAlerted": []}
+    },
+    {
+      "name": "until-shapes",
+      "input": {
+        "kind": "restore",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "text": "{\"handoff\":true,\"blocked\":{\"a\":{\"until\":\"2026-10-15T03:00:00Z\",\"type\":\"session\",\"source\":\"probe\"},\"b\":{\"until\":\"2026-10-15T12:00:00+09:00\",\"type\":\"session\",\"source\":\"probe\"},\"c\":{\"until\":\"\",\"type\":\"session\",\"source\":\"probe\"},\"d\":{\"type\":\"session\",\"source\":\"probe\"},\"e\":{\"until\":5,\"type\":\"session\",\"source\":\"probe\"},\"f\":{\"until\":true,\"type\":\"session\",\"source\":\"probe\"},\"g\":{\"until\":\"2026-10-15T00:59:59Z\",\"type\":\"session\",\"source\":\"probe\"},\"h\":{\"until\":\"2026-10-15T01:00:00Z\",\"type\":\"session\",\"source\":\"probe\"},\"i\":{\"until\":\"not a date\",\"type\":\"session\",\"source\":\"probe\"},\"j\":null,\"k\":\"x\",\"l\":{\"until\":\"2026-10-15T01:00:00.0000001Z\",\"type\":\"session\",\"source\":\"probe\"},\"m\":{\"until\":\"2026-10-15T03:00:00.5Z\",\"type\":\"session\",\"source\":\"probe\"},\"n\":{\"UNTIL\":\"2026-10-15T03:00:00Z\",\"type\":\"session\",\"source\":\"probe\"},\"o\":{\"until\":{},\"type\":\"session\",\"source\":\"probe\"},\"p\":{\"until\":\"2026-10-15T03:00:00.1234567-02:30\",\"type\":\"session\",\"source\":\"probe\"}}}"
+      },
+      "expect": {
+        "restored": true,
+        "blocked": {
+          "a": {"until": "2026-10-15T03:00:00.0000000Z", "type": "session", "source": "probe"},
+          "b": {"until": "2026-10-15T03:00:00.0000000Z", "type": "session", "source": "probe"},
+          "l": {"until": "2026-10-15T01:00:00.0000001Z", "type": "session", "source": "probe"},
+          "m": {"until": "2026-10-15T03:00:00.5000000Z", "type": "session", "source": "probe"},
+          "n": {"until": "2026-10-15T03:00:00.0000000Z", "type": "session", "source": "probe"},
+          "p": {"until": "2026-10-15T05:30:00.1234567Z", "type": "session", "source": "probe"}
+        },
+        "outage": {},
+        "authAlerted": []
+      }
+    },
+    {
+      "name": "at-shapes",
+      "input": {
+        "kind": "restore",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "text": "{\"handoff\":true,\"blocked\":{\"a\":{\"until\":\"2026-10-15T03:00:00Z\",\"type\":\"session\",\"source\":\"probe\"},\"b\":{\"until\":\"2026-10-15T03:00:00Z\",\"type\":\"session\",\"source\":\"probe\",\"at\":null},\"c\":{\"until\":\"2026-10-15T03:00:00Z\",\"type\":\"session\",\"source\":\"probe\",\"at\":\"\"},\"d\":{\"until\":\"2026-10-15T03:00:00Z\",\"type\":\"session\",\"source\":\"probe\",\"at\":\"not a date\"},\"e\":{\"until\":\"2026-10-15T03:00:00Z\",\"type\":\"session\",\"source\":\"probe\",\"at\":\"2026-10-15T00:30:00Z\"},\"f\":{\"until\":\"2026-10-15T03:00:00Z\",\"type\":\"session\",\"source\":\"probe\",\"at\":\"2026-10-15T09:30:00+09:00\"},\"g\":{\"until\":\"2026-10-15T03:00:00Z\",\"type\":\"session\",\"source\":\"probe\",\"at\":5},\"i\":{\"until\":\"2026-10-15T03:00:00Z\",\"type\":\"session\",\"source\":\"probe\",\"at\":\"2026-10-16T00:00:00Z\"},\"h\":{\"until\":\"2026-10-15T03:00:00Z\",\"type\":\"session\",\"source\":\"probe\",\"At\":\"2026-10-15T00:20:00Z\"},\"j\":{\"until\":\"2026-10-15T00:30:00Z\",\"type\":\"session\",\"source\":\"probe\",\"at\":\"2026-10-15T00:20:00Z\"}}}"
+      },
+      "expect": {
+        "restored": true,
+        "blocked": {
+          "a": {"until": "2026-10-15T03:00:00.0000000Z", "type": "session", "source": "probe"},
+          "b": {"until": "2026-10-15T03:00:00.0000000Z", "type": "session", "source": "probe"},
+          "c": {"until": "2026-10-15T03:00:00.0000000Z", "type": "session", "source": "probe"},
+          "d": {"until": "2026-10-15T03:00:00.0000000Z", "type": "session", "source": "probe"},
+          "e": {
+            "until": "2026-10-15T03:00:00.0000000Z",
+            "type": "session",
+            "source": "probe",
+            "at": "2026-10-15T00:30:00.0000000Z"
+          },
+          "f": {
+            "until": "2026-10-15T03:00:00.0000000Z",
+            "type": "session",
+            "source": "probe",
+            "at": "2026-10-15T00:30:00.0000000Z"
+          },
+          "g": {"until": "2026-10-15T03:00:00.0000000Z", "type": "session", "source": "probe"},
+          "h": {
+            "until": "2026-10-15T03:00:00.0000000Z",
+            "type": "session",
+            "source": "probe",
+            "at": "2026-10-15T00:20:00.0000000Z"
+          },
+          "i": {
+            "until": "2026-10-15T03:00:00.0000000Z",
+            "type": "session",
+            "source": "probe",
+            "at": "2026-10-16T00:00:00.0000000Z"
+          }
+        },
+        "outage": {},
+        "authAlerted": []
+      }
+    },
+    {
+      "name": "type-shapes",
+      "input": {
+        "kind": "restore",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "text": "{\"handoff\":true,\"blocked\":{\"a\":{\"until\":\"2026-10-15T03:00:00Z\"},\"b\":{\"until\":\"2026-10-15T03:00:00Z\",\"type\":null,\"source\":null},\"c\":{\"until\":\"2026-10-15T03:00:00Z\",\"type\":5,\"source\":true},\"d\":{\"until\":\"2026-10-15T03:00:00Z\",\"type\":[\"a\",\"b\"],\"source\":{\"x\":1}},\"e\":{\"until\":\"2026-10-15T03:00:00Z\",\"type\":\"\",\"source\":[]},\"f\":{\"until\":\"2026-10-15T03:00:00Z\",\"Type\":\"session\",\"SOURCE\":\"probe\"}}}"
+      },
+      "expect": {
+        "restored": true,
+        "blocked": {
+          "a": {"until": "2026-10-15T03:00:00.0000000Z", "type": null, "source": null},
+          "b": {"until": "2026-10-15T03:00:00.0000000Z", "type": null, "source": null},
+          "c": {"until": "2026-10-15T03:00:00.0000000Z", "type": 5, "source": true},
+          "d": {"until": "2026-10-15T03:00:00.0000000Z", "type": ["a", "b"], "source": {"x": 1}},
+          "e": {"until": "2026-10-15T03:00:00.0000000Z", "type": "", "source": []},
+          "f": {"until": "2026-10-15T03:00:00.0000000Z", "type": "session", "source": "probe"}
+        },
+        "outage": {},
+        "authAlerted": []
+      }
+    },
+    {
+      "name": "outage-shapes",
+      "input": {
+        "kind": "restore",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "text": "{\"handoff\":true,\"outage\":{\"a\":{\"next\":\"2026-10-15T01:10:00Z\"},\"b\":{\"since\":\"\"},\"c\":{\"since\":\"not a date\"},\"d\":{\"since\":\"2026-10-15T00:40:00Z\"},\"e\":{\"since\":\"2026-10-15T00:40:00Z\",\"next\":\"2026-10-15T10:10:00+09:00\",\"lastProbe\":\"2026-10-15T00:55:00Z\",\"status\":\"major_outage\",\"attempts\":2,\"alerted\":true,\"reminded\":true,\"autoJob\":\"j1\"},\"f\":{\"since\":\"2026-10-15T00:40:00Z\",\"next\":\"x\",\"lastProbe\":\"\"},\"g\":{\"since\":5},\"h\":null,\"i\":\"x\",\"j\":{\"SINCE\":\"2026-10-15T00:40:00Z\",\"Next\":\"2026-10-15T01:30:00Z\",\"LASTPROBE\":\"2026-10-15T00:45:00Z\"}}}"
+      },
+      "expect": {
+        "restored": true,
+        "blocked": {},
+        "outage": {
+          "d": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:00:00.0000000Z",
+            "lastProbe": "2026-10-15T00:40:00.0000000Z",
+            "status": null,
+            "attempts": 0,
+            "alerted": false,
+            "reminded": false,
+            "autoJob": ""
+          },
+          "e": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:10:00.0000000Z",
+            "lastProbe": "2026-10-15T00:55:00.0000000Z",
+            "status": "major_outage",
+            "attempts": 2,
+            "alerted": true,
+            "reminded": true,
+            "autoJob": "j1"
+          },
+          "f": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:00:00.0000000Z",
+            "lastProbe": "2026-10-15T00:40:00.0000000Z",
+            "status": null,
+            "attempts": 0,
+            "alerted": false,
+            "reminded": false,
+            "autoJob": ""
+          },
+          "j": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:30:00.0000000Z",
+            "lastProbe": "2026-10-15T00:45:00.0000000Z",
+            "status": null,
+            "attempts": 0,
+            "alerted": false,
+            "reminded": false,
+            "autoJob": ""
+          }
+        },
+        "authAlerted": []
+      }
+    },
+    {
+      "name": "attempts-shapes",
+      "input": {
+        "kind": "restore",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "text": "{\"handoff\":true,\"outage\":{\"a\":{\"since\":\"2026-10-15T00:40:00Z\"},\"b\":{\"since\":\"2026-10-15T00:40:00Z\",\"attempts\":null},\"c\":{\"since\":\"2026-10-15T00:40:00Z\",\"attempts\":\"3\"},\"d\":{\"since\":\"2026-10-15T00:40:00Z\",\"attempts\":2.5},\"e\":{\"since\":\"2026-10-15T00:40:00Z\",\"attempts\":3.5},\"f\":{\"since\":\"2026-10-15T00:40:00Z\",\"attempts\":true},\"g\":{\"since\":\"2026-10-15T00:40:00Z\",\"attempts\":\"0x10\"},\"h\":{\"since\":\"2026-10-15T00:40:00Z\",\"attempts\":-2},\"i\":{\"since\":\"2026-10-15T00:40:00Z\",\"attempts\":\" 7 \"},\"j\":{\"since\":\"2026-10-15T00:40:00Z\",\"attempts\":\"\"},\"k\":{\"since\":\"2026-10-15T00:40:00Z\",\"attempts\":false},\"l\":{\"since\":\"2026-10-15T00:40:00Z\",\"attempts\":\"2.5\"},\"m\":{\"since\":\"2026-10-15T00:40:00Z\",\"attempts\":\"+5\"}}}"
+      },
+      "expect": {
+        "restored": true,
+        "blocked": {},
+        "outage": {
+          "a": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:00:00.0000000Z",
+            "lastProbe": "2026-10-15T00:40:00.0000000Z",
+            "status": null,
+            "attempts": 0,
+            "alerted": false,
+            "reminded": false,
+            "autoJob": ""
+          },
+          "b": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:00:00.0000000Z",
+            "lastProbe": "2026-10-15T00:40:00.0000000Z",
+            "status": null,
+            "attempts": 0,
+            "alerted": false,
+            "reminded": false,
+            "autoJob": ""
+          },
+          "c": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:00:00.0000000Z",
+            "lastProbe": "2026-10-15T00:40:00.0000000Z",
+            "status": null,
+            "attempts": 3,
+            "alerted": false,
+            "reminded": false,
+            "autoJob": ""
+          },
+          "d": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:00:00.0000000Z",
+            "lastProbe": "2026-10-15T00:40:00.0000000Z",
+            "status": null,
+            "attempts": 2,
+            "alerted": false,
+            "reminded": false,
+            "autoJob": ""
+          },
+          "e": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:00:00.0000000Z",
+            "lastProbe": "2026-10-15T00:40:00.0000000Z",
+            "status": null,
+            "attempts": 4,
+            "alerted": false,
+            "reminded": false,
+            "autoJob": ""
+          },
+          "f": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:00:00.0000000Z",
+            "lastProbe": "2026-10-15T00:40:00.0000000Z",
+            "status": null,
+            "attempts": 1,
+            "alerted": false,
+            "reminded": false,
+            "autoJob": ""
+          },
+          "g": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:00:00.0000000Z",
+            "lastProbe": "2026-10-15T00:40:00.0000000Z",
+            "status": null,
+            "attempts": 16,
+            "alerted": false,
+            "reminded": false,
+            "autoJob": ""
+          },
+          "h": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:00:00.0000000Z",
+            "lastProbe": "2026-10-15T00:40:00.0000000Z",
+            "status": null,
+            "attempts": -2,
+            "alerted": false,
+            "reminded": false,
+            "autoJob": ""
+          },
+          "i": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:00:00.0000000Z",
+            "lastProbe": "2026-10-15T00:40:00.0000000Z",
+            "status": null,
+            "attempts": 7,
+            "alerted": false,
+            "reminded": false,
+            "autoJob": ""
+          },
+          "j": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:00:00.0000000Z",
+            "lastProbe": "2026-10-15T00:40:00.0000000Z",
+            "status": null,
+            "attempts": 0,
+            "alerted": false,
+            "reminded": false,
+            "autoJob": ""
+          },
+          "k": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:00:00.0000000Z",
+            "lastProbe": "2026-10-15T00:40:00.0000000Z",
+            "status": null,
+            "attempts": 0,
+            "alerted": false,
+            "reminded": false,
+            "autoJob": ""
+          },
+          "l": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:00:00.0000000Z",
+            "lastProbe": "2026-10-15T00:40:00.0000000Z",
+            "status": null,
+            "attempts": 2,
+            "alerted": false,
+            "reminded": false,
+            "autoJob": ""
+          },
+          "m": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:00:00.0000000Z",
+            "lastProbe": "2026-10-15T00:40:00.0000000Z",
+            "status": null,
+            "attempts": 5,
+            "alerted": false,
+            "reminded": false,
+            "autoJob": ""
+          }
+        },
+        "authAlerted": []
+      }
+    },
+    {
+      "name": "flag-shapes",
+      "input": {
+        "kind": "restore",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "text": "{\"handoff\":true,\"outage\":{\"a\":{\"since\":\"2026-10-15T00:40:00Z\",\"alerted\":\"false\",\"reminded\":\"0\"},\"b\":{\"since\":\"2026-10-15T00:40:00Z\",\"alerted\":0,\"reminded\":[]},\"c\":{\"since\":\"2026-10-15T00:40:00Z\",\"alerted\":null,\"reminded\":1},\"d\":{\"since\":\"2026-10-15T00:40:00Z\",\"alerted\":{},\"reminded\":\"\"},\"e\":{\"since\":\"2026-10-15T00:40:00Z\",\"alerted\":[0],\"reminded\":[1]}}}"
+      },
+      "expect": {
+        "restored": true,
+        "blocked": {},
+        "outage": {
+          "a": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:00:00.0000000Z",
+            "lastProbe": "2026-10-15T00:40:00.0000000Z",
+            "status": null,
+            "attempts": 0,
+            "alerted": true,
+            "reminded": true,
+            "autoJob": ""
+          },
+          "b": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:00:00.0000000Z",
+            "lastProbe": "2026-10-15T00:40:00.0000000Z",
+            "status": null,
+            "attempts": 0,
+            "alerted": false,
+            "reminded": false,
+            "autoJob": ""
+          },
+          "c": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:00:00.0000000Z",
+            "lastProbe": "2026-10-15T00:40:00.0000000Z",
+            "status": null,
+            "attempts": 0,
+            "alerted": false,
+            "reminded": true,
+            "autoJob": ""
+          },
+          "d": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:00:00.0000000Z",
+            "lastProbe": "2026-10-15T00:40:00.0000000Z",
+            "status": null,
+            "attempts": 0,
+            "alerted": true,
+            "reminded": false,
+            "autoJob": ""
+          },
+          "e": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:00:00.0000000Z",
+            "lastProbe": "2026-10-15T00:40:00.0000000Z",
+            "status": null,
+            "attempts": 0,
+            "alerted": false,
+            "reminded": true,
+            "autoJob": ""
+          }
+        },
+        "authAlerted": []
+      }
+    },
+    {
+      "name": "autojob-shapes",
+      "input": {
+        "kind": "restore",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "text": "{\"handoff\":true,\"outage\":{\"a\":{\"since\":\"2026-10-15T00:40:00Z\"},\"b\":{\"since\":\"2026-10-15T00:40:00Z\",\"autoJob\":null},\"c\":{\"since\":\"2026-10-15T00:40:00Z\",\"autoJob\":\"j1\"},\"d\":{\"since\":\"2026-10-15T00:40:00Z\",\"autoJob\":5},\"e\":{\"since\":\"2026-10-15T00:40:00Z\",\"autoJob\":true},\"f\":{\"since\":\"2026-10-15T00:40:00Z\",\"autoJob\":false},\"g\":{\"since\":\"2026-10-15T00:40:00Z\",\"autoJob\":[\"a\",\"b\"]},\"h\":{\"since\":\"2026-10-15T00:40:00Z\",\"autoJob\":[]},\"i\":{\"since\":\"2026-10-15T00:40:00Z\",\"autoJob\":\"\"},\"j\":{\"since\":\"2026-10-15T00:40:00Z\",\"autoJob\":[\"a\",null,\"b\"]},\"k\":{\"since\":\"2026-10-15T00:40:00Z\",\"autoJob\":[null]}}}"
+      },
+      "expect": {
+        "restored": true,
+        "blocked": {},
+        "outage": {
+          "a": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:00:00.0000000Z",
+            "lastProbe": "2026-10-15T00:40:00.0000000Z",
+            "status": null,
+            "attempts": 0,
+            "alerted": false,
+            "reminded": false,
+            "autoJob": ""
+          },
+          "b": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:00:00.0000000Z",
+            "lastProbe": "2026-10-15T00:40:00.0000000Z",
+            "status": null,
+            "attempts": 0,
+            "alerted": false,
+            "reminded": false,
+            "autoJob": ""
+          },
+          "c": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:00:00.0000000Z",
+            "lastProbe": "2026-10-15T00:40:00.0000000Z",
+            "status": null,
+            "attempts": 0,
+            "alerted": false,
+            "reminded": false,
+            "autoJob": "j1"
+          },
+          "d": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:00:00.0000000Z",
+            "lastProbe": "2026-10-15T00:40:00.0000000Z",
+            "status": null,
+            "attempts": 0,
+            "alerted": false,
+            "reminded": false,
+            "autoJob": "5"
+          },
+          "e": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:00:00.0000000Z",
+            "lastProbe": "2026-10-15T00:40:00.0000000Z",
+            "status": null,
+            "attempts": 0,
+            "alerted": false,
+            "reminded": false,
+            "autoJob": "True"
+          },
+          "f": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:00:00.0000000Z",
+            "lastProbe": "2026-10-15T00:40:00.0000000Z",
+            "status": null,
+            "attempts": 0,
+            "alerted": false,
+            "reminded": false,
+            "autoJob": "False"
+          },
+          "g": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:00:00.0000000Z",
+            "lastProbe": "2026-10-15T00:40:00.0000000Z",
+            "status": null,
+            "attempts": 0,
+            "alerted": false,
+            "reminded": false,
+            "autoJob": "a b"
+          },
+          "h": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:00:00.0000000Z",
+            "lastProbe": "2026-10-15T00:40:00.0000000Z",
+            "status": null,
+            "attempts": 0,
+            "alerted": false,
+            "reminded": false,
+            "autoJob": null
+          },
+          "i": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:00:00.0000000Z",
+            "lastProbe": "2026-10-15T00:40:00.0000000Z",
+            "status": null,
+            "attempts": 0,
+            "alerted": false,
+            "reminded": false,
+            "autoJob": ""
+          },
+          "j": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:00:00.0000000Z",
+            "lastProbe": "2026-10-15T00:40:00.0000000Z",
+            "status": null,
+            "attempts": 0,
+            "alerted": false,
+            "reminded": false,
+            "autoJob": "a  b"
+          },
+          "k": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:00:00.0000000Z",
+            "lastProbe": "2026-10-15T00:40:00.0000000Z",
+            "status": null,
+            "attempts": 0,
+            "alerted": false,
+            "reminded": false,
+            "autoJob": ""
+          }
+        },
+        "authAlerted": []
+      }
+    },
+    {
+      "name": "auth-string",
+      "input": {
+        "kind": "restore",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "text": "{\"handoff\":true,\"authAlerted\":\"claude\"}"
+      },
+      "expect": {"restored": true, "blocked": {}, "outage": {}, "authAlerted": ["claude"]}
+    },
+    {
+      "name": "auth-case-twice",
+      "input": {
+        "kind": "restore",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "text": "{\"handoff\":true,\"authAlerted\":[\"claude\",\"Claude\"]}"
+      },
+      "expect": {"restored": true, "blocked": {}, "outage": {}, "authAlerted": ["claude"]}
+    },
+    {
+      "name": "auth-falsy",
+      "input": {
+        "kind": "restore",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "text": "{\"handoff\":true,\"authAlerted\":[0,\"\",null,false,\"codex\"]}"
+      },
+      "expect": {"restored": true, "blocked": {}, "outage": {}, "authAlerted": ["codex"]}
+    },
+    {
+      "name": "auth-number",
+      "input": {
+        "kind": "restore",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "text": "{\"handoff\":true,\"authAlerted\":[5]}"
+      },
+      "expect": {"restored": true, "blocked": {}, "outage": {}, "authAlerted": ["5"]}
+    },
+    {
+      "name": "auth-nested",
+      "input": {
+        "kind": "restore",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "text": "{\"handoff\":true,\"authAlerted\":[[\"a\",\"b\"]]}"
+      },
+      "expect": {"restored": true, "blocked": {}, "outage": {}, "authAlerted": ["a b"]}
+    },
+    {
+      "name": "auth-true",
+      "input": {
+        "kind": "restore",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "text": "{\"handoff\":true,\"authAlerted\":[true]}"
+      },
+      "expect": {"restored": true, "blocked": {}, "outage": {}, "authAlerted": ["True"]}
+    },
+    {
+      "name": "top-level-string",
+      "input": {
+        "kind": "restore",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "text": "\"handoff\""
+      },
+      "expect": {"restored": false, "blocked": {}, "outage": {}, "authAlerted": []}
+    },
+    {
+      "name": "empty-file",
+      "input": {
+        "kind": "restore",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "text": ""
+      },
+      "expect": {"restored": false, "blocked": {}, "outage": {}, "authAlerted": []}
+    },
+    {
+      "name": "blank-file",
+      "input": {
+        "kind": "restore",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "text": "  \r\n"
+      },
+      "expect": {"restored": false, "blocked": {}, "outage": {}, "authAlerted": []}
+    },
+    {
+      "name": "broken-json",
+      "input": {
+        "kind": "restore",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "text": "{\"handoff\":true,"
+      },
+      "expect": {"restored": false, "blocked": {}, "outage": {}, "authAlerted": []}
+    },
+    {
+      "name": "no-file",
+      "input": {
+        "kind": "restore",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "text": null
+      },
+      "expect": {"restored": false, "blocked": {}, "outage": {}, "authAlerted": []}
+    },
+    {
+      "name": "bom-file",
+      "input": {
+        "kind": "restore",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T01:00:00Z",
+        "text": "\ufeff{\"handoff\":true,\"authAlerted\":[\"claude\"]}"
+      },
+      "expect": {"restored": true, "blocked": {}, "outage": {}, "authAlerted": ["claude"]}
+    },
+    {
+      "name": "zoneless",
+      "input": {
+        "kind": "restore",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "now": "2026-10-15T00:30:00Z",
+        "text": "{\"handoff\":true,\"blocked\":{\"a\":{\"until\":\"2026-10-15T10:00:00\",\"type\":\"session\",\"source\":\"probe\",\"at\":\"2026-10-15T09:00:00\"}},\"outage\":{\"b\":{\"since\":\"2026-10-15T09:00:00\",\"next\":\"2026-10-15T09:30:00\",\"lastProbe\":\"2026-10-15T09:10:00\"}}}"
+      },
+      "expectByEdition": {
+        "Desktop": {
+          "restored": true,
+          "blocked": {
+            "a": {
+              "until": "2026-10-15T10:00:00.0000000Z",
+              "type": "session",
+              "source": "probe",
+              "at": "2026-10-15T09:00:00.0000000Z"
+            }
+          },
+          "outage": {
+            "b": {
+              "since": "2026-10-15T09:00:00.0000000Z",
+              "next": "2026-10-15T09:30:00.0000000Z",
+              "lastProbe": "2026-10-15T09:10:00.0000000Z",
+              "status": null,
+              "attempts": 0,
+              "alerted": false,
+              "reminded": false,
+              "autoJob": ""
+            }
+          },
+          "authAlerted": []
+        },
+        "Core": {
+          "restored": true,
+          "blocked": {
+            "a": {
+              "until": "2026-10-15T01:00:00.0000000Z",
+              "type": "session",
+              "source": "probe",
+              "at": "2026-10-15T00:00:00.0000000Z"
+            }
+          },
+          "outage": {
+            "b": {
+              "since": "2026-10-15T00:00:00.0000000Z",
+              "next": "2026-10-15T00:30:00.0000000Z",
+              "lastProbe": "2026-10-15T00:10:00.0000000Z",
+              "status": null,
+              "attempts": 0,
+              "alerted": false,
+              "reminded": false,
+              "autoJob": ""
+            }
+          },
+          "authAlerted": []
+        }
+      }
+    },
+    {
+      "name": "offsets-negative-zone",
+      "input": {
+        "kind": "restore",
+        "zone": "SA Pacific Standard Time",
+        "utcOffsetMinutes": -300,
+        "now": "2026-10-15T01:00:00Z",
+        "text": "{\"handoff\":true,\"blocked\":{\"a\":{\"until\":\"2026-10-14T22:00:00-05:00\",\"type\":\"session\",\"source\":\"probe\"}},\"outage\":{\"b\":{\"since\":\"2026-10-15T09:40:00+09:00\"}}}"
+      },
+      "expect": {
+        "restored": true,
+        "blocked": {"a": {"until": "2026-10-15T03:00:00.0000000Z", "type": "session", "source": "probe"}},
+        "outage": {
+          "b": {
+            "since": "2026-10-15T00:40:00.0000000Z",
+            "next": "2026-10-15T01:00:00.0000000Z",
+            "lastProbe": "2026-10-15T00:40:00.0000000Z",
+            "status": null,
+            "attempts": 0,
+            "alerted": false,
+            "reminded": false,
+            "autoJob": ""
+          }
+        },
+        "authAlerted": []
+      }
+    }
+  ]
+}

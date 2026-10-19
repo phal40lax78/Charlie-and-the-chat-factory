@@ -1,0 +1,711 @@
+{
+  "about": "Invoke-ChatqWatchLoop (src/watcher.ps1) on a scripted clock: which of its timers fire on which pass. Every action the loop takes is stubbed by a recorder, so each pass answers with the recorders that fired in order - auto scan (5 min), stray sweep (6 h), a lane's block rescan (10 min per lane), the ask-landed check (20 s), the board and state writes (at most every 30 s while listening), keep-awake, the run, and how long each wait asked for. The pass marker is the Test-ChatqHeldWaiting stub, which moves the clock and writes data/stop on the last scripted pass.",
+  "cases": [
+    {
+      "name": "pass 1 runs the auto scan and the stray sweep",
+      "input": {
+        "start": "2026-10-15T09:00:00.0000000Z",
+        "utcOffsetMinutes": 0,
+        "pollSeconds": 20,
+        "passes": [0, 120],
+        "jobs": [
+          {
+            "id": "j1",
+            "seq": 1,
+            "state": "queued",
+            "kind": "prompt",
+            "title": "chat 1",
+            "createdAt": "2026-10-15T08:01:00.0000000Z",
+            "provider": "claude",
+            "notBefore": "2026-10-15T21:00:00.0000000Z"
+          }
+        ]
+      },
+      "expect": {
+        "before": ["repair"],
+        "passes": [
+          {
+            "at": 0,
+            "fired": ["auto", "stray", "block claude", "soon", "awake on", "state", "board", "wait 900"]
+          },
+          {"at": 120, "fired": ["soon", "awake on", "state", "board", "wait 900"]}
+        ],
+        "after": ["log: stop requested", "awake off", "state"]
+      }
+    },
+    {
+      "name": "the auto scan every 5 minutes",
+      "input": {
+        "start": "2026-10-15T09:00:00.0000000Z",
+        "utcOffsetMinutes": 0,
+        "pollSeconds": 20,
+        "passes": [0, 240, 300, 301, 600],
+        "jobs": [
+          {
+            "id": "j1",
+            "seq": 1,
+            "state": "queued",
+            "kind": "prompt",
+            "title": "chat 1",
+            "createdAt": "2026-10-15T08:01:00.0000000Z",
+            "provider": "claude",
+            "notBefore": "2026-10-15T21:00:00.0000000Z"
+          }
+        ]
+      },
+      "expect": {
+        "before": ["repair"],
+        "passes": [
+          {
+            "at": 0,
+            "fired": ["auto", "stray", "block claude", "soon", "awake on", "state", "board", "wait 900"]
+          },
+          {"at": 240, "fired": ["soon", "awake on", "state", "board", "wait 900"]},
+          {"at": 300, "fired": ["auto", "soon", "awake on", "state", "board", "wait 900"]},
+          {"at": 301, "fired": ["soon", "awake on", "state", "board", "wait 900"]},
+          {
+            "at": 600,
+            "fired": ["auto", "block claude", "soon", "awake on", "state", "board", "wait 900"]
+          }
+        ],
+        "after": ["log: stop requested", "awake off", "state"]
+      }
+    },
+    {
+      "name": "the stray sweep every 6 hours",
+      "input": {
+        "start": "2026-10-15T09:00:00.0000000Z",
+        "utcOffsetMinutes": 0,
+        "pollSeconds": 20,
+        "passes": [0, 21599, 21600, 43200],
+        "jobs": [
+          {
+            "id": "j1",
+            "seq": 1,
+            "state": "queued",
+            "kind": "prompt",
+            "title": "chat 1",
+            "createdAt": "2026-10-15T08:01:00.0000000Z",
+            "provider": "claude",
+            "notBefore": "2026-10-16T21:00:00.0000000Z"
+          }
+        ]
+      },
+      "expect": {
+        "before": ["repair"],
+        "passes": [
+          {
+            "at": 0,
+            "fired": ["auto", "stray", "block claude", "soon", "awake on", "state", "board", "wait 900"]
+          },
+          {
+            "at": 21599,
+            "fired": ["auto", "block claude", "soon", "awake on", "state", "board", "wait 900"]
+          },
+          {"at": 21600, "fired": ["stray", "soon", "awake on", "state", "board", "wait 900"]},
+          {
+            "at": 43200,
+            "fired": ["auto", "stray", "block claude", "soon", "awake on", "state", "board", "wait 900"]
+          }
+        ],
+        "after": ["log: stop requested", "awake off", "state"]
+      }
+    },
+    {
+      "name": "a sweep that took something says so",
+      "input": {
+        "start": "2026-10-15T09:00:00.0000000Z",
+        "utcOffsetMinutes": 0,
+        "pollSeconds": 20,
+        "passes": [0],
+        "jobs": [
+          {
+            "id": "j1",
+            "seq": 1,
+            "state": "queued",
+            "kind": "prompt",
+            "title": "chat 1",
+            "createdAt": "2026-10-15T08:01:00.0000000Z",
+            "provider": "claude",
+            "notBefore": "2026-10-15T21:00:00.0000000Z"
+          }
+        ],
+        "strayFiles": ["one.png", "two.png"]
+      },
+      "expect": {
+        "before": ["repair"],
+        "passes": [
+          {
+            "at": 0,
+            "fired": [
+              "auto",
+              "stray",
+              "log: removed 2 stray file(s) and folder(s) from data/queue",
+              "block claude",
+              "soon",
+              "awake on",
+              "state",
+              "board",
+              "wait 900"
+            ]
+          }
+        ],
+        "after": ["log: stop requested", "awake off", "state"]
+      }
+    },
+    {
+      "name": "a lane is re-read at most every 10 minutes",
+      "input": {
+        "start": "2026-10-15T09:00:00.0000000Z",
+        "utcOffsetMinutes": 0,
+        "pollSeconds": 20,
+        "passes": [0, 300, 600, 900],
+        "jobs": [
+          {
+            "id": "j1",
+            "seq": 1,
+            "state": "queued",
+            "kind": "prompt",
+            "title": "chat 1",
+            "createdAt": "2026-10-15T08:01:00.0000000Z",
+            "provider": "claude",
+            "notBefore": "2026-10-15T21:00:00.0000000Z"
+          },
+          {
+            "id": "j2",
+            "seq": 2,
+            "state": "queued",
+            "kind": "prompt",
+            "title": "chat 2",
+            "createdAt": "2026-10-15T08:02:00.0000000Z",
+            "provider": "claude",
+            "home": "work",
+            "notBefore": "2026-10-15T21:00:00.0000000Z"
+          },
+          {
+            "id": "j3",
+            "seq": 3,
+            "state": "queued",
+            "kind": "prompt",
+            "title": "chat 3",
+            "createdAt": "2026-10-15T08:03:00.0000000Z",
+            "provider": "claude",
+            "notBefore": "2026-10-15T21:00:00.0000000Z"
+          }
+        ]
+      },
+      "expect": {
+        "before": ["repair"],
+        "passes": [
+          {
+            "at": 0,
+            "fired": [
+              "auto",
+              "stray",
+              "block claude",
+              "block claude|work",
+              "soon",
+              "awake on",
+              "state",
+              "board",
+              "wait 900"
+            ]
+          },
+          {"at": 300, "fired": ["auto", "soon", "awake on", "state", "board", "wait 900"]},
+          {
+            "at": 600,
+            "fired": [
+              "auto",
+              "block claude",
+              "block claude|work",
+              "soon",
+              "awake on",
+              "state",
+              "board",
+              "wait 900"
+            ]
+          },
+          {"at": 900, "fired": ["auto", "soon", "awake on", "state", "board", "wait 900"]}
+        ],
+        "after": ["log: stop requested", "awake off", "state"]
+      }
+    },
+    {
+      "name": "a codex lane is read on its own",
+      "input": {
+        "start": "2026-10-15T09:00:00.0000000Z",
+        "utcOffsetMinutes": 0,
+        "pollSeconds": 20,
+        "passes": [0, 660],
+        "jobs": [
+          {
+            "id": "j1",
+            "seq": 1,
+            "state": "queued",
+            "kind": "prompt",
+            "title": "chat 1",
+            "createdAt": "2026-10-15T08:01:00.0000000Z",
+            "provider": "codex",
+            "notBefore": "2026-10-15T21:00:00.0000000Z"
+          },
+          {
+            "id": "j2",
+            "seq": 2,
+            "state": "queued",
+            "kind": "prompt",
+            "title": "chat 2",
+            "createdAt": "2026-10-15T08:02:00.0000000Z",
+            "provider": "claude",
+            "notBefore": "2026-10-15T21:00:00.0000000Z"
+          }
+        ]
+      },
+      "expect": {
+        "before": ["repair"],
+        "passes": [
+          {
+            "at": 0,
+            "fired": [
+              "auto",
+              "stray",
+              "block codex",
+              "block claude",
+              "soon",
+              "awake on",
+              "state",
+              "board",
+              "wait 900"
+            ]
+          },
+          {
+            "at": 660,
+            "fired": [
+              "auto",
+              "block codex",
+              "block claude",
+              "soon",
+              "awake on",
+              "state",
+              "board",
+              "wait 900"
+            ]
+          }
+        ],
+        "after": ["log: stop requested", "awake off", "state"]
+      }
+    },
+    {
+      "name": "the wait ends at the nearest due time",
+      "input": {
+        "start": "2026-10-15T09:00:00.0000000Z",
+        "utcOffsetMinutes": 0,
+        "pollSeconds": 20,
+        "passes": [0],
+        "jobs": [
+          {
+            "id": "j1",
+            "seq": 1,
+            "state": "queued",
+            "kind": "prompt",
+            "title": "chat 1",
+            "createdAt": "2026-10-15T08:01:00.0000000Z",
+            "provider": "claude",
+            "notBefore": "2026-10-15T09:05:00.0000000Z"
+          }
+        ]
+      },
+      "expect": {
+        "before": ["repair"],
+        "passes": [
+          {
+            "at": 0,
+            "fired": ["auto", "stray", "block claude", "soon", "awake on", "state", "board", "wait 300"]
+          }
+        ],
+        "after": ["log: stop requested", "awake off", "state"]
+      }
+    },
+    {
+      "name": "a soon alert shortens the wait",
+      "input": {
+        "start": "2026-10-15T09:00:00.0000000Z",
+        "utcOffsetMinutes": 0,
+        "pollSeconds": 20,
+        "passes": [0],
+        "jobs": [
+          {
+            "id": "j1",
+            "seq": 1,
+            "state": "queued",
+            "kind": "prompt",
+            "title": "chat 1",
+            "createdAt": "2026-10-15T08:01:00.0000000Z",
+            "provider": "claude",
+            "notBefore": "2026-10-15T09:05:00.0000000Z"
+          }
+        ],
+        "soonSeconds": 200
+      },
+      "expect": {
+        "before": ["repair"],
+        "passes": [
+          {
+            "at": 0,
+            "fired": ["auto", "stray", "block claude", "soon", "awake on", "state", "board", "wait 200"]
+          }
+        ],
+        "after": ["log: stop requested", "awake off", "state"]
+      }
+    },
+    {
+      "name": "the board at most every 30 s while listening",
+      "input": {
+        "start": "2026-10-15T09:00:00.0000000Z",
+        "utcOffsetMinutes": 0,
+        "pollSeconds": 20,
+        "passes": [0, 20, 40, 75],
+        "jobs": [
+          {
+            "id": "j1",
+            "seq": 1,
+            "state": "queued",
+            "kind": "prompt",
+            "title": "chat 1",
+            "createdAt": "2026-10-15T08:01:00.0000000Z",
+            "provider": "claude",
+            "notBefore": "2026-10-15T21:00:00.0000000Z"
+          }
+        ],
+        "openPasses": [1, 2, 3, 4]
+      },
+      "expect": {
+        "before": ["repair"],
+        "passes": [
+          {
+            "at": 0,
+            "fired": [
+              "poll 20",
+              "auto",
+              "stray",
+              "block claude",
+              "soon",
+              "awake on",
+              "state",
+              "board",
+              "wait 20"
+            ]
+          },
+          {"at": 20, "fired": ["poll 20", "soon", "awake on", "wait 20"]},
+          {"at": 40, "fired": ["poll 20", "soon", "awake on", "state", "board", "wait 20"]},
+          {"at": 75, "fired": ["poll 20", "soon", "awake on", "state", "board", "wait 20"]}
+        ],
+        "after": ["log: stop requested", "awake off", "state"]
+      }
+    },
+    {
+      "name": "a poll that did something writes the board",
+      "input": {
+        "start": "2026-10-15T09:00:00.0000000Z",
+        "utcOffsetMinutes": 0,
+        "pollSeconds": 20,
+        "passes": [0, 10, 20],
+        "jobs": [
+          {
+            "id": "j1",
+            "seq": 1,
+            "state": "queued",
+            "kind": "prompt",
+            "title": "chat 1",
+            "createdAt": "2026-10-15T08:01:00.0000000Z",
+            "provider": "claude",
+            "notBefore": "2026-10-15T21:00:00.0000000Z"
+          }
+        ],
+        "openPasses": [1, 2, 3],
+        "polledPasses": [2]
+      },
+      "expect": {
+        "before": ["repair"],
+        "passes": [
+          {
+            "at": 0,
+            "fired": [
+              "poll 20",
+              "auto",
+              "stray",
+              "block claude",
+              "soon",
+              "awake on",
+              "state",
+              "board",
+              "wait 20"
+            ]
+          },
+          {"at": 10, "fired": ["poll 20", "soon", "awake on", "state", "board", "wait 20"]},
+          {"at": 20, "fired": ["poll 20", "soon", "awake on", "wait 20"]}
+        ],
+        "after": ["log: stop requested", "awake off", "state"]
+      }
+    },
+    {
+      "name": "a due time sooner than the poll interval",
+      "input": {
+        "start": "2026-10-15T09:00:00.0000000Z",
+        "utcOffsetMinutes": 0,
+        "pollSeconds": 20,
+        "passes": [0],
+        "jobs": [
+          {
+            "id": "j1",
+            "seq": 1,
+            "state": "queued",
+            "kind": "prompt",
+            "title": "chat 1",
+            "createdAt": "2026-10-15T08:01:00.0000000Z",
+            "provider": "claude",
+            "notBefore": "2026-10-15T09:00:10.0000000Z"
+          }
+        ],
+        "openPasses": [1]
+      },
+      "expect": {
+        "before": ["repair"],
+        "passes": [
+          {
+            "at": 0,
+            "fired": [
+              "poll 20",
+              "auto",
+              "stray",
+              "block claude",
+              "soon",
+              "awake on",
+              "state",
+              "board",
+              "wait 10"
+            ]
+          }
+        ],
+        "after": ["log: stop requested", "awake off", "state"]
+      }
+    },
+    {
+      "name": "nothing queued, only listening",
+      "input": {
+        "start": "2026-10-15T09:00:00.0000000Z",
+        "utcOffsetMinutes": 0,
+        "pollSeconds": 20,
+        "passes": [0, 20, 40],
+        "openPasses": [1, 2, 3],
+        "polledPasses": [2]
+      },
+      "expect": {
+        "before": ["repair"],
+        "passes": [
+          {
+            "at": 0,
+            "fired": [
+              "poll 20",
+              "auto",
+              "stray",
+              "awake off",
+              "state",
+              "board",
+              "log: listening for phone replies until",
+              "wait 20"
+            ]
+          },
+          {"at": 20, "fired": ["poll 20", "awake off", "state", "board"]},
+          {"at": 40, "fired": ["poll 20", "wait 20"]}
+        ],
+        "after": ["log: stop requested", "awake off", "state"]
+      }
+    },
+    {
+      "name": "the queue empties and the watcher stops",
+      "input": {
+        "start": "2026-10-15T09:00:00.0000000Z",
+        "utcOffsetMinutes": 0,
+        "pollSeconds": 20,
+        "passes": [0]
+      },
+      "expect": {
+        "before": ["repair"],
+        "passes": [{"at": 0, "fired": ["auto", "stray", "awake off", "state", "board", "log: queue empty"]}],
+        "after": ["awake off", "state"]
+      }
+    },
+    {
+      "name": "the held summary goes out every pass",
+      "input": {
+        "start": "2026-10-15T09:00:00.0000000Z",
+        "utcOffsetMinutes": 0,
+        "pollSeconds": 20,
+        "passes": [0, 10],
+        "jobs": [
+          {
+            "id": "j1",
+            "seq": 1,
+            "state": "queued",
+            "kind": "prompt",
+            "title": "chat 1",
+            "createdAt": "2026-10-15T08:01:00.0000000Z",
+            "provider": "claude",
+            "notBefore": "2026-10-15T21:00:00.0000000Z"
+          }
+        ],
+        "held": true
+      },
+      "expect": {
+        "before": ["repair"],
+        "passes": [
+          {
+            "at": 0,
+            "fired": [
+              "held summary",
+              "auto",
+              "stray",
+              "block claude",
+              "soon",
+              "awake on",
+              "state",
+              "board",
+              "wait 900"
+            ]
+          },
+          {"at": 10, "fired": ["held summary", "soon", "awake on", "state", "board", "wait 900"]}
+        ],
+        "after": ["log: stop requested", "awake off", "state"]
+      }
+    },
+    {
+      "name": "an answer from the phone lands 20 s on",
+      "input": {
+        "start": "2026-10-15T09:00:00.0000000Z",
+        "utcOffsetMinutes": 0,
+        "pollSeconds": 20,
+        "passes": [0, 10, 25, 30],
+        "jobs": [
+          {
+            "id": "j1",
+            "seq": 1,
+            "state": "queued",
+            "kind": "prompt",
+            "title": "chat 1",
+            "createdAt": "2026-10-15T08:01:00.0000000Z",
+            "provider": "claude",
+            "notBefore": "2026-10-15T21:00:00.0000000Z"
+          }
+        ],
+        "asks": [{"rid": "r1", "ageSeconds": 0, "title": "a chat"}, {"rid": "r2", "ageSeconds": 15}]
+      },
+      "expect": {
+        "before": ["repair"],
+        "passes": [
+          {
+            "at": 0,
+            "fired": ["auto", "stray", "block claude", "soon", "awake on", "state", "board", "wait 900"]
+          },
+          {
+            "at": 10,
+            "fired": ["reply log: ask r2 the chat: landed", "soon", "awake on", "state", "board", "wait 900"]
+          },
+          {
+            "at": 25,
+            "fired": ["reply log: ask r1 a chat: landed", "soon", "awake on", "state", "board", "wait 900"]
+          },
+          {"at": 30, "fired": ["soon", "awake on", "state", "board", "wait 900"]}
+        ],
+        "after": ["log: stop requested", "awake off", "state"]
+      }
+    },
+    {
+      "name": "a job picked runs, and that pass does not wait",
+      "input": {
+        "start": "2026-10-15T09:00:00.0000000Z",
+        "utcOffsetMinutes": 0,
+        "pollSeconds": 20,
+        "passes": [0, 5],
+        "jobs": [
+          {
+            "id": "j1",
+            "seq": 1,
+            "state": "queued",
+            "kind": "prompt",
+            "title": "chat 1",
+            "createdAt": "2026-10-15T08:01:00.0000000Z",
+            "provider": "claude"
+          },
+          {
+            "id": "j2",
+            "seq": 2,
+            "state": "queued",
+            "kind": "prompt",
+            "title": "chat 2",
+            "createdAt": "2026-10-15T08:02:00.0000000Z",
+            "provider": "codex",
+            "notBefore": "2026-10-15T21:00:00.0000000Z"
+          }
+        ]
+      },
+      "expect": {
+        "before": ["repair"],
+        "passes": [
+          {
+            "at": 0,
+            "fired": ["auto", "stray", "block claude", "awake on", "run #1", "state", "board"]
+          },
+          {"at": 5, "fired": ["block codex", "soon", "awake on", "state", "board", "wait 900"]}
+        ],
+        "after": ["log: stop requested", "awake off", "state"]
+      }
+    },
+    {
+      "name": "the window closing is logged once",
+      "input": {
+        "start": "2026-10-15T09:00:00.0000000Z",
+        "utcOffsetMinutes": 0,
+        "pollSeconds": 20,
+        "passes": [0, 10, 20],
+        "jobs": [
+          {
+            "id": "j1",
+            "seq": 1,
+            "state": "queued",
+            "kind": "prompt",
+            "title": "chat 1",
+            "createdAt": "2026-10-15T08:01:00.0000000Z",
+            "provider": "claude",
+            "notBefore": "2026-10-15T21:00:00.0000000Z"
+          }
+        ],
+        "openPasses": [1]
+      },
+      "expect": {
+        "before": ["repair"],
+        "passes": [
+          {
+            "at": 0,
+            "fired": [
+              "poll 20",
+              "auto",
+              "stray",
+              "block claude",
+              "soon",
+              "awake on",
+              "state",
+              "board",
+              "wait 20"
+            ]
+          },
+          {
+            "at": 10,
+            "fired": ["log: replies closed", "soon", "awake on", "state", "board", "wait 900"]
+          },
+          {"at": 20, "fired": ["soon", "awake on", "state", "board", "wait 900"]}
+        ],
+        "after": ["log: stop requested", "awake off", "state"]
+      }
+    }
+  ]
+}

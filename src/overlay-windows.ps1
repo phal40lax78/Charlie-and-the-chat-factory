@@ -35,6 +35,8 @@ public static class ChatOverlayNative {
     [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
     [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+    [StructLayout(LayoutKind.Sequential)] struct BLENDFUNCTION { public byte Op, Flags, Alpha, Format; }
+    [DllImport("user32.dll")] static extern bool UpdateLayeredWindow(IntPtr h, IntPtr dst, IntPtr pt, IntPtr size, IntPtr src, IntPtr ptSrc, int key, ref BLENDFUNCTION b, int flags);
 
     const int GWL_EXSTYLE = -20;
     public const long WS_EX_TRANSPARENT = 0x20, WS_EX_TOOLWINDOW = 0x80, WS_EX_APPWINDOW = 0x40000, WS_EX_LAYERED = 0x80000, WS_EX_NOACTIVATE = 0x8000000;
@@ -75,6 +77,14 @@ public static class ChatOverlayNative {
     // where and how big, in the pixels of the screen it lands on
     public static void Place(IntPtr h, int x, int y, int w, int hgt) {
         SetWindowPos(h, IntPtr.Zero, x, y, w, hgt, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+    }
+    // A layered window's last picture, which Windows keeps while it is hidden
+    // and shows again as it comes back, for a frame before WPF draws it anew:
+    // unseen until then. No picture is passed, so only its alpha changes,
+    // and WPF's next one brings its own back.
+    public static bool HideLastPicture(IntPtr h) {
+        BLENDFUNCTION b = new BLENDFUNCTION { Op = 0, Flags = 0, Alpha = 0, Format = 1 };
+        return UpdateLayeredWindow(h, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, 0, ref b, 2);
     }
     public static int[] GetRect(IntPtr h) {
         RECT r;
@@ -1692,6 +1702,8 @@ function Set-ChatOverlayOpacity {
     if ($H.CtlLine) { $H.CtlLine.Opacity = $v }
     # and the hover card, the mouse going through it at any opacity
     if ($H.CardWin) { $H.CardWin.Opacity = $v }
+    # and the chip's copy of a name, never its ground (Set-ChatOverlayChipName)
+    foreach ($n in @($H.ChipNames)) { if ($n) { $n.Opacity = $v } }
     if ($H.OpacityText) { $H.OpacityText.Text = "$([int][Math]::Round($v * 100))%" }
     $H.PendingOpacity = $v
     $H.PendingAt = Get-Date
@@ -1900,14 +1912,24 @@ function Show-ChatOverlayBalloon {
 }
 
 function Show-ChatOverlayMemory {
-    # after a pass: Windows' memory gone low (Update-ChatOverlayMemory), said
-    # once in the tray - a VS Code window may be about to die of it
+    # after a pass: Windows' memory gone low (Update-ChatOverlayMemory), or a
+    # program growing fast (Update-ChatOverlayLeaks), said once in the tray
+    # - a VS Code window may be about to die of it. Both in one pass, one
+    # balloon says both: a second would cover the first before it is read.
     param($H)
     try {
         $m = $H.Ctx.MemNews
-        if (-not $m) { return }
+        $grow = @(@($H.Ctx.LeakNews) | Where-Object { $_ } | ForEach-Object { Format-ChatOverlayLeakText $_ }) -join '; '
+        if (-not $m -and -not $grow) { return }
         $H.Ctx.MemNews = $null
+        $H.Ctx.LeakNews = $null
+        if (-not $m) {
+            Show-ChatOverlayBalloon $H "$grow. Closing it gives the memory back before a VS Code window runs out and takes its chats down with it." `
+                -Title 'Charlie - a program keeps growing' -Icon Warning -Kind leak -Ms 10000
+            return
+        }
         $t = (Format-ChatOverlayMemoryText $m) -replace '^memory low: ', ''
+        if ($grow) { $t += ". $grow" }
         Show-ChatOverlayBalloon $H "$t. A VS Code window that runs out of memory takes its chats down with it - close what you can spare." `
             -Title 'Charlie - memory low' -Icon Warning -Kind memory -Ms 10000
     }
@@ -2360,12 +2382,13 @@ function Get-ChatOverlayRowRects {
             }
             if ($title -and $title.Tag -eq 'name') { $names += , @($title, 'title') }
             # the name the chip lights over (New-ChatOverlayChipContent): each
-            # part's rect, the room its line leaves it, in units, and the face
-            # it is drawn in
+            # part's rect, the room its line leaves it, in units, the face it
+            # is drawn in, and itself, to hide under the copy
+            # (Set-ChatOverlayChipNameHidden)
             $nm = @(foreach ($n in $names) {
                     if ($n[0].ActualWidth -le 0) { continue }
                     [pscustomobject]@{ Part = $n[1]; Rect = (& $rect $n[0]); Room = [System.Windows.Controls.Primitives.LayoutInformation]::GetLayoutSlot($n[0]).Width
-                        Width = $n[0].ActualWidth; Font = $n[0].Children[0].FontFamily; Size = $n[0].Children[0].FontSize }
+                        Width = $n[0].ActualWidth; Font = $n[0].Children[0].FontFamily; Size = $n[0].Children[0].FontSize; El = $n[0] }
                 })
             $r = & $rect $w
             if ($r[2] -le 0 -or $r[3] -le 0) { $whole = $false }
@@ -2456,8 +2479,8 @@ function New-ChatOverlayChipContent {
     Get-ChatOverlayChipActions), in three parts that Set-ChatOverlayChipPlacement
     places apart in one see-through window: open as the row's name, drawn
     again over each of its parts ($H.ChipName, from Get-ChatOverlayRowRects)
-    on the panel's ground, each as wide as the room its line left it - the
-    same text trimmed the same - to be lit ($H.ChipNames,
+    with no ground, the row's own hidden under it, each as wide as the room
+    its line left it - the same text trimmed the same - to be lit ($H.ChipNames,
     Set-ChatOverlayNameLit) - $H.ChipNameBox; its words - auto-continue's, a
     banner's answers - one bordered chip each, side by side
     ($H.ChipWords); and delete as the row draws it
@@ -2559,12 +2582,15 @@ function New-ChatOverlayChipContent {
 
 function Set-ChatOverlayChipName {
     # The chip's open, -Action: the row's name drawn again over each of its
-    # parts ($H.ChipName, from Get-ChatOverlayRowRects) on the panel's
-    # ground, each as wide as the room its line left it - the same text
-    # trimmed the same - and at least as wide as the row's, so none of that
-    # shows past the copy; the names ($H.ChipNames) to be lit
-    # (Set-ChatOverlayNameLit). Made anew alone when only the name changed
-    # (Update-ChatOverlayChip): a delete asking keeps asking.
+    # parts ($H.ChipName, from Get-ChatOverlayRowRects), each as wide as the
+    # room its line left it - the same text trimmed the same - and at least
+    # as wide as the row's; the names ($H.ChipNames) to be lit
+    # (Set-ChatOverlayNameLit). No ground of its own but one just there to
+    # take the click: a ground of the panel's colour over a panel that lets
+    # what is behind it show through was a box round the name, read back
+    # from the screen. The row's own name is hidden under it instead
+    # (Set-ChatOverlayChipNameHidden). Made anew alone when only the name
+    # changed (Update-ChatOverlayChip): a delete asking keeps asking.
     param($H, $Action)
     $H.ChipNameBox.Children.Clear()
     $H.ChipNames = @()
@@ -2574,7 +2600,7 @@ function Set-ChatOverlayChipName {
     foreach ($n in @($H.ChipName | Where-Object { $_ })) {
         $ng = New-ChatOverlayRowName $H.ChipRow ([string]$n.Part)
         $b = [System.Windows.Controls.Border]::new()
-        $b.Background = Get-ChatOverlayBrush 'panel'
+        $b.Background = Get-ChatOverlayBrush '#01000000'
         $b.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
         $b.VerticalAlignment = [System.Windows.VerticalAlignment]::Top
         $b.MinWidth = [double]$n.Width
@@ -2582,11 +2608,29 @@ function Set-ChatOverlayChipName {
         $b.Cursor = [System.Windows.Input.Cursors]::Hand
         if ($n.Font) { [System.Windows.Documents.TextElement]::SetFontFamily($b, $n.Font) }
         if ($n.Size) { [System.Windows.Documents.TextElement]::SetFontSize($b, [double]$n.Size) }
+        # as faint as the panel's own text, never its ground: under 1 that
+        # would be nothing, and let the click through (Set-ChatOverlayOpacity)
+        if ($H.Win) { $ng.Opacity = $H.Win.Opacity }
         $b.Child = $ng
         [void]$H.ChipNameBox.Children.Add($b)
         $H.ChipNames += $ng
         Register-ChatOverlayChipPress $b $Action
     }
+}
+
+function Set-ChatOverlayChipNameHidden {
+    # The row's own name under the chip's copy, -Els (the El of each of
+    # $H.ChipName): hidden, as the copy has no ground to cover it. None:
+    # every name it hid shown again, as the chip goes or moves to another
+    # row. Hidden only a pointer check after the chip comes up
+    # (Update-ChatOverlayChip): the copy shows over the row's own first,
+    # alike until it is lit, so the name is never gone for a frame while
+    # the chip's window is not drawn yet.
+    param($H, [object[]]$Els = @())
+    $keep = @($Els | Where-Object { $_ })
+    foreach ($e in @($H.ChipHid)) { if ($e -and $keep -notcontains $e) { $e.Opacity = 1 } }
+    foreach ($e in $keep) { $e.Opacity = 0 }
+    $H.ChipHid = $keep
 }
 
 function Register-ChatOverlayChipPress {
@@ -2702,6 +2746,8 @@ function Show-ChatOverlayChip {
     $H.ChipState = Get-ChatField $Entry 'State'
     $H.ChipTitle = Get-ChatField $Entry 'Title'
     $H.ChipName = @(Get-ChatField $Entry 'Name')
+    # the last row's name back; this one's is hidden a check later
+    Set-ChatOverlayChipNameHidden $H
     $H.ChipAt = Get-Date
     $H.ChipOverAt = $H.ChipAt
     $H.ChipSpent = $H.ChipKey
@@ -2718,6 +2764,10 @@ function Show-ChatOverlayChip {
     if ($acts.Count) {
         # the name turns into the button as the chip comes up
         Set-ChatOverlayNameLit $H.ChipNames $false -Now
+        # never the last row's face, lit, for a frame where this one comes
+        # up: the name lighting draws it anew at once. A process that loaded
+        # an older copy of this script has no such call (Initialize-ChatOverlayNative).
+        try { [void][ChatOverlayNative]::HideLastPicture($H.ChipHwnd) } catch {}
         Set-ChatOverlayChipPlacement $H
         $H.ChipWin.Show()
         Set-ChatOverlayNameLit $H.ChipNames $true
@@ -2743,6 +2793,7 @@ function Hide-ChatOverlayChip {
     # the chip gone, and the card with it
     param($H)
     if (-not $H) { return }
+    Set-ChatOverlayChipNameHidden $H
     if ($H.ChipWin) { try { $H.ChipWin.Hide() } catch {} }
     $H.ChipKey = $null
     $H.ChipRow = $null
@@ -2819,6 +2870,9 @@ function Update-ChatOverlayChip {
                 Set-ChatOverlayNameLit $H.ChipNames $true -Now
             }
         }
+        # the row's own name under the copy, now the chip is drawn: hidden,
+        # and the one drawn anew too
+        Set-ChatOverlayChipNameHidden $H $(if ($H.ChipWin.IsVisible -and @($H.ChipNames).Count) { @($H.ChipName | Where-Object { $_ } | ForEach-Object { Get-ChatField $_ 'El' }) } else { @() })
     }
     if ($H.ChipWin.IsVisible) { Set-ChatOverlayChipPlacement $H }
     Set-ChatOverlayCardPlacement $H
@@ -5649,7 +5703,8 @@ function Invoke-ChatOverlayTick {
             # would drop it. Left unread, it is said once the close is taken
             # back (Undo-ChatOverlayClose).
             if (-not $H.Closing) {
-                # memory gone low first: an ask's balloon after it is the newer
+                # memory gone low, or a program growing fast, first: an ask's
+                # balloon after it is the newer
                 Show-ChatOverlayMemory $H
                 Update-ChatOverlayAsk $H
                 # the first continue auto-continue queued, said in the tray
@@ -5658,12 +5713,24 @@ function Invoke-ChatOverlayTick {
             if ($C -and $H.Mode -eq 'console') { Update-ChatConsole $H }
             # a few minutes in, what the start read is garbage by then; and
             # every 5 minutes after, before the passes' garbage piles up
-            if ($H.CompactAt -and (Get-Date) -ge $H.CompactAt) { $H.CompactAt = (Get-Date).AddMinutes(5); Invoke-ChatOverlayHeapCompact }
+            # - and what it leaves weighed against overlay.restartMB
+            if ($H.CompactAt -and (Get-Date) -ge $H.CompactAt) {
+                $H.CompactAt = (Get-Date).AddMinutes(5)
+                Update-ChatOverlayRestartDue $H (Invoke-ChatOverlayHeapCompact) (Get-Date)
+            }
             # The code on disk is no longer what this loaded - a git pull, a
             # copy made by hand: the restart chatinstall sends after an
             # update, once nothing is under way that it would lose.
             if (-not (Test-ChatOverlayUnderWay $H) -and (Test-ChatOverlayCodeChanged $H.Ctx)) {
                 Write-ChatOverlayLog 'the code on disk changed - restarting on it' -Always
+                Invoke-ChatOverlayVerb 'restart'
+                return
+            }
+            # this run holding too much after a compaction: the same
+            # restart, on the same terms
+            if ($H.MemRestart -and -not (Test-ChatOverlayUnderWay $H)) {
+                Write-ChatOverlayLog $H.MemRestart -Always
+                $H.RestartWhy = 'memory'
                 Invoke-ChatOverlayVerb 'restart'
                 return
             }
@@ -5720,6 +5787,7 @@ function Invoke-ChatOverlayTick {
     }
 }
 
+# Deferred: DEFERRED.md "GC flags for the overlay"
 function Invoke-ChatOverlayHeapCompact {
     <#
     A full collection, the large object heap compacted with it. A start
@@ -5738,6 +5806,7 @@ function Invoke-ChatOverlayHeapCompact {
     heap - compiled script, native buffers.
     $Error is emptied first: every caught throw in a pass lands there, up
     to 256 records with their stack traces, and nothing in src reads it.
+    Returns the private MB after, for Update-ChatOverlayRestartDue.
     #>
     $p = [System.Diagnostics.Process]::GetCurrentProcess()
     try {
@@ -5748,9 +5817,39 @@ function Invoke-ChatOverlayHeapCompact {
         [System.GC]::Collect()
         $ms = $sw.ElapsedMilliseconds
         $p.Refresh()
-        Write-ChatOverlayLog ('the heap compacted in {0} ms: private {1} MB, then {2}, the heap {3}' -f $ms, [Math]::Round($was / 1MB), [Math]::Round($p.PrivateMemorySize64 / 1MB), [Math]::Round([System.GC]::GetTotalMemory($false) / 1MB))
+        $after = [Math]::Round($p.PrivateMemorySize64 / 1MB)
+        Write-ChatOverlayLog ('the heap compacted in {0} ms: private {1} MB, then {2}, the heap {3}' -f $ms, [Math]::Round($was / 1MB), $after, [Math]::Round([System.GC]::GetTotalMemory($false) / 1MB))
+        return $after
     }
     finally { $p.Dispose() }
+}
+
+function Update-ChatOverlayRestartDue {
+    <#
+    Whether this run should start again to give its memory back, from the
+    private MB a compaction left (Invoke-ChatOverlayHeapCompact). Over 78
+    runs in one PC's log that figure sat at 260 MB in the middle and 322 at
+    the most; a fresh run settles at 210 to 260, and one up some 30 hours
+    sat at 315 to 322 - the heap climbing in steps nothing explains yet
+    (FUTURE_WORK.md "The overlay's heap climbs in steps"). This bounds it.
+    Settled is the lowest such figure from 30 minutes into the run on,
+    once the start's reads are long given back. Due when the figure is at
+    config overlay.restartMB or more, 50 or more over where this run
+    settled, and the run an hour old: a run that starts high - another PC,
+    more chats - never restarts for being itself, and a new one cannot
+    restart in its first hour, so it never loops. Due, $H.MemRestart says
+    why, for the tick's restart (Invoke-ChatOverlayTick) once nothing is
+    under way; 0 is never. No figure - a compaction that threw - nothing.
+    #>
+    param($H, $AfterMB, [datetime]$Now = (Get-Date))
+    if ($null -eq $AfterMB -or $H.MemRestart -or $H.StartedAt -isnot [datetime]) { return }
+    $mb = [double]$AfterMB
+    $age = ($Now - $H.StartedAt).TotalMinutes
+    if ($age -ge 30 -and ($null -eq $H.Settled -or $mb -lt $H.Settled)) { $H.Settled = $mb }
+    $limit = [int]$H.Ctx.Config.restartMB
+    if ($limit -le 0 -or $age -lt 60 -or $null -eq $H.Settled) { return }
+    if ($mb -lt $limit -or $mb -lt $H.Settled + 50) { return }
+    $H.MemRestart = "private $mb MB after the heap compacted, over overlay.restartMB $limit and $($mb - $H.Settled) over where this run settled - restarting to give it back"
 }
 
 function Lock-ChatOverlay {
@@ -5814,8 +5913,12 @@ function New-ChatOverlayHostState {
         FullHidden = $false; FullKept = $false; Closing = $false; CloseTimer = $null
         # a faint line's height, measured once (Get-ChatOverlayLineHeight)
         LineHeight = $null
-        # when the heap is next collected (Invoke-ChatOverlayHeapCompact)
-        CompactAt = $null
+        # when the heap is next collected (Invoke-ChatOverlayHeapCompact);
+        # when this run started, the least it held after one from 30 minutes
+        # in, and why it is to start again for its memory
+        # (Update-ChatOverlayRestartDue); RestartWhy is memory for a restart
+        # that is, which the stop line says
+        CompactAt = $null; StartedAt = $null; Settled = $null; MemRestart = $null; RestartWhy = $null
         Con = $null; ConHotkey = $null; ConHotkeyText = $null
         # panel, or console while the window shows the console
         # (Enter-ChatOverlayConsoleMode), with what the panel was meanwhile
@@ -5882,6 +5985,7 @@ function Start-ChatOverlayHost {
         # the start's reads are done well inside 3 minutes: the open chats'
         # first scans take a few passes
         $H.CompactAt = (Get-Date).AddMinutes(3)
+        $H.StartedAt = Get-Date
         Initialize-ChatOverlayNative
         $H.Ctx = New-ChatOverlayContext
         # the Recent list built past overlay.recent, to 20 (RecentMore): the
@@ -5947,7 +6051,7 @@ function Start-ChatOverlayHost {
         Close-ChatOverlayWindow $H
         try { $lock.Dispose() } catch {}
         Remove-Item -LiteralPath $script:ChatOverlayPidPath -Force -EA SilentlyContinue
-        Write-ChatOverlayLog "overlay $PID stopped$(if ($H.Restart) { ' - restarting on the new copy' })"
+        Write-ChatOverlayLog "overlay $PID stopped$(if ($H.RestartWhy -eq 'memory') { ' - a memory restart, to give back what this run held' } elseif ($H.Restart) { ' - restarting on the new copy' })"
     }
     # last, once the lock is released: the new copy takes it on its way up
     if ($H.Restart) { [void](Start-ChatOverlayProcess) }

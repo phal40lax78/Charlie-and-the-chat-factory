@@ -4195,6 +4195,37 @@ Invoke-ChatOverlayTick
 Invoke-ChatOverlayTick
 `$compact = `$compact -and `$script:HcCalls -eq 2 -and `$script:SdCalls -eq 4
 `$H.SizeDrag = `$null
+# this run's memory: a compaction leaving 330 MB an hour in, 75 over where
+# it settled - the same restart, not mid-drag, why said in the log. The code
+# stamp gone, so only the memory restarts it; the stops counted put back.
+`$H.Ctx.CodeStamp = `$null
+`$rsWas = `$H.Restart
+`$H.Restart = `$false
+`${function:Invoke-ChatOverlayHeapCompact} = { `$script:HcCalls++; 330 }
+`$rsCfg = `$H.Ctx.Config
+`$H.Ctx.Config = Get-ChatOverlayConfig ([pscustomobject]@{ overlay = [pscustomobject]@{ restartMB = 300 } })
+`$H.StartedAt = (Get-Date).AddMinutes(-61)
+`$H.Settled = 255
+`$H.SizeDrag = @{ Edge = 'n' }
+`$H.CompactAt = (Get-Date).AddSeconds(-1)
+`$H.Tick = 1
+Invoke-ChatOverlayTick
+`$memRs = `$script:HcCalls -eq 3 -and `$H.MemRestart -eq 'private 330 MB after the heap compacted, over overlay.restartMB 300 and 75 over where this run settled - restarting to give it back' -and
+    -not `$H.Restart -and `$script:SdCalls -eq 4
+`$H.SizeDrag = `$null
+`$H.Tick = 1
+Invoke-ChatOverlayTick
+`$rsLog = [System.IO.File]::ReadAllText((Join-Path `$script:ChatqLogDir 'overlay.log'))
+`$memRs = `$memRs -and `$H.Restart -and `$H.RestartWhy -eq 'memory' -and `$script:SdCalls -eq 5 -and `$script:HcCalls -eq 3 -and
+    `$rsLog.Contains('private 330 MB after the heap compacted, over overlay.restartMB 300 and 75 over where this run settled - restarting to give it back')
+`$say += "memory `$memRs `$(`$H.MemRestart) `$(`$H.RestartWhy) `$(`$script:SdCalls) `$(`$script:HcCalls)"
+`$script:SdCalls = 4
+`$H.Ctx.Config = `$rsCfg
+`$H.StartedAt = `$null
+`$H.Settled = `$null
+`$H.MemRestart = `$null
+`$H.RestartWhy = `$null
+`$H.Restart = `$rsWas
 `${function:Invoke-ChatOverlayHeapCompact} = `$hcFn
 `${function:Get-ChatOverlayCodeStamp} = `$csFn
 `$H.Restart = `$false
@@ -4263,7 +4294,7 @@ Invoke-ChatOverlayVerb 'close'
 `$took = ((Get-Date) - `$t0).TotalSeconds
 `$closed = `$closed -and `$H.Stop -and `$H.ShuttingDown -and `$took -ge 3.5 -and `$took -lt 14
 `$say += "close `$closed `$([Math]::Round(`$took, 1))s"
-'{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}|{9}' -f `$fsHid, `$fsKept, `$marks, `$restarted, `$closed, `$fsNative, `$back, `$late, `$compact, (`$say -join ' / ')
+'{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}|{9}|{10}' -f `$fsHid, `$fsKept, `$marks, `$restarted, `$closed, `$fsNative, `$back, `$late, `$compact, `$memRs, (`$say -join ' / ')
 "@
 $lifeOut = Invoke-Sta 'life-test' $wpfLife
 $lf = "$lifeOut" -split '\|'
@@ -4276,6 +4307,7 @@ Check 'full screen: the native call compiles and answers 0 to 7; busy, full scre
 Check 'the x''s 4 s: the panel''s verbs and other balloons dropped; the hotkey takes the close back, unkept; a restart is the stop, the close kept' ($lf.Count -gt 6 -and $lf[6] -eq 'True') "$lifeOut"
 Check 'the x''s 4 s: a charlie typed after the last pass is read as they end, and takes the close back' ($lf.Count -gt 7 -and $lf[7] -eq 'True') "$lifeOut"
 Check 'the heap collected by the first pass past its time, not before, then by the first pass 5 minutes on and not before that' ($lf.Count -gt 8 -and $lf[8] -eq 'True') "$lifeOut"
+Check 'a compaction leaving more than overlay.restartMB an hour in: the timer''s pass restarts the overlay for its memory, not mid-drag, and says why in the log' ($lf.Count -gt 9 -and $lf[9] -eq 'True') "$lifeOut"
 
 # The compaction itself, on a heap like the one a start leaves: big buffers
 # freed between ones still held, which a collection never moves. What was
@@ -4295,14 +4327,17 @@ try { throw 'kept in `$Error' } catch {}
 [System.GC]::Collect()
 `$p = [System.Diagnostics.Process]::GetCurrentProcess()
 `$was = `$p.PrivateMemorySize64
-Invoke-ChatOverlayHeapCompact
+# what it gives back is the private MB after, alone: the figure
+# Update-ChatOverlayRestartDue weighs
+`$back = @(Invoke-ChatOverlayHeapCompact)
 `$p.Refresh()
 `$drop = [Math]::Round((`$was - `$p.PrivateMemorySize64) / 1MB)
 `$n1 = & `$said
-'{0}|{1}' -f (`$drop -ge 32 -and `$n1 -eq `$n0 + 1 -and `$held.Count -eq 64 -and `$errs -ge 1 -and `$global:Error.Count -eq 0), "given back `$drop MB, logged `$n0 > `$n1, `$Error `$errs > `$(`$global:Error.Count)"
+`$mine = `$back.Count -eq 1 -and `$back[0] -is [ValueType] -and [Math]::Abs([double]`$back[0] - `$p.PrivateMemorySize64 / 1MB) -lt 8
+'{0}|{1}' -f (`$drop -ge 32 -and `$n1 -eq `$n0 + 1 -and `$held.Count -eq 64 -and `$errs -ge 1 -and `$global:Error.Count -eq 0 -and `$mine), "given back `$drop MB, logged `$n0 > `$n1, `$Error `$errs > `$(`$global:Error.Count), returned `$(`$back -join ',')"
 "@
 $heapOut = Invoke-Sta 'heap-test' $heapTest
-Check 'the heap compacted: 64 MB of big buffers freed between ones held, given back, said in the log with the heap left, $Error emptied' ("$heapOut" -like 'True|*') "$heapOut"
+Check 'the heap compacted: 64 MB of big buffers freed between ones held, given back, said in the log with the heap left, $Error emptied, the private MB after returned' ("$heapOut" -like 'True|*') "$heapOut"
 
 # A tick that throws past its catch, as an out-of-memory once did, in the
 # hover timer's place and every time: set going again after each throw.

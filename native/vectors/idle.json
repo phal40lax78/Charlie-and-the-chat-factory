@@ -1,0 +1,145 @@
+{
+  "about": "Get-ChatqIdleSeconds (src/alerts.ps1) on macOS: ioreg -c IOHIDSystem's output, read as PowerShell reads a program's lines; the first line that -match 'HIDIdleTime' (any case, under en-US), and in it the first =\\s*(\\d+), [double] of the digits / 1e9; null when there is no such line or number, or [double] cannot read the digits. The answer is the double's IEEE-754 bits as 16 hex digits, or null. Rust: idle::idle_seconds",
+  "cases": [
+    {
+      "name": "typical",
+      "input": {
+        "out": "+-o Root  <class IORegistryEntry, id 0x100000100, retain 25>\n  +-o IOResources  <class IOResources, id 0x100000110, registered, matched, active, busy 0 (0 ms), retain 40>\n    +-o IOHIDSystem  <class IOHIDSystem, id 0x100000483, registered, matched, active, busy 0 (0 ms), retain 19>\n        {\n          \"IOClass\" = \"IOHIDSystem\"\n          \"HIDParameters\" = {\"HIDClickTime\"=500000000,\"HIDKeyRepeat\"=83333333,\"HIDClickSpace\"={\"x\"=4,\"y\"=4}}\n          \"HIDIdleTime\" = 4723458000\n          \"IOProviderClass\" = \"IOResources\"\n        }\n        \n"
+      },
+      "expect": "4012e4d22c881e47"
+    },
+    {
+      "name": "typical-crlf",
+      "input": {
+        "out": "+-o Root  <class IORegistryEntry, id 0x100000100, retain 25>\r\n  +-o IOResources  <class IOResources, id 0x100000110, registered, matched, active, busy 0 (0 ms), retain 40>\r\n    +-o IOHIDSystem  <class IOHIDSystem, id 0x100000483, registered, matched, active, busy 0 (0 ms), retain 19>\r\n        {\r\n          \"IOClass\" = \"IOHIDSystem\"\r\n          \"HIDParameters\" = {\"HIDClickTime\"=500000000,\"HIDKeyRepeat\"=83333333,\"HIDClickSpace\"={\"x\"=4,\"y\"=4}}\r\n          \"HIDIdleTime\" = 4723458000\r\n          \"IOProviderClass\" = \"IOResources\"\r\n        }\r\n        \r\n"
+      },
+      "expect": "4012e4d22c881e47"
+    },
+    {
+      "name": "typical-cr",
+      "input": {
+        "out": "+-o Root  <class IORegistryEntry, id 0x100000100, retain 25>\r  +-o IOResources  <class IOResources, id 0x100000110, registered, matched, active, busy 0 (0 ms), retain 40>\r    +-o IOHIDSystem  <class IOHIDSystem, id 0x100000483, registered, matched, active, busy 0 (0 ms), retain 19>\r        {\r          \"IOClass\" = \"IOHIDSystem\"\r          \"HIDParameters\" = {\"HIDClickTime\"=500000000,\"HIDKeyRepeat\"=83333333,\"HIDClickSpace\"={\"x\"=4,\"y\"=4}}\r          \"HIDIdleTime\" = 4723458000\r          \"IOProviderClass\" = \"IOResources\"\r        }\r        "
+      },
+      "expect": "4012e4d22c881e47"
+    },
+    {
+      "name": "missing",
+      "input": {
+        "out": "+-o Root  <class IORegistryEntry, id 0x100000100, retain 25>\n  +-o IOResources  <class IOResources, id 0x100000110, registered, matched, active, busy 0 (0 ms), retain 40>\n    +-o IOHIDSystem  <class IOHIDSystem, id 0x100000483, registered, matched, active, busy 0 (0 ms), retain 19>\n        {\n          \"IOClass\" = \"IOHIDSystem\"\n          \"HIDParameters\" = {\"HIDClickTime\"=500000000,\"HIDKeyRepeat\"=83333333,\"HIDClickSpace\"={\"x\"=4,\"y\"=4}}\n          \"IOProviderClass\" = \"IOResources\"\n        }\n        \n"
+      },
+      "expect": null
+    },
+    {"name": "empty", "input": {"out": ""}, "expect": null},
+    {"name": "only-line-breaks", "input": {"out": "\n\r\n\r"}, "expect": null},
+    {
+      "name": "several",
+      "input": {"out": "\"HIDIdleTime\" = 1000000000\n\"HIDIdleTime\" = 2000000000\n"},
+      "expect": "3ff0000000000000"
+    },
+    {
+      "name": "first-line-has-no-number",
+      "input": {"out": "\"HIDIdleTimeUnits\" = \"ns\"\n\"HIDIdleTime\" = 5000000000\n"},
+      "expect": null
+    },
+    {
+      "name": "in-a-dictionary",
+      "input": {
+        "out": "\"HIDParameters\" = {\"HIDIdleTime\"=1000000000,\"HIDClickTime\"=500000000}\n\"HIDIdleTime\" = 7000000000"
+      },
+      "expect": "3ff0000000000000"
+    },
+    {
+      "name": "second-equals",
+      "input": {"out": "\"HIDIdleTime\" = abc = 2500000000"},
+      "expect": "4004000000000000"
+    },
+    {"name": "equals-no-digits", "input": {"out": "\"HIDIdleTime\" = abc"}, "expect": null},
+    {"name": "no-equals", "input": {"out": "\"HIDIdleTime\" 5000000000"}, "expect": null},
+    {
+      "name": "no-space",
+      "input": {"out": "\"HIDIdleTime\"=2500000000"},
+      "expect": "4004000000000000"
+    },
+    {"name": "zero", "input": {"out": "\"HIDIdleTime\" = 0"}, "expect": "0000000000000000"},
+    {"name": "one", "input": {"out": "\"HIDIdleTime\" = 1"}, "expect": "3e112e0be826d695"},
+    {
+      "name": "leading-zeros",
+      "input": {"out": "\"HIDIdleTime\" = 0000002500000000"},
+      "expect": "4004000000000000"
+    },
+    {"name": "negative", "input": {"out": "\"HIDIdleTime\" = -5000000000"}, "expect": null},
+    {"name": "fraction", "input": {"out": "\"HIDIdleTime\" = 1.5"}, "expect": "3e112e0be826d695"},
+    {
+      "name": "lower-case",
+      "input": {"out": "hididletime = 1500000000"},
+      "expect": "3ff8000000000000"
+    },
+    {
+      "name": "upper-case",
+      "input": {"out": "HIDIDLETIME = 3000000000"},
+      "expect": "4008000000000000"
+    },
+    {
+      "name": "dotted-capital-i",
+      "input": {"out": "H\u0130DIdleTime = 5000000000"},
+      "expect": "4014000000000000"
+    },
+    {
+      "name": "dotless-i",
+      "input": {"out": "H\u0131DIdleTime = 5000000000\nHIDIdleTime = 6000000000"},
+      "expect": "4018000000000000"
+    },
+    {"name": "line-split-at-cr", "input": {"out": "\"HIDIdleTime\"\r= 3000000000"}, "expect": null},
+    {
+      "name": "line-split-at-crlf",
+      "input": {"out": "x = 1\r\n\"HIDIdleTime\" = 2000000000\r\"HIDIdleTime\" = 3000000000\n"},
+      "expect": "4000000000000000"
+    },
+    {
+      "name": "tab-and-wide-space",
+      "input": {"out": "\"HIDIdleTime\" =\t\u3000\u00a02500000000"},
+      "expect": "4004000000000000"
+    },
+    {
+      "name": "zero-width-space",
+      "input": {"out": "\"HIDIdleTime\" =\u200b2500000000"},
+      "expect": null
+    },
+    {"name": "arabic-digits", "input": {"out": "\"HIDIdleTime\" = \u0661\u0662"}, "expect": null},
+    {"name": "digits-then-arabic", "input": {"out": "\"HIDIdleTime\" = 25\u0661"}, "expect": null},
+    {"name": "fullwidth-digit", "input": {"out": "\"HIDIdleTime\" = \uff15"}, "expect": null},
+    {
+      "name": "digits-then-adlam",
+      "input": {"out": "\"HIDIdleTime\" = 2500000000\ud83a\udd50"},
+      "expect": "4004000000000000"
+    },
+    {"name": "adlam-digit", "input": {"out": "\"HIDIdleTime\" = \ud83a\udd51"}, "expect": null},
+    {
+      "name": "past-2-53",
+      "input": {"out": "\"HIDIdleTime\" = 9007199254740993"},
+      "expect": "41612e0be826d695"
+    },
+    {
+      "name": "u64-max",
+      "input": {"out": "\"HIDIdleTime\" = 18446744073709551615"},
+      "expect": "42112e0be826d695"
+    },
+    {
+      "name": "twenty-nines",
+      "input": {"out": "\"HIDIdleTime\" = 99999999999999999999"},
+      "expect": "42374876e8000000"
+    },
+    {
+      "name": "thirty-digits",
+      "input": {"out": "\"HIDIdleTime\" = 123456789012345678901234567890"},
+      "expect": "441ac53a7e04bcda"
+    },
+    {
+      "name": "past-a-double",
+      "input": {
+        "out": "\"HIDIdleTime\" = 10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expectByEdition": {"Desktop": null, "Core": "7ff0000000000000"}
+    }
+  ]
+}

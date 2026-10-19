@@ -20,7 +20,7 @@ Then type chat for the cheat sheet. Everything else is in README.md.
 # handing back what you already had. extension/package.json carries the same
 # version: the extension installs this copy by it, and extension/build.js
 # refuses to pack the two apart.
-$script:ChatVersion = '0.10.14'
+$script:ChatVersion = '0.10.15'
 
 # The tool's folder and this file, read here once and never inside a function:
 # data/ sits in that folder, and the profile line, the watcher and the overlay
@@ -39,8 +39,10 @@ if (-not $PSScriptRoot) {
     Write-Host '  be loaded from its file:  . "C:\path\to\Charlie-and-the-chat-factory.ps1"' -ForegroundColor DarkGray
     return
 }
-$chatParts = 'core', 'icon', 'providers', 'chatrm', 'discoverability', 'queue', 'codex-appserver', 'live-chats', 'alerts', 'phone', 'phone-extras', 'permit', 'ask', 'phone-down', 'phone-board', 'watcher', 'commands', 'phone-setup', 'overlay-data', 'overlay-windows', 'console', 'overlay-mac', 'overlay', 'auto-continue', 'host-work'
-$chatMissing = @($chatParts | Where-Object { -not (Test-Path -LiteralPath (Join-Path (Join-Path $PSScriptRoot 'src') "$_.ps1")) })
+$chatParts = 'core', 'shell', 'icon', 'providers', 'chatrm', 'discoverability', 'queue', 'codex-appserver', 'live-chats', 'alerts', 'phone', 'phone-extras', 'permit', 'ask', 'phone-down', 'phone-board', 'watcher', 'commands', 'phone-setup', 'overlay-data', 'overlay-windows', 'console', 'overlay-mac', 'overlay', 'auto-continue', 'host-work'
+# .NET's own file test, not Test-Path: the cmdlet loads a module of its
+# own, a few MB a profile's load (below) would not otherwise spend
+$chatMissing = @($chatParts | Where-Object { -not [System.IO.File]::Exists([System.IO.Path]::Combine($PSScriptRoot, 'src', "$_.ps1")) })
 if ($chatMissing) {
     # before any part loads: half the commands would fail in ways that
     # point nowhere near a missing file
@@ -48,6 +50,35 @@ if ($chatMissing) {
     Write-Host '  the script is this file and the src folder beside it - copy both, or run the installer again' -ForegroundColor DarkGray
     Remove-Variable chatParts, chatMissing -EA SilentlyContinue
     return
+}
+# A profile's load, in a shell a person types in: most such shells never run
+# a command of this tool, so they take shell.ps1 alone - a stand-in for each
+# command, the aliases, the key handlers and the checks a shell makes as it
+# opens - and the rest loads the first time one is used (Enter-ChatShell,
+# Import-ChatTool). The same tests as the shell-start duties below, and the
+# processes that set CHATQ_ROLE or CHATQ_ALLPARTS load as before. A profile's
+# dot-source only: one at the prompt asks for the tool now, and a profile
+# dot-sourcing it into a shell that has it already reloads it whole.
+if ($MyInvocation.InvocationName -eq '.' -and -not $env:CHATQ_WATCHER -and -not $env:CHATQ_OVERLAY -and -not $env:CHATQ_ROLE -and
+    -not $env:CHATQ_ALLPARTS -and -not $env:CLAUDECODE -and [Environment]::UserInteractive -and
+    $Host.Name -in 'ConsoleHost', 'Visual Studio Code Host' -and
+    -not $ExecutionContext.SessionState.InvokeProvider.Item.Exists('function:\Get-ChatqJobs')) {
+    # Asked of the session itself, here and below, not through Test-Path and
+    # Get-Variable: each cmdlet loads its module, MBs a start like this does
+    # not otherwise spend. $PROFILE and its four names read in a try: under
+    # StrictMode a shell with none would throw, and the load with it.
+    $chatProfile = $ExecutionContext.SessionState.PSVariable.GetValue('PROFILE')
+    $chatProfiles = @("$chatProfile") + @(try { $chatProfile.AllUsersAllHosts, $chatProfile.AllUsersCurrentHost, $chatProfile.CurrentUserAllHosts, $chatProfile.CurrentUserCurrentHost } catch {})
+    $chatLazy = $MyInvocation.ScriptName -and $chatProfiles -contains $MyInvocation.ScriptName
+    Remove-Variable chatProfile, chatProfiles -EA SilentlyContinue
+    if ($chatLazy) {
+        . ([System.IO.Path]::Combine($PSScriptRoot, 'src', 'shell.ps1'))
+        if (Enter-ChatShell) {
+            Remove-Variable chatParts, chatMissing, chatLazy -EA SilentlyContinue
+            return
+        }
+    }
+    Remove-Variable chatLazy -EA SilentlyContinue
 }
 # A shell never draws the panel or the console, and nothing it runs calls
 # into their three parts: they load only where CHATQ_ALLPARTS is set - the
@@ -58,7 +89,7 @@ if ($chatMissing) {
 # the phone's sender and the extension's runs, none of which draws either.
 # Each is lighter for it, a shell and the watcher too: 8 MB less .NET heap,
 # 10 to 44 MB less memory by how much the PC has free, and 0.1 to 0.2 s less
-# to load. All 25 are looked for above, so a broken copy still shows.
+# to load. All 26 are looked for above, so a broken copy still shows.
 # A process that runs one thing loads only the parts that thing reaches:
 # the permission bridge, alive as long as a queued run, and the question
 # hook, one for each question held. CHATQ_ROLE names it, ahead of
@@ -68,11 +99,11 @@ if ($chatMissing) {
 # the functions it calls and the top-level variables of every part; the
 # self-test works that out again and fails on a list that misses a part
 # (tests/sections/find-delete.ps1). A fresh load, after a full collection,
-# median of 5: 87 MB private for the bridge's 9 parts and 90 for the hook's
-# 15, against 102 for all 22; 245 and 307 ms to load against 384.
+# median of 5: 88 MB private for the bridge's 10 parts and 94 for the hook's
+# 16, against 104 for all 23; 317 and 387 ms to load against 518.
 $chatRoles = @{
-    permit = 'core', 'queue', 'live-chats', 'alerts', 'phone', 'phone-extras', 'permit', 'phone-down', 'overlay-data'
-    ask    = 'core', 'providers', 'chatrm', 'discoverability', 'queue', 'live-chats', 'alerts', 'phone', 'phone-extras', 'permit', 'ask', 'phone-down', 'phone-board', 'watcher', 'overlay-data'
+    permit = 'core', 'shell', 'queue', 'live-chats', 'alerts', 'phone', 'phone-extras', 'permit', 'phone-down', 'overlay-data'
+    ask    = 'core', 'shell', 'providers', 'chatrm', 'discoverability', 'queue', 'live-chats', 'alerts', 'phone', 'phone-extras', 'permit', 'ask', 'phone-down', 'phone-board', 'watcher', 'overlay-data'
 }
 $chatRole = [string]$env:CHATQ_ROLE
 Remove-Item -LiteralPath 'env:CHATQ_ROLE' -EA SilentlyContinue
@@ -132,32 +163,10 @@ if ($MyInvocation.InvocationName -ne '.') {
     Write-Host ''
 }
 elseif (-not $env:CHATQ_WATCHER -and -not $env:CHATQ_OVERLAY -and -not $env:CLAUDECODE -and [Environment]::UserInteractive -and
-    $Host.Name -in 'ConsoleHost', 'Visual Studio Code Host') {
-    # A shell opening after a reboot picks the watcher back up. Cheap when the
-    # queue is empty: one directory listing. In a child scope, so turning
-    # StrictMode off here leaves the user's own setting alone.
-    & {
-        Set-StrictMode -Off
-        try {
-            if ((Test-Path -LiteralPath $script:ChatqQueueDir) -and -not (Test-ChatqWatcherAlive)) {
-                $n = @(Get-ChatqJobs | Where-Object { $_.state -eq 'queued' }).Count
-                if ($n -and (Start-ChatqWatcher)) { Write-Host "  chatq: $n queued - watcher started" -ForegroundColor DarkGray }
-            }
-            # reply.listen always: listening all the time starts again with a shell
-            $null = Start-ChatqReplyStanding
-            # and one listening for a reply to a phone alert still out there
-            if (-not (Test-ChatqWatcherAlive) -and (Test-ChatqReplyOpen) -and (Start-ChatqWatcher)) {
-                Write-Host '  chatq: listening for phone replies - watcher started' -ForegroundColor DarkGray
-            }
-        }
-        catch {}
-        # The overlay, the same way back after a reboot: on by default on
-        # Windows, since a chat clicked in it opens as a tab; charlie
-        # -AutoStart off keeps it to when it is asked for. One file read and
-        # a lock check when it is running already.
-        try {
-            if ((Start-ChatOverlayAuto) -eq 'started') { Write-Host '  charlie started' -ForegroundColor DarkGray }
-        }
-        catch {}
-    }
+    $Host.Name -in 'ConsoleHost', 'Visual Studio Code Host' -and -not $ExecutionContext.SessionState.PSVariable.GetValue('global:ChatShellLazy')) {
+    # The watcher and the overlay back after a reboot, and the phone's
+    # listening (Start-ChatShellDuties). Not in a lazy shell: it ran them as
+    # it opened (Enter-ChatShell), and this is its first use loading the tool.
+    # Asked of the session, not Get-Variable, which files a miss in $Error.
+    Start-ChatShellDuties
 }

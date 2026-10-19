@@ -1,5 +1,107 @@
 # Changelog
 
+## 0.10.15 — A shell opens light
+
+- **The profile line loads a small part of the tool, and the rest on first
+  use.** Most shells never run a chat command: they host `claude`, or
+  other work. Now a shell's profile load takes `src/shell.ps1` alone - a
+  stand-in for each command, the aliases, Tab, Shift+Tab, the arrows and
+  Enter - and the whole tool loads the first time you run a command, or
+  press Tab or Enter on a line that starts with one. A fresh Windows
+  PowerShell with PSReadLine: 73 MB private instead of 108, a bare one
+  being 55, median of 5 after a full collection. That first use waits
+  the load the shell used to spend as it opened.
+- **What a shell does as it opens is unchanged.** A job queued with no
+  watcher, a phone's listening to pick up or the overlay to start: the
+  shell checks the files for each, without the tool, and where one has
+  something to do loads the tool at once and does it, as before. Charlie
+  closed by hand since this sign-in is nothing to do, so those shells stay
+  light too. A config that will not read, or a phone not yet paired with
+  an alert out, loads it - the check leans to a load too many, never a
+  duty missed.
+- **Only a profile's load, in a shell a person types in.** A dot-source at
+  the prompt, the watcher, the overlay, the processes it starts, the
+  permission bridge, the question hook, a run under Claude Code
+  (`CLAUDECODE`), a shell with no interactive session and the tests load
+  the whole tool, as before.
+- **Before the first use**, `Get-Help chatq` says the tool loads on first
+  use, and the tool's own functions (`Get-ChatqJobs` and the rest) are not
+  there yet. Tab on a parameter's name (`chatrm -Pro<Tab>`) loads it
+  through the Tab key's own handler; Ctrl+Space's menu there, and Tab too
+  with `$ChatNoKeyBindings` set or no PSReadLine, offers only the common
+  parameters - an argument's Tab, or any command, loads the tool.
+- **The tool a shell loads is the one on disk then.** An update since the
+  shell opened loads on that shell's first use, where it used to wait for
+  a new shell; one caught part way through its copy says it did not load,
+  and a new shell has it.
+- **A native watcher, chatqd, can stand in for the PowerShell one - for a
+  developer, for now.** Where a chatqd build sits in
+  `bin/<version>/<target>/` beside `data/`, or `CHATQ_CHATQD` names one,
+  a launch starts it in the PowerShell watcher's place (native/SPEC.md,
+  4.2). No build ships yet, so no install changes: a launch looks for
+  `data/native` and `bin/`, and reads and writes nothing more. This first
+  step saves no memory either: chatqd hands any work to a PowerShell
+  watcher, and leaves when the queue is empty.
+- **A native watcher that fails is set aside.** A build must answer
+  `chatqd version` within 5 s before its first launch. A launch never
+  acked, a crash, a failed check or a start that fails is a strike, and
+  that same launch starts the PowerShell watcher instead; three in a day
+  keep that version on PowerShell, with one `failed` alert, until
+  `data/native/fuse.json` is deleted. `"watcher": "ps"` in
+  `data/config.json`, set by hand, keeps the PowerShell watcher. A
+  watcher loaded before an update starts the new version's build, never
+  its own.
+- **A native watcher reads the files as its PowerShell does.** chatqd
+  reads `config.json`, the job files and `state.json` as the PowerShell it
+  was started for reads them. Under PowerShell 7 a `config.json` with `//`
+  comments or a trailing comma counts, so phone replies or auto-continue
+  set there hand the work to a PowerShell watcher, and a job file written
+  so is not passed over. Under Windows PowerShell 5.1 such a file reads as
+  empty, as it does for the PowerShell watcher. Without a chatqd build
+  none of this runs.
+- **The rest of the watcher, ported but not yet used.** chatq-core,
+  chatqd's library, now holds a Rust copy of most of what the PowerShell
+  watcher works out: the queue's order, its timers, the board, a run's
+  command line and environment, phone replies and their files, the logs,
+  dates and DPAPI secrets (native/SPEC.md 7, M1). Each is held to what
+  both PowerShells answer, in 19 files of cases they make. chatqd still
+  hands every job to a PowerShell watcher, so nothing else changes yet.
+- **CI builds chatqd** for Windows and for both kinds of Mac, tests it,
+  and runs the PowerShell checks against that build. A release workflow,
+  run by hand, makes its download files unsigned and publishes nothing.
+- **The overlay says when a program keeps growing,** on Windows, memory
+  low yet or not. On 2026-10-19 a Word that File Explorer's preview pane
+  started for a `.docx` grew 0.25 to 0.45 GB a minute, to 21.5 GB, until
+  a VS Code window died of it and cut a chat off. The memory warning said
+  so once, at 95%, and then nothing: it reads a level, and a program
+  growing 6 GB in 11 minutes looked the same as one standing still. Now,
+  once a minute, the overlay reads each process's memory, and a process
+  grown 2 GB or more since its figure 10 minutes back is said -
+  `WINWORD grew 6.1 GB in 10 min, now 15.8 GB (pid 33188) - it may be
+  leaking`: a line in `overlay.log`, a balloon in the tray, and a note on
+  the panel while it keeps growing. Each program once in 30 minutes; with
+  memory low in the same pass, one balloon says both. A process each, not
+  a program's sum: VS Code's windows, new chats and a build's compilers
+  add processes of one name all day, and nothing leaks. A process not
+  running 10 minutes back is not counted. `overlay.leakGB` sets the
+  amount; 0 turns it off. The memory warning names its top programs from
+  the same walk of the processes, so it adds none.
+- **The overlay starts again when it holds too much.** Its own memory
+  climbs in steps over a day or two: over 78 runs in one PC's log a fresh
+  one settled at 210 to 260 MB, and one up some 30 hours sat at 315 to
+  322. After a compaction it restarts once it holds 300 MB or more
+  (`overlay.restartMB`; 0 turns it off), 50 MB or more over the least it
+  held from 30 minutes in, and has been up an hour - as it does for an
+  update, once nothing is under way: not mid-drag, with the console up or
+  a slider not at rest. `overlay.log` says why, and its stop line says a
+  memory restart. A run that starts high never restarts for that, nor a
+  new one in its first hour, so it cannot loop. Going by that log, about
+  once a day.
+- **What a restart forgets,** this one or an update's: the unread dots, a
+  reset ask's phone alert still waiting for you to be away, and when the
+  tray last said memory low or a program growing - so either may be said
+  again soon after.
+
 ## 0.10.14 — A chat's title brings its group forward, VS Code in front or not
 
 - **Clicking a chat's title on the panel brings its group forward** when

@@ -1,0 +1,2773 @@
+{
+  "about": "Update-ChatqClaudeState / Update-ChatqCodexState (src/queue.ps1, by input.provider) from New-ChatqRunState, fed input.lines in order. A line is a string, or a recipe {parts: [[text, count], ...], length}: each text count times, length UTF-16 units in all. The answer is St after the last line; with input.each, the list of St after each line; with input.fresh, each item of input.lines (a line, or a list of lines) runs from its own New-ChatqRunState and the answer is the list of St after each item. input.fields keeps only those fields, in that order. St is SPEC 3.8's transport: each New-ChatqRunState field by its own name, in its order; scalars and lists as JSON values; ToolIds an object; Result, Rate and Limit the raw line each was set from, or null. Each answer was rebuilt from that JSON in PowerShell (the raw lines through ConvertFrom-Json, .rate_limit_info for Rate and Limit) and compared with the real St. Started stays false: the run's OnLine sets it, not these functions. Made under en-US.",
+  "cases": [
+    {
+      "name": "fixture watch-claude",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"11111111-2222-4333-8444-555555555555\",\"model\":\"claude-fake-1\",\"permissionMode\":\"acceptEdits\",\"claude_code_version\":\"2.1.283\"}",
+          "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"run the tests and fix what fails\"},\"session_id\":\"11111111-2222-4333-8444-555555555555\"}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"claude-fake-1\",\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"the model's own\",\"signature\":\"x\"}]},\"parent_tool_use_id\":null}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"claude-fake-1\",\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"Running the <suite> & fixing it.\"}]},\"parent_tool_use_id\":null}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"claude-fake-1\",\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_todo\",\"name\":\"TodoWrite\",\"input\":{\"todos\":[{\"content\":\"Read the tests\",\"status\":\"completed\",\"activeForm\":\"Reading the tests\"},{\"content\":\"Run the suite\",\"status\":\"completed\",\"activeForm\":\"Running the suite\"},{\"content\":\"Fix the parser\",\"status\":\"in_progress\",\"activeForm\":\"Fixing the parser\"},{\"content\":\"Run it again\",\"status\":\"pending\",\"activeForm\":\"Running it again\"}]}}]},\"parent_tool_use_id\":null}",
+          "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_todo\",\"content\":\"Todos have been modified successfully.\"}]},\"parent_tool_use_id\":null}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"claude-fake-1\",\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_bash\",\"name\":\"Bash\",\"input\":{\"command\":\"npm test\\n# and more\",\"description\":\"Run the suite\"}}]},\"parent_tool_use_id\":null}",
+          "{\"type\":\"tool_progress\",\"tool_use_id\":\"toolu_bash\",\"tool_name\":\"Bash\",\"parent_tool_use_id\":null,\"elapsed_time_seconds\":90,\"session_id\":\"11111111-2222-4333-8444-555555555555\"}",
+          "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_bash\",\"content\":\"line 1\\nline 2\\nline 3\\nline 4\\nline 5\",\"is_error\":true}]},\"parent_tool_use_id\":null}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"claude-fake-1\",\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_read\",\"name\":\"Read\",\"input\":{\"file_path\":\"C:\\\\work\\\\parser.js\"}}]},\"parent_tool_use_id\":null}",
+          "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_read\",\"content\":[{\"type\":\"text\",\"text\":\"zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\"}]}]},\"parent_tool_use_id\":null}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"claude-fake-1\",\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_agent\",\"name\":\"Agent\",\"input\":{\"description\":\"Look for callers\",\"prompt\":\"find every caller\",\"subagent_type\":\"general-purpose\"}}]},\"parent_tool_use_id\":null}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"claude-fake-1\",\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_grep\",\"name\":\"Grep\",\"input\":{\"pattern\":\"parseLine\\\\(\"}}]},\"parent_tool_use_id\":\"toolu_agent\"}",
+          "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_grep\",\"content\":\"src/a.js\\nsrc/b.js\"}]},\"parent_tool_use_id\":\"toolu_agent\"}",
+          "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_agent\",\"content\":[{\"type\":\"text\",\"text\":\"Two callers.\"}]}]},\"parent_tool_use_id\":null}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"claude-fake-1\",\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_edit\",\"name\":\"Edit\",\"input\":{\"file_path\":\"C:\\\\work\\\\parser.js\",\"old_string\":\"a\",\"new_string\":\"b\\nc\"}}]},\"parent_tool_use_id\":null}",
+          "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_edit\",\"content\":\"The file was updated.\"}]},\"parent_tool_use_id\":null}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"claude-fake-1\",\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_write\",\"name\":\"Write\",\"input\":{\"file_path\":\"C:\\\\work\\\\note.txt\",\"content\":\"one\\ntwo\\nthree\"}}]},\"parent_tool_use_id\":null}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":\"Write\",\"tool_use_id\":\"toolu_write\",\"message\":\"denied\"}",
+          "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_write\",\"content\":\"Permission for this tool use was denied.\",\"is_error\":true}]},\"parent_tool_use_id\":null}",
+          "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"allowed\",\"resetsAt\":1790000000,\"rateLimitType\":\"five_hour\"},\"session_id\":\"11111111-2222-4333-8444-555555555555\"}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"claude-fake-1\",\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_open\",\"name\":\"Bash\",\"input\":{\"command\":\"sleep 600\"}}]},\"parent_tool_use_id\":null}",
+          "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"rejected\",\"resetsAt\":1790000000,\"rateLimitType\":\"five_hour\"},\"session_id\":\"11111111-2222-4333-8444-555555555555\"}",
+          "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"num_turns\":7,\"duration_ms\":754000,\"result\":\"Fixed.\",\"session_id\":\"11111111-2222-4333-8444-555555555555\"}"
+        ]
+      },
+      "expect": {
+        "Init": true,
+        "Started": false,
+        "Session": "11111111-2222-4333-8444-555555555555",
+        "Model": "claude-fake-1",
+        "Mode": "acceptEdits",
+        "Version": "2.1.283",
+        "Limit": "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"rejected\",\"resetsAt\":1790000000,\"rateLimitType\":\"five_hour\"},\"session_id\":\"11111111-2222-4333-8444-555555555555\"}",
+        "Rate": "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"rejected\",\"resetsAt\":1790000000,\"rateLimitType\":\"five_hour\"},\"session_id\":\"11111111-2222-4333-8444-555555555555\"}",
+        "SyntheticLimit": null,
+        "Overloaded": null,
+        "Retries": 0,
+        "Assistant": 10,
+        "LastText": "Running the <suite> & fixing it.",
+        "Tools": ["TodoWrite", "Bash", "Read", "Agent", "Grep", "Edit", "Write", "Bash"],
+        "Denied": ["Write"],
+        "Result": "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"num_turns\":7,\"duration_ms\":754000,\"result\":\"Fixed.\",\"session_id\":\"11111111-2222-4333-8444-555555555555\"}",
+        "ToolIds": {
+          "toolu_agent": "Agent",
+          "toolu_bash": "Bash",
+          "toolu_edit": "Edit",
+          "toolu_grep": "Grep",
+          "toolu_open": "Bash",
+          "toolu_read": "Read",
+          "toolu_todo": "TodoWrite",
+          "toolu_write": "Write"
+        },
+        "PermitServer": null,
+        "Thread": null,
+        "TurnStarted": false,
+        "TurnDone": false,
+        "TurnFailed": null,
+        "Failed": null
+      }
+    },
+    {
+      "name": "fixture asks",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"11111111-2222-4333-8444-555555555555\",\"model\":\"claude-fake-1\",\"permissionMode\":\"auto\",\"claude_code_version\":\"2.1.278\"}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"claude-fake-1\",\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"Updated the changelog.\\n\\nWant me to also update the tests?\"}]}}",
+          "{\"is_error\":false,\"num_turns\":4,\"subtype\":\"success\",\"result\":\"Updated the changelog.\\n\\n```\\nsome code\\n```\\n\\nWant me to also update the tests?\",\"session_id\":\"11111111-2222-4333-8444-555555555555\",\"permission_denials\":[],\"duration_ms\":61000,\"total_cost_usd\":0.12,\"type\":\"result\"}"
+        ]
+      },
+      "expect": {
+        "Init": true,
+        "Started": false,
+        "Session": "11111111-2222-4333-8444-555555555555",
+        "Model": "claude-fake-1",
+        "Mode": "auto",
+        "Version": "2.1.278",
+        "Limit": null,
+        "Rate": null,
+        "SyntheticLimit": null,
+        "Overloaded": null,
+        "Retries": 0,
+        "Assistant": 1,
+        "LastText": "Updated the changelog.\n\nWant me to also update the tests?",
+        "Tools": [],
+        "Denied": [],
+        "Result": "{\"is_error\":false,\"num_turns\":4,\"subtype\":\"success\",\"result\":\"Updated the changelog.\\n\\n```\\nsome code\\n```\\n\\nWant me to also update the tests?\",\"session_id\":\"11111111-2222-4333-8444-555555555555\",\"permission_denials\":[],\"duration_ms\":61000,\"total_cost_usd\":0.12,\"type\":\"result\"}",
+        "ToolIds": {},
+        "PermitServer": null,
+        "Thread": null,
+        "TurnStarted": false,
+        "TurnDone": false,
+        "TurnFailed": null,
+        "Failed": null
+      }
+    },
+    {
+      "name": "fixture auth-403",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"11111111-2222-4333-8444-555555555555\",\"model\":\"claude-fake-1\",\"permissionMode\":\"auto\",\"claude_code_version\":\"2.1.278\"}",
+          "{\"is_error\":true,\"num_turns\":1,\"subtype\":\"success\",\"result\":\"API Error: 403 {\\\"type\\\":\\\"error\\\",\\\"error\\\":{\\\"type\\\":\\\"permission_error\\\",\\\"message\\\":\\\"This account\u2019s plan does not include Claude Code.\\\"}}\",\"session_id\":\"11111111-2222-4333-8444-555555555555\",\"permission_denials\":[],\"api_error_status\":403,\"type\":\"result\"}"
+        ]
+      },
+      "expect": {
+        "Init": true,
+        "Started": false,
+        "Session": "11111111-2222-4333-8444-555555555555",
+        "Model": "claude-fake-1",
+        "Mode": "auto",
+        "Version": "2.1.278",
+        "Limit": null,
+        "Rate": null,
+        "SyntheticLimit": null,
+        "Overloaded": null,
+        "Retries": 0,
+        "Assistant": 0,
+        "LastText": "",
+        "Tools": [],
+        "Denied": [],
+        "Result": "{\"is_error\":true,\"num_turns\":1,\"subtype\":\"success\",\"result\":\"API Error: 403 {\\\"type\\\":\\\"error\\\",\\\"error\\\":{\\\"type\\\":\\\"permission_error\\\",\\\"message\\\":\\\"This account\u2019s plan does not include Claude Code.\\\"}}\",\"session_id\":\"11111111-2222-4333-8444-555555555555\",\"permission_denials\":[],\"api_error_status\":403,\"type\":\"result\"}",
+        "ToolIds": {},
+        "PermitServer": null,
+        "Thread": null,
+        "TurnStarted": false,
+        "TurnDone": false,
+        "TurnFailed": null,
+        "Failed": null
+      }
+    },
+    {
+      "name": "fixture denied",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"11111111-2222-4333-8444-555555555555\",\"model\":\"claude-fake-1\",\"permissionMode\":\"default\",\"claude_code_version\":\"2.1.278\"}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"claude-fake-1\",\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"Write\",\"input\":{\"file_path\":\"C:\\\\work\\\\note.txt\",\"content\":\"x\"}}]}}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":\"Write\",\"tool_use_id\":\"toolu_1\",\"message\":\"denied\"}",
+          "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\",\"content\":\"Permission for this tool use was denied.\",\"is_error\":true,\"tool_use_id\":\"toolu_1\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"claude-fake-1\",\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"I need permission to write note.txt.\"}]}}",
+          "{\"is_error\":false,\"num_turns\":2,\"subtype\":\"success\",\"result\":\"I need permission to write note.txt.\",\"session_id\":\"11111111-2222-4333-8444-555555555555\",\"permission_denials\":[{\"tool_name\":\"Write\",\"tool_use_id\":\"toolu_1\",\"tool_input\":{\"file_path\":\"C:\\\\work\\\\note.txt\",\"content\":\"x\"}}],\"type\":\"result\"}"
+        ]
+      },
+      "expect": {
+        "Init": true,
+        "Started": false,
+        "Session": "11111111-2222-4333-8444-555555555555",
+        "Model": "claude-fake-1",
+        "Mode": "default",
+        "Version": "2.1.278",
+        "Limit": null,
+        "Rate": null,
+        "SyntheticLimit": null,
+        "Overloaded": null,
+        "Retries": 0,
+        "Assistant": 2,
+        "LastText": "I need permission to write note.txt.",
+        "Tools": ["Write"],
+        "Denied": ["Write"],
+        "Result": "{\"is_error\":false,\"num_turns\":2,\"subtype\":\"success\",\"result\":\"I need permission to write note.txt.\",\"session_id\":\"11111111-2222-4333-8444-555555555555\",\"permission_denials\":[{\"tool_name\":\"Write\",\"tool_use_id\":\"toolu_1\",\"tool_input\":{\"file_path\":\"C:\\\\work\\\\note.txt\",\"content\":\"x\"}}],\"type\":\"result\"}",
+        "ToolIds": {"toolu_1": "Write"},
+        "PermitServer": null,
+        "Thread": null,
+        "TurnStarted": false,
+        "TurnDone": false,
+        "TurnFailed": null,
+        "Failed": null
+      }
+    },
+    {
+      "name": "fixture error",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"11111111-2222-4333-8444-555555555555\",\"model\":\"claude-fake-1\",\"permissionMode\":\"auto\",\"claude_code_version\":\"2.1.278\"}",
+          "{\"is_error\":true,\"num_turns\":1,\"subtype\":\"error_during_execution\",\"result\":\"Tool crashed unexpectedly\",\"session_id\":\"11111111-2222-4333-8444-555555555555\",\"permission_denials\":[],\"type\":\"result\"}"
+        ]
+      },
+      "expect": {
+        "Init": true,
+        "Started": false,
+        "Session": "11111111-2222-4333-8444-555555555555",
+        "Model": "claude-fake-1",
+        "Mode": "auto",
+        "Version": "2.1.278",
+        "Limit": null,
+        "Rate": null,
+        "SyntheticLimit": null,
+        "Overloaded": null,
+        "Retries": 0,
+        "Assistant": 0,
+        "LastText": "",
+        "Tools": [],
+        "Denied": [],
+        "Result": "{\"is_error\":true,\"num_turns\":1,\"subtype\":\"error_during_execution\",\"result\":\"Tool crashed unexpectedly\",\"session_id\":\"11111111-2222-4333-8444-555555555555\",\"permission_denials\":[],\"type\":\"result\"}",
+        "ToolIds": {},
+        "PermitServer": null,
+        "Thread": null,
+        "TurnStarted": false,
+        "TurnDone": false,
+        "TurnFailed": null,
+        "Failed": null
+      }
+    },
+    {
+      "name": "fixture noresult",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"11111111-2222-4333-8444-555555555555\",\"model\":\"claude-fake-1\",\"permissionMode\":\"auto\",\"claude_code_version\":\"2.1.278\"}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"claude-fake-1\",\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"half an answ\"}]}}"
+        ]
+      },
+      "expect": {
+        "Init": true,
+        "Started": false,
+        "Session": "11111111-2222-4333-8444-555555555555",
+        "Model": "claude-fake-1",
+        "Mode": "auto",
+        "Version": "2.1.278",
+        "Limit": null,
+        "Rate": null,
+        "SyntheticLimit": null,
+        "Overloaded": null,
+        "Retries": 0,
+        "Assistant": 1,
+        "LastText": "half an answ",
+        "Tools": [],
+        "Denied": [],
+        "Result": null,
+        "ToolIds": {},
+        "PermitServer": null,
+        "Thread": null,
+        "TurnStarted": false,
+        "TurnDone": false,
+        "TurnFailed": null,
+        "Failed": null
+      }
+    },
+    {
+      "name": "fixture overage-success",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"11111111-2222-4333-8444-555555555555\",\"model\":\"claude-fake-1\",\"permissionMode\":\"auto\",\"claude_code_version\":\"2.1.278\"}",
+          "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"rejected\",\"resetsAt\":1790000000,\"rateLimitType\":\"five_hour\",\"overageStatus\":\"allowed\",\"isUsingOverage\":true},\"session_id\":\"11111111-2222-4333-8444-555555555555\"}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"claude-fake-1\",\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"Done on extra usage.\"}]}}",
+          "{\"is_error\":false,\"num_turns\":2,\"subtype\":\"success\",\"result\":\"Done on extra usage.\",\"session_id\":\"11111111-2222-4333-8444-555555555555\",\"permission_denials\":[],\"type\":\"result\"}"
+        ]
+      },
+      "expect": {
+        "Init": true,
+        "Started": false,
+        "Session": "11111111-2222-4333-8444-555555555555",
+        "Model": "claude-fake-1",
+        "Mode": "auto",
+        "Version": "2.1.278",
+        "Limit": "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"rejected\",\"resetsAt\":1790000000,\"rateLimitType\":\"five_hour\",\"overageStatus\":\"allowed\",\"isUsingOverage\":true},\"session_id\":\"11111111-2222-4333-8444-555555555555\"}",
+        "Rate": "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"rejected\",\"resetsAt\":1790000000,\"rateLimitType\":\"five_hour\",\"overageStatus\":\"allowed\",\"isUsingOverage\":true},\"session_id\":\"11111111-2222-4333-8444-555555555555\"}",
+        "SyntheticLimit": null,
+        "Overloaded": null,
+        "Retries": 0,
+        "Assistant": 1,
+        "LastText": "Done on extra usage.",
+        "Tools": [],
+        "Denied": [],
+        "Result": "{\"is_error\":false,\"num_turns\":2,\"subtype\":\"success\",\"result\":\"Done on extra usage.\",\"session_id\":\"11111111-2222-4333-8444-555555555555\",\"permission_denials\":[],\"type\":\"result\"}",
+        "ToolIds": {},
+        "PermitServer": null,
+        "Thread": null,
+        "TurnStarted": false,
+        "TurnDone": false,
+        "TurnFailed": null,
+        "Failed": null
+      }
+    },
+    {
+      "name": "fixture rejected",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"11111111-2222-4333-8444-555555555555\",\"model\":\"claude-fake-1\",\"permissionMode\":\"auto\",\"claude_code_version\":\"2.1.278\"}",
+          "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"rejected\",\"resetsAt\":1790000000,\"rateLimitType\":\"five_hour\",\"overageStatus\":\"rejected\"},\"session_id\":\"11111111-2222-4333-8444-555555555555\"}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"You've hit your session limit \u00b7 resets 1pm (Asia/Seoul)\"}]}}",
+          "{\"is_error\":true,\"num_turns\":1,\"subtype\":\"success\",\"result\":\"You've hit your session limit \u00b7 resets 1pm (Asia/Seoul)\",\"session_id\":\"11111111-2222-4333-8444-555555555555\",\"permission_denials\":[],\"api_error_status\":429,\"type\":\"result\"}"
+        ]
+      },
+      "expect": {
+        "Init": true,
+        "Started": false,
+        "Session": "11111111-2222-4333-8444-555555555555",
+        "Model": "claude-fake-1",
+        "Mode": "auto",
+        "Version": "2.1.278",
+        "Limit": "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"rejected\",\"resetsAt\":1790000000,\"rateLimitType\":\"five_hour\",\"overageStatus\":\"rejected\"},\"session_id\":\"11111111-2222-4333-8444-555555555555\"}",
+        "Rate": "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"rejected\",\"resetsAt\":1790000000,\"rateLimitType\":\"five_hour\",\"overageStatus\":\"rejected\"},\"session_id\":\"11111111-2222-4333-8444-555555555555\"}",
+        "SyntheticLimit": "You've hit your session limit \u00b7 resets 1pm (Asia/Seoul)",
+        "Overloaded": null,
+        "Retries": 0,
+        "Assistant": 0,
+        "LastText": "",
+        "Tools": [],
+        "Denied": [],
+        "Result": "{\"is_error\":true,\"num_turns\":1,\"subtype\":\"success\",\"result\":\"You've hit your session limit \u00b7 resets 1pm (Asia/Seoul)\",\"session_id\":\"11111111-2222-4333-8444-555555555555\",\"permission_denials\":[],\"api_error_status\":429,\"type\":\"result\"}",
+        "ToolIds": {},
+        "PermitServer": null,
+        "Thread": null,
+        "TurnStarted": false,
+        "TurnDone": false,
+        "TurnFailed": null,
+        "Failed": null
+      }
+    },
+    {
+      "name": "fixture weekly-synthetic",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"11111111-2222-4333-8444-555555555555\",\"model\":\"claude-fake-1\",\"permissionMode\":\"auto\",\"claude_code_version\":\"2.1.278\"}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"claude-fake-1\",\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"Starting on it.\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"You've hit your weekly limit \u00b7 resets Sep 25\"}]}}",
+          "{\"is_error\":true,\"num_turns\":3,\"subtype\":\"success\",\"result\":\"You've hit your weekly limit \u00b7 resets Sep 25\",\"session_id\":\"11111111-2222-4333-8444-555555555555\",\"permission_denials\":[],\"type\":\"result\"}"
+        ]
+      },
+      "expect": {
+        "Init": true,
+        "Started": false,
+        "Session": "11111111-2222-4333-8444-555555555555",
+        "Model": "claude-fake-1",
+        "Mode": "auto",
+        "Version": "2.1.278",
+        "Limit": null,
+        "Rate": null,
+        "SyntheticLimit": "You've hit your weekly limit \u00b7 resets Sep 25",
+        "Overloaded": null,
+        "Retries": 0,
+        "Assistant": 1,
+        "LastText": "Starting on it.",
+        "Tools": [],
+        "Denied": [],
+        "Result": "{\"is_error\":true,\"num_turns\":3,\"subtype\":\"success\",\"result\":\"You've hit your weekly limit \u00b7 resets Sep 25\",\"session_id\":\"11111111-2222-4333-8444-555555555555\",\"permission_denials\":[],\"type\":\"result\"}",
+        "ToolIds": {},
+        "PermitServer": null,
+        "Thread": null,
+        "TurnStarted": false,
+        "TurnDone": false,
+        "TurnFailed": null,
+        "Failed": null
+      }
+    },
+    {
+      "name": "fixture watch-codex",
+      "input": {
+        "provider": "codex",
+        "lines": [
+          "{\"type\":\"thread.started\",\"thread_id\":\"11111111-2222-4333-8444-555555555555\"}",
+          "{\"type\":\"turn.started\"}",
+          "{\"type\":\"item.started\",\"item\":{\"id\":\"item_0\",\"type\":\"command_execution\",\"command\":\"git status\\ngit diff\",\"status\":\"in_progress\"}}",
+          "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"command_execution\",\"command\":\"git status\\ngit diff\",\"exit_code\":0,\"status\":\"completed\"}}",
+          "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_1\",\"type\":\"command_execution\",\"command\":\"npm test\",\"exit_code\":1,\"status\":\"failed\"}}",
+          "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_2\",\"type\":\"agent_message\",\"text\":\"The build fails.\"}}",
+          "{\"type\":\"turn.failed\",\"error\":{\"message\":\"stream disconnected\"}}",
+          "{\"type\":\"error\",\"message\":\"Reconnecting... 1/5\"}"
+        ]
+      },
+      "expect": {
+        "Init": true,
+        "Started": false,
+        "Session": null,
+        "Model": null,
+        "Mode": null,
+        "Version": null,
+        "Limit": null,
+        "Rate": null,
+        "SyntheticLimit": null,
+        "Overloaded": null,
+        "Retries": 0,
+        "Assistant": 1,
+        "LastText": "The build fails.",
+        "Tools": ["command_execution", "command_execution"],
+        "Denied": [],
+        "Result": null,
+        "ToolIds": {},
+        "PermitServer": null,
+        "Thread": "11111111-2222-4333-8444-555555555555",
+        "TurnStarted": true,
+        "TurnDone": false,
+        "TurnFailed": "stream disconnected",
+        "Failed": "stream disconnected"
+      }
+    },
+    {
+      "name": "fixture codex-badrequest",
+      "input": {
+        "provider": "codex",
+        "lines": [
+          "{\"type\":\"thread.started\",\"thread_id\":\"11111111-2222-4333-8444-555555555555\"}",
+          "{\"type\":\"turn.started\"}",
+          "{\"type\":\"turn.failed\",\"error\":{\"message\":\"unexpected status 400 Bad Request: {\\\"error\\\":{\\\"message\\\":\\\"Invalid value for 'reasoning.effort'.\\\",\\\"type\\\":\\\"invalid_request_error\\\"}}, url: https://chatgpt.com/backend-api/codex/responses\"}}"
+        ]
+      },
+      "expect": {
+        "Init": true,
+        "Started": false,
+        "Session": null,
+        "Model": null,
+        "Mode": null,
+        "Version": null,
+        "Limit": null,
+        "Rate": null,
+        "SyntheticLimit": null,
+        "Overloaded": null,
+        "Retries": 0,
+        "Assistant": 0,
+        "LastText": "",
+        "Tools": [],
+        "Denied": [],
+        "Result": null,
+        "ToolIds": {},
+        "PermitServer": null,
+        "Thread": "11111111-2222-4333-8444-555555555555",
+        "TurnStarted": true,
+        "TurnDone": false,
+        "TurnFailed": "unexpected status 400 Bad Request: {\"error\":{\"message\":\"Invalid value for 'reasoning.effort'.\",\"type\":\"invalid_request_error\"}}, url: https://chatgpt.com/backend-api/codex/responses",
+        "Failed": "unexpected status 400 Bad Request: {\"error\":{\"message\":\"Invalid value for 'reasoning.effort'.\",\"type\":\"invalid_request_error\"}}, url: https://chatgpt.com/backend-api/codex/responses"
+      }
+    },
+    {
+      "name": "fixture codex-limit",
+      "input": {
+        "provider": "codex",
+        "lines": [
+          "{\"type\":\"thread.started\",\"thread_id\":\"11111111-2222-4333-8444-555555555555\"}",
+          "{\"type\":\"turn.started\"}",
+          "{\"type\":\"error\",\"message\":\"You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 21st, 2026 8:37 AM.\"}",
+          "{\"type\":\"turn.failed\",\"error\":{\"message\":\"You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 21st, 2026 8:37 AM.\"}}"
+        ]
+      },
+      "expect": {
+        "Init": true,
+        "Started": false,
+        "Session": null,
+        "Model": null,
+        "Mode": null,
+        "Version": null,
+        "Limit": null,
+        "Rate": null,
+        "SyntheticLimit": null,
+        "Overloaded": null,
+        "Retries": 0,
+        "Assistant": 0,
+        "LastText": "",
+        "Tools": [],
+        "Denied": [],
+        "Result": null,
+        "ToolIds": {},
+        "PermitServer": null,
+        "Thread": "11111111-2222-4333-8444-555555555555",
+        "TurnStarted": true,
+        "TurnDone": false,
+        "TurnFailed": "You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 21st, 2026 8:37 AM.",
+        "Failed": "You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 21st, 2026 8:37 AM."
+      }
+    },
+    {
+      "name": "fixture codex-overload",
+      "input": {
+        "provider": "codex",
+        "lines": [
+          "{\"type\":\"thread.started\",\"thread_id\":\"11111111-2222-4333-8444-555555555555\"}",
+          "{\"type\":\"turn.started\"}",
+          "{\"type\":\"error\",\"message\":\"Reconnecting... 1/5\"}",
+          "{\"type\":\"turn.failed\",\"error\":{\"message\":\"We\u2019re currently experiencing high demand, which may cause temporary errors.\"}}"
+        ]
+      },
+      "expect": {
+        "Init": true,
+        "Started": false,
+        "Session": null,
+        "Model": null,
+        "Mode": null,
+        "Version": null,
+        "Limit": null,
+        "Rate": null,
+        "SyntheticLimit": null,
+        "Overloaded": null,
+        "Retries": 0,
+        "Assistant": 0,
+        "LastText": "",
+        "Tools": [],
+        "Denied": [],
+        "Result": null,
+        "ToolIds": {},
+        "PermitServer": null,
+        "Thread": "11111111-2222-4333-8444-555555555555",
+        "TurnStarted": true,
+        "TurnDone": false,
+        "TurnFailed": "We\u2019re currently experiencing high demand, which may cause temporary errors.",
+        "Failed": "We\u2019re currently experiencing high demand, which may cause temporary errors."
+      }
+    },
+    {
+      "name": "fixture codex-retry-done",
+      "input": {
+        "provider": "codex",
+        "lines": [
+          "{\"type\":\"thread.started\",\"thread_id\":\"11111111-2222-4333-8444-555555555555\"}",
+          "{\"type\":\"turn.started\"}",
+          "{\"type\":\"error\",\"message\":\"Reconnecting... 1/5 (stream disconnected before completion: rate limit on the connection)\"}",
+          "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":\"Recovered and finished.\"}}",
+          "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":10,\"cached_input_tokens\":0,\"output_tokens\":5}}"
+        ]
+      },
+      "expect": {
+        "Init": true,
+        "Started": false,
+        "Session": null,
+        "Model": null,
+        "Mode": null,
+        "Version": null,
+        "Limit": null,
+        "Rate": null,
+        "SyntheticLimit": null,
+        "Overloaded": null,
+        "Retries": 0,
+        "Assistant": 1,
+        "LastText": "Recovered and finished.",
+        "Tools": [],
+        "Denied": [],
+        "Result": null,
+        "ToolIds": {},
+        "PermitServer": null,
+        "Thread": "11111111-2222-4333-8444-555555555555",
+        "TurnStarted": true,
+        "TurnDone": true,
+        "TurnFailed": null,
+        "Failed": "Reconnecting... 1/5 (stream disconnected before completion: rate limit on the connection)"
+      }
+    },
+    {
+      "name": "fixture overloaded, line by line",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"11111111-2222-4333-8444-555555555555\",\"model\":\"claude-fake-1\",\"permissionMode\":\"auto\",\"claude_code_version\":\"2.1.278\"}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"attempt\":1,\"max_retries\":10,\"retry_delay_ms\":1000,\"error_status\":529,\"error\":\"overloaded\",\"session_id\":\"11111111-2222-4333-8444-555555555555\"}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"attempt\":2,\"max_retries\":10,\"retry_delay_ms\":2000,\"error_status\":529,\"error\":\"overloaded\",\"session_id\":\"11111111-2222-4333-8444-555555555555\"}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"API Error: 529 Overloaded. This is a server-side issue, usually temporary \u2014 try again in a moment. If it persists, check https://status.claude.com.\"}]}}",
+          "{\"is_error\":true,\"num_turns\":1,\"subtype\":\"success\",\"result\":\"API Error: 529 Overloaded. This is a server-side issue, usually temporary \u2014 try again in a moment. If it persists, check https://status.claude.com.\",\"session_id\":\"11111111-2222-4333-8444-555555555555\",\"permission_denials\":[],\"api_error_status\":529,\"type\":\"result\"}"
+        ],
+        "each": true,
+        "fields": ["Init", "Retries", "Assistant", "Overloaded"]
+      },
+      "expect": [
+        {"Init": true, "Retries": 0, "Assistant": 0, "Overloaded": null},
+        {"Init": true, "Retries": 1, "Assistant": 0, "Overloaded": null},
+        {"Init": true, "Retries": 2, "Assistant": 0, "Overloaded": null},
+        {
+          "Init": true,
+          "Retries": 2,
+          "Assistant": 0,
+          "Overloaded": "API Error: 529 Overloaded. This is a server-side issue, usually temporary \u2014 try again in a moment. If it persists, check https://status.claude.com."
+        },
+        {
+          "Init": true,
+          "Retries": 2,
+          "Assistant": 0,
+          "Overloaded": "API Error: 529 Overloaded. This is a server-side issue, usually temporary \u2014 try again in a moment. If it persists, check https://status.claude.com."
+        }
+      ]
+    },
+    {
+      "name": "init, chatqpermit connected",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"11111111-2222-4333-8444-555555555555\",\"model\":\"claude-fake-1\",\"permissionMode\":\"default\",\"claude_code_version\":\"2.1.278\",\"mcp_servers\":[{\"name\":\"chatqpermit\",\"status\":\"connected\"}]}"
+        ],
+        "fields": ["Init", "Session", "Model", "Mode", "Version", "PermitServer"]
+      },
+      "expect": {
+        "Init": true,
+        "Session": "11111111-2222-4333-8444-555555555555",
+        "Model": "claude-fake-1",
+        "Mode": "default",
+        "Version": "2.1.278",
+        "PermitServer": "connected"
+      }
+    },
+    {
+      "name": "init twice keeps the permit server",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"11111111-2222-4333-8444-555555555555\",\"model\":\"claude-fake-1\",\"permissionMode\":\"default\",\"claude_code_version\":\"2.1.278\",\"mcp_servers\":[{\"name\":\"chatqpermit\",\"status\":\"connected\"}]}",
+          "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"second\",\"mcp_servers\":[]}"
+        ],
+        "fields": ["Session", "Model", "PermitServer"]
+      },
+      "expect": {"Session": "second", "Model": null, "PermitServer": "connected"}
+    },
+    {
+      "name": "init, fields of any JSON type",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":5,\"model\":[\"a\",1,null],\"permissionMode\":{\"k\":\"v\",\"n\":[true]},\"claude_code_version\":1.5}"
+        ],
+        "fields": ["Session", "Model", "Mode", "Version"]
+      },
+      "expect": {"Session": 5, "Model": ["a", 1, null], "Mode": {"k": "v", "n": [true]}, "Version": 1.5}
+    },
+    {
+      "name": "init, keys in any case",
+      "input": {
+        "provider": "claude",
+        "lines": ["{\"type\":\"system\",\"Subtype\":\"init\",\"Session_ID\":\"s\",\"MODEL\":\"m\"}"],
+        "fields": ["Init", "Session", "Model"]
+      },
+      "expect": {"Init": true, "Session": "s", "Model": "m"}
+    },
+    {
+      "name": "init, mcp_servers forms",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"system\",\"subtype\":\"init\",\"mcp_servers\":[{\"name\":\"chatqpermit\",\"status\":\"failed\"}]}",
+          "{\"type\":\"system\",\"subtype\":\"init\",\"mcp_servers\":[{\"name\":\"github\",\"status\":\"connected\"}]}",
+          "{\"type\":\"system\",\"subtype\":\"init\",\"mcp_servers\":[]}",
+          "{\"type\":\"system\",\"subtype\":\"init\",\"mcp_servers\":null}",
+          "{\"type\":\"system\",\"subtype\":\"init\",\"mcp_servers\":{\"name\":\"chatqpermit\",\"status\":\"connected\"}}",
+          "{\"type\":\"system\",\"subtype\":\"init\",\"mcp_servers\":[{\"name\":\"other\",\"status\":\"x\"},{\"name\":\"ChatqPermit\",\"status\":\"failed\"},{\"name\":\"chatqpermit\",\"status\":\"connected\"}]}",
+          "{\"type\":\"system\",\"subtype\":\"init\",\"mcp_servers\":[null,\"\",0,\"chatqpermit\",{\"name\":\"chatqpermit\"}]}",
+          "{\"type\":\"system\",\"subtype\":\"init\",\"mcp_servers\":[{\"name\":\"chatqpermit\",\"status\":3}]}",
+          "{\"type\":\"system\",\"subtype\":\"init\",\"mcp_servers\":[{\"name\":\"chatqpermit\",\"status\":{\"state\":\"connected\",\"tries\":2}}]}",
+          "{\"type\":\"system\",\"subtype\":\"init\",\"mcp_servers\":[{\"name\":true,\"status\":\"x\"}]}",
+          "{\"type\":\"system\",\"subtype\":\"init\",\"mcp_servers\":[{\"name\":false,\"status\":\"x\"}]}",
+          "{\"type\":\"system\",\"subtype\":\"init\",\"mcp_servers\":[{\"name\":[\"github\",\"chatqpermit\"],\"status\":\"listed\"}]}",
+          "{\"type\":\"system\",\"subtype\":\"init\",\"mcp_servers\":[{\"name\":[[\"chatqpermit\"]],\"status\":\"nested\"}]}",
+          "{\"type\":\"system\",\"subtype\":\"init\",\"mcp_servers\":[[{\"name\":\"chatqpermit\",\"status\":\"a\"},{\"name\":\"x\",\"status\":\"b\"}]]}",
+          "{\"type\":\"system\",\"subtype\":\"init\",\"mcp_servers\":[[{\"name\":\"chatqpermit\",\"status\":\"a\"}]]}",
+          "{\"type\":\"system\",\"subtype\":\"init\",\"mcp_servers\":[{\"name\":\"chatqpermit\",\"status\":[\"a\",\"b\"]}]}",
+          "{\"type\":\"system\",\"subtype\":\"init\",\"mcp_servers\":[{\"name\":\"chatqpermit\",\"status\":null}]}",
+          "{\"type\":\"system\",\"subtype\":\"init\",\"mcp_servers\":[{\"name\":\"chatqpermit\",\"status\":\"\"}]}"
+        ],
+        "fresh": true,
+        "fields": ["PermitServer"]
+      },
+      "expect": [
+        {"PermitServer": "failed"},
+        {"PermitServer": null},
+        {"PermitServer": null},
+        {"PermitServer": null},
+        {"PermitServer": "connected"},
+        {"PermitServer": "failed"},
+        {"PermitServer": ""},
+        {"PermitServer": "3"},
+        {"PermitServer": "@{state=connected; tries=2}"},
+        {"PermitServer": "x"},
+        {"PermitServer": null},
+        {"PermitServer": "listed"},
+        {"PermitServer": null},
+        {"PermitServer": "a b"},
+        {"PermitServer": "a"},
+        {"PermitServer": "a b"},
+        {"PermitServer": ""},
+        {"PermitServer": ""}
+      ]
+    },
+    {
+      "name": "init, subtype forms",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"system\",\"subtype\":\"INIT\",\"session_id\":\"s\"}",
+          "{\"type\":\"system\",\"subtype\":[\"other\",\"init\"],\"session_id\":\"s\"}",
+          "{\"type\":\"system\",\"subtype\":[\"init\",\"init\"],\"session_id\":\"s\"}",
+          "{\"type\":\"system\",\"subtype\":true,\"session_id\":\"s\"}",
+          "{\"type\":\"system\",\"subtype\":false,\"session_id\":\"s\"}",
+          "{\"type\":\"system\",\"subtype\":5,\"session_id\":\"s\"}",
+          "{\"type\":\"system\",\"subtype\":{\"init\":1},\"session_id\":\"s\"}",
+          "{\"type\":\"system\",\"subtype\":[[\"init\"]],\"session_id\":\"s\"}",
+          "{\"type\":\"system\",\"subtype\":null,\"session_id\":\"s\"}",
+          "{\"type\":\"system\",\"subtype\":\" init\",\"session_id\":\"s\"}",
+          "{\"type\":\"system\",\"subtype\":\"in\u00adit\",\"session_id\":\"s\"}",
+          "{\"type\":\"system\",\"subtype\":\"init\\u0000\",\"session_id\":\"s\"}"
+        ],
+        "fresh": true,
+        "fields": ["Init", "Session"]
+      },
+      "expect": [
+        {"Init": true, "Session": "s"},
+        {"Init": true, "Session": "s"},
+        {"Init": true, "Session": "s"},
+        {"Init": true, "Session": "s"},
+        {"Init": false, "Session": null},
+        {"Init": false, "Session": null},
+        {"Init": false, "Session": null},
+        {"Init": false, "Session": null},
+        {"Init": false, "Session": null},
+        {"Init": false, "Session": null},
+        {"Init": true, "Session": "s"},
+        {"Init": true, "Session": "s"}
+      ]
+    },
+    {
+      "name": "denied, tool_name forms",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_use_id\":\"toolu_1\"}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":\"Write\"}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":\"\"}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":7}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":0}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":true}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":false}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":null}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":12345678901234}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":{\"a\":1,\"b\":[1,2],\"c\":null,\"d\":true,\"e\":{\"f\":\"g\"},\"s\":\"x y\",\"n\":-7,\"t\":false,\"ea\":[],\"eo\":{}}}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":{}}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":[\"a\",{\"k\":1},null,2,true,false,\"\"]}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":[\"only\"]}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":[\"\",\"\"]}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":[\"\"]}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":[]}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":[[\"a\",\"b\"]]}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":[[null]]}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":[[[]]]}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":[[0]]}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":[[\"\"]]}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":[[]]}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":[{}]}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":[false]}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":[0.0]}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":'single'}"
+        ],
+        "fresh": true,
+        "fields": ["Denied"]
+      },
+      "expect": [
+        {"Denied": []},
+        {"Denied": ["Write"]},
+        {"Denied": []},
+        {"Denied": ["7"]},
+        {"Denied": []},
+        {"Denied": ["True"]},
+        {"Denied": []},
+        {"Denied": []},
+        {"Denied": ["12345678901234"]},
+        {
+          "Denied": [
+            "@{a=1; b=System.Object[]; c=; d=True; e=; s=x y; n=-7; t=False; ea=System.Object[]; eo=}"
+          ]
+        },
+        {"Denied": [""]},
+        {"Denied": ["a   2 True False "]},
+        {"Denied": ["only"]},
+        {"Denied": [" "]},
+        {"Denied": []},
+        {"Denied": []},
+        {"Denied": ["System.Object[]"]},
+        {"Denied": ["System.Object[]"]},
+        {"Denied": ["System.Object[]"]},
+        {"Denied": ["System.Object[]"]},
+        {"Denied": ["System.Object[]"]},
+        {"Denied": []},
+        {"Denied": [""]},
+        {"Denied": []},
+        {"Denied": []},
+        {"Denied": ["single"]}
+      ]
+    },
+    {
+      "name": "denied, twice, subtype in capitals",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":\"Write\"}",
+          "{\"type\":\"system\",\"subtype\":\"PERMISSION_DENIED\",\"tool_name\":\"Bash\"}"
+        ],
+        "fields": ["Denied"]
+      },
+      "expect": {"Denied": ["Write", "Bash"]}
+    },
+    {
+      "name": "denied, tool_name numbers",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":-5}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":1.5}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":0.1}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":1e2}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":1.5E+3}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":3.0000000000000004e-1}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":1.5e300}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":1e-4}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":1e-5}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":1e15}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":1.23456789012345e14}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":1e21}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":2.5e-10}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":9223372036854775807}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":9223372036854775808}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":12345678901234567890}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":007}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":-010}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":.5}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":-.5}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":5.}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":0.5e1}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":5.e1}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":-0}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":-0.0}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":00}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":0e5}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":NaN}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":Infinity}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":-Infinity}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":1.2.3}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":1e}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":infinity}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":+Infinity}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":-00000000000000000000}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":-00000000000000000001}"
+        ],
+        "fresh": true,
+        "fields": ["Denied"]
+      },
+      "expect": [
+        {"Denied": ["-5"]},
+        {"Denied": ["1.5"]},
+        {"Denied": ["0.1"]},
+        {"Denied": ["100"]},
+        {"Denied": ["1500"]},
+        {"Denied": ["0.3"]},
+        {"Denied": ["1.5E+300"]},
+        {"Denied": ["0.0001"]},
+        {"Denied": ["1E-05"]},
+        {"Denied": ["1E+15"]},
+        {"Denied": ["123456789012345"]},
+        {"Denied": ["1E+21"]},
+        {"Denied": ["2.5E-10"]},
+        {"Denied": ["9223372036854775807"]},
+        {"Denied": ["9223372036854775808"]},
+        {"Denied": ["12345678901234567890"]},
+        {"Denied": ["7"]},
+        {"Denied": ["-10"]},
+        {"Denied": ["0.5"]},
+        {"Denied": ["-0.5"]},
+        {"Denied": ["5"]},
+        {"Denied": ["5"]},
+        {"Denied": ["50"]},
+        {"Denied": []},
+        {"Denied": []},
+        {"Denied": []},
+        {"Denied": []},
+        {"Denied": ["NaN"]},
+        {"Denied": ["Infinity"]},
+        {"Denied": ["-Infinity"]},
+        {"Denied": []},
+        {"Denied": []},
+        {"Denied": []},
+        {"Denied": []},
+        {"Denied": []},
+        {"Denied": ["-1"]}
+      ]
+    },
+    {
+      "name": "denied, tool_name numbers by edition",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":1.0}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":1.50}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":5-}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":+5}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":+.5}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":79228162514264337593543950336}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":1E400}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":-1E400}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":010}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":08}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":0x10}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":0x1F}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":0xFFFFFFFFFFFFFFFF}"
+        ],
+        "fresh": true,
+        "fields": ["Denied"]
+      },
+      "expectByEdition": {
+        "Desktop": [
+          {"Denied": ["1.0"]},
+          {"Denied": ["1.50"]},
+          {"Denied": ["-5"]},
+          {"Denied": ["5"]},
+          {"Denied": ["0.5"]},
+          {"Denied": ["7.92281625142643E+28"]},
+          {"Denied": []},
+          {"Denied": []},
+          {"Denied": ["10"]},
+          {"Denied": ["8"]},
+          {"Denied": []},
+          {"Denied": []},
+          {"Denied": []}
+        ],
+        "Core": [
+          {"Denied": ["1"]},
+          {"Denied": ["1.5"]},
+          {"Denied": []},
+          {"Denied": []},
+          {"Denied": []},
+          {"Denied": ["79228162514264337593543950336"]},
+          {"Denied": ["Infinity"]},
+          {"Denied": ["-Infinity"]},
+          {"Denied": ["8"]},
+          {"Denied": []},
+          {"Denied": ["16"]},
+          {"Denied": ["31"]},
+          {"Denied": ["-1"]}
+        ]
+      }
+    },
+    {
+      "name": "retry, three",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"attempt\":1,\"max_retries\":10,\"retry_delay_ms\":1000,\"error_status\":529,\"error\":\"overloaded\",\"session_id\":\"11111111-2222-4333-8444-555555555555\"}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"attempt\":1,\"max_retries\":10,\"retry_delay_ms\":1000,\"error_status\":529,\"error\":\"overloaded\",\"session_id\":\"11111111-2222-4333-8444-555555555555\"}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"attempt\":1,\"max_retries\":10,\"retry_delay_ms\":1000,\"error_status\":529,\"error\":\"overloaded\",\"session_id\":\"11111111-2222-4333-8444-555555555555\"}"
+        ],
+        "fields": ["Retries"]
+      },
+      "expect": {"Retries": 3}
+    },
+    {
+      "name": "retry, subtype forms",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"system\",\"subtype\":\"API_RETRY\"}",
+          "{\"type\":\"system\",\"subtype\":\"compact_boundary\"}",
+          "{\"type\":\"system\",\"subtype\":\"hook_response\"}",
+          "{\"type\":\"system\"}",
+          "{\"type\":\"system\",\"subtype\":\"api\u00ad_retry\"}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\\u0000\"}",
+          "{\"type\":\"system\",\"subtype\":[\"api_retry\",\"API_RETRY\"]}"
+        ],
+        "fresh": true,
+        "fields": ["Init", "Retries", "Denied"]
+      },
+      "expect": [
+        {"Init": false, "Retries": 1, "Denied": []},
+        {"Init": false, "Retries": 0, "Denied": []},
+        {"Init": false, "Retries": 0, "Denied": []},
+        {"Init": false, "Retries": 0, "Denied": []},
+        {"Init": false, "Retries": 1, "Denied": []},
+        {"Init": false, "Retries": 1, "Denied": []},
+        {"Init": false, "Retries": 1, "Denied": []}
+      ]
+    },
+    {
+      "name": "switch, type forms",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":true,\"subtype\":\"api_retry\",\"x\":{\"type\":\"result\"}}",
+          "{\"type\":false,\"subtype\":\"api_retry\",\"x\":{\"type\":\"result\"}}",
+          "{\"type\":5,\"subtype\":\"api_retry\",\"x\":{\"type\":\"result\"}}",
+          "{\"type\":{\"k\":\"result\"},\"subtype\":\"api_retry\",\"x\":{\"type\":\"result\"}}",
+          "{\"type\":[[\"result\"]],\"subtype\":\"api_retry\",\"x\":{\"type\":\"result\"}}",
+          "{\"type\":[true],\"subtype\":\"api_retry\",\"x\":{\"type\":\"result\"}}",
+          "{\"type\":null,\"subtype\":\"api_retry\",\"x\":{\"type\":\"result\"}}",
+          "{\"type\":[],\"subtype\":\"api_retry\",\"x\":{\"type\":\"result\"}}",
+          "{\"type\":[\"system\",\"SYSTEM\"],\"subtype\":\"api_retry\",\"x\":{\"type\":\"result\"}}",
+          "{\"type\":[\"system\",\"result\"],\"subtype\":\"api_retry\",\"x\":{\"type\":\"result\"}}",
+          "{\"type\":[null,\"system\"],\"subtype\":\"api_retry\",\"x\":{\"type\":\"result\"}}",
+          "{\"type\":\"SYSTEM\",\"subtype\":\"api_retry\",\"x\":{\"type\":\"result\"}}",
+          "{\"type\":\"sys\u00adtem\",\"subtype\":\"api_retry\",\"x\":{\"type\":\"result\"}}",
+          "{\"type\":\"system\\u0000\",\"subtype\":\"api_retry\",\"x\":{\"type\":\"result\"}}",
+          "{\"type\":\"system \",\"subtype\":\"api_retry\",\"x\":{\"type\":\"result\"}}"
+        ],
+        "fresh": true,
+        "fields": ["Retries", "Result"]
+      },
+      "expect": [
+        {"Retries": 0, "Result": null},
+        {"Retries": 0, "Result": null},
+        {"Retries": 0, "Result": null},
+        {"Retries": 0, "Result": null},
+        {
+          "Retries": 0,
+          "Result": "{\"type\":[[\"result\"]],\"subtype\":\"api_retry\",\"x\":{\"type\":\"result\"}}"
+        },
+        {"Retries": 0, "Result": null},
+        {"Retries": 0, "Result": null},
+        {"Retries": 0, "Result": null},
+        {"Retries": 2, "Result": null},
+        {
+          "Retries": 1,
+          "Result": "{\"type\":[\"system\",\"result\"],\"subtype\":\"api_retry\",\"x\":{\"type\":\"result\"}}"
+        },
+        {"Retries": 1, "Result": null},
+        {"Retries": 1, "Result": null},
+        {"Retries": 1, "Result": null},
+        {"Retries": 1, "Result": null},
+        {"Retries": 0, "Result": null}
+      ]
+    },
+    {
+      "name": "rate, events",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"allowed\",\"resetsAt\":1790000000,\"rateLimitType\":\"five_hour\"}}",
+          "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"rejected\",\"resetsAt\":1790000000,\"rateLimitType\":\"five_hour\",\"overageStatus\":\"rejected\"}}",
+          "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"allowed_warning\",\"resetsAt\":1790000000,\"rateLimitType\":\"seven_day\",\"utilization\":0.9}}",
+          "{\"rate_limit_info\":{\"status\":\"rejected\"},\"type\":\"rate_limit_event\"}",
+          "{\"type\": \"rate_limit_event\", \"rate_limit_info\": {\"status\": \"rejected\"}}",
+          "{\"type\":\"rate_limit_event\",\"rate_limit_info\":false}",
+          "{\"type\":\"rate_limit_event\",\"rate_limit_info\":0}",
+          "{\"type\":\"rate_limit_event\",\"rate_limit_info\":\"\"}",
+          [
+            "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"rejected\",\"resetsAt\":1790000000,\"rateLimitType\":\"five_hour\",\"overageStatus\":\"rejected\"}}",
+            "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"allowed\",\"resetsAt\":1790000000,\"rateLimitType\":\"five_hour\"}}"
+          ],
+          [
+            "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"rejected\",\"resetsAt\":1790000000,\"rateLimitType\":\"five_hour\",\"overageStatus\":\"rejected\"}}",
+            "{\"type\":\"rate_limit_event\"}"
+          ],
+          [
+            "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"allowed\",\"resetsAt\":1790000000,\"rateLimitType\":\"five_hour\"}}",
+            "{\"type\":\"rate_limit_event\",\"rate_limit_info\":null}"
+          ]
+        ],
+        "fresh": true,
+        "fields": ["Rate", "Limit"]
+      },
+      "expect": [
+        {
+          "Rate": "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"allowed\",\"resetsAt\":1790000000,\"rateLimitType\":\"five_hour\"}}",
+          "Limit": null
+        },
+        {
+          "Rate": "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"rejected\",\"resetsAt\":1790000000,\"rateLimitType\":\"five_hour\",\"overageStatus\":\"rejected\"}}",
+          "Limit": "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"rejected\",\"resetsAt\":1790000000,\"rateLimitType\":\"five_hour\",\"overageStatus\":\"rejected\"}}"
+        },
+        {
+          "Rate": "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"allowed_warning\",\"resetsAt\":1790000000,\"rateLimitType\":\"seven_day\",\"utilization\":0.9}}",
+          "Limit": null
+        },
+        {
+          "Rate": "{\"rate_limit_info\":{\"status\":\"rejected\"},\"type\":\"rate_limit_event\"}",
+          "Limit": "{\"rate_limit_info\":{\"status\":\"rejected\"},\"type\":\"rate_limit_event\"}"
+        },
+        {"Rate": null, "Limit": null},
+        {"Rate": "{\"type\":\"rate_limit_event\",\"rate_limit_info\":false}", "Limit": null},
+        {"Rate": "{\"type\":\"rate_limit_event\",\"rate_limit_info\":0}", "Limit": null},
+        {"Rate": "{\"type\":\"rate_limit_event\",\"rate_limit_info\":\"\"}", "Limit": null},
+        {
+          "Rate": "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"allowed\",\"resetsAt\":1790000000,\"rateLimitType\":\"five_hour\"}}",
+          "Limit": "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"rejected\",\"resetsAt\":1790000000,\"rateLimitType\":\"five_hour\",\"overageStatus\":\"rejected\"}}"
+        },
+        {
+          "Rate": null,
+          "Limit": "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"rejected\",\"resetsAt\":1790000000,\"rateLimitType\":\"five_hour\",\"overageStatus\":\"rejected\"}}"
+        },
+        {"Rate": null, "Limit": null}
+      ]
+    },
+    {
+      "name": "rate, info forms",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"REJECTED\"}}",
+          "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":[\"allowed\",\"rejected\"]}}",
+          "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":true}}",
+          "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":false}}",
+          "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":0}}",
+          "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"\"}}",
+          "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":null}}",
+          "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"resetsAt\":1790000000}}",
+          "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":[[\"rejected\"]]}}",
+          "{\"type\":\"rate_limit_event\",\"rate_limit_info\":\"rejected\"}",
+          "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{}}",
+          "{\"type\":\"rate_limit_event\",\"rate_limit_info\":[]}",
+          "{\"type\":\"rate_limit_event\",\"rate_limit_info\":[{\"status\":\"rejected\"}]}",
+          "{\"type\":\"rate_limit_event\",\"rate_limit_info\":[{\"status\":\"allowed\"},{\"status\":\"rejected\"}]}"
+        ],
+        "fresh": true,
+        "fields": ["Limit"]
+      },
+      "expect": [
+        {"Limit": "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"REJECTED\"}}"},
+        {
+          "Limit": "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":[\"allowed\",\"rejected\"]}}"
+        },
+        {"Limit": "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":true}}"},
+        {"Limit": null},
+        {"Limit": null},
+        {"Limit": null},
+        {"Limit": null},
+        {"Limit": null},
+        {"Limit": null},
+        {"Limit": null},
+        {"Limit": null},
+        {"Limit": null},
+        {"Limit": "{\"type\":\"rate_limit_event\",\"rate_limit_info\":[{\"status\":\"rejected\"}]}"},
+        {
+          "Limit": "{\"type\":\"rate_limit_event\",\"rate_limit_info\":[{\"status\":\"allowed\"},{\"status\":\"rejected\"}]}"
+        }
+      ]
+    },
+    {
+      "name": "text, forms after a text",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"before\"},{\"type\":\"text\",\"text\":\"Done.\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"before\"},{\"type\":\"thinking\",\"thinking\":\"the model's own\",\"signature\":\"x\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"before\"},{\"type\":\"text\",\"text\":\"a\"},{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"Bash\",\"input\":{}},{\"type\":\"text\",\"text\":\"b\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"before\"},{\"type\":\"text\",\"text\":\"a\"},{\"type\":\"text\",\"text\":\"\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"before\"},{\"type\":\"text\",\"text\":5}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"before\"},{\"type\":\"text\",\"text\":1.5}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"before\"},{\"type\":\"text\",\"text\":true}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"before\"},{\"type\":\"text\",\"text\":false}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"before\"},{\"type\":\"text\",\"text\":0}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"before\"},{\"type\":\"text\",\"text\":\"0\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"before\"},{\"type\":\"text\",\"text\":[\"a\",\"b\"]}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"before\"},{\"type\":\"text\",\"text\":[\"\",\"\"]}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"before\"},{\"type\":\"text\",\"text\":[\"a\",null]}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"before\"},{\"type\":\"text\",\"text\":[null,\"a\"]}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"before\"},{\"type\":\"text\",\"text\":[\"x\",\"\"]}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"before\"},{\"type\":\"text\",\"text\":[\"\"]}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"before\"},{\"type\":\"text\",\"text\":[[null,null]]}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"before\"},{\"type\":\"text\",\"text\":[[null]]}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"before\"},{\"type\":\"text\",\"text\":[[]]}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"before\"},{\"type\":\"text\",\"text\":{\"k\":1}}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"before\"},{\"type\":\"text\",\"text\":{}}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"before\"},{\"type\":\"TEXT\",\"text\":\"a\"},{\"Type\":\"Text\",\"Text\":\"b\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"before\"},{\"type\":true,\"text\":\"yes\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"before\"},{\"type\":[\"text\"],\"text\":\"listed\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"before\"},\"x\",5,null,true,{\"type\":\"text\",\"text\":\"ok\"}]}}"
+        ],
+        "fresh": true,
+        "fields": ["LastText"]
+      },
+      "expect": [
+        {"LastText": "Done."},
+        {"LastText": "before"},
+        {"LastText": "b"},
+        {"LastText": "a"},
+        {"LastText": 5},
+        {"LastText": 1.5},
+        {"LastText": true},
+        {"LastText": "before"},
+        {"LastText": "before"},
+        {"LastText": "0"},
+        {"LastText": "b"},
+        {"LastText": ""},
+        {"LastText": null},
+        {"LastText": "a"},
+        {"LastText": ""},
+        {"LastText": "before"},
+        {"LastText": [null, null]},
+        {"LastText": [null]},
+        {"LastText": "before"},
+        {"LastText": {"k": 1}},
+        {"LastText": {}},
+        {"LastText": "b"},
+        {"LastText": "yes"},
+        {"LastText": "listed"},
+        {"LastText": "ok"}
+      ]
+    },
+    {
+      "name": "text, content forms",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"assistant\",\"message\":{\"content\":{\"type\":\"text\",\"text\":\"solo\"}}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":\"plain\"}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":null}}",
+          "{\"type\":\"assistant\"}",
+          "{\"type\":\"assistant\",\"Message\":{\"Model\":\"m\",\"Content\":[{\"Type\":\"text\",\"TEXT\":\"hi\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":-00000000000000000000}]}}"
+        ],
+        "fresh": true,
+        "fields": ["Assistant", "LastText"]
+      },
+      "expect": [
+        {"Assistant": 1, "LastText": "solo"},
+        {"Assistant": 1, "LastText": ""},
+        {"Assistant": 1, "LastText": ""},
+        {"Assistant": 1, "LastText": ""},
+        {"Assistant": 1, "LastText": ""},
+        {"Assistant": 1, "LastText": "hi"},
+        {"Assistant": 1, "LastText": ""}
+      ]
+    },
+    {
+      "name": "tools, forms",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"Bash\",\"input\":{}},{\"type\":\"tool_use\",\"id\":\"toolu_2\",\"name\":\"Read\",\"input\":{}}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":5}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":true}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"t1\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":[\"A\",\"B\"]}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":{\"k\":1,\"m\":\"v\"}}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":5,\"name\":\"N\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":0,\"name\":\"N\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"\",\"name\":\"N\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"name\":\"N\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":[\"x\",\"y\"],\"name\":\"N\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":true,\"name\":\"N\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"TOOL_USE\",\"id\":\"t1\",\"name\":\"Bash\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":-00000000000000000000,\"name\":\"N\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":-00000000000000000001,\"name\":\"N\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"A\"},{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"B\"}]}}",
+          [
+            "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"Bash\"}]}}",
+            "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"Read\"}]}}"
+          ]
+        ],
+        "fresh": true,
+        "fields": ["Tools", "ToolIds"]
+      },
+      "expect": [
+        {"Tools": ["Bash", "Read"], "ToolIds": {"toolu_1": "Bash", "toolu_2": "Read"}},
+        {"Tools": ["5"], "ToolIds": {"t1": "5"}},
+        {"Tools": ["True"], "ToolIds": {"t1": "True"}},
+        {"Tools": [""], "ToolIds": {"t1": ""}},
+        {"Tools": ["A B"], "ToolIds": {"t1": "A B"}},
+        {"Tools": ["@{k=1; m=v}"], "ToolIds": {"t1": "@{k=1; m=v}"}},
+        {"Tools": ["N"], "ToolIds": {"5": "N"}},
+        {"Tools": ["N"], "ToolIds": {}},
+        {"Tools": ["N"], "ToolIds": {}},
+        {"Tools": ["N"], "ToolIds": {}},
+        {"Tools": ["N"], "ToolIds": {"x y": "N"}},
+        {"Tools": ["N"], "ToolIds": {"True": "N"}},
+        {"Tools": ["Bash"], "ToolIds": {"t1": "Bash"}},
+        {"Tools": ["N"], "ToolIds": {}},
+        {"Tools": ["N"], "ToolIds": {"-1": "N"}},
+        {"Tools": ["A", "B"], "ToolIds": {"t1": "B"}},
+        {"Tools": ["Bash", "Read"], "ToolIds": {"t1": "Read"}}
+      ]
+    },
+    {
+      "name": "tools, ids alike but for case",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_AB\",\"name\":\"N1\"},{\"type\":\"tool_use\",\"id\":\"TOOLU_ab\",\"name\":\"N2\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"\u00e9\",\"name\":\"N1\"},{\"type\":\"tool_use\",\"id\":\"\u00c9\",\"name\":\"N2\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"\u03c3\",\"name\":\"N1\"},{\"type\":\"tool_use\",\"id\":\"\u03c2\",\"name\":\"N2\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"s\",\"name\":\"N1\"},{\"type\":\"tool_use\",\"id\":\"\u017f\",\"name\":\"N2\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"i\",\"name\":\"N1\"},{\"type\":\"tool_use\",\"id\":\"\u0131\",\"name\":\"N2\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"I\",\"name\":\"N1\"},{\"type\":\"tool_use\",\"id\":\"\u0130\",\"name\":\"N2\"}]}}"
+        ],
+        "fresh": true,
+        "fields": ["ToolIds"]
+      },
+      "expect": [
+        {"ToolIds": {"toolu_AB": "N2"}},
+        {"ToolIds": {"\u00e9": "N2"}},
+        {"ToolIds": {"\u03c3": "N2"}},
+        {"ToolIds": {"s": "N1", "\u017f": "N2"}},
+        {"ToolIds": {"i": "N1", "\u0131": "N2"}},
+        {"ToolIds": {"I": "N1", "\u0130": "N2"}}
+      ]
+    },
+    {
+      "name": "tools, ids alike but for case, Greek and title case",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"\u1f80\",\"name\":\"N1\"},{\"type\":\"tool_use\",\"id\":\"\u1f88\",\"name\":\"N2\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"\u1fb3\",\"name\":\"N1\"},{\"type\":\"tool_use\",\"id\":\"\u1fbc\",\"name\":\"N2\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"\u01c5\",\"name\":\"N1\"},{\"type\":\"tool_use\",\"id\":\"\u01c4\",\"name\":\"N2\"}]}}"
+        ],
+        "fresh": true,
+        "fields": ["ToolIds"]
+      },
+      "expect": [{"ToolIds": {"\u1f80": "N2"}}, {"ToolIds": {"\u1fb3": "N2"}}, {"ToolIds": {"\u01c5": "N2"}}]
+    },
+    {
+      "name": "tools, ids alike but for a soft hyphen or NUL",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"a\u00adb\",\"name\":\"N1\"},{\"type\":\"tool_use\",\"id\":\"ab\",\"name\":\"N2\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"a\\u0000b\",\"name\":\"N1\"},{\"type\":\"tool_use\",\"id\":\"ab\",\"name\":\"N2\"}]}}"
+        ],
+        "fresh": true,
+        "fields": ["ToolIds"]
+      },
+      "expectByEdition": {
+        "Desktop": [{"ToolIds": {"a\u00adb": "N2"}}, {"ToolIds": {"a\u0000b": "N2"}}],
+        "Core": [{"ToolIds": {"ab": "N2", "a\u00adb": "N1"}}, {"ToolIds": {"a\u0000b": "N1", "ab": "N2"}}]
+      }
+    },
+    {
+      "name": "synthetic, turns",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"Prompt is too long\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error: 529 overloaded, and you hit your limit\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"hit your\"},{\"type\":\"text\",\"text\":\"limit\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error:\"},{\"type\":\"text\",\"text\":503}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":{\"k\":\"overloaded\"}}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":[\"API\",\"Error: 529\"]}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":[null,\"API Error: 500\"]}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":true},{\"type\":\"text\",\"text\":\"overloaded\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":{\"k\":1}},{\"type\":\"text\",\"text\":[[\"a\",\"b\"],\"API Error: 500\"]}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":3.0000000000000004e-1},{\"type\":\"text\",\"text\":\"overloaded\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error: 500\"},{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"Bash\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<SYNTHETIC>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error: 503\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":[\"<synthetic>\"],\"content\":[{\"type\":\"text\",\"text\":\"API Error: 503\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":[\"<synthetic>\",\"x\"],\"content\":[{\"type\":\"text\",\"text\":\"API Error: 503\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":true,\"content\":[{\"type\":\"text\",\"text\":\"API Error: 503\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":false,\"content\":[{\"type\":\"text\",\"text\":\"API Error: 503\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":null,\"content\":[{\"type\":\"text\",\"text\":\"API Error: 503\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\" <synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error: 503\"}]}}",
+          [
+            "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"Working.\"}]}}",
+            "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error: 500 Internal server error\"}]}}"
+          ]
+        ],
+        "fresh": true,
+        "fields": ["Assistant", "Tools", "SyntheticLimit", "Overloaded"]
+      },
+      "expect": [
+        {"Assistant": 0, "Tools": [], "SyntheticLimit": null, "Overloaded": null},
+        {
+          "Assistant": 0,
+          "Tools": [],
+          "SyntheticLimit": "API Error: 529 overloaded, and you hit your limit",
+          "Overloaded": null
+        },
+        {"Assistant": 0, "Tools": [], "SyntheticLimit": "hit your limit", "Overloaded": null},
+        {"Assistant": 0, "Tools": [], "SyntheticLimit": null, "Overloaded": "API Error: 503"},
+        {"Assistant": 0, "Tools": [], "SyntheticLimit": null, "Overloaded": null},
+        {"Assistant": 0, "Tools": [], "SyntheticLimit": null, "Overloaded": "API Error: 529"},
+        {"Assistant": 0, "Tools": [], "SyntheticLimit": null, "Overloaded": " API Error: 500"},
+        {"Assistant": 0, "Tools": [], "SyntheticLimit": null, "Overloaded": "True overloaded"},
+        {
+          "Assistant": 0,
+          "Tools": [],
+          "SyntheticLimit": null,
+          "Overloaded": " System.Object[] API Error: 500"
+        },
+        {"Assistant": 0, "Tools": [], "SyntheticLimit": null, "Overloaded": "0.3 overloaded"},
+        {"Assistant": 0, "Tools": [], "SyntheticLimit": null, "Overloaded": null},
+        {"Assistant": 0, "Tools": [], "SyntheticLimit": null, "Overloaded": "API Error: 500"},
+        {"Assistant": 0, "Tools": [], "SyntheticLimit": null, "Overloaded": "API Error: 503"},
+        {"Assistant": 0, "Tools": [], "SyntheticLimit": null, "Overloaded": "API Error: 503"},
+        {"Assistant": 0, "Tools": [], "SyntheticLimit": null, "Overloaded": "API Error: 503"},
+        {"Assistant": 0, "Tools": [], "SyntheticLimit": null, "Overloaded": "API Error: 503"},
+        {"Assistant": 1, "Tools": [], "SyntheticLimit": null, "Overloaded": null},
+        {"Assistant": 1, "Tools": [], "SyntheticLimit": null, "Overloaded": null},
+        {"Assistant": 1, "Tools": [], "SyntheticLimit": null, "Overloaded": null},
+        {
+          "Assistant": 1,
+          "Tools": [],
+          "SyntheticLimit": null,
+          "Overloaded": "API Error: 500 Internal server error"
+        }
+      ]
+    },
+    {
+      "name": "synthetic, a decimal part",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":1.50},{\"type\":\"text\",\"text\":\"overloaded\"}]}}"
+        ],
+        "fields": ["SyntheticLimit", "Overloaded"]
+      },
+      "expectByEdition": {
+        "Desktop": {"SyntheticLimit": null, "Overloaded": "1.50 overloaded"},
+        "Core": {"SyntheticLimit": null, "Overloaded": "1.5 overloaded"}
+      }
+    },
+    {
+      "name": "synthetic, in a type list",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":[\"assistant\",\"result\"],\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error: 500\"}]},\"x\":{\"type\":\"result\"}}",
+          "{\"type\":[\"result\",\"assistant\"],\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error: 500\"}]},\"x\":{\"type\":\"result\"}}",
+          "{\"type\":[\"assistant\",\"assistant\"],\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"twice\"}]},\"x\":{\"type\":\"result\"}}"
+        ],
+        "fresh": true,
+        "fields": ["Assistant", "LastText", "Overloaded", "Result"]
+      },
+      "expect": [
+        {"Assistant": 0, "LastText": "", "Overloaded": "API Error: 500", "Result": null},
+        {
+          "Assistant": 0,
+          "LastText": "",
+          "Overloaded": "API Error: 500",
+          "Result": "{\"type\":[\"result\",\"assistant\"],\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error: 500\"}]},\"x\":{\"type\":\"result\"}}"
+        },
+        {"Assistant": 2, "LastText": "twice", "Overloaded": null, "Result": null}
+      ]
+    },
+    {
+      "name": "rx, limit",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"You've hit your session limit\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"HIT YOUR LIMIT\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"You've hit your Opus limit\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"Claude AI usage limit reached|1790000000\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"Usage Limit Reached\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"Your limit will reset at 5pm\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"limit resets 5pm\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"You have reached the limit\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"hit your \u017fession limit\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"hit your limit \u017f\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"hit your wee\u212aly limit\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"H\u0130T YOUR L\u0130M\u0130T\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"h\u0130t your limit\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"h\u0131t your l\u0131m\u0131t\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"h\u0131t your limit\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"usage\u00a0limit reached\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"\uff48\uff49\uff54 your limit\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"hit your li\u00admit\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"hit your se\u00dfion limit\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"hit your se\u1e9eion limit\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"hit your\\u000alimit\"}]}}"
+        ],
+        "fresh": true,
+        "fields": ["SyntheticLimit"]
+      },
+      "expect": [
+        {"SyntheticLimit": "You've hit your session limit"},
+        {"SyntheticLimit": "HIT YOUR LIMIT"},
+        {"SyntheticLimit": "You've hit your Opus limit"},
+        {"SyntheticLimit": "Claude AI usage limit reached|1790000000"},
+        {"SyntheticLimit": "Usage Limit Reached"},
+        {"SyntheticLimit": "Your limit will reset at 5pm"},
+        {"SyntheticLimit": "limit resets 5pm"},
+        {"SyntheticLimit": null},
+        {"SyntheticLimit": null},
+        {"SyntheticLimit": "hit your limit \u017f"},
+        {"SyntheticLimit": "hit your wee\u212aly limit"},
+        {"SyntheticLimit": "H\u0130T YOUR L\u0130M\u0130T"},
+        {"SyntheticLimit": "h\u0130t your limit"},
+        {"SyntheticLimit": null},
+        {"SyntheticLimit": null},
+        {"SyntheticLimit": null},
+        {"SyntheticLimit": null},
+        {"SyntheticLimit": null},
+        {"SyntheticLimit": null},
+        {"SyntheticLimit": null},
+        {"SyntheticLimit": null}
+      ]
+    },
+    {
+      "name": "rx, API Error",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error: 529 Overloaded.\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"api error:529\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API ERROR: 503\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error:\\u0009\\u000a 503\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error:\\u000b\\u000c529\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error:\\u001c529\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error: 429\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error: 52\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error : 503\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error\uff1a503\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"AP\u0130 Error: 503\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"ap\u0131 error: 503\"}]}}"
+        ],
+        "fresh": true,
+        "fields": ["SyntheticLimit", "Overloaded"]
+      },
+      "expect": [
+        {"SyntheticLimit": null, "Overloaded": "API Error: 529 Overloaded."},
+        {"SyntheticLimit": null, "Overloaded": "api error:529"},
+        {"SyntheticLimit": null, "Overloaded": "API ERROR: 503"},
+        {"SyntheticLimit": null, "Overloaded": "API Error:\t\n 503"},
+        {"SyntheticLimit": null, "Overloaded": "API Error:\u000b\u000c529"},
+        {"SyntheticLimit": null, "Overloaded": null},
+        {"SyntheticLimit": null, "Overloaded": null},
+        {"SyntheticLimit": null, "Overloaded": null},
+        {"SyntheticLimit": null, "Overloaded": null},
+        {"SyntheticLimit": null, "Overloaded": null},
+        {"SyntheticLimit": null, "Overloaded": "AP\u0130 Error: 503"},
+        {"SyntheticLimit": null, "Overloaded": null}
+      ]
+    },
+    {
+      "name": "rx, API Error, space",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error:\u00a0529\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error:\\u0085529\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error:\u1680529\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error:\u180e529\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error:\u200a529\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error:\u200b529\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error:\\u2028529\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error:\\u2029529\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error:\u3000529\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error:\ufeff529\"}]}}"
+        ],
+        "fresh": true,
+        "fields": ["Overloaded"]
+      },
+      "expect": [
+        {"Overloaded": "API Error:\u00a0529"},
+        {"Overloaded": "API Error:\u0085529"},
+        {"Overloaded": "API Error:\u1680529"},
+        {"Overloaded": null},
+        {"Overloaded": "API Error:\u200a529"},
+        {"Overloaded": null},
+        {"Overloaded": "API Error:\u2028529"},
+        {"Overloaded": "API Error:\u2029529"},
+        {"Overloaded": "API Error:\u3000529"},
+        {"Overloaded": null}
+      ]
+    },
+    {
+      "name": "rx, API Error, digits",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error: 5\u0662\u0669\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error: \u0665\u0662\u0669\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error: 5\uff12\uff19\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error: 5\u0968\u096f\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error: 5\u0be6\u0bef\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error: 5\ua9f0\ua9f9\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error: 5\ud835\udfd0\ud835\udfd7\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error: 5\u00b2\u00b3\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error: 5\u2461\u2462\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error: 5\u216b\u216b\"}]}}"
+        ],
+        "fresh": true,
+        "fields": ["Overloaded"]
+      },
+      "expect": [
+        {"Overloaded": "API Error: 5\u0662\u0669"},
+        {"Overloaded": null},
+        {"Overloaded": "API Error: 5\uff12\uff19"},
+        {"Overloaded": "API Error: 5\u0968\u096f"},
+        {"Overloaded": "API Error: 5\u0be6\u0bef"},
+        {"Overloaded": "API Error: 5\ua9f0\ua9f9"},
+        {"Overloaded": null},
+        {"Overloaded": null},
+        {"Overloaded": null},
+        {"Overloaded": null}
+      ]
+    },
+    {
+      "name": "rx, overloaded",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"Overloaded\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"OVERLOADED_ERROR\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"The API is overloaded right now.\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"overloaded_errors\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"overloaded_errorX\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"overloadedX\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"Xoverloaded\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"1overloaded\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"_overloaded\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"-overloaded-\"}]}}"
+        ],
+        "fresh": true,
+        "fields": ["Overloaded"]
+      },
+      "expect": [
+        {"Overloaded": "Overloaded"},
+        {"Overloaded": "OVERLOADED_ERROR"},
+        {"Overloaded": "The API is overloaded right now."},
+        {"Overloaded": null},
+        {"Overloaded": null},
+        {"Overloaded": null},
+        {"Overloaded": null},
+        {"Overloaded": null},
+        {"Overloaded": null},
+        {"Overloaded": "-overloaded-"}
+      ]
+    },
+    {
+      "name": "rx, overloaded, a character before",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"\u00e9overloaded\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"\u00aaoverloaded\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"\u02b0overloaded\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"\u01c5overloaded\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"\u0301overloaded\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"\u0345overloaded\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"\u0903overloaded\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"\u20ddoverloaded\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"\u0660overloaded\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"\u216boverloaded\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"\u00b2overloaded\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"\u2040overloaded\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"\u200doverloaded\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"\u200coverloaded\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"\u00adoverloaded\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"\u24b6overloaded\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"\ud835\udc00overloaded\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"\ud83d\ude00overloaded\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"\u00b7overloaded\"}]}}"
+        ],
+        "fresh": true,
+        "fields": ["Overloaded"]
+      },
+      "expect": [
+        {"Overloaded": null},
+        {"Overloaded": null},
+        {"Overloaded": null},
+        {"Overloaded": null},
+        {"Overloaded": null},
+        {"Overloaded": null},
+        {"Overloaded": "\u0903overloaded"},
+        {"Overloaded": "\u20ddoverloaded"},
+        {"Overloaded": null},
+        {"Overloaded": "\u216boverloaded"},
+        {"Overloaded": "\u00b2overloaded"},
+        {"Overloaded": null},
+        {"Overloaded": null},
+        {"Overloaded": null},
+        {"Overloaded": "\u00adoverloaded"},
+        {"Overloaded": "\u24b6overloaded"},
+        {"Overloaded": "\ud835\udc00overloaded"},
+        {"Overloaded": "\ud83d\ude00overloaded"},
+        {"Overloaded": "\u00b7overloaded"}
+      ]
+    },
+    {
+      "name": "rx, overloaded, a character after",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"overloaded\u00e9\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"overloaded\u0903\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"overloaded\u0301\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"overloaded\u200d\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"overloaded\u216b\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"overloaded\ud835\udc00\"}]}}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"overloaded\u0660\"}]}}"
+        ],
+        "fresh": true,
+        "fields": ["Overloaded"]
+      },
+      "expect": [
+        {"Overloaded": null},
+        {"Overloaded": "overloaded\u0903"},
+        {"Overloaded": null},
+        {"Overloaded": null},
+        {"Overloaded": "overloaded\u216b"},
+        {"Overloaded": "overloaded\ud835\udc00"},
+        {"Overloaded": null}
+      ]
+    },
+    {
+      "name": "result, lines",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"num_turns\":1,\"result\":\"ok\",\"session_id\":\"11111111-2222-4333-8444-555555555555\"}",
+          "{\"is_error\":false,\"num_turns\":1,\"subtype\":\"success\",\"result\":\"ok\",\"permission_denials\":[],\"type\":\"result\"}",
+          " {\"type\":\"result\",\"subtype\":\"success\"}",
+          "{\"type\": \"result\", \"subtype\": \"success\"}",
+          "{\"Type\":\"result\",\"subtype\":\"success\",\"x\":{\"type\":\"result\"}}",
+          "{\"type\":[\"result\",\"result\"],\"subtype\":\"success\"}",
+          "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"t1\",\"content\":\"ok\"}]},\"x\":{\"type\":\"result\"}}",
+          "{\"type\":\"user\",\"message\":\"it says \\\"type\\\":\\\"result\\\"\"}",
+          "[{\"type\":\"result\",\"subtype\":\"x\"}]",
+          [
+            "{\"type\":\"result\",\"subtype\":\"error_during_execution\",\"is_error\":true}",
+            "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false}"
+          ],
+          ["{\"type\":\"result\",\"subtype\":\"success\"}", "{\"type\":\"result\""]
+        ],
+        "fresh": true,
+        "fields": ["Result"]
+      },
+      "expect": [
+        {
+          "Result": "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"num_turns\":1,\"result\":\"ok\",\"session_id\":\"11111111-2222-4333-8444-555555555555\"}"
+        },
+        {
+          "Result": "{\"is_error\":false,\"num_turns\":1,\"subtype\":\"success\",\"result\":\"ok\",\"permission_denials\":[],\"type\":\"result\"}"
+        },
+        {"Result": " {\"type\":\"result\",\"subtype\":\"success\"}"},
+        {"Result": null},
+        {"Result": "{\"Type\":\"result\",\"subtype\":\"success\",\"x\":{\"type\":\"result\"}}"},
+        {"Result": null},
+        {"Result": null},
+        {"Result": null},
+        {"Result": "[{\"type\":\"result\",\"subtype\":\"x\"}]"},
+        {"Result": "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false}"},
+        {"Result": "{\"type\":\"result\",\"subtype\":\"success\"}"}
+      ]
+    },
+    {
+      "name": "result, holding an assistant",
+      "input": {
+        "provider": "claude",
+        "lines": ["{\"type\":\"result\",\"subtype\":\"success\",\"x\":{\"type\":\"assistant\"}}"],
+        "fields": ["Assistant", "Result"]
+      },
+      "expect": {
+        "Assistant": 0,
+        "Result": "{\"type\":\"result\",\"subtype\":\"success\",\"x\":{\"type\":\"assistant\"}}"
+      }
+    },
+    {
+      "name": "filter, lines",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"message\":{\"model\":\"m\",\"content\":[{\"type\":\"text\",\"text\":\"x\"}]},\"type\":\"assistant\"}",
+          "{\"subtype\":\"api_retry\",\"type\":\"system\"}",
+          "{\"type\":\"SYSTEM\",\"subtype\":\"api_retry\"}",
+          "{\"type\":\"SYSTEM\",\"subtype\":\"api_retry\",\"x\":{\"type\":\"result\"}}",
+          "{\"Type\":\"system\",\"subtype\":\"api_retry\"}",
+          " {\"type\":\"system\",\"subtype\":\"api_retry\"}",
+          "\t{\"type\":\"system\",\"subtype\":\"api_retry\"}",
+          "{\"type\": \"system\", \"subtype\": \"api_retry\"}",
+          "{\"type\": \"assistant\", \"message\": {\"model\": \"m\", \"content\": [{\"type\": \"text\", \"text\": \"x\"}]}}",
+          ["", " ", "\t", "\r"],
+          [
+            "{\"type\":\"system\",\"subtype\":\"api_retry\"}\r",
+            "{\"type\":\"system\",\"subtype\":\"api_retry\"}   ",
+            "{\"type\":\"system\",\"subtype\":\"api_retry\"}\t"
+          ],
+          [
+            "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"go\"},\"session_id\":\"s\"}",
+            "{\"type\":\"tool_progress\",\"tool_use_id\":\"t1\",\"tool_name\":\"Bash\",\"elapsed_time_seconds\":90}"
+          ],
+          [
+            "{\"type\":\"thread.started\",\"thread_id\":\"t\"}",
+            "{\"type\":\"turn.started\"}",
+            "{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"x\"}}"
+          ],
+          "{\"type\":\"user\",\"x\":{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"rejected\"}}}",
+          "{\"type\":\"sys\u00adtem\",\"subtype\":\"api_retry\"}",
+          "\u00ad{\"type\":\"system\",\"subtype\":\"api_retry\"}",
+          "{\"type\":\"assis\u00adtant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"x\"}]}}"
+        ],
+        "fresh": true,
+        "fields": ["Retries", "Assistant", "Rate", "Result"]
+      },
+      "expect": [
+        {"Retries": 0, "Assistant": 0, "Rate": null, "Result": null},
+        {"Retries": 0, "Assistant": 0, "Rate": null, "Result": null},
+        {"Retries": 0, "Assistant": 0, "Rate": null, "Result": null},
+        {"Retries": 1, "Assistant": 0, "Rate": null, "Result": null},
+        {"Retries": 0, "Assistant": 0, "Rate": null, "Result": null},
+        {"Retries": 0, "Assistant": 0, "Rate": null, "Result": null},
+        {"Retries": 0, "Assistant": 0, "Rate": null, "Result": null},
+        {"Retries": 0, "Assistant": 0, "Rate": null, "Result": null},
+        {"Retries": 0, "Assistant": 0, "Rate": null, "Result": null},
+        {"Retries": 0, "Assistant": 0, "Rate": null, "Result": null},
+        {"Retries": 3, "Assistant": 0, "Rate": null, "Result": null},
+        {"Retries": 0, "Assistant": 0, "Rate": null, "Result": null},
+        {"Retries": 0, "Assistant": 0, "Rate": null, "Result": null},
+        {"Retries": 0, "Assistant": 0, "Rate": null, "Result": null},
+        {"Retries": 1, "Assistant": 0, "Rate": null, "Result": null},
+        {"Retries": 0, "Assistant": 0, "Rate": null, "Result": null},
+        {"Retries": 0, "Assistant": 1, "Rate": null, "Result": null}
+      ]
+    },
+    {
+      "name": "filter, a NUL in the prefix",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "\u0000{\"type\":\"system\",\"subtype\":\"api_retry\"}",
+          "{\"type\":\"sys\u0000tem\",\"subtype\":\"api_retry\"}",
+          "{\"type\":\"system\u0000\",\"subtype\":\"api_retry\"}"
+        ],
+        "fresh": true,
+        "fields": ["Retries"]
+      },
+      "expectByEdition": {
+        "Desktop": [{"Retries": 0}, {"Retries": 0}, {"Retries": 0}],
+        "Core": [{"Retries": 1}, {"Retries": 1}, {"Retries": 1}]
+      }
+    },
+    {
+      "name": "json, refused by both",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"system\",\"subtype\":\"api_retry\"",
+          "{\"type\":\"system\",\"subtype\":\"api_retry",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":\"\\q\"}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":TRUE}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":tru}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":True}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\"}//",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\"} //",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\"}/",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\"}/*",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"psobject\":1}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"PSBase\":1}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"psadapted\":1}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"psextended\":1}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":{\"PSTypeNames\":1}}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":[{\"psbase\":1}]}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":Null}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":truex}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":5x}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":abc}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\" 1}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\" \"x\":1}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\"} x",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\"}{\"type\":\"system\",\"subtype\":\"api_retry\"}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",,\"x\":1}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":[1}}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":[5:1]}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":\"\\u00e\"}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":1,\"X\":2}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":{\"a\":1,\"A\":2}}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":[{\"a\":1,\"A\":2}]}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":[1]/}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":true/}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"\":1}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":{\"\":1}}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":{\"\":}}",
+          "\ufeff{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":{\"type\":\"result\"}}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\ufeff\"x\":1}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"\u00e9\":1,\"\u00c9\":2}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"\u0430\":1,\"\u0410\":2}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"\uff41\":1,\"\uff21\":2}"
+        ],
+        "fresh": true,
+        "fields": ["Retries"]
+      },
+      "expect": [
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0},
+        {"Retries": 0}
+      ]
+    },
+    {
+      "name": "json, read by both",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"s\":1,\"\u017f\":2}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"i\":1,\"\u0131\":2}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"i\":1,\"\u0130\":2}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"ab\":1,\"a\u00adb\":2}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":\"\\ud800\",\"y\":\"\\udc00\",\"z\":\"\\udc00\\ud800\",\"w\":\"a\\ud83d\"}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":\"\\ud83d\\ude00\"}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":\"\\u0000\\u001f\"}",
+          "{\"type\":\"system\",\"subtype\":'api_retry'}",
+          "{\"type\":\"system\",subtype:\"api_retry\"}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",1a:1}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":\"\\'\\/\"}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":\"a\tb\rc\u0000d\"}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":\"\u00e9\"}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\u00a0\"x\":1}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\u3000\"x\":1}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\u2028\"x\":1}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\u0085\"x\":1\u2029}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":{}}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":NaN}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":-Infinity}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":{\"a\":1,\"a\":2}}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":\"a\"}\t ",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"psobjectx\":1}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"p\u017fobject\":1}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"ps\u00adbase\":1}"
+        ],
+        "fresh": true,
+        "fields": ["Retries"]
+      },
+      "expect": [
+        {"Retries": 1},
+        {"Retries": 1},
+        {"Retries": 1},
+        {"Retries": 1},
+        {"Retries": 1},
+        {"Retries": 1},
+        {"Retries": 1},
+        {"Retries": 1},
+        {"Retries": 1},
+        {"Retries": 1},
+        {"Retries": 1},
+        {"Retries": 1},
+        {"Retries": 1},
+        {"Retries": 1},
+        {"Retries": 1},
+        {"Retries": 1},
+        {"Retries": 1},
+        {"Retries": 1},
+        {"Retries": 1},
+        {"Retries": 1},
+        {"Retries": 1},
+        {"Retries": 1},
+        {"Retries": 1},
+        {"Retries": 1},
+        {"Retries": 1}
+      ]
+    },
+    {
+      "name": "json, read by one",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":[1,2,]}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":[1,,2]}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":[,1]}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\"/*c*/}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\"}//c",
+          "/*c*/{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":{\"type\":\"result\"}}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":/*c*/1}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",/*c*/\"x\":1}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":[1/*c*/]}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",a-b:1}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",a$b:1}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",a.b:1}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":undefined}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":\"\\u 041\"}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\u0000\"x\":1}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\"}\u0000",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":0x10}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":+5}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":08}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":1E400}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":5-}"
+        ],
+        "fresh": true,
+        "fields": ["Retries"]
+      },
+      "expectByEdition": {
+        "Desktop": [
+          {"Retries": 0},
+          {"Retries": 0},
+          {"Retries": 0},
+          {"Retries": 0},
+          {"Retries": 0},
+          {"Retries": 0},
+          {"Retries": 0},
+          {"Retries": 0},
+          {"Retries": 0},
+          {"Retries": 0},
+          {"Retries": 1},
+          {"Retries": 0},
+          {"Retries": 1},
+          {"Retries": 0},
+          {"Retries": 1},
+          {"Retries": 0},
+          {"Retries": 0},
+          {"Retries": 0},
+          {"Retries": 1},
+          {"Retries": 1},
+          {"Retries": 0},
+          {"Retries": 1}
+        ],
+        "Core": [
+          {"Retries": 1},
+          {"Retries": 1},
+          {"Retries": 1},
+          {"Retries": 1},
+          {"Retries": 1},
+          {"Retries": 1},
+          {"Retries": 1},
+          {"Retries": 1},
+          {"Retries": 1},
+          {"Retries": 1},
+          {"Retries": 0},
+          {"Retries": 1},
+          {"Retries": 0},
+          {"Retries": 1},
+          {"Retries": 0},
+          {"Retries": 1},
+          {"Retries": 1},
+          {"Retries": 1},
+          {"Retries": 0},
+          {"Retries": 0},
+          {"Retries": 1},
+          {"Retries": 0}
+        ]
+      }
+    },
+    {
+      "name": "json, micro sign and capital mu",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"s\",\"\u00b5\":1,\"\u039c\":2}"
+        ],
+        "fields": ["Init", "Session"]
+      },
+      "expectByEdition": {"Desktop": {"Init": true, "Session": "s"}, "Core": {"Init": false, "Session": null}}
+    },
+    {
+      "name": "json, values by edition",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":[1,,2]}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":[1,2,]}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":[,1]}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":[1,/*c*/2]}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":[/*c*/]}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":[1/*c*/]}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":[undefined,1]}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":/*c*/\"A\"}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":\"\\u 041\"}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":{\"a\":1,\"b\":2,\"a\":3}}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":{\"__type\":\"x\",\"k\":1}}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":{\"k\":1,\"__type\":5,\"m\":true}}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":{\"__type\":true,\"k\":1}}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":{\"k\":1,\"__type\":\"\",\"m\":2}}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":{\"__type\":\"x\"}}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":{\"__type\":null,\"k\":1}}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":{\"__type\":{},\"k\":1}}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":{\"__type\":[],\"k\":1}}",
+          "{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":{\"o\":{\"__type\":\"x\",\"k\":1},\"l\":[{\"__type\":\"y\",\"m\":2}]}}"
+        ],
+        "fresh": true,
+        "fields": ["Denied"]
+      },
+      "expectByEdition": {
+        "Desktop": [
+          {"Denied": []},
+          {"Denied": []},
+          {"Denied": []},
+          {"Denied": []},
+          {"Denied": []},
+          {"Denied": []},
+          {"Denied": []},
+          {"Denied": []},
+          {"Denied": ["A"]},
+          {"Denied": ["@{a=3; b=2}"]},
+          {"Denied": ["@{k=1}"]},
+          {"Denied": ["@{k=1; m=True}"]},
+          {"Denied": ["@{k=1}"]},
+          {"Denied": ["@{k=1; m=2}"]},
+          {"Denied": [""]},
+          {"Denied": ["@{__type=; k=1}"]},
+          {"Denied": []},
+          {"Denied": []},
+          {"Denied": ["@{o=; l=System.Object[]}"]}
+        ],
+        "Core": [
+          {"Denied": ["1  2"]},
+          {"Denied": ["1 2"]},
+          {"Denied": [" 1"]},
+          {"Denied": ["1 2"]},
+          {"Denied": []},
+          {"Denied": ["1"]},
+          {"Denied": [" 1"]},
+          {"Denied": ["A"]},
+          {"Denied": []},
+          {"Denied": ["@{b=2; a=3}"]},
+          {"Denied": ["@{__type=x; k=1}"]},
+          {"Denied": ["@{k=1; __type=5; m=True}"]},
+          {"Denied": ["@{__type=True; k=1}"]},
+          {"Denied": ["@{k=1; __type=; m=2}"]},
+          {"Denied": ["@{__type=x}"]},
+          {"Denied": ["@{__type=; k=1}"]},
+          {"Denied": ["@{__type=; k=1}"]},
+          {"Denied": ["@{__type=System.Object[]; k=1}"]},
+          {"Denied": ["@{o=; l=System.Object[]}"]}
+        ]
+      }
+    },
+    {
+      "name": "json, values kept by edition",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":{\"a\":1,\"b\":2,\"a\":3}}",
+          "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":{\"__TYPE\":\"x\",\"k\":1}}",
+          "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":{\"$type\":\"x\",\"$id\":\"1\",\"k\":1}}"
+        ],
+        "fresh": true,
+        "fields": ["Session"]
+      },
+      "expectByEdition": {
+        "Desktop": [
+          {"Session": {"a": 3, "b": 2}},
+          {"Session": {"__TYPE": "x", "k": 1}},
+          {"Session": {"$type": "x", "$id": "1", "k": 1}}
+        ],
+        "Core": [
+          {"Session": {"b": 2, "a": 3}},
+          {"Session": {"__TYPE": "x", "k": 1}},
+          {"Session": {"$type": "x", "$id": "1", "k": 1}}
+        ]
+      }
+    },
+    {
+      "name": "json, the same key twice",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"a\",\"session_id\":\"b\"}",
+          "{\"type\":\"system\",\"subtype\":\"api_retry\",\"type\":\"result\"}"
+        ],
+        "fresh": true,
+        "fields": ["Init", "Session", "Retries", "Result"]
+      },
+      "expect": [
+        {"Init": true, "Session": "b", "Retries": 0, "Result": null},
+        {
+          "Init": false,
+          "Session": null,
+          "Retries": 0,
+          "Result": "{\"type\":\"system\",\"subtype\":\"api_retry\",\"type\":\"result\"}"
+        }
+      ]
+    },
+    {
+      "name": "json, an escaped backslash before u",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"\\\\ud800 \\\\\\ud83d\\ude00\"}]}}"
+        ],
+        "fields": ["LastText"]
+      },
+      "expect": {"LastText": "\\ud800 \\\ud83d\ude00"}
+    },
+    {
+      "name": "json, depth",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          {
+            "parts": [
+              ["{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":", 1],
+              ["{\"a\":", 100],
+              ["1", 1],
+              ["}", 101]
+            ],
+            "length": 645
+          },
+          {
+            "parts": [
+              ["{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":", 1],
+              ["{\"a\":", 101],
+              ["1", 1],
+              ["}", 102]
+            ],
+            "length": 651
+          },
+          {
+            "parts": [
+              ["{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":", 1],
+              ["[", 101],
+              ["]", 101],
+              ["}", 1]
+            ],
+            "length": 246
+          },
+          {
+            "parts": [
+              ["{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":", 1],
+              ["[", 102],
+              ["]", 102],
+              ["}", 1]
+            ],
+            "length": 248
+          },
+          {
+            "parts": [
+              ["{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":", 1],
+              ["[", 1023],
+              ["]", 1023],
+              ["}", 1]
+            ],
+            "length": 2090
+          },
+          {
+            "parts": [
+              ["{\"type\":\"system\",\"subtype\":\"api_retry\",\"x\":", 1],
+              ["[", 1024],
+              ["]", 1024],
+              ["}", 1]
+            ],
+            "length": 2092
+          }
+        ],
+        "fresh": true,
+        "fields": ["Retries"]
+      },
+      "expectByEdition": {
+        "Desktop": [
+          {"Retries": 1},
+          {"Retries": 0},
+          {"Retries": 1},
+          {"Retries": 0},
+          {"Retries": 0},
+          {"Retries": 0}
+        ],
+        "Core": [
+          {"Retries": 1},
+          {"Retries": 1},
+          {"Retries": 1},
+          {"Retries": 1},
+          {"Retries": 1},
+          {"Retries": 0}
+        ]
+      }
+    },
+    {
+      "name": "members, Claude",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "[{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":null},{\"tool_name\":\"B\"},{\"z\":1,\"x\":{\"type\":\"result\"}}]",
+          "[{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":\"A\"},{\"z\":1},{\"tool_name\":\"B\",\"x\":{\"type\":\"result\"}}]",
+          "[{\"type\":\"system\",\"subtype\":\"permission_denied\",\"tool_name\":\"A\"},\"str\",5,null,true,{\"tool_name\":\"B\",\"x\":{\"type\":\"result\"}}]",
+          "[{\"type\":\"system\",\"subtype\":\"api_retry\"},{\"subtype\":\"api_retry\"},{\"type\":\"result\"}]"
+        ],
+        "fresh": true,
+        "fields": ["Retries", "Denied", "Result"]
+      },
+      "expect": [
+        {"Retries": 0, "Denied": [" B "], "Result": null},
+        {"Retries": 0, "Denied": ["A  B"], "Result": null},
+        {"Retries": 0, "Denied": ["A B"], "Result": null},
+        {
+          "Retries": 1,
+          "Denied": [],
+          "Result": "[{\"type\":\"system\",\"subtype\":\"api_retry\"},{\"subtype\":\"api_retry\"},{\"type\":\"result\"}]"
+        }
+      ]
+    },
+    {
+      "name": "members, turns",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"type\":\"assistant\",\"message\":[{\"model\":\"m\",\"content\":[{\"type\":\"text\",\"text\":\"a\"}]},{\"content\":[{\"type\":\"text\",\"text\":\"b\"}]}]}",
+          "{\"type\":\"assistant\",\"message\":[{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error: 500\"}]},{\"model\":null}]}",
+          "{\"type\":\"assistant\",\"message\":[[{\"model\":\"m\",\"content\":[{\"type\":\"text\",\"text\":\"deep\"}]}]]}",
+          "{\"type\":\"assistant\",\"message\":[{\"content\":[{\"type\":\"text\",\"text\":\"a\"}]},{\"content\":{\"type\":\"text\",\"text\":\"b\"}}]}",
+          "{\"type\":\"assistant\",\"message\":[{\"content\":[[{\"type\":\"text\",\"text\":\"a\"}]]},{\"content\":[]}]}",
+          "{\"type\":\"assistant\",\"message\":[\"x\",5,{\"content\":[{\"type\":\"text\",\"text\":\"c\"}]}]}",
+          "{\"type\":\"assistant\",\"message\":{\"model\":[\"<synthetic>\",\"x\"],\"content\":[{\"type\":\"text\",\"text\":\"API Error: 500\"}]}}"
+        ],
+        "fresh": true,
+        "fields": ["Assistant", "LastText", "Overloaded"]
+      },
+      "expect": [
+        {"Assistant": 1, "LastText": "b", "Overloaded": null},
+        {"Assistant": 0, "LastText": "", "Overloaded": "API Error: 500"},
+        {"Assistant": 1, "LastText": "deep", "Overloaded": null},
+        {"Assistant": 1, "LastText": "b", "Overloaded": null},
+        {"Assistant": 1, "LastText": "a", "Overloaded": null},
+        {"Assistant": 1, "LastText": "c", "Overloaded": null},
+        {"Assistant": 0, "LastText": "", "Overloaded": "API Error: 500"}
+      ]
+    },
+    {
+      "name": "members, Codex errors",
+      "input": {
+        "provider": "codex",
+        "lines": [
+          "{\"type\":\"turn.failed\",\"error\":[{\"message\":\"a\"},{\"message\":\"b\"}]}",
+          "{\"type\":\"turn.failed\",\"error\":[\"s\",5,null,true,{\"message\":\"b\"}]}",
+          "{\"type\":\"turn.failed\",\"error\":[null,{\"message\":\"b\"}]}",
+          "{\"type\":\"turn.failed\",\"error\":[[],{\"message\":\"b\"}]}",
+          "{\"type\":\"turn.failed\",\"error\":[[{\"message\":\"a\"},{\"message\":\"c\"}],{\"message\":\"b\"}]}",
+          "{\"type\":\"turn.failed\",\"error\":[[{\"x\":1}],{\"message\":\"b\"}]}",
+          "{\"type\":\"turn.failed\",\"error\":[[{\"x\":1},{\"x\":2}],{\"message\":\"b\"}]}",
+          "{\"type\":\"turn.failed\",\"error\":[{\"message\":null},{\"message\":\"b\"}]}",
+          "{\"type\":\"turn.failed\",\"error\":[{\"message\":[]},{\"message\":\"b\"}]}",
+          "{\"type\":\"turn.failed\",\"error\":[{\"message\":[[\"x\",\"y\"]]},{\"message\":\"b\"}]}",
+          "{\"type\":\"turn.failed\",\"error\":[{\"message\":[\"x\"]}]}",
+          "{\"type\":\"turn.failed\",\"error\":[{\"message\":[[\"x\",\"y\"]]}]}",
+          "{\"type\":\"turn.failed\",\"error\":[{\"message\":{\"k\":1}},{\"message\":\"b\"}]}",
+          "{\"type\":\"turn.failed\",\"error\":[\"s\",5]}",
+          "{\"type\":\"turn.failed\",\"error\":[]}",
+          "{\"type\":\"turn.failed\",\"error\":[[[{\"message\":\"a\"}]],{\"message\":\"b\"}]}"
+        ],
+        "fresh": true,
+        "fields": ["TurnFailed"]
+      },
+      "expect": [
+        {"TurnFailed": "a b"},
+        {"TurnFailed": "b"},
+        {"TurnFailed": "b"},
+        {"TurnFailed": "b"},
+        {"TurnFailed": "a c b"},
+        {"TurnFailed": " b"},
+        {"TurnFailed": "  b"},
+        {"TurnFailed": " b"},
+        {"TurnFailed": "b"},
+        {"TurnFailed": "System.Object[] b"},
+        {"TurnFailed": "x"},
+        {"TurnFailed": "x y"},
+        {"TurnFailed": " b"},
+        {"TurnFailed": ""},
+        {"TurnFailed": ""},
+        {"TurnFailed": "a b"}
+      ]
+    },
+    {
+      "name": "members, Codex lines",
+      "input": {
+        "provider": "codex",
+        "lines": [
+          "[{\"type\":\"turn.started\"}]",
+          "[{\"type\":\"turn.started\"},{\"type\":\"turn.completed\"}]",
+          "[]",
+          "[[{\"type\":\"turn.started\"}]]",
+          {"parts": [["[", 100], ["{\"type\":\"turn.started\"}", 1], ["]", 100]], "length": 223}
+        ],
+        "fresh": true,
+        "fields": ["TurnStarted", "TurnDone"]
+      },
+      "expect": [
+        {"TurnStarted": true, "TurnDone": false},
+        {"TurnStarted": true, "TurnDone": true},
+        {"TurnStarted": false, "TurnDone": false},
+        {"TurnStarted": true, "TurnDone": false},
+        {"TurnStarted": true, "TurnDone": false}
+      ]
+    },
+    {
+      "name": "members, a line 101 lists deep",
+      "input": {
+        "provider": "codex",
+        "lines": [{"parts": [["[", 101], ["{\"type\":\"turn.started\"}", 1], ["]", 101]], "length": 225}],
+        "fields": ["TurnStarted"]
+      },
+      "expectByEdition": {"Desktop": {"TurnStarted": false}, "Core": {"TurnStarted": true}}
+    },
+    {
+      "name": "members, a one-item line by edition",
+      "input": {
+        "provider": "codex",
+        "lines": [
+          "[{\"type\":\"thread.started\",\"thread_id\":[1]}]",
+          "[{\"type\":\"thread.started\",\"thread_id\":[]}]",
+          "[{\"type\":\"thread.started\",\"thread_id\":[[1,2]]}]",
+          "[{\"type\":\"thread.started\",\"thread_id\":\"T\"}]"
+        ],
+        "fresh": true,
+        "fields": ["Init", "Thread"]
+      },
+      "expectByEdition": {
+        "Desktop": [
+          {"Init": true, "Thread": 1},
+          {"Init": true, "Thread": null},
+          {"Init": true, "Thread": [1, 2]},
+          {"Init": true, "Thread": "T"}
+        ],
+        "Core": [
+          {"Init": true, "Thread": [1]},
+          {"Init": true, "Thread": []},
+          {"Init": true, "Thread": [[1, 2]]},
+          {"Init": true, "Thread": "T"}
+        ]
+      }
+    },
+    {
+      "name": "cap, ASCII",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          {
+            "parts": [
+              ["{\"type\":\"system\",\"subtype\":\"api_retry\",\"p\":\"", 1],
+              ["z", 0],
+              ["z", 1048531],
+              ["\"}", 1]
+            ],
+            "length": 1048577
+          },
+          {
+            "parts": [
+              ["{\"type\":\"system\",\"subtype\":\"api_retry\",\"p\":\"", 1],
+              ["z", 0],
+              ["z", 1048530],
+              ["\"}", 1]
+            ],
+            "length": 1048576
+          }
+        ],
+        "each": true,
+        "fields": ["Retries"]
+      },
+      "expect": [{"Retries": 0}, {"Retries": 1}]
+    },
+    {
+      "name": "cap, astral",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          {
+            "parts": [
+              ["{\"type\":\"system\",\"subtype\":\"api_retry\",\"p\":\"", 1],
+              ["z", 1],
+              ["\ud83d\ude00", 524265],
+              ["\"}", 1]
+            ],
+            "length": 1048577
+          },
+          {
+            "parts": [
+              ["{\"type\":\"system\",\"subtype\":\"api_retry\",\"p\":\"", 1],
+              ["z", 0],
+              ["\ud83d\ude00", 524265],
+              ["\"}", 1]
+            ],
+            "length": 1048576
+          }
+        ],
+        "each": true,
+        "fields": ["Retries"]
+      },
+      "expect": [{"Retries": 0}, {"Retries": 1}]
+    },
+    {
+      "name": "cap, CJK",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          {
+            "parts": [
+              ["{\"type\":\"system\",\"subtype\":\"api_retry\",\"p\":\"", 1],
+              ["z", 0],
+              ["\u4e00", 1048531],
+              ["\"}", 1]
+            ],
+            "length": 1048577
+          },
+          {
+            "parts": [
+              ["{\"type\":\"system\",\"subtype\":\"api_retry\",\"p\":\"", 1],
+              ["z", 0],
+              ["\u4e00", 1048530],
+              ["\"}", 1]
+            ],
+            "length": 1048576
+          }
+        ],
+        "each": true,
+        "fields": ["Retries"]
+      },
+      "expect": [{"Retries": 0}, {"Retries": 1}]
+    },
+    {
+      "name": "cap, Codex",
+      "input": {
+        "provider": "codex",
+        "lines": [
+          {
+            "parts": [["{\"type\":\"turn.started\",\"p\":\"", 1], ["z", 0], ["z", 1048547], ["\"}", 1]],
+            "length": 1048577
+          },
+          {
+            "parts": [["{\"type\":\"turn.started\",\"p\":\"", 1], ["z", 0], ["z", 1048546], ["\"}", 1]],
+            "length": 1048576
+          }
+        ],
+        "each": true,
+        "fields": ["TurnStarted"]
+      },
+      "expect": [{"TurnStarted": false}, {"TurnStarted": true}]
+    },
+    {
+      "name": "codex, a turn",
+      "input": {
+        "provider": "codex",
+        "lines": [
+          "{\"type\":\"thread.started\",\"thread_id\":\"11111111-2222-4333-8444-555555555555\"}",
+          "{\"type\":\"turn.started\"}",
+          "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":10,\"output_tokens\":2}}"
+        ],
+        "each": true,
+        "fields": ["Init", "Thread", "TurnStarted", "TurnDone"]
+      },
+      "expect": [
+        {
+          "Init": true,
+          "Thread": "11111111-2222-4333-8444-555555555555",
+          "TurnStarted": false,
+          "TurnDone": false
+        },
+        {
+          "Init": true,
+          "Thread": "11111111-2222-4333-8444-555555555555",
+          "TurnStarted": true,
+          "TurnDone": false
+        },
+        {
+          "Init": true,
+          "Thread": "11111111-2222-4333-8444-555555555555",
+          "TurnStarted": true,
+          "TurnDone": true
+        }
+      ]
+    },
+    {
+      "name": "codex, events",
+      "input": {
+        "provider": "codex",
+        "lines": [
+          "{\"type\":\"thread.started\",\"thread_id\":5}",
+          "{\"type\":\"thread.started\"}",
+          "{\"type\":\"thread.started\",\"thread_id\":{\"a\":[1,\"b\"]}}",
+          ["{\"type\":\"TURN.STARTED\"}", "{\"type\":\"Thread.Started\",\"thread_id\":\"T\"}"],
+          "{\"type\":[\"turn.started\",\"turn.completed\"]}",
+          "{\"type\":true,\"thread_id\":\"T\"}",
+          "{\"type\":\"turn.\u00adstarted\"}",
+          "{\"type\":\"turn.completed\\u0000\"}",
+          "{\"type\":\"turn.started \"}",
+          [
+            "{\"type\":\"item.started\",\"item\":{\"id\":\"i\",\"type\":\"command_execution\",\"status\":\"in_progress\"}}",
+            "{\"type\":\"item.updated\",\"item\":{\"id\":\"i\",\"type\":\"todo_list\"}}"
+          ],
+          [
+            "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"11111111-2222-4333-8444-555555555555\",\"model\":\"claude-fake-1\",\"permissionMode\":\"default\",\"claude_code_version\":\"2.1.278\"}",
+            "{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"ok\"}",
+            "{\"type\":\"assistant\",\"message\":{\"model\":\"m\",\"content\":[{\"type\":\"text\",\"text\":\"x\"}]}}"
+          ],
+          ["\"text\"", "5", "null", "true", "{}", "", "   "],
+          [
+            "{\"type\":\"turn.started\"",
+            "{\"type\":\"turn.started\",\"x\":1,\"X\":2}",
+            "{\"type\":\"turn.started\"} x"
+          ]
+        ],
+        "fresh": true,
+        "fields": ["Init", "Thread", "TurnStarted", "TurnDone"]
+      },
+      "expect": [
+        {"Init": true, "Thread": 5, "TurnStarted": false, "TurnDone": false},
+        {"Init": true, "Thread": null, "TurnStarted": false, "TurnDone": false},
+        {"Init": true, "Thread": {"a": [1, "b"]}, "TurnStarted": false, "TurnDone": false},
+        {"Init": true, "Thread": "T", "TurnStarted": true, "TurnDone": false},
+        {"Init": false, "Thread": null, "TurnStarted": true, "TurnDone": true},
+        {"Init": false, "Thread": null, "TurnStarted": false, "TurnDone": false},
+        {"Init": false, "Thread": null, "TurnStarted": true, "TurnDone": false},
+        {"Init": false, "Thread": null, "TurnStarted": false, "TurnDone": true},
+        {"Init": false, "Thread": null, "TurnStarted": false, "TurnDone": false},
+        {"Init": false, "Thread": null, "TurnStarted": false, "TurnDone": false},
+        {"Init": false, "Thread": null, "TurnStarted": false, "TurnDone": false},
+        {"Init": false, "Thread": null, "TurnStarted": false, "TurnDone": false},
+        {"Init": false, "Thread": null, "TurnStarted": false, "TurnDone": false}
+      ]
+    },
+    {
+      "name": "codex, failures",
+      "input": {
+        "provider": "codex",
+        "lines": [
+          [
+            "{\"type\":\"turn.failed\",\"error\":{\"message\":\"boom\"}}",
+            "{\"type\":\"error\",\"message\":\"later\"}"
+          ],
+          [
+            "{\"type\":\"error\",\"message\":\"first\"}",
+            "{\"type\":\"turn.failed\",\"error\":{\"message\":\"boom\"}}"
+          ],
+          [
+            "{\"type\":\"error\",\"message\":\"\"}",
+            "{\"type\":\"error\",\"message\":\"second\"}",
+            "{\"type\":\"error\",\"message\":\"third\"}"
+          ],
+          "{\"type\":\"error\"}",
+          ["{\"type\":\"turn.failed\"}", "{\"type\":\"error\",\"message\":\"later\"}"],
+          "{\"type\":\"turn.failed\",\"error\":\"plain\"}",
+          "{\"type\":\"error\",\"message\":5}",
+          "{\"type\":\"error\",\"message\":[\"a\",null,\"b\"]}",
+          "{\"type\":\"turn.failed\",\"error\":{\"message\":{\"k\":1}}}",
+          "{\"type\":\"turn.failed\",\"error\":{\"message\":1.5}}"
+        ],
+        "fresh": true,
+        "fields": ["TurnFailed", "Failed"]
+      },
+      "expect": [
+        {"TurnFailed": "boom", "Failed": "boom"},
+        {"TurnFailed": "boom", "Failed": "boom"},
+        {"TurnFailed": null, "Failed": "second"},
+        {"TurnFailed": null, "Failed": ""},
+        {"TurnFailed": "", "Failed": "later"},
+        {"TurnFailed": "", "Failed": ""},
+        {"TurnFailed": null, "Failed": "5"},
+        {"TurnFailed": null, "Failed": "a  b"},
+        {"TurnFailed": "@{k=1}", "Failed": "@{k=1}"},
+        {"TurnFailed": "1.5", "Failed": "1.5"}
+      ]
+    },
+    {
+      "name": "codex, items",
+      "input": {
+        "provider": "codex",
+        "lines": [
+          "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":\"The build fails.\"}}",
+          "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":\"\"}}",
+          "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":0}}",
+          "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":\"0\"}}",
+          "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":5}}",
+          "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":1.5}}",
+          "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":[\"a\",\"b\"]}}",
+          "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":{\"k\":1}}}",
+          "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":true}}",
+          "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":false}}",
+          "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":null}}",
+          "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":[\"\"]}}",
+          "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":[\"\",\"\"]}}",
+          "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":[[null]]}}",
+          "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\"}}",
+          "{\"type\":\"item.completed\",\"item\":{\"type\":\"AGENT_MESSAGE\",\"text\":\"x\"}}",
+          "{\"type\":\"item.completed\",\"item\":{\"type\":[\"agent_message\"],\"text\":\"listed\"}}",
+          "{\"type\":\"item.completed\",\"item\":{\"id\":\"i\",\"text\":\"x\"}}",
+          "{\"type\":\"item.completed\"}",
+          "{\"type\":\"item.completed\",\"item\":{\"type\":5}}",
+          "{\"type\":\"item.completed\",\"item\":{\"type\":true}}",
+          "{\"type\":\"item.completed\",\"item\":{\"type\":[\"a\",\"b\"]}}",
+          [
+            "{\"type\":\"item.completed\",\"item\":{\"id\":\"i\",\"type\":\"command_execution\"}}",
+            "{\"type\":\"item.completed\",\"item\":{\"id\":\"i\",\"type\":\"file_change\"}}",
+            "{\"type\":\"item.completed\",\"item\":{\"id\":\"i\",\"type\":\"reasoning\"}}",
+            "{\"type\":\"item.completed\",\"item\":{\"id\":\"i\",\"type\":\"mcp_tool_call\"}}",
+            "{\"type\":\"item.completed\",\"item\":{\"id\":\"i\",\"type\":\"web_search\"}}",
+            "{\"type\":\"item.completed\",\"item\":{\"id\":\"i\",\"type\":\"todo_list\"}}"
+          ]
+        ],
+        "fresh": true,
+        "fields": ["Assistant", "LastText", "Tools"]
+      },
+      "expect": [
+        {"Assistant": 1, "LastText": "The build fails.", "Tools": []},
+        {"Assistant": 0, "LastText": "", "Tools": ["agent_message"]},
+        {"Assistant": 0, "LastText": "", "Tools": ["agent_message"]},
+        {"Assistant": 1, "LastText": "0", "Tools": []},
+        {"Assistant": 1, "LastText": "5", "Tools": []},
+        {"Assistant": 1, "LastText": "1.5", "Tools": []},
+        {"Assistant": 1, "LastText": "a b", "Tools": []},
+        {"Assistant": 1, "LastText": "@{k=1}", "Tools": []},
+        {"Assistant": 1, "LastText": "True", "Tools": []},
+        {"Assistant": 0, "LastText": "", "Tools": ["agent_message"]},
+        {"Assistant": 0, "LastText": "", "Tools": ["agent_message"]},
+        {"Assistant": 0, "LastText": "", "Tools": ["agent_message"]},
+        {"Assistant": 1, "LastText": " ", "Tools": []},
+        {"Assistant": 1, "LastText": "System.Object[]", "Tools": []},
+        {"Assistant": 0, "LastText": "", "Tools": ["agent_message"]},
+        {"Assistant": 1, "LastText": "x", "Tools": []},
+        {"Assistant": 1, "LastText": "listed", "Tools": []},
+        {"Assistant": 0, "LastText": "", "Tools": []},
+        {"Assistant": 0, "LastText": "", "Tools": []},
+        {"Assistant": 0, "LastText": "", "Tools": ["5"]},
+        {"Assistant": 0, "LastText": "", "Tools": ["True"]},
+        {"Assistant": 0, "LastText": "", "Tools": ["a b"]},
+        {
+          "Assistant": 0,
+          "LastText": "",
+          "Tools": [
+            "command_execution",
+            "file_change",
+            "reasoning",
+            "mcp_tool_call",
+            "web_search",
+            "todo_list"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "codex, rate_limits lines",
+      "input": {
+        "provider": "codex",
+        "lines": [
+          "{\"type\":\"thread.started\",\"thread_id\":\"t\"}",
+          "{\"timestamp\":\"2026-09-20T10:00:00.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"rate_limits\":{\"limit_id\":\"codex\",\"primary\":{\"used_percent\":7.0,\"window_minutes\":10080,\"resets_at\":1790000000},\"secondary\":null,\"plan_type\":\"free\",\"rate_limit_reached_type\":\"rate_limit_reached\"}}}",
+          "{\"timestamp\": \"2026-09-20T10:00:00.000Z\", \"type\": \"event_msg\", \"payload\": {\"type\": \"token_count\", \"rate_limits\": {\"limit_id\": \"codex\", \"primary\": {\"used_percent\": 42.0, \"window_minutes\": 300, \"resets_at\": 1790000000}, \"secondary\": null, \"plan_type\": \"plus\", \"rate_limit_reached_type\": null}}}",
+          "{\"timestamp\":\"2026-09-20T10:00:00.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"rate_limits\":{\"limit_id\":\"codex\",\"primary\":null,\"secondary\":null,\"plan_type\":\"free\"}}}",
+          "{\"timestamp\":\"2026-09-20T10:00:00.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"rate_limits\":{\"limit_id\":\"codex\",\"primary\":{\"used_perc",
+          "{\"type\":\"turn.completed\"}"
+        ],
+        "each": true,
+        "fields": ["Init", "TurnDone", "Assistant", "Tools"]
+      },
+      "expect": [
+        {"Init": true, "TurnDone": false, "Assistant": 0, "Tools": []},
+        {"Init": true, "TurnDone": false, "Assistant": 0, "Tools": []},
+        {"Init": true, "TurnDone": false, "Assistant": 0, "Tools": []},
+        {"Init": true, "TurnDone": false, "Assistant": 0, "Tools": []},
+        {"Init": true, "TurnDone": false, "Assistant": 0, "Tools": []},
+        {"Init": true, "TurnDone": true, "Assistant": 0, "Tools": []}
+      ]
+    },
+    {
+      "name": "codex, rate_limits through Claude",
+      "input": {
+        "provider": "claude",
+        "lines": [
+          "{\"timestamp\":\"2026-09-20T10:00:00.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"rate_limits\":{\"limit_id\":\"codex\",\"primary\":{\"used_percent\":7.0,\"window_minutes\":10080,\"resets_at\":1790000000},\"secondary\":null,\"plan_type\":\"free\",\"rate_limit_reached_type\":\"rate_limit_reached\"}}}",
+          "{\"timestamp\": \"2026-09-20T10:00:00.000Z\", \"type\": \"event_msg\", \"payload\": {\"type\": \"token_count\", \"rate_limits\": {\"limit_id\": \"codex\", \"primary\": {\"used_percent\": 42.0, \"window_minutes\": 300, \"resets_at\": 1790000000}, \"secondary\": null, \"plan_type\": \"plus\", \"rate_limit_reached_type\": null}}}"
+        ],
+        "fields": ["Rate", "Limit", "Result"]
+      },
+      "expect": {"Rate": null, "Limit": null, "Result": null}
+    }
+  ]
+}

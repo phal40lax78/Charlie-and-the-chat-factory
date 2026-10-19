@@ -9,17 +9,146 @@ on:
   workflow_call:
 
 jobs:
+  # chatqd, the native watcher (native/SPEC.md 6.4). Every run step is in
+  # native/, where rustup finds rust-toolchain.toml and cargo finds
+  # .cargo/config.toml's +crt-static, which a release build refuses to go
+  # without. The release build comes first, so the PowerShell legs get an
+  # exe to run whatever a later step finds.
+  native-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: native
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Toolchain
+        run: |
+          rustup toolchain install
+          rustc --version
+
+      - name: Release build
+        run: cargo build --release --locked --target x86_64-pc-windows-msvc
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: chatqd-x86_64-pc-windows-msvc
+          path: native/target/x86_64-pc-windows-msvc/release/chatqd.exe
+          if-no-files-found: error
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Lint
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace --locked
+
+      # this PC's zone is the one contract no vector file can hold
+      # (native/SPEC.md 6.1): the live checks under a zone that keeps summer
+      # time and one that does not, under each PowerShell. The runner's own
+      # zone, UTC, is the PowerShell legs'.
+      - name: Live checks, Pacific and Korea time
+        working-directory: .
+        run: |
+          $exe = 'native/target/x86_64-pc-windows-msvc/release/chatqd.exe'
+          $bad = 0
+          foreach ($z in 'Pacific Standard Time', 'Korea Standard Time') {
+            tzutil /s $z
+            if ($LASTEXITCODE) { throw "tzutil /s '$z' failed" }
+            foreach ($ps in 'powershell', 'pwsh') {
+              "--- $ps, $(tzutil /g)"
+              & $ps -NoProfile -ExecutionPolicy Bypass -File tests/vectors.ps1 -Live $exe
+              $bad += $LASTEXITCODE
+            }
+          }
+          exit $bad
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+
+      - name: Dependencies (cargo deny)
+        run: cargo deny check
+
+  # The same on an Apple Silicon runner, plus the Intel build's tests under
+  # Rosetta and the universal binary, re-signed after lipo as a release's
+  # must be (native/SPEC.md 4.7). Uploaded as a .tar.gz, which keeps its
+  # mode, as a release asset does.
+  native-macos:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: native
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Toolchain
+        run: |
+          rustup toolchain install
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          rustc --version
+          if ! arch -x86_64 /usr/bin/true 2>/dev/null; then sudo softwareupdate --install-rosetta --agree-to-license; fi
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Lint
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Test (arm64)
+        run: cargo test --workspace --locked
+
+      - name: Test (x86_64, under Rosetta)
+        run: cargo test --workspace --locked --target x86_64-apple-darwin
+
+      - name: Release builds
+        run: |
+          cargo build --release --locked --target aarch64-apple-darwin
+          cargo build --release --locked --target x86_64-apple-darwin
+
+      - name: Universal binary, re-signed, run
+        run: |
+          u=target/universal-apple-darwin/release
+          mkdir -p $u
+          lipo -create -output $u/chatqd target/aarch64-apple-darwin/release/chatqd target/x86_64-apple-darwin/release/chatqd
+          lipo -archs $u/chatqd
+          codesign --force --sign - $u/chatqd
+          codesign --verify --strict --verbose=2 $u/chatqd
+          $u/chatqd version --root ..
+          arch -x86_64 $u/chatqd version --root ..
+          chmod 0755 $u/chatqd
+          tar -czf target/chatqd-universal-apple-darwin.tar.gz -C $u chatqd
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: chatqd-universal-apple-darwin
+          path: native/target/chatqd-universal-apple-darwin.tar.gz
+          if-no-files-found: error
+
   test:
     # Windows-first: Windows PowerShell 5.1 and PowerShell 7 both ship on the
     # runner. macOS and Linux wait until the Unix branches get a fake CLI of
     # their own (DEFERRED.md).
     runs-on: windows-latest
+    # after native-windows, for its chatqd, and whether or not it passed
+    needs: native-windows
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
         host: [powershell, pwsh]
     steps:
       - uses: actions/checkout@v7
+
+      # where tests/sections/native.ps1 runs the real chatqd from: a
+      # developer's build. With none, its checks of it say so and skip.
+      - uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: chatqd-x86_64-pc-windows-msvc
+          path: native/target/release
 
       # 5.1 reads a BOM-less .ps1 in the ANSI code page. The runner is en-US,
       # where that never shows, so the rule the code depends on is checked here.

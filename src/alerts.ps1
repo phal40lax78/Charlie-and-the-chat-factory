@@ -595,20 +595,8 @@ function Get-ChatqState {
     return $s
 }
 
-function Test-ChatqLockHeld {
-    # The watcher and the overlay each hold a lock file open with no sharing
-    # for their whole life, and the OS lets go of it even when the process dies
-    # hard - so being able to open it means nobody holds it. A pid file alone
-    # would lie after a crash, and pids get reused.
-    param([string]$Path)
-    if (-not (Test-Path -LiteralPath $Path)) { return $false }
-    try {
-        $fs = [System.IO.File]::Open($Path, 'Open', 'ReadWrite', 'None')
-        $fs.Dispose()
-        return $false
-    }
-    catch { return $true }
-}
+# Test-ChatqLockHeld is in shell.ps1: a lazy shell asks it before the tool
+# loads.
 
 function Test-ChatqWatcherAlive {
     return (Test-ChatqLockHeld $script:ChatqLockPath)

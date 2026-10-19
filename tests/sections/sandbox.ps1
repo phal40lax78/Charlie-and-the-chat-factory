@@ -20,7 +20,7 @@ $env:CHAT_CODE_USER = $codeUser
 $env:CHATQ_CLAUDE = Join-Path $here 'fake-claude.cmd'
 $env:CHATQ_CODEX = Join-Path $here 'fake-claude.cmd'
 $env:CHATQ_WATCHER = '1'      # no auto-start from the load below
-# all 25 parts, the overlay's own among them, which a shell's load leaves
+# all 26 parts, the overlay's own among them, which a shell's load leaves
 # out - for this run and every child it starts
 $env:CHATQ_ALLPARTS = '1'
 # gh's login is this machine's, whatever the sandbox: no run - child
@@ -30,7 +30,7 @@ $env:CHATQ_GH = Join-Path $here 'no-such-gh.exe'
 # bring a real window to the front: the overlay's calls for it refuse, and
 # their type is never compiled (Invoke-ChatOverlayRaise)
 $env:CHATQ_NOFRONT = '1'
-foreach ($n in 'FAKE_RECORD', 'FAKE_SCENARIO', 'FAKE_LAND', 'FAKE_STDERR', 'FAKE_SLEEP', 'FAKE_AGENTS', 'FAKE_AGENTS_SEEN', 'FAKE_VERSION', 'FAKE_APPSERVER', 'FAKE_APPSERVER_NOMETHOD', 'CHATQ_CODE') { Remove-Item "env:$n" -EA SilentlyContinue }
+foreach ($n in 'FAKE_RECORD', 'FAKE_SCENARIO', 'FAKE_LAND', 'FAKE_STDERR', 'FAKE_SLEEP', 'FAKE_AGENTS', 'FAKE_AGENTS_SEEN', 'FAKE_VERSION', 'FAKE_APPSERVER', 'FAKE_APPSERVER_NOMETHOD', 'CHATQ_CODE', 'CHATQ_CHATQD', 'CHATQ_ENGINE', 'CHATQ_NATIVE_SEAMS') { Remove-Item "env:$n" -EA SilentlyContinue }
 
 function Get-Slug([string]$Path) { $Path.TrimEnd('\', '/') -replace '[^A-Za-z0-9]', '-' }
 
@@ -288,9 +288,11 @@ $script:ChatShowHoldSeconds = 0
 # run into a live chat would. The 'handover' section turns it on.
 $script:ChatHandoverOff = $true
 # nor is VS Code's real log read for why a window went (Get-ChatHostEndCause),
-# nor Windows' real memory looked at (Get-ChatMemoryCommit, Get-ChatMemoryTop):
-# no log, and plenty free. 'host-work' sets its own.
+# nor Windows' real memory looked at (Get-ChatMemoryCommit, Get-ChatMemoryTop,
+# Get-ChatMemorySums): no log, plenty free, and no program growing.
+# 'host-work' sets its own.
 $script:ChatHostLogRootsSeam = { @() }
 $script:ChatMemorySeam = { @{ Limit = 32GB; Free = 16GB } }
 $script:ChatMemoryTopSeam = { @() }
+$script:ChatMemorySumsSeam = { @{} }
 $script:SeamsAtStart = @{ Stop = $script:ChatStopSeam; Parent = $script:ChatParentSeam; Code = $script:ChatCodeSeam; Titles = $script:ChatWindowTitlesSeam }

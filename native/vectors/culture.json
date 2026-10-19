@@ -1,0 +1,1177 @@
+{
+  "about": "SPEC 2.11 in en-US, ko-KR, de-DE, fi-FI, hi-IN and tr-TR, and nl-NL, whose IJ at a word's start only pwsh 7 title-cases as one letter. launch: the --culture argument Get-ChatqWatcherLaunch -Native builds (src/watcher.ps1), and the CurrentCulture fields it must carry. clock: DateTime.ToString('HH:mm') and ('HH:mm:ss'). N0: '{0:N0}' -f an Int32, as Write-ChatqBoard counts a prompt's chars (src/alerts.ps1); the last is the largest a .NET string's Length can be. lanes: Format-ChatqLane and Format-ChatqProvider (src/watcher.ps1), TextInfo.ToTitleCase on the part before the first |.",
+  "cases": [
+    {
+      "name": "en-US launch",
+      "input": {"culture": "en-US", "what": "launch"},
+      "expect": {
+        "arg": "eyJuYW1lIjoiZW4tVVMiLCJ0aW1lU2VwIjoiOiIsImdyb3VwU2VwIjoiLCIsImdyb3VwU2l6ZXMiOlszXX0",
+        "carries": {"name": "en-US", "timeSep": ":", "groupSep": ",", "groupSizes": [3]}
+      }
+    },
+    {
+      "name": "en-US clock",
+      "input": {
+        "culture": "en-US",
+        "what": "clock",
+        "times": ["00:00:00", "12:00:00", "09:05:07", "23:59:59", "12:34:56.9999999"]
+      },
+      "expect": {
+        "hhmm": ["00:00", "12:00", "09:05", "23:59", "12:34"],
+        "hhmmss": ["00:00:00", "12:00:00", "09:05:07", "23:59:59", "12:34:56"]
+      }
+    },
+    {
+      "name": "en-US N0",
+      "input": {
+        "culture": "en-US",
+        "what": "n0",
+        "counts": [0, 7, 999, 1000, 12345, 100000, 1234567, 1234567890, 2147483647]
+      },
+      "expect": {
+        "n0": [
+          "0",
+          "7",
+          "999",
+          "1,000",
+          "12,345",
+          "100,000",
+          "1,234,567",
+          "1,234,567,890",
+          "2,147,483,647"
+        ]
+      }
+    },
+    {
+      "name": "en-US lanes",
+      "input": {
+        "culture": "en-US",
+        "what": "lanes",
+        "lanes": [
+          "claude",
+          "codex",
+          "claude|C:\\x\\.claude-work",
+          "codex|~/w",
+          "",
+          "codex|C:\\Users\\J\u00fcrgen\\.codex",
+          "claude|",
+          "|C:\\h",
+          "|",
+          "codex|a|b",
+          " ",
+          "CLAUDE",
+          "CODEX|C:\\x",
+          "cLaUdE",
+          "Claude",
+          "claudE",
+          "claude code",
+          "claude-code",
+          "claude_code",
+          "claude.code",
+          "claude/code",
+          "claude\tcode",
+          "a!b\"c#d$e%f&g(h)i*j+k,l-m.n/o:p;q<r=s>t?u@v[w\\x]y^z_a`b{c}d~e",
+          "x2y",
+          "2x",
+          "a1B2",
+          "o'NEIL",
+          "'quoted'",
+          "icloud",
+          "gemINI",
+          "GEMINI",
+          "Ii",
+          "iI",
+          "IBM-ibm",
+          "ijssel",
+          "IJSSEL",
+          "iJ",
+          "fijn 'ij x-ij i j",
+          "\u00e9mile",
+          "STRA\u00dfE",
+          "\u01c6emal",
+          "a\u2014b",
+          "a\u00a0b",
+          "a\u0301b"
+        ]
+      },
+      "expect": {
+        "lanes": [
+          {"lane": "claude", "name": "Claude", "provider": "Claude"},
+          {"lane": "codex", "name": "Codex", "provider": "Codex"},
+          {
+            "lane": "claude|C:\\x\\.claude-work",
+            "name": "Claude (C:\\x\\.claude-work)",
+            "provider": "Claude"
+          },
+          {"lane": "codex|~/w", "name": "Codex (~/w)", "provider": "Codex"},
+          {"lane": "", "name": "", "provider": "Claude"},
+          {
+            "lane": "codex|C:\\Users\\J\u00fcrgen\\.codex",
+            "name": "Codex (C:\\Users\\J\u00fcrgen\\.codex)",
+            "provider": "Codex"
+          },
+          {"lane": "claude|", "name": "Claude", "provider": "Claude"},
+          {"lane": "|C:\\h", "name": " (C:\\h)", "provider": "Claude"},
+          {"lane": "|", "name": "", "provider": "Claude"},
+          {"lane": "codex|a|b", "name": "Codex (a|b)", "provider": "Codex"},
+          {"lane": " ", "name": " ", "provider": " "},
+          {"lane": "CLAUDE", "name": "CLAUDE", "provider": "CLAUDE"},
+          {"lane": "CODEX|C:\\x", "name": "CODEX (C:\\x)", "provider": "CODEX"},
+          {"lane": "cLaUdE", "name": "Claude", "provider": "Claude"},
+          {"lane": "Claude", "name": "Claude", "provider": "Claude"},
+          {"lane": "claudE", "name": "Claude", "provider": "Claude"},
+          {"lane": "claude code", "name": "Claude Code", "provider": "Claude Code"},
+          {"lane": "claude-code", "name": "Claude-Code", "provider": "Claude-Code"},
+          {"lane": "claude_code", "name": "Claude_Code", "provider": "Claude_Code"},
+          {"lane": "claude.code", "name": "Claude.Code", "provider": "Claude.Code"},
+          {"lane": "claude/code", "name": "Claude/Code", "provider": "Claude/Code"},
+          {"lane": "claude\tcode", "name": "Claude\tCode", "provider": "Claude\tCode"},
+          {
+            "lane": "a!b\"c#d$e%f&g(h)i*j+k,l-m.n/o:p;q<r=s>t?u@v[w\\x]y^z_a`b{c}d~e",
+            "name": "A!B\"C#D$E%F&G(H)I*J+K,L-M.N/O:P;Q<R=S>T?U@V[W\\X]Y^Z_A`B{C}D~E",
+            "provider": "A!B\"C#D$E%F&G(H)I*J+K,L-M.N/O:P;Q<R=S>T?U@V[W\\X]Y^Z_A`B{C}D~E"
+          },
+          {"lane": "x2y", "name": "X2y", "provider": "X2y"},
+          {"lane": "2x", "name": "2X", "provider": "2X"},
+          {"lane": "a1B2", "name": "A1b2", "provider": "A1b2"},
+          {"lane": "o'NEIL", "name": "O'neil", "provider": "O'neil"},
+          {"lane": "'quoted'", "name": "'Quoted'", "provider": "'Quoted'"},
+          {"lane": "icloud", "name": "Icloud", "provider": "Icloud"},
+          {"lane": "gemINI", "name": "Gemini", "provider": "Gemini"},
+          {"lane": "GEMINI", "name": "GEMINI", "provider": "GEMINI"},
+          {"lane": "Ii", "name": "Ii", "provider": "Ii"},
+          {"lane": "iI", "name": "Ii", "provider": "Ii"},
+          {"lane": "IBM-ibm", "name": "IBM-Ibm", "provider": "IBM-Ibm"},
+          {"lane": "ijssel", "name": "Ijssel", "provider": "Ijssel"},
+          {"lane": "IJSSEL", "name": "IJSSEL", "provider": "IJSSEL"},
+          {"lane": "iJ", "name": "Ij", "provider": "Ij"},
+          {
+            "lane": "fijn 'ij x-ij i j",
+            "name": "Fijn 'Ij X-Ij I J",
+            "provider": "Fijn 'Ij X-Ij I J"
+          },
+          {"lane": "\u00e9mile", "name": "\u00c9mile", "provider": "\u00c9mile"},
+          {"lane": "STRA\u00dfE", "name": "Stra\u00dfe", "provider": "Stra\u00dfe"},
+          {"lane": "\u01c6emal", "name": "\u01c5emal", "provider": "\u01c5emal"},
+          {"lane": "a\u2014b", "name": "A\u2014B", "provider": "A\u2014B"},
+          {"lane": "a\u00a0b", "name": "A\u00a0B", "provider": "A\u00a0B"},
+          {"lane": "a\u0301b", "name": "A\u0301b", "provider": "A\u0301b"}
+        ]
+      }
+    },
+    {
+      "name": "ko-KR launch",
+      "input": {"culture": "ko-KR", "what": "launch"},
+      "expect": {
+        "arg": "eyJuYW1lIjoia28tS1IiLCJ0aW1lU2VwIjoiOiIsImdyb3VwU2VwIjoiLCIsImdyb3VwU2l6ZXMiOlszXX0",
+        "carries": {"name": "ko-KR", "timeSep": ":", "groupSep": ",", "groupSizes": [3]}
+      }
+    },
+    {
+      "name": "ko-KR clock",
+      "input": {
+        "culture": "ko-KR",
+        "what": "clock",
+        "times": ["00:00:00", "12:00:00", "09:05:07", "23:59:59", "12:34:56.9999999"]
+      },
+      "expect": {
+        "hhmm": ["00:00", "12:00", "09:05", "23:59", "12:34"],
+        "hhmmss": ["00:00:00", "12:00:00", "09:05:07", "23:59:59", "12:34:56"]
+      }
+    },
+    {
+      "name": "ko-KR N0",
+      "input": {
+        "culture": "ko-KR",
+        "what": "n0",
+        "counts": [0, 7, 999, 1000, 12345, 100000, 1234567, 1234567890, 2147483647]
+      },
+      "expect": {
+        "n0": [
+          "0",
+          "7",
+          "999",
+          "1,000",
+          "12,345",
+          "100,000",
+          "1,234,567",
+          "1,234,567,890",
+          "2,147,483,647"
+        ]
+      }
+    },
+    {
+      "name": "ko-KR lanes",
+      "input": {
+        "culture": "ko-KR",
+        "what": "lanes",
+        "lanes": [
+          "claude",
+          "codex",
+          "claude|C:\\x\\.claude-work",
+          "codex|~/w",
+          "",
+          "codex|C:\\Users\\J\u00fcrgen\\.codex",
+          "claude|",
+          "|C:\\h",
+          "|",
+          "codex|a|b",
+          " ",
+          "CLAUDE",
+          "CODEX|C:\\x",
+          "cLaUdE",
+          "Claude",
+          "claudE",
+          "claude code",
+          "claude-code",
+          "claude_code",
+          "claude.code",
+          "claude/code",
+          "claude\tcode",
+          "a!b\"c#d$e%f&g(h)i*j+k,l-m.n/o:p;q<r=s>t?u@v[w\\x]y^z_a`b{c}d~e",
+          "x2y",
+          "2x",
+          "a1B2",
+          "o'NEIL",
+          "'quoted'",
+          "icloud",
+          "gemINI",
+          "GEMINI",
+          "Ii",
+          "iI",
+          "IBM-ibm",
+          "ijssel",
+          "IJSSEL",
+          "iJ",
+          "fijn 'ij x-ij i j",
+          "\u00e9mile",
+          "STRA\u00dfE",
+          "\u01c6emal",
+          "a\u2014b",
+          "a\u00a0b",
+          "a\u0301b"
+        ]
+      },
+      "expect": {
+        "lanes": [
+          {"lane": "claude", "name": "Claude", "provider": "Claude"},
+          {"lane": "codex", "name": "Codex", "provider": "Codex"},
+          {
+            "lane": "claude|C:\\x\\.claude-work",
+            "name": "Claude (C:\\x\\.claude-work)",
+            "provider": "Claude"
+          },
+          {"lane": "codex|~/w", "name": "Codex (~/w)", "provider": "Codex"},
+          {"lane": "", "name": "", "provider": "Claude"},
+          {
+            "lane": "codex|C:\\Users\\J\u00fcrgen\\.codex",
+            "name": "Codex (C:\\Users\\J\u00fcrgen\\.codex)",
+            "provider": "Codex"
+          },
+          {"lane": "claude|", "name": "Claude", "provider": "Claude"},
+          {"lane": "|C:\\h", "name": " (C:\\h)", "provider": "Claude"},
+          {"lane": "|", "name": "", "provider": "Claude"},
+          {"lane": "codex|a|b", "name": "Codex (a|b)", "provider": "Codex"},
+          {"lane": " ", "name": " ", "provider": " "},
+          {"lane": "CLAUDE", "name": "CLAUDE", "provider": "CLAUDE"},
+          {"lane": "CODEX|C:\\x", "name": "CODEX (C:\\x)", "provider": "CODEX"},
+          {"lane": "cLaUdE", "name": "Claude", "provider": "Claude"},
+          {"lane": "Claude", "name": "Claude", "provider": "Claude"},
+          {"lane": "claudE", "name": "Claude", "provider": "Claude"},
+          {"lane": "claude code", "name": "Claude Code", "provider": "Claude Code"},
+          {"lane": "claude-code", "name": "Claude-Code", "provider": "Claude-Code"},
+          {"lane": "claude_code", "name": "Claude_Code", "provider": "Claude_Code"},
+          {"lane": "claude.code", "name": "Claude.Code", "provider": "Claude.Code"},
+          {"lane": "claude/code", "name": "Claude/Code", "provider": "Claude/Code"},
+          {"lane": "claude\tcode", "name": "Claude\tCode", "provider": "Claude\tCode"},
+          {
+            "lane": "a!b\"c#d$e%f&g(h)i*j+k,l-m.n/o:p;q<r=s>t?u@v[w\\x]y^z_a`b{c}d~e",
+            "name": "A!B\"C#D$E%F&G(H)I*J+K,L-M.N/O:P;Q<R=S>T?U@V[W\\X]Y^Z_A`B{C}D~E",
+            "provider": "A!B\"C#D$E%F&G(H)I*J+K,L-M.N/O:P;Q<R=S>T?U@V[W\\X]Y^Z_A`B{C}D~E"
+          },
+          {"lane": "x2y", "name": "X2y", "provider": "X2y"},
+          {"lane": "2x", "name": "2X", "provider": "2X"},
+          {"lane": "a1B2", "name": "A1b2", "provider": "A1b2"},
+          {"lane": "o'NEIL", "name": "O'neil", "provider": "O'neil"},
+          {"lane": "'quoted'", "name": "'Quoted'", "provider": "'Quoted'"},
+          {"lane": "icloud", "name": "Icloud", "provider": "Icloud"},
+          {"lane": "gemINI", "name": "Gemini", "provider": "Gemini"},
+          {"lane": "GEMINI", "name": "GEMINI", "provider": "GEMINI"},
+          {"lane": "Ii", "name": "Ii", "provider": "Ii"},
+          {"lane": "iI", "name": "Ii", "provider": "Ii"},
+          {"lane": "IBM-ibm", "name": "IBM-Ibm", "provider": "IBM-Ibm"},
+          {"lane": "ijssel", "name": "Ijssel", "provider": "Ijssel"},
+          {"lane": "IJSSEL", "name": "IJSSEL", "provider": "IJSSEL"},
+          {"lane": "iJ", "name": "Ij", "provider": "Ij"},
+          {
+            "lane": "fijn 'ij x-ij i j",
+            "name": "Fijn 'Ij X-Ij I J",
+            "provider": "Fijn 'Ij X-Ij I J"
+          },
+          {"lane": "\u00e9mile", "name": "\u00c9mile", "provider": "\u00c9mile"},
+          {"lane": "STRA\u00dfE", "name": "Stra\u00dfe", "provider": "Stra\u00dfe"},
+          {"lane": "\u01c6emal", "name": "\u01c5emal", "provider": "\u01c5emal"},
+          {"lane": "a\u2014b", "name": "A\u2014B", "provider": "A\u2014B"},
+          {"lane": "a\u00a0b", "name": "A\u00a0B", "provider": "A\u00a0B"},
+          {"lane": "a\u0301b", "name": "A\u0301b", "provider": "A\u0301b"}
+        ]
+      }
+    },
+    {
+      "name": "de-DE launch",
+      "input": {"culture": "de-DE", "what": "launch"},
+      "expect": {
+        "arg": "eyJuYW1lIjoiZGUtREUiLCJ0aW1lU2VwIjoiOiIsImdyb3VwU2VwIjoiLiIsImdyb3VwU2l6ZXMiOlszXX0",
+        "carries": {"name": "de-DE", "timeSep": ":", "groupSep": ".", "groupSizes": [3]}
+      }
+    },
+    {
+      "name": "de-DE clock",
+      "input": {
+        "culture": "de-DE",
+        "what": "clock",
+        "times": ["00:00:00", "12:00:00", "09:05:07", "23:59:59", "12:34:56.9999999"]
+      },
+      "expect": {
+        "hhmm": ["00:00", "12:00", "09:05", "23:59", "12:34"],
+        "hhmmss": ["00:00:00", "12:00:00", "09:05:07", "23:59:59", "12:34:56"]
+      }
+    },
+    {
+      "name": "de-DE N0",
+      "input": {
+        "culture": "de-DE",
+        "what": "n0",
+        "counts": [0, 7, 999, 1000, 12345, 100000, 1234567, 1234567890, 2147483647]
+      },
+      "expect": {
+        "n0": [
+          "0",
+          "7",
+          "999",
+          "1.000",
+          "12.345",
+          "100.000",
+          "1.234.567",
+          "1.234.567.890",
+          "2.147.483.647"
+        ]
+      }
+    },
+    {
+      "name": "de-DE lanes",
+      "input": {
+        "culture": "de-DE",
+        "what": "lanes",
+        "lanes": [
+          "claude",
+          "codex",
+          "claude|C:\\x\\.claude-work",
+          "codex|~/w",
+          "",
+          "codex|C:\\Users\\J\u00fcrgen\\.codex",
+          "claude|",
+          "|C:\\h",
+          "|",
+          "codex|a|b",
+          " ",
+          "CLAUDE",
+          "CODEX|C:\\x",
+          "cLaUdE",
+          "Claude",
+          "claudE",
+          "claude code",
+          "claude-code",
+          "claude_code",
+          "claude.code",
+          "claude/code",
+          "claude\tcode",
+          "a!b\"c#d$e%f&g(h)i*j+k,l-m.n/o:p;q<r=s>t?u@v[w\\x]y^z_a`b{c}d~e",
+          "x2y",
+          "2x",
+          "a1B2",
+          "o'NEIL",
+          "'quoted'",
+          "icloud",
+          "gemINI",
+          "GEMINI",
+          "Ii",
+          "iI",
+          "IBM-ibm",
+          "ijssel",
+          "IJSSEL",
+          "iJ",
+          "fijn 'ij x-ij i j",
+          "\u00e9mile",
+          "STRA\u00dfE",
+          "\u01c6emal",
+          "a\u2014b",
+          "a\u00a0b",
+          "a\u0301b"
+        ]
+      },
+      "expect": {
+        "lanes": [
+          {"lane": "claude", "name": "Claude", "provider": "Claude"},
+          {"lane": "codex", "name": "Codex", "provider": "Codex"},
+          {
+            "lane": "claude|C:\\x\\.claude-work",
+            "name": "Claude (C:\\x\\.claude-work)",
+            "provider": "Claude"
+          },
+          {"lane": "codex|~/w", "name": "Codex (~/w)", "provider": "Codex"},
+          {"lane": "", "name": "", "provider": "Claude"},
+          {
+            "lane": "codex|C:\\Users\\J\u00fcrgen\\.codex",
+            "name": "Codex (C:\\Users\\J\u00fcrgen\\.codex)",
+            "provider": "Codex"
+          },
+          {"lane": "claude|", "name": "Claude", "provider": "Claude"},
+          {"lane": "|C:\\h", "name": " (C:\\h)", "provider": "Claude"},
+          {"lane": "|", "name": "", "provider": "Claude"},
+          {"lane": "codex|a|b", "name": "Codex (a|b)", "provider": "Codex"},
+          {"lane": " ", "name": " ", "provider": " "},
+          {"lane": "CLAUDE", "name": "CLAUDE", "provider": "CLAUDE"},
+          {"lane": "CODEX|C:\\x", "name": "CODEX (C:\\x)", "provider": "CODEX"},
+          {"lane": "cLaUdE", "name": "Claude", "provider": "Claude"},
+          {"lane": "Claude", "name": "Claude", "provider": "Claude"},
+          {"lane": "claudE", "name": "Claude", "provider": "Claude"},
+          {"lane": "claude code", "name": "Claude Code", "provider": "Claude Code"},
+          {"lane": "claude-code", "name": "Claude-Code", "provider": "Claude-Code"},
+          {"lane": "claude_code", "name": "Claude_Code", "provider": "Claude_Code"},
+          {"lane": "claude.code", "name": "Claude.Code", "provider": "Claude.Code"},
+          {"lane": "claude/code", "name": "Claude/Code", "provider": "Claude/Code"},
+          {"lane": "claude\tcode", "name": "Claude\tCode", "provider": "Claude\tCode"},
+          {
+            "lane": "a!b\"c#d$e%f&g(h)i*j+k,l-m.n/o:p;q<r=s>t?u@v[w\\x]y^z_a`b{c}d~e",
+            "name": "A!B\"C#D$E%F&G(H)I*J+K,L-M.N/O:P;Q<R=S>T?U@V[W\\X]Y^Z_A`B{C}D~E",
+            "provider": "A!B\"C#D$E%F&G(H)I*J+K,L-M.N/O:P;Q<R=S>T?U@V[W\\X]Y^Z_A`B{C}D~E"
+          },
+          {"lane": "x2y", "name": "X2y", "provider": "X2y"},
+          {"lane": "2x", "name": "2X", "provider": "2X"},
+          {"lane": "a1B2", "name": "A1b2", "provider": "A1b2"},
+          {"lane": "o'NEIL", "name": "O'neil", "provider": "O'neil"},
+          {"lane": "'quoted'", "name": "'Quoted'", "provider": "'Quoted'"},
+          {"lane": "icloud", "name": "Icloud", "provider": "Icloud"},
+          {"lane": "gemINI", "name": "Gemini", "provider": "Gemini"},
+          {"lane": "GEMINI", "name": "GEMINI", "provider": "GEMINI"},
+          {"lane": "Ii", "name": "Ii", "provider": "Ii"},
+          {"lane": "iI", "name": "Ii", "provider": "Ii"},
+          {"lane": "IBM-ibm", "name": "IBM-Ibm", "provider": "IBM-Ibm"},
+          {"lane": "ijssel", "name": "Ijssel", "provider": "Ijssel"},
+          {"lane": "IJSSEL", "name": "IJSSEL", "provider": "IJSSEL"},
+          {"lane": "iJ", "name": "Ij", "provider": "Ij"},
+          {
+            "lane": "fijn 'ij x-ij i j",
+            "name": "Fijn 'Ij X-Ij I J",
+            "provider": "Fijn 'Ij X-Ij I J"
+          },
+          {"lane": "\u00e9mile", "name": "\u00c9mile", "provider": "\u00c9mile"},
+          {"lane": "STRA\u00dfE", "name": "Stra\u00dfe", "provider": "Stra\u00dfe"},
+          {"lane": "\u01c6emal", "name": "\u01c5emal", "provider": "\u01c5emal"},
+          {"lane": "a\u2014b", "name": "A\u2014B", "provider": "A\u2014B"},
+          {"lane": "a\u00a0b", "name": "A\u00a0B", "provider": "A\u00a0B"},
+          {"lane": "a\u0301b", "name": "A\u0301b", "provider": "A\u0301b"}
+        ]
+      }
+    },
+    {
+      "name": "fi-FI launch",
+      "input": {"culture": "fi-FI", "what": "launch"},
+      "expect": {
+        "arg": "eyJuYW1lIjoiZmktRkkiLCJ0aW1lU2VwIjoiLiIsImdyb3VwU2VwIjoiwqAiLCJncm91cFNpemVzIjpbM119",
+        "carries": {"name": "fi-FI", "timeSep": ".", "groupSep": "\u00a0", "groupSizes": [3]}
+      }
+    },
+    {
+      "name": "fi-FI clock",
+      "input": {
+        "culture": "fi-FI",
+        "what": "clock",
+        "times": ["00:00:00", "12:00:00", "09:05:07", "23:59:59", "12:34:56.9999999"]
+      },
+      "expect": {
+        "hhmm": ["00.00", "12.00", "09.05", "23.59", "12.34"],
+        "hhmmss": ["00.00.00", "12.00.00", "09.05.07", "23.59.59", "12.34.56"]
+      }
+    },
+    {
+      "name": "fi-FI N0",
+      "input": {
+        "culture": "fi-FI",
+        "what": "n0",
+        "counts": [0, 7, 999, 1000, 12345, 100000, 1234567, 1234567890, 2147483647]
+      },
+      "expect": {
+        "n0": [
+          "0",
+          "7",
+          "999",
+          "1\u00a0000",
+          "12\u00a0345",
+          "100\u00a0000",
+          "1\u00a0234\u00a0567",
+          "1\u00a0234\u00a0567\u00a0890",
+          "2\u00a0147\u00a0483\u00a0647"
+        ]
+      }
+    },
+    {
+      "name": "fi-FI lanes",
+      "input": {
+        "culture": "fi-FI",
+        "what": "lanes",
+        "lanes": [
+          "claude",
+          "codex",
+          "claude|C:\\x\\.claude-work",
+          "codex|~/w",
+          "",
+          "codex|C:\\Users\\J\u00fcrgen\\.codex",
+          "claude|",
+          "|C:\\h",
+          "|",
+          "codex|a|b",
+          " ",
+          "CLAUDE",
+          "CODEX|C:\\x",
+          "cLaUdE",
+          "Claude",
+          "claudE",
+          "claude code",
+          "claude-code",
+          "claude_code",
+          "claude.code",
+          "claude/code",
+          "claude\tcode",
+          "a!b\"c#d$e%f&g(h)i*j+k,l-m.n/o:p;q<r=s>t?u@v[w\\x]y^z_a`b{c}d~e",
+          "x2y",
+          "2x",
+          "a1B2",
+          "o'NEIL",
+          "'quoted'",
+          "icloud",
+          "gemINI",
+          "GEMINI",
+          "Ii",
+          "iI",
+          "IBM-ibm",
+          "ijssel",
+          "IJSSEL",
+          "iJ",
+          "fijn 'ij x-ij i j",
+          "\u00e9mile",
+          "STRA\u00dfE",
+          "\u01c6emal",
+          "a\u2014b",
+          "a\u00a0b",
+          "a\u0301b"
+        ]
+      },
+      "expect": {
+        "lanes": [
+          {"lane": "claude", "name": "Claude", "provider": "Claude"},
+          {"lane": "codex", "name": "Codex", "provider": "Codex"},
+          {
+            "lane": "claude|C:\\x\\.claude-work",
+            "name": "Claude (C:\\x\\.claude-work)",
+            "provider": "Claude"
+          },
+          {"lane": "codex|~/w", "name": "Codex (~/w)", "provider": "Codex"},
+          {"lane": "", "name": "", "provider": "Claude"},
+          {
+            "lane": "codex|C:\\Users\\J\u00fcrgen\\.codex",
+            "name": "Codex (C:\\Users\\J\u00fcrgen\\.codex)",
+            "provider": "Codex"
+          },
+          {"lane": "claude|", "name": "Claude", "provider": "Claude"},
+          {"lane": "|C:\\h", "name": " (C:\\h)", "provider": "Claude"},
+          {"lane": "|", "name": "", "provider": "Claude"},
+          {"lane": "codex|a|b", "name": "Codex (a|b)", "provider": "Codex"},
+          {"lane": " ", "name": " ", "provider": " "},
+          {"lane": "CLAUDE", "name": "CLAUDE", "provider": "CLAUDE"},
+          {"lane": "CODEX|C:\\x", "name": "CODEX (C:\\x)", "provider": "CODEX"},
+          {"lane": "cLaUdE", "name": "Claude", "provider": "Claude"},
+          {"lane": "Claude", "name": "Claude", "provider": "Claude"},
+          {"lane": "claudE", "name": "Claude", "provider": "Claude"},
+          {"lane": "claude code", "name": "Claude Code", "provider": "Claude Code"},
+          {"lane": "claude-code", "name": "Claude-Code", "provider": "Claude-Code"},
+          {"lane": "claude_code", "name": "Claude_Code", "provider": "Claude_Code"},
+          {"lane": "claude.code", "name": "Claude.Code", "provider": "Claude.Code"},
+          {"lane": "claude/code", "name": "Claude/Code", "provider": "Claude/Code"},
+          {"lane": "claude\tcode", "name": "Claude\tCode", "provider": "Claude\tCode"},
+          {
+            "lane": "a!b\"c#d$e%f&g(h)i*j+k,l-m.n/o:p;q<r=s>t?u@v[w\\x]y^z_a`b{c}d~e",
+            "name": "A!B\"C#D$E%F&G(H)I*J+K,L-M.N/O:P;Q<R=S>T?U@V[W\\X]Y^Z_A`B{C}D~E",
+            "provider": "A!B\"C#D$E%F&G(H)I*J+K,L-M.N/O:P;Q<R=S>T?U@V[W\\X]Y^Z_A`B{C}D~E"
+          },
+          {"lane": "x2y", "name": "X2y", "provider": "X2y"},
+          {"lane": "2x", "name": "2X", "provider": "2X"},
+          {"lane": "a1B2", "name": "A1b2", "provider": "A1b2"},
+          {"lane": "o'NEIL", "name": "O'neil", "provider": "O'neil"},
+          {"lane": "'quoted'", "name": "'Quoted'", "provider": "'Quoted'"},
+          {"lane": "icloud", "name": "Icloud", "provider": "Icloud"},
+          {"lane": "gemINI", "name": "Gemini", "provider": "Gemini"},
+          {"lane": "GEMINI", "name": "GEMINI", "provider": "GEMINI"},
+          {"lane": "Ii", "name": "Ii", "provider": "Ii"},
+          {"lane": "iI", "name": "Ii", "provider": "Ii"},
+          {"lane": "IBM-ibm", "name": "IBM-Ibm", "provider": "IBM-Ibm"},
+          {"lane": "ijssel", "name": "Ijssel", "provider": "Ijssel"},
+          {"lane": "IJSSEL", "name": "IJSSEL", "provider": "IJSSEL"},
+          {"lane": "iJ", "name": "Ij", "provider": "Ij"},
+          {
+            "lane": "fijn 'ij x-ij i j",
+            "name": "Fijn 'Ij X-Ij I J",
+            "provider": "Fijn 'Ij X-Ij I J"
+          },
+          {"lane": "\u00e9mile", "name": "\u00c9mile", "provider": "\u00c9mile"},
+          {"lane": "STRA\u00dfE", "name": "Stra\u00dfe", "provider": "Stra\u00dfe"},
+          {"lane": "\u01c6emal", "name": "\u01c5emal", "provider": "\u01c5emal"},
+          {"lane": "a\u2014b", "name": "A\u2014B", "provider": "A\u2014B"},
+          {"lane": "a\u00a0b", "name": "A\u00a0B", "provider": "A\u00a0B"},
+          {"lane": "a\u0301b", "name": "A\u0301b", "provider": "A\u0301b"}
+        ]
+      }
+    },
+    {
+      "name": "hi-IN launch",
+      "input": {"culture": "hi-IN", "what": "launch"},
+      "expect": {
+        "arg": "eyJuYW1lIjoiaGktSU4iLCJ0aW1lU2VwIjoiOiIsImdyb3VwU2VwIjoiLCIsImdyb3VwU2l6ZXMiOlszLDJdfQ",
+        "carries": {"name": "hi-IN", "timeSep": ":", "groupSep": ",", "groupSizes": [3, 2]}
+      }
+    },
+    {
+      "name": "hi-IN clock",
+      "input": {
+        "culture": "hi-IN",
+        "what": "clock",
+        "times": ["00:00:00", "12:00:00", "09:05:07", "23:59:59", "12:34:56.9999999"]
+      },
+      "expect": {
+        "hhmm": ["00:00", "12:00", "09:05", "23:59", "12:34"],
+        "hhmmss": ["00:00:00", "12:00:00", "09:05:07", "23:59:59", "12:34:56"]
+      }
+    },
+    {
+      "name": "hi-IN N0",
+      "input": {
+        "culture": "hi-IN",
+        "what": "n0",
+        "counts": [0, 7, 999, 1000, 12345, 100000, 1234567, 1234567890, 2147483647]
+      },
+      "expect": {
+        "n0": [
+          "0",
+          "7",
+          "999",
+          "1,000",
+          "12,345",
+          "1,00,000",
+          "12,34,567",
+          "1,23,45,67,890",
+          "2,14,74,83,647"
+        ]
+      }
+    },
+    {
+      "name": "hi-IN lanes",
+      "input": {
+        "culture": "hi-IN",
+        "what": "lanes",
+        "lanes": [
+          "claude",
+          "codex",
+          "claude|C:\\x\\.claude-work",
+          "codex|~/w",
+          "",
+          "codex|C:\\Users\\J\u00fcrgen\\.codex",
+          "claude|",
+          "|C:\\h",
+          "|",
+          "codex|a|b",
+          " ",
+          "CLAUDE",
+          "CODEX|C:\\x",
+          "cLaUdE",
+          "Claude",
+          "claudE",
+          "claude code",
+          "claude-code",
+          "claude_code",
+          "claude.code",
+          "claude/code",
+          "claude\tcode",
+          "a!b\"c#d$e%f&g(h)i*j+k,l-m.n/o:p;q<r=s>t?u@v[w\\x]y^z_a`b{c}d~e",
+          "x2y",
+          "2x",
+          "a1B2",
+          "o'NEIL",
+          "'quoted'",
+          "icloud",
+          "gemINI",
+          "GEMINI",
+          "Ii",
+          "iI",
+          "IBM-ibm",
+          "ijssel",
+          "IJSSEL",
+          "iJ",
+          "fijn 'ij x-ij i j",
+          "\u00e9mile",
+          "STRA\u00dfE",
+          "\u01c6emal",
+          "a\u2014b",
+          "a\u00a0b",
+          "a\u0301b"
+        ]
+      },
+      "expect": {
+        "lanes": [
+          {"lane": "claude", "name": "Claude", "provider": "Claude"},
+          {"lane": "codex", "name": "Codex", "provider": "Codex"},
+          {
+            "lane": "claude|C:\\x\\.claude-work",
+            "name": "Claude (C:\\x\\.claude-work)",
+            "provider": "Claude"
+          },
+          {"lane": "codex|~/w", "name": "Codex (~/w)", "provider": "Codex"},
+          {"lane": "", "name": "", "provider": "Claude"},
+          {
+            "lane": "codex|C:\\Users\\J\u00fcrgen\\.codex",
+            "name": "Codex (C:\\Users\\J\u00fcrgen\\.codex)",
+            "provider": "Codex"
+          },
+          {"lane": "claude|", "name": "Claude", "provider": "Claude"},
+          {"lane": "|C:\\h", "name": " (C:\\h)", "provider": "Claude"},
+          {"lane": "|", "name": "", "provider": "Claude"},
+          {"lane": "codex|a|b", "name": "Codex (a|b)", "provider": "Codex"},
+          {"lane": " ", "name": " ", "provider": " "},
+          {"lane": "CLAUDE", "name": "CLAUDE", "provider": "CLAUDE"},
+          {"lane": "CODEX|C:\\x", "name": "CODEX (C:\\x)", "provider": "CODEX"},
+          {"lane": "cLaUdE", "name": "Claude", "provider": "Claude"},
+          {"lane": "Claude", "name": "Claude", "provider": "Claude"},
+          {"lane": "claudE", "name": "Claude", "provider": "Claude"},
+          {"lane": "claude code", "name": "Claude Code", "provider": "Claude Code"},
+          {"lane": "claude-code", "name": "Claude-Code", "provider": "Claude-Code"},
+          {"lane": "claude_code", "name": "Claude_Code", "provider": "Claude_Code"},
+          {"lane": "claude.code", "name": "Claude.Code", "provider": "Claude.Code"},
+          {"lane": "claude/code", "name": "Claude/Code", "provider": "Claude/Code"},
+          {"lane": "claude\tcode", "name": "Claude\tCode", "provider": "Claude\tCode"},
+          {
+            "lane": "a!b\"c#d$e%f&g(h)i*j+k,l-m.n/o:p;q<r=s>t?u@v[w\\x]y^z_a`b{c}d~e",
+            "name": "A!B\"C#D$E%F&G(H)I*J+K,L-M.N/O:P;Q<R=S>T?U@V[W\\X]Y^Z_A`B{C}D~E",
+            "provider": "A!B\"C#D$E%F&G(H)I*J+K,L-M.N/O:P;Q<R=S>T?U@V[W\\X]Y^Z_A`B{C}D~E"
+          },
+          {"lane": "x2y", "name": "X2y", "provider": "X2y"},
+          {"lane": "2x", "name": "2X", "provider": "2X"},
+          {"lane": "a1B2", "name": "A1b2", "provider": "A1b2"},
+          {"lane": "o'NEIL", "name": "O'neil", "provider": "O'neil"},
+          {"lane": "'quoted'", "name": "'Quoted'", "provider": "'Quoted'"},
+          {"lane": "icloud", "name": "Icloud", "provider": "Icloud"},
+          {"lane": "gemINI", "name": "Gemini", "provider": "Gemini"},
+          {"lane": "GEMINI", "name": "GEMINI", "provider": "GEMINI"},
+          {"lane": "Ii", "name": "Ii", "provider": "Ii"},
+          {"lane": "iI", "name": "Ii", "provider": "Ii"},
+          {"lane": "IBM-ibm", "name": "IBM-Ibm", "provider": "IBM-Ibm"},
+          {"lane": "ijssel", "name": "Ijssel", "provider": "Ijssel"},
+          {"lane": "IJSSEL", "name": "IJSSEL", "provider": "IJSSEL"},
+          {"lane": "iJ", "name": "Ij", "provider": "Ij"},
+          {
+            "lane": "fijn 'ij x-ij i j",
+            "name": "Fijn 'Ij X-Ij I J",
+            "provider": "Fijn 'Ij X-Ij I J"
+          },
+          {"lane": "\u00e9mile", "name": "\u00c9mile", "provider": "\u00c9mile"},
+          {"lane": "STRA\u00dfE", "name": "Stra\u00dfe", "provider": "Stra\u00dfe"},
+          {"lane": "\u01c6emal", "name": "\u01c5emal", "provider": "\u01c5emal"},
+          {"lane": "a\u2014b", "name": "A\u2014B", "provider": "A\u2014B"},
+          {"lane": "a\u00a0b", "name": "A\u00a0B", "provider": "A\u00a0B"},
+          {"lane": "a\u0301b", "name": "A\u0301b", "provider": "A\u0301b"}
+        ]
+      }
+    },
+    {
+      "name": "tr-TR launch",
+      "input": {"culture": "tr-TR", "what": "launch"},
+      "expect": {
+        "arg": "eyJuYW1lIjoidHItVFIiLCJ0aW1lU2VwIjoiOiIsImdyb3VwU2VwIjoiLiIsImdyb3VwU2l6ZXMiOlszXX0",
+        "carries": {"name": "tr-TR", "timeSep": ":", "groupSep": ".", "groupSizes": [3]}
+      }
+    },
+    {
+      "name": "tr-TR clock",
+      "input": {
+        "culture": "tr-TR",
+        "what": "clock",
+        "times": ["00:00:00", "12:00:00", "09:05:07", "23:59:59", "12:34:56.9999999"]
+      },
+      "expect": {
+        "hhmm": ["00:00", "12:00", "09:05", "23:59", "12:34"],
+        "hhmmss": ["00:00:00", "12:00:00", "09:05:07", "23:59:59", "12:34:56"]
+      }
+    },
+    {
+      "name": "tr-TR N0",
+      "input": {
+        "culture": "tr-TR",
+        "what": "n0",
+        "counts": [0, 7, 999, 1000, 12345, 100000, 1234567, 1234567890, 2147483647]
+      },
+      "expect": {
+        "n0": [
+          "0",
+          "7",
+          "999",
+          "1.000",
+          "12.345",
+          "100.000",
+          "1.234.567",
+          "1.234.567.890",
+          "2.147.483.647"
+        ]
+      }
+    },
+    {
+      "name": "tr-TR lanes",
+      "input": {
+        "culture": "tr-TR",
+        "what": "lanes",
+        "lanes": [
+          "claude",
+          "codex",
+          "claude|C:\\x\\.claude-work",
+          "codex|~/w",
+          "",
+          "codex|C:\\Users\\J\u00fcrgen\\.codex",
+          "claude|",
+          "|C:\\h",
+          "|",
+          "codex|a|b",
+          " ",
+          "CLAUDE",
+          "CODEX|C:\\x",
+          "cLaUdE",
+          "Claude",
+          "claudE",
+          "claude code",
+          "claude-code",
+          "claude_code",
+          "claude.code",
+          "claude/code",
+          "claude\tcode",
+          "a!b\"c#d$e%f&g(h)i*j+k,l-m.n/o:p;q<r=s>t?u@v[w\\x]y^z_a`b{c}d~e",
+          "x2y",
+          "2x",
+          "a1B2",
+          "o'NEIL",
+          "'quoted'",
+          "icloud",
+          "gemINI",
+          "GEMINI",
+          "Ii",
+          "iI",
+          "IBM-ibm",
+          "ijssel",
+          "IJSSEL",
+          "iJ",
+          "fijn 'ij x-ij i j",
+          "\u00e9mile",
+          "STRA\u00dfE",
+          "\u01c6emal",
+          "a\u2014b",
+          "a\u00a0b",
+          "a\u0301b"
+        ]
+      },
+      "expect": {
+        "lanes": [
+          {"lane": "claude", "name": "Claude", "provider": "Claude"},
+          {"lane": "codex", "name": "Codex", "provider": "Codex"},
+          {
+            "lane": "claude|C:\\x\\.claude-work",
+            "name": "Claude (C:\\x\\.claude-work)",
+            "provider": "Claude"
+          },
+          {"lane": "codex|~/w", "name": "Codex (~/w)", "provider": "Codex"},
+          {"lane": "", "name": "", "provider": "Claude"},
+          {
+            "lane": "codex|C:\\Users\\J\u00fcrgen\\.codex",
+            "name": "Codex (C:\\Users\\J\u00fcrgen\\.codex)",
+            "provider": "Codex"
+          },
+          {"lane": "claude|", "name": "Claude", "provider": "Claude"},
+          {"lane": "|C:\\h", "name": " (C:\\h)", "provider": "Claude"},
+          {"lane": "|", "name": "", "provider": "Claude"},
+          {"lane": "codex|a|b", "name": "Codex (a|b)", "provider": "Codex"},
+          {"lane": " ", "name": " ", "provider": " "},
+          {"lane": "CLAUDE", "name": "CLAUDE", "provider": "CLAUDE"},
+          {"lane": "CODEX|C:\\x", "name": "CODEX (C:\\x)", "provider": "CODEX"},
+          {"lane": "cLaUdE", "name": "Claude", "provider": "Claude"},
+          {"lane": "Claude", "name": "Claude", "provider": "Claude"},
+          {"lane": "claudE", "name": "Claude", "provider": "Claude"},
+          {"lane": "claude code", "name": "Claude Code", "provider": "Claude Code"},
+          {"lane": "claude-code", "name": "Claude-Code", "provider": "Claude-Code"},
+          {"lane": "claude_code", "name": "Claude_Code", "provider": "Claude_Code"},
+          {"lane": "claude.code", "name": "Claude.Code", "provider": "Claude.Code"},
+          {"lane": "claude/code", "name": "Claude/Code", "provider": "Claude/Code"},
+          {"lane": "claude\tcode", "name": "Claude\tCode", "provider": "Claude\tCode"},
+          {
+            "lane": "a!b\"c#d$e%f&g(h)i*j+k,l-m.n/o:p;q<r=s>t?u@v[w\\x]y^z_a`b{c}d~e",
+            "name": "A!B\"C#D$E%F&G(H)\u0130*J+K,L-M.N/O:P;Q<R=S>T?U@V[W\\X]Y^Z_A`B{C}D~E",
+            "provider": "A!B\"C#D$E%F&G(H)\u0130*J+K,L-M.N/O:P;Q<R=S>T?U@V[W\\X]Y^Z_A`B{C}D~E"
+          },
+          {"lane": "x2y", "name": "X2y", "provider": "X2y"},
+          {"lane": "2x", "name": "2X", "provider": "2X"},
+          {"lane": "a1B2", "name": "A1b2", "provider": "A1b2"},
+          {"lane": "o'NEIL", "name": "O'ne\u0131l", "provider": "O'ne\u0131l"},
+          {"lane": "'quoted'", "name": "'Quoted'", "provider": "'Quoted'"},
+          {"lane": "icloud", "name": "\u0130cloud", "provider": "\u0130cloud"},
+          {"lane": "gemINI", "name": "Gem\u0131n\u0131", "provider": "Gem\u0131n\u0131"},
+          {"lane": "GEMINI", "name": "GEMINI", "provider": "GEMINI"},
+          {"lane": "Ii", "name": "Ii", "provider": "Ii"},
+          {"lane": "iI", "name": "\u0130\u0131", "provider": "\u0130\u0131"},
+          {"lane": "IBM-ibm", "name": "IBM-\u0130bm", "provider": "IBM-\u0130bm"},
+          {"lane": "ijssel", "name": "\u0130jssel", "provider": "\u0130jssel"},
+          {"lane": "IJSSEL", "name": "IJSSEL", "provider": "IJSSEL"},
+          {"lane": "iJ", "name": "\u0130j", "provider": "\u0130j"},
+          {
+            "lane": "fijn 'ij x-ij i j",
+            "name": "Fijn '\u0130j X-\u0130j \u0130 J",
+            "provider": "Fijn '\u0130j X-\u0130j \u0130 J"
+          },
+          {"lane": "\u00e9mile", "name": "\u00c9mile", "provider": "\u00c9mile"},
+          {"lane": "STRA\u00dfE", "name": "Stra\u00dfe", "provider": "Stra\u00dfe"},
+          {"lane": "\u01c6emal", "name": "\u01c5emal", "provider": "\u01c5emal"},
+          {"lane": "a\u2014b", "name": "A\u2014B", "provider": "A\u2014B"},
+          {"lane": "a\u00a0b", "name": "A\u00a0B", "provider": "A\u00a0B"},
+          {"lane": "a\u0301b", "name": "A\u0301b", "provider": "A\u0301b"}
+        ]
+      }
+    },
+    {
+      "name": "nl-NL launch",
+      "input": {"culture": "nl-NL", "what": "launch"},
+      "expect": {
+        "arg": "eyJuYW1lIjoibmwtTkwiLCJ0aW1lU2VwIjoiOiIsImdyb3VwU2VwIjoiLiIsImdyb3VwU2l6ZXMiOlszXX0",
+        "carries": {"name": "nl-NL", "timeSep": ":", "groupSep": ".", "groupSizes": [3]}
+      }
+    },
+    {
+      "name": "nl-NL clock",
+      "input": {
+        "culture": "nl-NL",
+        "what": "clock",
+        "times": ["00:00:00", "12:00:00", "09:05:07", "23:59:59", "12:34:56.9999999"]
+      },
+      "expect": {
+        "hhmm": ["00:00", "12:00", "09:05", "23:59", "12:34"],
+        "hhmmss": ["00:00:00", "12:00:00", "09:05:07", "23:59:59", "12:34:56"]
+      }
+    },
+    {
+      "name": "nl-NL N0",
+      "input": {
+        "culture": "nl-NL",
+        "what": "n0",
+        "counts": [0, 7, 999, 1000, 12345, 100000, 1234567, 1234567890, 2147483647]
+      },
+      "expect": {
+        "n0": [
+          "0",
+          "7",
+          "999",
+          "1.000",
+          "12.345",
+          "100.000",
+          "1.234.567",
+          "1.234.567.890",
+          "2.147.483.647"
+        ]
+      }
+    },
+    {
+      "name": "nl-NL lanes",
+      "input": {
+        "culture": "nl-NL",
+        "what": "lanes",
+        "lanes": [
+          "claude",
+          "codex",
+          "claude|C:\\x\\.claude-work",
+          "codex|~/w",
+          "",
+          "codex|C:\\Users\\J\u00fcrgen\\.codex",
+          "claude|",
+          "|C:\\h",
+          "|",
+          "codex|a|b",
+          " ",
+          "CLAUDE",
+          "CODEX|C:\\x",
+          "cLaUdE",
+          "Claude",
+          "claudE",
+          "claude code",
+          "claude-code",
+          "claude_code",
+          "claude.code",
+          "claude/code",
+          "claude\tcode",
+          "a!b\"c#d$e%f&g(h)i*j+k,l-m.n/o:p;q<r=s>t?u@v[w\\x]y^z_a`b{c}d~e",
+          "x2y",
+          "2x",
+          "a1B2",
+          "o'NEIL",
+          "'quoted'",
+          "icloud",
+          "gemINI",
+          "GEMINI",
+          "Ii",
+          "iI",
+          "IBM-ibm",
+          "ijssel",
+          "IJSSEL",
+          "iJ",
+          "fijn 'ij x-ij i j",
+          "\u00e9mile",
+          "STRA\u00dfE",
+          "\u01c6emal",
+          "a\u2014b",
+          "a\u00a0b",
+          "a\u0301b"
+        ]
+      },
+      "expectByEdition": {
+        "Desktop": {
+          "lanes": [
+            {"lane": "claude", "name": "Claude", "provider": "Claude"},
+            {"lane": "codex", "name": "Codex", "provider": "Codex"},
+            {
+              "lane": "claude|C:\\x\\.claude-work",
+              "name": "Claude (C:\\x\\.claude-work)",
+              "provider": "Claude"
+            },
+            {"lane": "codex|~/w", "name": "Codex (~/w)", "provider": "Codex"},
+            {"lane": "", "name": "", "provider": "Claude"},
+            {
+              "lane": "codex|C:\\Users\\J\u00fcrgen\\.codex",
+              "name": "Codex (C:\\Users\\J\u00fcrgen\\.codex)",
+              "provider": "Codex"
+            },
+            {"lane": "claude|", "name": "Claude", "provider": "Claude"},
+            {"lane": "|C:\\h", "name": " (C:\\h)", "provider": "Claude"},
+            {"lane": "|", "name": "", "provider": "Claude"},
+            {"lane": "codex|a|b", "name": "Codex (a|b)", "provider": "Codex"},
+            {"lane": " ", "name": " ", "provider": " "},
+            {"lane": "CLAUDE", "name": "CLAUDE", "provider": "CLAUDE"},
+            {"lane": "CODEX|C:\\x", "name": "CODEX (C:\\x)", "provider": "CODEX"},
+            {"lane": "cLaUdE", "name": "Claude", "provider": "Claude"},
+            {"lane": "Claude", "name": "Claude", "provider": "Claude"},
+            {"lane": "claudE", "name": "Claude", "provider": "Claude"},
+            {"lane": "claude code", "name": "Claude Code", "provider": "Claude Code"},
+            {"lane": "claude-code", "name": "Claude-Code", "provider": "Claude-Code"},
+            {"lane": "claude_code", "name": "Claude_Code", "provider": "Claude_Code"},
+            {"lane": "claude.code", "name": "Claude.Code", "provider": "Claude.Code"},
+            {"lane": "claude/code", "name": "Claude/Code", "provider": "Claude/Code"},
+            {"lane": "claude\tcode", "name": "Claude\tCode", "provider": "Claude\tCode"},
+            {
+              "lane": "a!b\"c#d$e%f&g(h)i*j+k,l-m.n/o:p;q<r=s>t?u@v[w\\x]y^z_a`b{c}d~e",
+              "name": "A!B\"C#D$E%F&G(H)I*J+K,L-M.N/O:P;Q<R=S>T?U@V[W\\X]Y^Z_A`B{C}D~E",
+              "provider": "A!B\"C#D$E%F&G(H)I*J+K,L-M.N/O:P;Q<R=S>T?U@V[W\\X]Y^Z_A`B{C}D~E"
+            },
+            {"lane": "x2y", "name": "X2y", "provider": "X2y"},
+            {"lane": "2x", "name": "2X", "provider": "2X"},
+            {"lane": "a1B2", "name": "A1b2", "provider": "A1b2"},
+            {"lane": "o'NEIL", "name": "O'neil", "provider": "O'neil"},
+            {"lane": "'quoted'", "name": "'Quoted'", "provider": "'Quoted'"},
+            {"lane": "icloud", "name": "Icloud", "provider": "Icloud"},
+            {"lane": "gemINI", "name": "Gemini", "provider": "Gemini"},
+            {"lane": "GEMINI", "name": "GEMINI", "provider": "GEMINI"},
+            {"lane": "Ii", "name": "Ii", "provider": "Ii"},
+            {"lane": "iI", "name": "Ii", "provider": "Ii"},
+            {"lane": "IBM-ibm", "name": "IBM-Ibm", "provider": "IBM-Ibm"},
+            {"lane": "ijssel", "name": "Ijssel", "provider": "Ijssel"},
+            {"lane": "IJSSEL", "name": "IJSSEL", "provider": "IJSSEL"},
+            {"lane": "iJ", "name": "Ij", "provider": "Ij"},
+            {
+              "lane": "fijn 'ij x-ij i j",
+              "name": "Fijn 'Ij X-Ij I J",
+              "provider": "Fijn 'Ij X-Ij I J"
+            },
+            {"lane": "\u00e9mile", "name": "\u00c9mile", "provider": "\u00c9mile"},
+            {"lane": "STRA\u00dfE", "name": "Stra\u00dfe", "provider": "Stra\u00dfe"},
+            {"lane": "\u01c6emal", "name": "\u01c5emal", "provider": "\u01c5emal"},
+            {"lane": "a\u2014b", "name": "A\u2014B", "provider": "A\u2014B"},
+            {"lane": "a\u00a0b", "name": "A\u00a0B", "provider": "A\u00a0B"},
+            {"lane": "a\u0301b", "name": "A\u0301b", "provider": "A\u0301b"}
+          ]
+        },
+        "Core": {
+          "lanes": [
+            {"lane": "claude", "name": "Claude", "provider": "Claude"},
+            {"lane": "codex", "name": "Codex", "provider": "Codex"},
+            {
+              "lane": "claude|C:\\x\\.claude-work",
+              "name": "Claude (C:\\x\\.claude-work)",
+              "provider": "Claude"
+            },
+            {"lane": "codex|~/w", "name": "Codex (~/w)", "provider": "Codex"},
+            {"lane": "", "name": "", "provider": "Claude"},
+            {
+              "lane": "codex|C:\\Users\\J\u00fcrgen\\.codex",
+              "name": "Codex (C:\\Users\\J\u00fcrgen\\.codex)",
+              "provider": "Codex"
+            },
+            {"lane": "claude|", "name": "Claude", "provider": "Claude"},
+            {"lane": "|C:\\h", "name": " (C:\\h)", "provider": "Claude"},
+            {"lane": "|", "name": "", "provider": "Claude"},
+            {"lane": "codex|a|b", "name": "Codex (a|b)", "provider": "Codex"},
+            {"lane": " ", "name": " ", "provider": " "},
+            {"lane": "CLAUDE", "name": "CLAUDE", "provider": "CLAUDE"},
+            {"lane": "CODEX|C:\\x", "name": "CODEX (C:\\x)", "provider": "CODEX"},
+            {"lane": "cLaUdE", "name": "Claude", "provider": "Claude"},
+            {"lane": "Claude", "name": "Claude", "provider": "Claude"},
+            {"lane": "claudE", "name": "Claude", "provider": "Claude"},
+            {"lane": "claude code", "name": "Claude Code", "provider": "Claude Code"},
+            {"lane": "claude-code", "name": "Claude-Code", "provider": "Claude-Code"},
+            {"lane": "claude_code", "name": "Claude_Code", "provider": "Claude_Code"},
+            {"lane": "claude.code", "name": "Claude.Code", "provider": "Claude.Code"},
+            {"lane": "claude/code", "name": "Claude/Code", "provider": "Claude/Code"},
+            {"lane": "claude\tcode", "name": "Claude\tCode", "provider": "Claude\tCode"},
+            {
+              "lane": "a!b\"c#d$e%f&g(h)i*j+k,l-m.n/o:p;q<r=s>t?u@v[w\\x]y^z_a`b{c}d~e",
+              "name": "A!B\"C#D$E%F&G(H)I*J+K,L-M.N/O:P;Q<R=S>T?U@V[W\\X]Y^Z_A`B{C}D~E",
+              "provider": "A!B\"C#D$E%F&G(H)I*J+K,L-M.N/O:P;Q<R=S>T?U@V[W\\X]Y^Z_A`B{C}D~E"
+            },
+            {"lane": "x2y", "name": "X2y", "provider": "X2y"},
+            {"lane": "2x", "name": "2X", "provider": "2X"},
+            {"lane": "a1B2", "name": "A1b2", "provider": "A1b2"},
+            {"lane": "o'NEIL", "name": "O'neil", "provider": "O'neil"},
+            {"lane": "'quoted'", "name": "'Quoted'", "provider": "'Quoted'"},
+            {"lane": "icloud", "name": "Icloud", "provider": "Icloud"},
+            {"lane": "gemINI", "name": "Gemini", "provider": "Gemini"},
+            {"lane": "GEMINI", "name": "GEMINI", "provider": "GEMINI"},
+            {"lane": "Ii", "name": "Ii", "provider": "Ii"},
+            {"lane": "iI", "name": "Ii", "provider": "Ii"},
+            {"lane": "IBM-ibm", "name": "IBM-Ibm", "provider": "IBM-Ibm"},
+            {"lane": "ijssel", "name": "IJssel", "provider": "IJssel"},
+            {"lane": "IJSSEL", "name": "IJSSEL", "provider": "IJSSEL"},
+            {"lane": "iJ", "name": "IJ", "provider": "IJ"},
+            {
+              "lane": "fijn 'ij x-ij i j",
+              "name": "Fijn 'IJ X-IJ I J",
+              "provider": "Fijn 'IJ X-IJ I J"
+            },
+            {"lane": "\u00e9mile", "name": "\u00c9mile", "provider": "\u00c9mile"},
+            {"lane": "STRA\u00dfE", "name": "Stra\u00dfe", "provider": "Stra\u00dfe"},
+            {"lane": "\u01c6emal", "name": "\u01c5emal", "provider": "\u01c5emal"},
+            {"lane": "a\u2014b", "name": "A\u2014B", "provider": "A\u2014B"},
+            {"lane": "a\u00a0b", "name": "A\u00a0B", "provider": "A\u00a0B"},
+            {"lane": "a\u0301b", "name": "A\u0301b", "provider": "A\u0301b"}
+          ]
+        }
+      }
+    }
+  ]
+}

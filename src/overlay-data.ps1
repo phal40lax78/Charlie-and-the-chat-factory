@@ -81,10 +81,13 @@ $script:ChatOverlayFullScreenSeam = $null
 $script:ChatOverlayRaiseSeam = $null
 $script:ChatOverlayGrantSeam = $null
 # tests: stand-ins for Windows' commit figures, @{ Limit; Free } in bytes
-# or $null (Get-ChatMemoryCommit), and for the programs holding the most
-# memory (Get-ChatMemoryTop)
+# or $null (Get-ChatMemoryCommit), for the programs holding the most
+# memory (Get-ChatMemoryTop), and for each program's bytes summed by name
+# with each of its processes', @{ <name> = @{ Bytes; Procs = @{ <pid> =
+# bytes } } } (Get-ChatMemorySums)
 $script:ChatMemorySeam = $null
 $script:ChatMemoryTopSeam = $null
+$script:ChatMemorySumsSeam = $null
 
 function Get-ChatOverlayConfig {
     # config.json -> overlay, with the defaults filled in and every number
@@ -143,6 +146,12 @@ function Get-ChatOverlayConfig {
         # percent, says so on the panel and in the tray; 0 is never
         # (Update-ChatOverlayMemory)
         memoryWarn   = [int](& $clamp ([int](& $get 'memoryWarn' 95)) 0 99)
+        # a process grown this many GB in 10 minutes says its program
+        # grows, low or not; 0 is never (Update-ChatOverlayLeaks)
+        leakGB       = [double](& $clamp ([double](& $get 'leakGB' 2)) 0.0 64.0)
+        # the overlay's own private MB after a compaction at which it starts
+        # again, given back; 0 is never (Update-ChatOverlayRestartDue)
+        restartMB    = [int](& $clamp ([int](& $get 'restartMB' 300)) 0 4096)
     }
 }
 
@@ -204,16 +213,9 @@ function Get-ChatqSignInAt {
     #>
     if ($script:ChatqSignInSeam) { return (& $script:ChatqSignInSeam) }
     if (-not $script:ChatqIsWindows) { return $null }
-    try {
-        $sid = [System.Diagnostics.Process]::GetCurrentProcess().SessionId
-        foreach ($name in 'sihost', 'explorer') {
-            $at = @(Get-Process -Name $name -EA SilentlyContinue | Where-Object { $_.SessionId -eq $sid } |
-                    ForEach-Object { try { $_.StartTime } catch { $null } } | Where-Object { $_ } | Sort-Object)
-            if ($at.Count) { return (ConvertTo-ChatOverlayMs $at[0]) }
-        }
-    }
-    catch {}
-    return $null
+    # the reading itself in shell.ps1: a lazy shell asks it before the tool
+    # loads (Test-ChatShellDuty)
+    return (Get-ChatShellSignInAt)
 }
 
 function Set-ChatOverlayClosed {
@@ -2545,6 +2547,10 @@ function Get-ChatOverlayNotes {
     # memory running out, first: VS Code's windows die of it (Update-ChatOverlayMemory)
     $mem = Get-ChatField $Header 'memory'
     if ($mem) { $out.Add([pscustomobject]@{ text = (Format-ChatOverlayMemoryText $mem); tone = 'warn'; kind = 'memory' }) }
+    # and a program growing fast, what takes it there (Update-ChatOverlayLeaks)
+    foreach ($l in @(Get-ChatField $Header 'leaks')) {
+        if ($l) { $out.Add([pscustomobject]@{ text = (Format-ChatOverlayLeakText $l); tone = 'warn'; kind = 'leak' }) }
+    }
     $cl = @($Header.usage | Where-Object { $_ -and $_.provider -eq 'Claude' })[0]
     if (-not $cl -and $Header.usageWhy) { $out.Add([pscustomobject]@{ text = "usage: $($Header.usageWhy)"; tone = 'dim' }) }
     if ($Header.watcher -eq 'stopped') { $out.Add([pscustomobject]@{ text = 'prompts queued, watcher stopped - chatqrun starts it'; tone = 'warn' }) }
@@ -2620,6 +2626,14 @@ function New-ChatOverlayContext {
         # holding the most were; going low for the host to say, whether
         # this time low was said, and when it last was
         MemLow = $null; MemAt = $null; MemTopAt = $null; MemNews = $null; MemSaid = $false; MemToldAt = $null
+        # the programs' bytes by name, each process's with them, and when
+        # they were listed, a minute apart at most (Get-ChatOverlayProcessSums);
+        # and the leak look (Update-ChatOverlayLeaks): its samples of each
+        # process's, 15 minutes kept,
+        # when it last took one, the programs growing now, those new for the
+        # host's tray, and when each was last said, by name
+        Sums = $null; SumsAt = $null
+        LeakSamples = @(); LeakAt = $null; Leaks = @(); LeakNews = $null; LeakToldAt = @{}
         AskNews = $null; AskSaid = $null; AskPhone = @{}; AskSavedKeys = @()
         # the Recent list (Update-ChatOverlayRecent) - built only for a reader
         # that draws it (WantRecent) - and which chats finished a turn unseen,
@@ -3034,8 +3048,13 @@ function Invoke-ChatOverlayCycle {
     $reloads = @($Ctx.Reloads | Where-Object { $_ -and -not $Ctx.ReloadAnswered.ContainsKey("$($_.pid):$($_.id)") })
     # Windows' memory running short: a note here, news for the host's tray -
     # the hosts' passes alone, so -Print compiles no type for it
+    # - and a program growing fast, looked at first: memory's top programs
+    # read the listing it takes
     $memory = $null
+    $leaks = @()
     if ($Ctx.WantAsk) {
+        try { $leaks = @(Update-ChatOverlayLeaks $Ctx $now -Act:(-not $Peek)) }
+        catch { Write-ChatOverlayLog "leak: $($_.Exception.Message)" }
         try { $memory = Update-ChatOverlayMemory $Ctx $now -Act:(-not $Peek) }
         catch { Write-ChatOverlayLog "memory: $($_.Exception.Message)" }
     }
@@ -3047,7 +3066,7 @@ function Invoke-ChatOverlayCycle {
             })
         # a wait the endpoint named, so a restart keeps to it (Restore-ChatOverlayUsage)
         liveHold = $(if ($Ctx.HoldKind -eq 'server' -and $Ctx.HoldUntil -gt $now) { ConvertTo-ChatOverlayMs $Ctx.HoldUntil } else { $null })
-        next = $next; watcher = $watch; error = $err; notes = @(); memory = $memory
+        next = $next; watcher = $watch; error = $err; notes = @(); memory = $memory; leaks = @($leaks)
         # the reset ask for a renderer to draw: its banner, tray items, menu
         ask = $(if ($Ctx.Ask) {
                 [pscustomobject]@{
@@ -3968,17 +3987,134 @@ function Get-ChatMemoryCommit {
     catch { return $null }
 }
 
-function Get-ChatMemoryTop {
-    # The programs holding the most memory, the most first: each process's
-    # own bytes, summed by its name, as "Code 9.8 GB". -Count of them.
-    param([int]$Count = 3)
-    if ($script:ChatMemoryTopSeam) { return @(& $script:ChatMemoryTopSeam) }   # tests
+function Get-ChatMemorySums {
+    # Each program's memory: every process's own bytes summed by its name,
+    # with each process's by its pid - @{ <name> = @{ Bytes; Procs = @{
+    # <pid> = bytes } } } - or $null off Windows. One walk of Windows'
+    # processes.
+    if ($script:ChatMemorySumsSeam) { return (& $script:ChatMemorySumsSeam) }   # tests
+    if (-not $script:ChatqIsWindows) { return $null }
     $sum = @{}
     foreach ($p in @([System.Diagnostics.Process]::GetProcesses())) {
-        try { $sum[$p.ProcessName] = [double]$sum[$p.ProcessName] + $p.PrivateMemorySize64 } catch {}
+        try {
+            $b = [double]$p.PrivateMemorySize64
+            $s = $sum[$p.ProcessName]
+            if (-not $s) { $s = @{ Bytes = 0.0; Procs = @{} }; $sum[$p.ProcessName] = $s }
+            $s.Bytes += $b
+            $s.Procs[[int]$p.Id] = $b
+        }
+        catch {}
         finally { $p.Dispose() }
     }
-    return @($sum.GetEnumerator() | Sort-Object Value -Descending | Select-Object -First $Count | ForEach-Object { "$($_.Key) $([Math]::Round($_.Value / 1GB, 1)) GB" })
+    return $sum
+}
+
+function Get-ChatOverlayProcessSums {
+    # Get-ChatMemorySums at most once a minute for a context: the leak look
+    # and memory's top programs read the same listing, so a minute never
+    # walks Windows' processes twice, whichever of them asks first
+    param($Ctx, [datetime]$Now = (Get-Date))
+    if (-not ($Ctx.SumsAt -is [datetime] -and $Ctx.SumsAt -le $Now -and ($Now - $Ctx.SumsAt).TotalSeconds -lt 60)) {
+        # emptied first: a walk that threw leaves no older listing under
+        # this minute's time
+        $Ctx.SumsAt = $Now
+        $Ctx.Sums = $null
+        $Ctx.Sums = Get-ChatMemorySums
+    }
+    return $Ctx.Sums
+}
+
+function Get-ChatMemoryTop {
+    # The programs holding the most memory, the most first, from -Sums
+    # (Get-ChatMemorySums), as "Code 9.8 GB". -Count of them.
+    param($Sums, [int]$Count = 3)
+    if ($script:ChatMemoryTopSeam) { return @(& $script:ChatMemoryTopSeam) }   # tests
+    if ($Sums -isnot [hashtable]) { return @() }
+    return @($Sums.GetEnumerator() | Sort-Object { [double]$_.Value.Bytes } -Descending | Select-Object -First $Count | ForEach-Object { "$($_.Key) $([Math]::Round([double]$_.Value.Bytes / 1GB, 1)) GB" })
+}
+
+function Update-ChatOverlayLeaks {
+    <#
+    A program growing fast, whether memory is low yet or not: on
+    2026-10-19 a Word that File Explorer's preview started grew 0.25 to
+    0.45 GB a minute for an hour, to 21.5 GB, until a VS Code window died
+    of it - and the memory warning, which reads a level, said it once as
+    the level was reached and then nothing, a program growing 6 GB in 11
+    minutes looking the same as one standing still. So once a minute each
+    process's bytes (Get-ChatOverlayProcessSums), by its pid and name, are
+    kept, 15 minutes of them, and each is held against the newest kept at
+    least 10 minutes back: grown config overlay.leakGB or more since, its
+    program is growing. A process each, not a program's sum: VS Code's
+    windows, the chats' claudes and a build's compilers start new
+    processes of a name all day, and their sum grows 2 GB in 10 minutes
+    with nothing leaking. A process not in that sample does not count - one
+    just started has grown from nothing. -Act, a pass not -Peek: each
+    growing program is said once in 30 minutes - a line in the log, and
+    $Ctx.LeakNews for the host's tray (Show-ChatOverlayMemory). Returns the
+    growing programs, the most grown first, each @{ name; grewGB; nowGB;
+    pid; minutes } for its process that grew the most; 0 is never.
+    #>
+    param($Ctx, [datetime]$Now = (Get-Date), [switch]$Act)
+    $gb = [double]$Ctx.Config.leakGB
+    if ($gb -le 0) { $Ctx.LeakSamples = @(); $Ctx.Leaks = @(); return @() }
+    if (-not ($Ctx.LeakAt -is [datetime] -and $Ctx.LeakAt -le $Now -and ($Now - $Ctx.LeakAt).TotalSeconds -lt 60)) {
+        $Ctx.LeakAt = $Now
+        $sums = Get-ChatOverlayProcessSums $Ctx $Now
+        if ($sums -isnot [hashtable]) { $Ctx.LeakSamples = @(); $Ctx.Leaks = @() }
+        else {
+            # when the listing was taken, which memory's top programs may
+            # have asked for first
+            $at = $Ctx.SumsAt
+            # "<pid>|<name>": a pid Windows gave again to another program
+            # is a process not seen before
+            $bytes = @{}
+            foreach ($k in @($sums.Keys)) {
+                $ps = $sums[$k].Procs
+                if ($ps -is [hashtable]) { foreach ($i in @($ps.Keys)) { $bytes["$i|$k"] = [double]$ps[$i] } }
+            }
+            $kept = @(@($Ctx.LeakSamples) | Where-Object { $_ -and $_.At -le $at -and ($at - $_.At).TotalMinutes -le 15 })
+            $old = @($kept | Where-Object { ($at - $_.At).TotalMinutes -ge 10 } | Select-Object -Last 1)[0]
+            if (-not $kept.Count -or $kept[-1].At -lt $at) { $kept += @(@{ At = $at; Bytes = $bytes }) }
+            $Ctx.LeakSamples = $kept
+            # a program's process that grew the most, should two of its own
+            $most = @{}
+            if ($old) {
+                foreach ($key in @($bytes.Keys)) {
+                    if (-not $old.Bytes.ContainsKey($key)) { continue }
+                    $d = $bytes[$key] - $old.Bytes[$key]
+                    if ($d -lt $gb * 1GB) { continue }
+                    $i, $n = $key -split '\|', 2
+                    if ($most[$n] -and $most[$n].d -ge $d) { continue }
+                    $most[$n] = @{ d = $d; b = $bytes[$key]; p = [int]$i }
+                }
+            }
+            $grow = @(foreach ($n in @($most.Keys)) {
+                    [pscustomobject]@{ name = [string]$n; grewGB = [Math]::Round($most[$n].d / 1GB, 1); nowGB = [Math]::Round($most[$n].b / 1GB, 1)
+                        pid = $most[$n].p; minutes = [int][Math]::Round(($at - $old.At).TotalMinutes) }
+                })
+            $Ctx.Leaks = @($grow | Sort-Object grewGB -Descending)
+        }
+    }
+    if ($Act) {
+        if ($Ctx.LeakToldAt -isnot [hashtable]) { $Ctx.LeakToldAt = @{} }
+        foreach ($k in @($Ctx.LeakToldAt.Keys)) { if ($Ctx.LeakToldAt[$k] -gt $Now -or ($Now - $Ctx.LeakToldAt[$k]).TotalMinutes -ge 30) { $Ctx.LeakToldAt.Remove($k) } }
+        foreach ($l in @($Ctx.Leaks)) {
+            if ($Ctx.LeakToldAt.ContainsKey($l.name)) { continue }
+            $Ctx.LeakToldAt[$l.name] = $Now
+            Write-ChatOverlayLog (Format-ChatOverlayLeakText $l) -Always
+            $Ctx.LeakNews = @(@($Ctx.LeakNews) + @($l) | Where-Object { $_ })
+        }
+    }
+    return @($Ctx.Leaks)
+}
+
+function Format-ChatOverlayLeakText {
+    # one of Update-ChatOverlayLeaks' growing programs in words, for the
+    # panel's note, the tray's balloon and the log: "WINWORD grew 6.1 GB in
+    # 10 min, now 15.8 GB (pid 33188) - it may be leaking". Pure.
+    param($Leak)
+    $p = [int](Get-ChatField $Leak 'pid')
+    return "$(Get-ChatField $Leak 'name') grew $(Get-ChatField $Leak 'grewGB') GB in $([int](Get-ChatField $Leak 'minutes')) min, now $(Get-ChatField $Leak 'nowGB') GB$(if ($p) { " (pid $p)" }) - it may be leaking"
 }
 
 function Update-ChatOverlayMemory {
@@ -3988,9 +4124,11 @@ function Update-ChatOverlayMemory {
     overlay.memoryWarn percent it is low, and it stays low until under 3
     less, so a figure on the line does not come and go; 0 is never. While
     low, the programs holding the most are named (Get-ChatMemoryTop), a
-    minute apart. -Act, a pass not -Peek: going low is said once - a line
-    in the log, and $Ctx.MemNews for the host's tray (Show-ChatOverlayMemory),
-    which is not said again within 15 minutes - and going back, a line.
+    minute apart, from the listing the leak look takes too
+    (Get-ChatOverlayProcessSums). -Act, a pass not -Peek: going low is said
+    once - a line in the log, and $Ctx.MemNews for the host's tray
+    (Show-ChatOverlayMemory), which is not said again within 15 minutes -
+    and going back, a line.
     Returns @{ percent; freeGB; top } while low, else $null.
     #>
     param($Ctx, [datetime]$Now = (Get-Date), [switch]$Act)
@@ -4008,7 +4146,7 @@ function Update-ChatOverlayMemory {
         return $null
     }
     $top = if ($was -and $Ctx.MemTopAt -is [datetime] -and $Ctx.MemTopAt -le $Now -and ($Now - $Ctx.MemTopAt).TotalSeconds -lt 60) { @($was.top) }
-    else { $Ctx.MemTopAt = $Now; @(try { Get-ChatMemoryTop } catch { }) }
+    else { $Ctx.MemTopAt = $Now; @(try { Get-ChatMemoryTop (Get-ChatOverlayProcessSums $Ctx $Now) } catch { }) }
     $Ctx.MemLow = [pscustomobject]@{ percent = $pct; freeGB = [Math]::Round([double]$m.Free / 1GB, 1); top = @($top) }
     if ($Act -and -not $Ctx.MemSaid) {
         $Ctx.MemSaid = $true

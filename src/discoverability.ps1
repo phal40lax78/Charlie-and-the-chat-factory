@@ -362,18 +362,8 @@ function chat {
     Write-Host ''
 }
 
-# verb-noun aliases so Get-Command *-Chat* and Find-<Tab> surface these too
-Set-Alias -Name Find-Chat -Value chatfind -Scope Global -Force
-Set-Alias -Name Remove-Chat -Value chatrm -Scope Global -Force
-Set-Alias -Name Get-ChatProvider -Value chatproviders -Scope Global -Force
-Set-Alias -Name Update-ChatIndex -Value chatindex -Scope Global -Force
-# chatnotify's old name, from when it only served chatq's queue; a profile
-# or a habit that still types it keeps working. Global like the ones above.
-Set-Alias -Name chatqnotify -Value chatnotify -Scope Global -Force
-# charlie's old name, from before the panel was Charlie's; a profile, a
-# habit or the extension that still types it keeps working. Global like
-# the ones above.
-Set-Alias -Name chatoverlay -Value charlie -Scope Global -Force
+# the aliases, in shell.ps1: a lazy shell sets them before the tool loads
+Set-ChatShellAliases
 
 Register-ArgumentCompleter -CommandName chatfind, chatrm, chatarchive, chatindex -ParameterName Provider -ScriptBlock {
     param($cmd, $param, $word)
@@ -733,132 +723,99 @@ function Start-ChatCycle {
     return $true
 }
 
-# Tab starts or advances the run, Shift+Tab steps back, and the arrows do the
-# same but only while a run is live - otherwise they stay history navigation.
-# Opt out with $ChatNoKeyBindings = $true before the dot-source line. Read
-# through Get-Variable: under StrictMode an unset one throws, and every shell
-# start would lose its key handlers. Never in the background watcher or the
-# overlay, which have no keyboard, nor anywhere else not interactive. A shell
-# with no PSReadLine fails the import, which the catch at the end takes:
-# asking first (Get-Module -ListAvailable) read every module folder, 0.1 to
-# 0.35 s of every shell's start.
-if (-not (Get-Variable -Name ChatNoKeyBindings -ValueOnly -EA SilentlyContinue) -and
-    -not $env:CHATQ_WATCHER -and -not $env:CHATQ_OVERLAY -and [Environment]::UserInteractive) {
-    try {
-        Import-Module PSReadLine -EA Stop
+# Each key's handler: bound in shell.ps1 (Register-ChatKeyHandlers), which
+# hands every key to the function for it here once the tool has loaded.
+# Functions, not the bodies of the bindings, so a shell that bound its keys
+# before the tool was here reaches them all the same.
 
-        # remember what the arrows did before we took them over
-        $script:ChatArrowWas = @{}
-        foreach ($k in 'UpArrow', 'DownArrow') {
-            $bound = Get-PSReadLineKeyHandler -Bound | Where-Object { $_.Key -eq $k }
-            $script:ChatArrowWas[$k] = if ($bound) { $bound.Function } else { $null }
-        }
-
-        function Invoke-ChatPSReadLine {
-            # call a PSReadLine action by name, so the arrows keep doing
-            # whatever they were bound to before this file was loaded
-            param([string]$Name, [string]$Fallback)
-            if (-not $Name) { $Name = $Fallback }
-            $mi = [Microsoft.PowerShell.PSConsoleReadLine].GetMethod(
-                $Name, [type[]]@([System.Nullable[System.ConsoleKeyInfo]], [object]))
-            if (-not $mi) {
-                $mi = [Microsoft.PowerShell.PSConsoleReadLine].GetMethod(
-                    $Fallback, [type[]]@([System.Nullable[System.ConsoleKeyInfo]], [object]))
+function Invoke-ChatTabKey {
+    Set-StrictMode -Off
+    $line = $null; $pos = 0
+    [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$pos)
+    if (Test-ChatCycling $line) { Set-ChatCycleLine 1; return }
+    $script:ChatCycle = $null
+    if (-not (Start-ChatCycle $line)) {
+        # No index at all is worth saying out loud. Falling through to
+        # TabCompleteNext here is what put a bare '' on the line and made
+        # an empty index look like a broken completer.
+        if ($script:ChatNoIndex) {
+            try {
+                [Microsoft.PowerShell.PSConsoleReadLine]::AddToHistory($null)
             }
-            if ($mi) { [void]$mi.Invoke($null, @($null, $null)) }
+            catch {}
+            Write-Host ''
+            Write-Host '  no index yet - run chatindex once (~30s)' -ForegroundColor Yellow
+            # redraw, or the line is left sitting under what was printed
+            try { [Microsoft.PowerShell.PSConsoleReadLine]::InvokePrompt() } catch {}
+            return
         }
-
-        Set-PSReadLineKeyHandler -Key Tab -BriefDescription 'ChatCycleNext' `
-            -Description 'Fill in the next matching chat, described in a trailing comment' -ScriptBlock {
-            Set-StrictMode -Off
-            $line = $null; $pos = 0
-            [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$pos)
-            if (Test-ChatCycling $line) { Set-ChatCycleLine 1; return }
-            $script:ChatCycle = $null
-            if (-not (Start-ChatCycle $line)) {
-                # No index at all is worth saying out loud. Falling through to
-                # TabCompleteNext here is what put a bare '' on the line and made
-                # an empty index look like a broken completer.
-                if ($script:ChatNoIndex) {
-                    try {
-                        [Microsoft.PowerShell.PSConsoleReadLine]::AddToHistory($null)
-                    }
-                    catch {}
-                    Write-Host ''
-                    Write-Host '  no index yet - run chatindex once (~30s)' -ForegroundColor Yellow
-                    # redraw, or the line is left sitting under what was printed
-                    try { [Microsoft.PowerShell.PSConsoleReadLine]::InvokePrompt() } catch {}
-                    return
-                }
-                [Microsoft.PowerShell.PSConsoleReadLine]::TabCompleteNext()
-            }
-        }
-
-        Set-PSReadLineKeyHandler -Key Shift+Tab -BriefDescription 'ChatCyclePrev' `
-            -Description 'Step back through the matching chats' -ScriptBlock {
-            Set-StrictMode -Off
-            $line = $null; $pos = 0
-            [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$pos)
-            if (Test-ChatCycling $line) { Set-ChatCycleLine -1; return }
-            [Microsoft.PowerShell.PSConsoleReadLine]::TabCompletePrevious()
-        }
-
-        Set-PSReadLineKeyHandler -Key DownArrow -BriefDescription 'ChatCycleOrHistory' `
-            -Description 'Next matching chat while cycling, history otherwise' -ScriptBlock {
-            Set-StrictMode -Off
-            $line = $null; $pos = 0
-            [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$pos)
-            if (Test-ChatCycling $line) { Set-ChatCycleLine 1; return }
-            Invoke-ChatPSReadLine $script:ChatArrowWas['DownArrow'] 'NextHistory'
-        }
-
-        Set-PSReadLineKeyHandler -Key UpArrow -BriefDescription 'ChatCycleOrHistory' `
-            -Description 'Previous matching chat while cycling, history otherwise' -ScriptBlock {
-            Set-StrictMode -Off
-            $line = $null; $pos = 0
-            [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$pos)
-            if (Test-ChatCycling $line) { Set-ChatCycleLine -1; return }
-            Invoke-ChatPSReadLine $script:ChatArrowWas['UpArrow'] 'PreviousHistory'
-        }
-
-        Set-PSReadLineKeyHandler -Key Enter -BriefDescription 'ChatAcceptLine' `
-            -Description 'Drop the age and counter, then run the line' -ScriptBlock {
-            Set-StrictMode -Off
-            $line = $null; $pos = 0
-            [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$pos)
-            # not only while cycling: the tail survives an edit, and left on the
-            # line "(5d)" would be run as an expression rather than ignored
-            if ($line -match '^\s*chat(rm|archive|find|q)\s') {
-                $clean = $line -replace $script:ChatTailPattern, ''
-                # chatq goes on past the title (-Prompt ...). The cursor is left
-                # before the tail, but text typed after it would put -Prompt in
-                # the comment and leave "(5d)" mid-line to be run
-                if ($clean -match '^\s*chatq\s') { $clean = $clean -replace $script:ChatMidTailPattern, '' }
-                if ($clean -ne $line) {
-                    [Microsoft.PowerShell.PSConsoleReadLine]::Replace(0, $line.Length, $clean)
-                    $line = $clean
-                }
-                $script:ChatCycle = $null
-
-                # chatrm and chatarchive only, and only when the argument is part of a title
-                # rather than all of it: fill the title in the way Tab would and
-                # hold the line, so the whole thing is on screen before Enter
-                # can act on it. chatfind is a search and deletes nothing, so it
-                # runs as typed.
-                # never let this break Enter: a throw inside a key handler makes
-                # the key unusable, which would be far worse than the eager
-                # delete it exists to prevent
-                try {
-                    if ($line -match '^\s*chat(rm|archive)\s' -and (Test-ChatPartialTarget $line)) {
-                        if (Start-ChatCycle $line) { return }
-                    }
-                }
-                catch {}
-            }
-            [Microsoft.PowerShell.PSConsoleReadLine]::AcceptLine()
-        }
+        [Microsoft.PowerShell.PSConsoleReadLine]::TabCompleteNext()
     }
-    catch {}
 }
+
+function Invoke-ChatShiftTabKey {
+    Set-StrictMode -Off
+    $line = $null; $pos = 0
+    [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$pos)
+    if (Test-ChatCycling $line) { Set-ChatCycleLine -1; return }
+    [Microsoft.PowerShell.PSConsoleReadLine]::TabCompletePrevious()
+}
+
+function Invoke-ChatDownArrowKey {
+    Set-StrictMode -Off
+    $line = $null; $pos = 0
+    [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$pos)
+    if (Test-ChatCycling $line) { Set-ChatCycleLine 1; return }
+    Invoke-ChatPSReadLine $script:ChatArrowWas['DownArrow'] 'NextHistory'
+}
+
+function Invoke-ChatUpArrowKey {
+    Set-StrictMode -Off
+    $line = $null; $pos = 0
+    [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$pos)
+    if (Test-ChatCycling $line) { Set-ChatCycleLine -1; return }
+    Invoke-ChatPSReadLine $script:ChatArrowWas['UpArrow'] 'PreviousHistory'
+}
+
+function Invoke-ChatEnterKey {
+    Set-StrictMode -Off
+    $line = $null; $pos = 0
+    [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$pos)
+    # not only while cycling: the tail survives an edit, and left on the
+    # line "(5d)" would be run as an expression rather than ignored
+    if ($line -match '^\s*chat(rm|archive|find|q)\s') {
+        $clean = $line -replace $script:ChatTailPattern, ''
+        # chatq goes on past the title (-Prompt ...). The cursor is left
+        # before the tail, but text typed after it would put -Prompt in
+        # the comment and leave "(5d)" mid-line to be run
+        if ($clean -match '^\s*chatq\s') { $clean = $clean -replace $script:ChatMidTailPattern, '' }
+        if ($clean -ne $line) {
+            [Microsoft.PowerShell.PSConsoleReadLine]::Replace(0, $line.Length, $clean)
+            $line = $clean
+        }
+        $script:ChatCycle = $null
+
+        # chatrm and chatarchive only, and only when the argument is part of a title
+        # rather than all of it: fill the title in the way Tab would and
+        # hold the line, so the whole thing is on screen before Enter
+        # can act on it. chatfind is a search and deletes nothing, so it
+        # runs as typed.
+        # never let this break Enter: a throw inside a key handler makes
+        # the key unusable, which would be far worse than the eager
+        # delete it exists to prevent
+        try {
+            if ($line -match '^\s*chat(rm|archive)\s' -and (Test-ChatPartialTarget $line)) {
+                if (Start-ChatCycle $line) { return }
+            }
+        }
+        catch {}
+    }
+    [Microsoft.PowerShell.PSConsoleReadLine]::AcceptLine()
+}
+
+# A lazy shell bound them as it opened, and the load that brings these here
+# leaves them bound. Asked of the session, not Get-Variable: that files a
+# name it does not find in $Error, every load of every shell.
+if (-not $ExecutionContext.SessionState.PSVariable.GetValue('global:ChatShellLazy')) { Register-ChatKeyHandlers }
 
 #endregion

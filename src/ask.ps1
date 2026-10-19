@@ -816,7 +816,7 @@ function Test-ChatqAskLanded {
     answers the phone's - landed; other answers - the PC's won; none at all -
     the chat went on without it. The first and the last are pushed: the
     undocumented part of this (spec S46) fails loudly, never quietly. Each
-    looked at once, or dropped after 10 minutes. -Now is for the tests.
+    looked at once, then dropped. -Now is for the tests.
     Returns what it found, rid -> outcome.
     #>
     param([datetime]$Now = (Get-Date), [switch]$Quick)

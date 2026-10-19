@@ -1,0 +1,23 @@
+[package]
+name = "chatqd"
+description = "The native watcher"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+chatq-core.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Threading",
+    "Win32_System_Power",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true

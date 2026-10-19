@@ -1,0 +1,9 @@
+# The toolchain CI builds chatqd with (SPEC 3.1). rustup reads this file
+# from the current directory: a cargo run from the repo root uses the
+# installed stable, and one started here wants a toolchain named 1.99.0,
+# which rustup downloads if it has none by that name. No targets: CI adds
+# the two Apple ones, so a local build fetches nothing it does not use.
+[toolchain]
+channel = "1.99.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

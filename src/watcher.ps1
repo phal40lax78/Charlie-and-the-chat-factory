@@ -1508,8 +1508,20 @@ function Get-ChatqWatcherLaunch {
     the jobs this watcher runs for hours, and your own alert command, run
     under your policy, not Bypass. A load that fails anyway lands in
     data/logs/watcher.log.
+    -Native the chatqd to start instead (Get-ChatqWatcherEngine): the same
+    root, script and PowerShell, which it uses for every PowerShell it
+    starts, and this shell's culture, which it renders times in for life as
+    a PowerShell watcher does (native/SPEC.md 2.11, 4.1). Command is $null.
     #>
-    param([string]$Path = $script:ChatqScriptPath)
+    param([string]$Path = $script:ChatqScriptPath, [string]$Native)
+    if ($Native) {
+        $ci = [System.Globalization.CultureInfo]::CurrentCulture
+        $cj = [ordered]@{ name = $ci.Name; timeSep = $ci.DateTimeFormat.TimeSeparator; groupSep = $ci.NumberFormat.NumberGroupSeparator
+            groupSizes = @($ci.NumberFormat.NumberGroupSizes) } | ConvertTo-Json -Compress
+        $b64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($cj)).TrimEnd('=').Replace('+', '-').Replace('/', '_')
+        $argv = @('watch', '--root', $script:ChatRoot, '--script', $Path, '--ps', (Get-Process -Id $PID).Path, '--culture', $b64)
+        return [pscustomobject]@{ Exe = $Native; Args = $argv; Command = $null; Engine = 'native' }
+    }
     $q = { param($s) "'" + [System.Management.Automation.Language.CodeGeneration]::EscapeSingleQuotedStringContent([string]$s) + "'" }
     $pre = '$env:CHATQ_WATCHER=''1''; '
     foreach ($n in 'CHATQ_CLAUDE', 'CHATQ_CODEX') {
@@ -1522,19 +1534,26 @@ function Get-ChatqWatcherLaunch {
     "Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference' -EA SilentlyContinue; Invoke-ChatqWatchLoop"
     $enc = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($cmd))
     $argv = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $enc)
-    return [pscustomobject]@{ Exe = (Get-Process -Id $PID).Path; Args = $argv; Command = $cmd }
+    return [pscustomobject]@{ Exe = (Get-Process -Id $PID).Path; Args = $argv; Command = $cmd; Engine = 'ps' }
 }
 
 function Start-ChatqWatcherProcess {
     # just the launch: Start-ChatqWatcher decides whether one is needed, and a
-    # watcher handing over to a newer copy of itself calls this directly
-    if ($script:ChatqSpawn) { return (& $script:ChatqSpawn) }   # tests: no real process
+    # watcher handing over to a newer copy of itself calls this directly.
+    # Which watcher is Get-ChatqWatcherEngine's to say; a native one that
+    # will not start is a strike, and this launch the PowerShell one.
     $path = $script:ChatqScriptPath
-    if (-not $path -or -not (Test-Path -LiteralPath $path)) {
+    if (-not $script:ChatqSpawn -and (-not $path -or -not (Test-Path -LiteralPath $path))) {
         Write-Host '  cannot start the watcher: this shell does not know where Charlie-and-the-chat-factory.ps1 is' -ForegroundColor Yellow
         return $false
     }
+    $eng = Get-ChatqWatcherEngine $path
+    if ($eng.Engine -eq 'native') {
+        $started = Start-ChatqNativeProcess (Get-ChatqWatcherLaunch $path -Native $eng.Exe) $eng.Version
+        if ($null -ne $started) { return $started }
+    }
     $l = Get-ChatqWatcherLaunch $path
+    if ($script:ChatqSpawn) { return (& $script:ChatqSpawn $l) }   # tests: no real process
     # in your home folder, never the caller's: the watcher runs on for hours
     # after the shell that started it, and Windows will not delete or rename a
     # folder a process is in. Escaped, as Start-Process reads the folder as a
@@ -1557,6 +1576,374 @@ function Start-ChatqWatcherProcess {
         return $false
     }
     return $true
+}
+
+#endregion
+
+#region the native watcher's launch ------------------------------------------
+# chatqd, the native watcher (native/SPEC.md), runs wherever its binary is:
+# R/bin/<version>/<target>/, which only a developer's build fills until it
+# ships, or CHATQ_CHATQD. The decision, its records in data/native/ and the
+# fuse are held equal to native/crates/chatq-core/src/launch.rs by the cases
+# in native/vectors/launch.json (tests/sections/native.ps1). With no binary -
+# every user today - a launch costs a look for data/native and one for
+# bin/ more than it did, and reads and writes nothing.
+
+# the bin/ folder's name, not the compiled triple: both slices of the Mac's
+# universal binary say universal-apple-darwin. None on Linux, which keeps
+# the PowerShell watcher.
+$script:ChatqNativeTarget = if ($script:ChatqIsWindows) { 'x86_64-pc-windows-msvc' } elseif ($script:ChatIsMac) { 'universal-apple-darwin' } else { $null }
+
+function Get-ChatqNativeFile {
+    # data/native/<Name>: pending.json, last.json, verified.json, fuse.json
+    param([string]$Name)
+    Join-Path (Join-Path $script:ChatqData 'native') $Name
+}
+
+# Deferred: DEFERRED.md "A relative CHATQ_CHATQD"
+function Get-ChatqNativePath {
+    # Only ever bin/<Version>/, the scripts' version on disk, so new scripts
+    # never start an old binary. None when the shell does not know its
+    # folder (iex). CHATQ_CHATQD made absolute against the process's folder,
+    # not PowerShell's location, as launch.rs's std::path::absolute does:
+    # else a relative one would be two binaries to the two launchers.
+    param([string]$Version = $script:ChatVersion)
+    if ($env:CHATQ_CHATQD) {
+        try { return [System.IO.Path]::GetFullPath([System.IO.Path]::Combine([Environment]::CurrentDirectory, $env:CHATQ_CHATQD)) }
+        catch { return $env:CHATQ_CHATQD }
+    }
+    if (-not $script:ChatRoot -or -not $script:ChatqNativeTarget) { return $null }
+    $exe = if ($script:ChatqIsWindows) { 'chatqd.exe' } else { 'chatqd' }
+    return [System.IO.Path]::Combine([string]$script:ChatRoot, 'bin', $Version, $script:ChatqNativeTarget, $exe)
+}
+
+function Get-ChatqLoaderVersion {
+    # The version of the scripts a launch starts: the loader on disk, read
+    # as extension/setup.js readVersion and launch.rs read_loader_version
+    # read it (latin1, the first line that begins with it, after CR or LF).
+    # Not this process's $script:ChatVersion, which a shell or a watcher
+    # loaded before an update and keeps: its restart would pick the old
+    # bin/ folder, or none, for the new scripts. $null when it cannot be read.
+    param([string]$Path)
+    if (-not $Path) { return $null }
+    try { $t = [System.IO.File]::ReadAllText($Path, [System.Text.Encoding]::GetEncoding(28591)) }
+    catch { return $null }
+    $m = [regex]::Match($t, '(?<![^\r\n])\$script:ChatVersion = ''(\d+\.\d+\.\d+)''')
+    if ($m.Success) { return $m.Groups[1].Value }
+    return $null
+}
+
+function Get-ChatqNativeInt {
+    # a JSON integer as launch.rs reads one, else $null: a pid or a size
+    # written as text, or as 1.0, is none
+    param($Value)
+    if (($Value -is [int] -or $Value -is [long]) -and $Value -ge 0) { return [long]$Value }
+    return $null
+}
+
+function ConvertTo-ChatqNativeStamp {
+    # a stamp as it was written: pwsh 7's ConvertFrom-Json makes it a
+    # [datetime], which [string] would give back in this culture's words
+    param($Value)
+    if ($Value -is [datetime]) { return $Value.ToUniversalTime().ToString('o') }
+    return [string]$Value
+}
+
+function Test-ChatqNativeAlive {
+    # a live process at that pid; with -Chatqd, one that is a chatqd, by its
+    # name, so a pid reused by something else is never taken for one
+    param($ProcessId, [switch]$Chatqd)
+    $p = try { Get-Process -Id ([int]$ProcessId) -EA Stop } catch { $null }
+    if (-not $p) { return $false }
+    return (-not $Chatqd -or $p.ProcessName -eq 'chatqd')
+}
+
+function Test-ChatqNativeWanted {
+    # CHATQ_ENGINE for one launch and what it starts, else config's watcher;
+    # only ps says no. watcher: "ps" is set by hand - no command sets it
+    $e = ([string]$env:CHATQ_ENGINE).Trim()
+    if ($e) { return ($e -ne 'ps') }
+    $c = Get-ChatqConfig
+    $w = if ($c.PSObject.Properties['watcher']) { ([string]$c.watcher).Trim() } else { '' }
+    return ($w -ne 'ps')
+}
+
+function Get-ChatqNativeFuse {
+    # fuse.json's strikes and alert flag for this version. Another version's
+    # record counts for nothing: a new version starts clean.
+    param([string]$Version = $script:ChatVersion)
+    $f = Read-ChatqJson (Get-ChatqNativeFile 'fuse.json')
+    if ($f -and [string]$f.version -ceq $Version) {
+        return [pscustomobject]@{ Strikes = @($f.strikes | Where-Object { $null -ne $_ }); Alerted = [bool]$f.alerted }
+    }
+    return [pscustomobject]@{ Strikes = @(); Alerted = $false }
+}
+
+function Save-ChatqNativeFuse {
+    param($Strikes, [bool]$Alerted, [string]$Version = $script:ChatVersion)
+    foreach ($s in @($Strikes)) { if ($s.PSObject.Properties['at']) { $s.at = ConvertTo-ChatqNativeStamp $s.at } }
+    Save-ChatqJson (Get-ChatqNativeFile 'fuse.json') ([ordered]@{ version = $Version; strikes = @($Strikes); alerted = $Alerted })
+}
+
+function Add-ChatqNativeStrike {
+    # one strike against this version, kept with the ones before it, and
+    # said in chatqd.log beside chatqd's own lines
+    param([string]$Why, $ProcessId, [string]$Text, [string]$Version = $script:ChatVersion)
+    $f = Get-ChatqNativeFuse $Version
+    try { Save-ChatqNativeFuse (@($f.Strikes) + @([pscustomobject]@{ at = Get-ChatqStamp; why = $Why; pid = $ProcessId })) $f.Alerted $Version } catch {}
+    try { Add-ChatqLogLine 'chatqd.log' "fuse strike: $Text" } catch {}
+}
+
+function Test-ChatqNativeFuseBlown {
+    # 3 strikes within 24 h: PowerShell until the version changes, or until
+    # data/native/fuse.json is deleted
+    param([string]$Version = $script:ChatVersion)
+    $day = (Get-Date).AddHours(-24)
+    return (@((Get-ChatqNativeFuse $Version).Strikes | Where-Object { $d = ConvertTo-ChatqDate $_.at; $d -and $d -gt $day }).Count -ge 3)
+}
+
+# Deferred: DEFERRED.md "Two launches of a native watcher at once"
+function Send-ChatqNativeFuseAlert {
+    # Once a fuse is blown, and only from PowerShell: chatqd has no alert of
+    # its own yet, so a fuse it blows is said by the next launch from here.
+    # Marked before it goes, as a push can take seconds and a launch
+    # meanwhile must not say it again.
+    param([string]$Version = $script:ChatVersion)
+    if (-not (Test-ChatqNativeFuseBlown $Version)) { return }
+    $f = Get-ChatqNativeFuse $Version
+    if ($f.Alerted) { return }
+    try { Save-ChatqNativeFuse $f.Strikes $true $Version } catch { return }
+    try { Add-ChatqLogLine 'chatqd.log' "the native watcher failed 3 times for $Version - the PowerShell watcher runs instead" } catch {}
+    try { [void](Send-ChatqAlert 'failed' 'the native watcher failed 3 times - the PowerShell watcher runs instead' -NoReply) } catch {}
+}
+
+# Deferred: DEFERRED.md "An unreadable record in data/native"
+function Find-ChatqNativeStrikes {
+    <#
+    The strikes any launch records when it finds them, and what each was:
+      no ack  pending.json older than 15 s, its pid no live chatqd: a launch
+              that never reached the lock, or never said it found it busy.
+              Of another version it is only cleared.
+      crash   last.json says a chatqd of this version holds the lock, and it
+              is dead, the lock free and watcher.pid still there, which a
+              clean exit deletes. Once per pid; a kill by hand counts too.
+    #>
+    param([string]$Version = $script:ChatVersion)
+    $found = @()
+    $pp = Get-ChatqNativeFile 'pending.json'
+    $p = Read-ChatqJson $pp
+    if ($p) {
+        $n = Get-ChatqNativeInt $p.pid
+        $at = ConvertTo-ChatqDate $p.at
+        $old = -not $at -or ((Get-Date) - $at).TotalMilliseconds -gt 15000
+        if ($old -and -not ($null -ne $n -and (Test-ChatqNativeAlive $n -Chatqd))) {
+            if ([string]$p.version -ceq $Version) {
+                $t = "a launch was never acked (pid $([long]$n))"
+                Add-ChatqNativeStrike 'no ack' $n $t $Version
+                $found += $t
+            }
+            Remove-Item -LiteralPath $pp -Force -EA SilentlyContinue
+        }
+    }
+    $l = Read-ChatqJson (Get-ChatqNativeFile 'last.json')
+    $n = if ($l) { Get-ChatqNativeInt $l.pid } else { $null }
+    if ($null -ne $n -and $l.engine -eq 'native' -and $l.state -eq 'holding' -and [string]$l.version -ceq $Version -and
+        -not (Test-ChatqNativeAlive $n) -and -not (Test-ChatqLockHeld $script:ChatqLockPath) -and (Test-Path -LiteralPath $script:ChatqPidPath)) {
+        if (-not @((Get-ChatqNativeFuse $Version).Strikes | Where-Object { $_.why -eq 'crash' -and (Get-ChatqNativeInt $_.pid) -eq $n })) {
+            $t = "the native watcher $n died holding the lock"
+            Add-ChatqNativeStrike 'crash' $n $t $Version
+            $found += $t
+        }
+    }
+    return $found
+}
+
+# Deferred: DEFERRED.md "A CHATQ_CHATQD in 8.3 short names"
+function Get-ChatqNativeIdentity {
+    # a binary as preflight knows it: its full path as FullName gives it -
+    # absolute, / and .. resolved, as launch.rs's std::path::absolute does -
+    # its size and its LastWriteTimeUtc
+    param([string]$Path)
+    $it = Get-Item -LiteralPath $Path -Force -EA SilentlyContinue
+    if (-not $it) { return $null }
+    return [pscustomobject]@{ path = $it.FullName; size = [long]$it.Length; mtime = $it.LastWriteTimeUtc.ToString('o') }
+}
+
+function Test-ChatqNativeVerified {
+    # has this exact build passed preflight before? The path case-blind, as
+    # -eq compares it
+    param($Id)
+    $v = Read-ChatqJson (Get-ChatqNativeFile 'verified.json')
+    foreach ($e in @($v.passed)) {
+        if ($e -and [string]$e.path -eq $Id.path -and (Get-ChatqNativeInt $e.size) -eq $Id.size -and (ConvertTo-ChatqNativeStamp $e.mtime) -ceq $Id.mtime) { return $true }
+    }
+    return $false
+}
+
+function Add-ChatqNativeVerified {
+    # a pass, in place of any earlier one for the same path - a binary since
+    # rebuilt - so the file keeps one entry per path and never grows
+    param($Id)
+    $f = Get-ChatqNativeFile 'verified.json'
+    $v = Read-ChatqJson $f
+    $passed = @(foreach ($e in @($v.passed)) {
+            if (-not $e -or [string]$e.path -eq $Id.path) { continue }
+            foreach ($k in 'mtime', 'at') { if ($e.PSObject.Properties[$k]) { $e.$k = ConvertTo-ChatqNativeStamp $e.$k } }
+            $e
+        })
+    $passed += [pscustomobject]@{ path = $Id.path; size = $Id.size; mtime = $Id.mtime; at = Get-ChatqStamp }
+    Save-ChatqJson $f ([ordered]@{ passed = $passed })
+}
+
+function Invoke-ChatqNativePreflight {
+    <#
+    chatqd version --root R, before a build's first launch: $null when it
+    exits 0 within 5 s saying chatqd <version> <target>, else why not. It
+    turns what would leave a launch waiting on nothing - an AV block, a
+    missing DLL, the wrong architecture, a version mismatch - into a strike
+    and the PowerShell watcher, at once.
+    chatqd is a GUI-subsystem exe, which & neither waits for nor reads: a
+    process of its own, its pipes redirected, waited for before it is read.
+    Its one line fits in the pipe, so the wait cannot stall on a full one,
+    where reading first would wait past the 5 s.
+    #>
+    param([string]$Exe, [string]$Version = $script:ChatVersion)
+    $want = "chatqd $Version $script:ChatqNativeTarget"
+    try { $p = [System.Diagnostics.Process]::Start((New-ChatqProcessStartInfo -Exe $Exe -ArgList @('version', '--root', $script:ChatRoot))) }
+    catch { return "did not start: $($_.Exception.Message)" }
+    try {
+        try { $p.StandardInput.Close() } catch {}
+        if (-not $p.WaitForExit(5000)) { try { $p.Kill() } catch {}; return 'no answer within 5 s' }
+        $out = $p.StandardOutput.ReadToEnd().TrimEnd([char[]]"`r`n")
+        if ($p.ExitCode -eq 0 -and $out -ceq $want) { return $null }
+        return "exit $($p.ExitCode), said '$out'"
+    }
+    finally { $p.Dispose() }
+}
+
+function Get-ChatqWatcherEngine {
+    <#
+    Which watcher a launch of the loader at $Path starts (native/SPEC.md
+    4.2): @{ Engine; Exe; Why; Strikes; Version }, Engine native only when
+    all of these hold, else ps:
+      - CHATQ_ENGINE, or else config's watcher, is not ps;
+      - a Windows PC or a Mac, with the binary there to run - on a Mac its
+        owner exec bit too, which a VSIX does not keep;
+      - no strike found by this call, and no fuse blown;
+      - the build has passed preflight, run once per build (verified.json).
+    Strikes are looked for first, by every launch: one found makes this
+    launch the PowerShell watcher's, so a broken binary leaves no gap longer
+    than the next launch. The binary is looked for before config is read,
+    which changes no answer and spares that read where there is none.
+    Version is the loader's on disk (Get-ChatqLoaderVersion), as chatqd's
+    respawn reads it, for the binary's folder, the records and preflight
+    alike; one that cannot be read is the PowerShell watcher. It is read
+    only where a binary or a record could be: with no data/native, no bin/
+    and no CHATQ_CHATQD - every user today - this call is two looks.
+    #>
+    param([string]$Path = $script:ChatqScriptPath)
+    Set-StrictMode -Off
+    $seen = Test-Path -LiteralPath (Join-Path $script:ChatqData 'native')
+    $look = $seen -or $env:CHATQ_CHATQD -or ($script:ChatRoot -and $script:ChatqNativeTarget -and
+        (Test-Path -LiteralPath (Join-Path $script:ChatRoot 'bin') -PathType Container))
+    $ver = if ($look) { Get-ChatqLoaderVersion $Path } else { $null }
+    $struck = @(if ($seen -and $ver) { Find-ChatqNativeStrikes $ver })
+    $why = $null
+    $exe = $null
+    $bin = if ($ver) { Get-ChatqNativePath $ver } else { $null }
+    $runs = $script:ChatqNativeTarget -and $bin -and (Test-Path -LiteralPath $bin -PathType Leaf) -and
+        -not ($script:ChatIsMac -and ([string](Get-Item -LiteralPath $bin).UnixMode)[3] -cnotin 'x', 's')
+    if (-not $script:ChatqNativeTarget) { $why = 'no native build for this system' }
+    elseif (-not $look) { $why = 'no chatqd: no bin folder and no CHATQ_CHATQD' }
+    elseif (-not $ver) { $why = "the scripts' version cannot be read from $Path" }
+    elseif (-not $runs) { $why = "no runnable chatqd at $bin" }
+    elseif (-not (Test-ChatqNativeWanted)) { $why = 'the engine is set to ps' }
+    elseif ($struck) { $why = 'a strike was just recorded' }
+    elseif (Test-ChatqNativeFuseBlown $ver) { $why = "the native watcher failed 3 times for $ver" }
+    else {
+        $id = Get-ChatqNativeIdentity $bin
+        if (-not $id) { $why = "cannot read $bin" }
+        elseif (-not (Test-ChatqNativeVerified $id)) {
+            $no = Invoke-ChatqNativePreflight $id.path $ver
+            if ($no) {
+                $why = "preflight failed: $no"
+                Add-ChatqNativeStrike 'preflight' $null $why $ver
+                $seen = $true
+            }
+            else { try { Add-ChatqNativeVerified $id } catch {} }
+        }
+        if (-not $why) { $exe = $id.path }
+    }
+    # the alert says the fuse keeps a binary from running: with none to run,
+    # a developer's build since deleted, there is nothing for it to say
+    if ($why -and $seen -and $runs) { Send-ChatqNativeFuseAlert $ver }
+    return [pscustomobject]@{ Engine = $(if ($exe) { 'native' } else { 'ps' }); Exe = $exe; Why = $why; Strikes = $struck; Version = $ver }
+}
+
+function Start-ChatqNativeProcess {
+    <#
+    The native launch (native/SPEC.md 4.1): what the start said, or $null
+    when chatqd would not start - a strike, and the caller's launch is the
+    PowerShell watcher's. In your home folder, for Start-ChatqWatcherProcess's
+    reasons. Every launch leaves pending.json, which the child deletes as its
+    ack once it holds the lock or finds it busy; still there 15 s on with no
+    chatqd at its pid, it is a strike (Find-ChatqNativeStrikes). $Version is
+    the decision's, which records and strikes are kept under.
+    #>
+    param($Launch, [string]$Version = $script:ChatVersion)
+    Set-StrictMode -Off
+    $p = $null
+    try {
+        # tests: no real process, and a seam that throws is a start that failed
+        if ($script:ChatqSpawn) { return [bool](& $script:ChatqSpawn $Launch) }
+        $wd = [WildcardPattern]::Escape($HOME)
+        # one line, quoted here: Start-Process joins a list with spaces and
+        # quotes nothing, and the tool's folder may have a space in it
+        $line = ConvertTo-ChatqArgLine $Launch.Args
+        if ($script:ChatqIsWindows) {
+            $p = Start-Process -FilePath $Launch.Exe -ArgumentList $line -WindowStyle Hidden -WorkingDirectory $wd -PassThru -EA Stop
+        }
+        else {
+            New-ChatqDir $script:ChatqLogDir
+            $p = Start-Process -FilePath 'nohup' -ArgumentList "$(ConvertTo-ChatqArgLine @($Launch.Exe)) $line" -WorkingDirectory $wd -PassThru -EA Stop `
+                -RedirectStandardOutput (Join-Path $script:ChatqLogDir 'watcher.out') `
+                -RedirectStandardError (Join-Path $script:ChatqLogDir 'watcher.err')
+        }
+    }
+    catch {
+        Add-ChatqNativeStrike 'start failed' $null "chatqd did not start: $($_.Exception.Message)" $Version
+        Send-ChatqNativeFuseAlert $Version
+        return $null
+    }
+    if ($p) { Write-ChatqNativePending $p $Version }
+    return $true
+}
+
+# Deferred: DEFERRED.md "Two launches of a native watcher at once"
+function Write-ChatqNativePending {
+    # pending.json, for a child already running: Start-Process gives the pid
+    # only then, so the child may have acked first - it holds or held the
+    # lock (last.json names it), or has exited 0, as every ack does - and its
+    # record would wait for nobody, a false strike 15 s on. One that exited
+    # otherwise keeps it, for the strike it is.
+    param($Process, [string]$Version = $script:ChatVersion)
+    try {
+        # held now: a child gone by the look below has no exit code to ask
+        $null = $Process.Handle
+        Save-ChatqJson (Get-ChatqNativeFile 'pending.json') ([ordered]@{ pid = $Process.Id; version = $Version; at = Get-ChatqStamp })
+        $l = Read-ChatqJson (Get-ChatqNativeFile 'last.json')
+        if (($l -and (Get-ChatqNativeInt $l.pid) -eq $Process.Id) -or ($Process.HasExited -and $Process.ExitCode -eq 0)) { Remove-ChatqNativePending $Process.Id }
+    }
+    catch {}
+}
+
+function Remove-ChatqNativePending {
+    # the ack: only a record naming that pid, so a launch still in flight
+    # for another keeps its own
+    param([long]$ProcessId)
+    $pp = Get-ChatqNativeFile 'pending.json'
+    $p = Read-ChatqJson $pp
+    if ($p -and (Get-ChatqNativeInt $p.pid) -eq $ProcessId) { Remove-Item -LiteralPath $pp -Force -EA SilentlyContinue }
 }
 
 #endregion

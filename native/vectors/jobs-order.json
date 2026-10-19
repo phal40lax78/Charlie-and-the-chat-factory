@@ -1,0 +1,1445 @@
+{
+  "about": "Get-ChatqJobs (src/queue.ps1): every *.json file in data/queue holding a job, in the queue order - put first (latest first ahead), then continues (kind continue, or rule restart), then the rest; each oldest createdAt first, then by [int]seq. Sort-Object is not stable, so ties land as each edition's .NET sort leaves them. Get-ChatqLane (src/watcher.ps1): provider, or provider|home. Rust: jobs::get_jobs, jobs::job_files, jobs::lane",
+  "cases": [
+    {
+      "name": "keys-basic",
+      "input": {
+        "kind": "order",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "files": [
+          {
+            "name": "a01.json",
+            "text": "{\"id\":\"a01\",\"tag\":\"a01\",\"createdAt\":\"2026-10-15T01:00:00Z\",\"seq\":1}"
+          },
+          {
+            "name": "a02.json",
+            "text": "{\"id\":\"a02\",\"tag\":\"a02\",\"first\":\"2026-10-15T03:00:00Z\"}"
+          },
+          {
+            "name": "a03.json",
+            "text": "{\"id\":\"a03\",\"tag\":\"a03\",\"kind\":\"continue\",\"createdAt\":\"2026-10-15T02:00:00Z\"}"
+          },
+          {
+            "name": "a04.json",
+            "text": "{\"id\":\"a04\",\"tag\":\"a04\",\"rule\":\"restart\",\"createdAt\":\"2026-10-15T00:30:00Z\"}"
+          },
+          {
+            "name": "a05.json",
+            "text": "{\"id\":\"a05\",\"tag\":\"a05\",\"first\":\"2026-10-15T04:00:00Z\"}"
+          },
+          {
+            "name": "a06.json",
+            "text": "{\"id\":\"a06\",\"tag\":\"a06\",\"createdAt\":\"2026-10-15T00:00:00Z\",\"seq\":2}"
+          },
+          {
+            "name": "a07.json",
+            "text": "{\"id\":\"a07\",\"tag\":\"a07\",\"createdAt\":\"2026-10-15T00:00:00Z\",\"seq\":1}"
+          },
+          {
+            "name": "a08.json",
+            "text": "{\"id\":\"a08\",\"tag\":\"a08\",\"first\":\"2026-10-15T03:00:00Z\",\"kind\":\"continue\",\"createdAt\":\"2026-10-14T00:00:00Z\"}"
+          }
+        ]
+      },
+      "expect": {
+        "listed": [
+          "a01.json",
+          "a02.json",
+          "a03.json",
+          "a04.json",
+          "a05.json",
+          "a06.json",
+          "a07.json",
+          "a08.json"
+        ],
+        "order": ["a05", "a02", "a08", "a04", "a03", "a07", "a06", "a01"]
+      }
+    },
+    {
+      "name": "keys-utc",
+      "input": {
+        "kind": "order",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "files": [
+          {
+            "name": "a01.json",
+            "text": "{\"id\":\"a01\",\"tag\":\"a01\",\"createdAt\":\"2026-10-15T01:00:00Z\",\"seq\":1}"
+          },
+          {
+            "name": "a02.json",
+            "text": "{\"id\":\"a02\",\"tag\":\"a02\",\"first\":\"2026-10-15T03:00:00Z\"}"
+          },
+          {
+            "name": "a03.json",
+            "text": "{\"id\":\"a03\",\"tag\":\"a03\",\"kind\":\"continue\",\"createdAt\":\"2026-10-15T02:00:00-05:00\"}"
+          },
+          {
+            "name": "a04.json",
+            "text": "{\"id\":\"a04\",\"tag\":\"a04\",\"rule\":\"restart\",\"createdAt\":\"2026-10-15T09:30:00+09:00\"}"
+          }
+        ]
+      },
+      "expect": {
+        "listed": ["a01.json", "a02.json", "a03.json", "a04.json"],
+        "order": ["a02", "a04", "a03", "a01"]
+      }
+    },
+    {
+      "name": "first-shapes",
+      "input": {
+        "kind": "order",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "files": [
+          {
+            "name": "b01.json",
+            "text": "{\"id\":\"b01\",\"tag\":\"b01\",\"first\":\"2026-10-15T03:00:00Z\",\"createdAt\":\"2026-10-15T01:01:00Z\"}"
+          },
+          {
+            "name": "b02.json",
+            "text": "{\"id\":\"b02\",\"tag\":\"b02\",\"first\":\"2026-10-15T12:30:00+09:00\",\"createdAt\":\"2026-10-15T01:02:00Z\"}"
+          },
+          {
+            "name": "b03.json",
+            "text": "{\"id\":\"b03\",\"tag\":\"b03\",\"first\":true,\"createdAt\":\"2026-10-15T01:03:00Z\"}"
+          },
+          {
+            "name": "b04.json",
+            "text": "{\"id\":\"b04\",\"tag\":\"b04\",\"first\":\"not a date\",\"createdAt\":\"2026-10-15T01:04:00Z\"}"
+          },
+          {
+            "name": "b05.json",
+            "text": "{\"id\":\"b05\",\"tag\":\"b05\",\"first\":1,\"createdAt\":\"2026-10-15T01:05:00Z\"}"
+          },
+          {
+            "name": "b06.json",
+            "text": "{\"id\":\"b06\",\"tag\":\"b06\",\"first\":\"\",\"createdAt\":\"2026-10-15T01:06:00Z\"}"
+          },
+          {
+            "name": "b07.json",
+            "text": "{\"id\":\"b07\",\"tag\":\"b07\",\"first\":false,\"createdAt\":\"2026-10-15T01:07:00Z\"}"
+          },
+          {
+            "name": "b08.json",
+            "text": "{\"id\":\"b08\",\"tag\":\"b08\",\"first\":\"2026-10-15T03:00:00.0000001Z\",\"createdAt\":\"2026-10-15T01:08:00Z\"}"
+          },
+          {
+            "name": "b09.json",
+            "text": "{\"id\":\"b09\",\"tag\":\"b09\",\"first\":null,\"createdAt\":\"2026-10-15T01:09:00Z\"}"
+          },
+          {
+            "name": "b10.json",
+            "text": "{\"id\":\"b10\",\"tag\":\"b10\",\"First\":\"2026-10-15T05:00:00Z\",\"createdAt\":\"2026-10-15T01:10:00Z\"}"
+          }
+        ]
+      },
+      "expect": {
+        "listed": [
+          "b01.json",
+          "b02.json",
+          "b03.json",
+          "b04.json",
+          "b05.json",
+          "b06.json",
+          "b07.json",
+          "b08.json",
+          "b09.json",
+          "b10.json"
+        ],
+        "order": ["b10", "b02", "b08", "b01", "b03", "b04", "b05", "b06", "b07", "b09"]
+      }
+    },
+    {
+      "name": "kind-shapes",
+      "input": {
+        "kind": "order",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "files": [
+          {
+            "name": "c01.json",
+            "text": "{\"id\":\"c01\",\"tag\":\"c01\",\"kind\":\"CONTINUE\",\"createdAt\":\"2026-10-15T01:01:00Z\"}"
+          },
+          {
+            "name": "c02.json",
+            "text": "{\"id\":\"c02\",\"tag\":\"c02\",\"kind\":true,\"createdAt\":\"2026-10-15T01:02:00Z\"}"
+          },
+          {
+            "name": "c03.json",
+            "text": "{\"id\":\"c03\",\"tag\":\"c03\",\"kind\":[\"continue\",\"x\"],\"createdAt\":\"2026-10-15T01:03:00Z\"}"
+          },
+          {
+            "name": "c04.json",
+            "text": "{\"id\":\"c04\",\"tag\":\"c04\",\"kind\":[0,true],\"createdAt\":\"2026-10-15T01:04:00Z\"}"
+          },
+          {
+            "name": "c05.json",
+            "text": "{\"id\":\"c05\",\"tag\":\"c05\",\"kind\":\"continue \",\"createdAt\":\"2026-10-15T01:05:00Z\"}"
+          },
+          {
+            "name": "c06.json",
+            "text": "{\"id\":\"c06\",\"tag\":\"c06\",\"kind\":5,\"createdAt\":\"2026-10-15T01:06:00Z\"}"
+          },
+          {
+            "name": "c07.json",
+            "text": "{\"id\":\"c07\",\"tag\":\"c07\",\"kind\":{\"a\":1},\"createdAt\":\"2026-10-15T01:07:00Z\"}"
+          },
+          {
+            "name": "c08.json",
+            "text": "{\"id\":\"c08\",\"tag\":\"c08\",\"kind\":false,\"createdAt\":\"2026-10-15T01:08:00Z\"}"
+          },
+          {
+            "name": "c09.json",
+            "text": "{\"id\":\"c09\",\"tag\":\"c09\",\"kind\":null,\"createdAt\":\"2026-10-15T01:09:00Z\"}"
+          },
+          {
+            "name": "c10.json",
+            "text": "{\"id\":\"c10\",\"tag\":\"c10\",\"kind\":[\"x\"],\"createdAt\":\"2026-10-15T01:10:00Z\"}"
+          },
+          {
+            "name": "c11.json",
+            "text": "{\"id\":\"c11\",\"tag\":\"c11\",\"kind\":[[\"continue\"]],\"createdAt\":\"2026-10-15T01:11:00Z\"}"
+          },
+          {
+            "name": "c12.json",
+            "text": "{\"id\":\"c12\",\"tag\":\"c12\",\"kind\":\"restart\",\"createdAt\":\"2026-10-15T01:12:00Z\"}"
+          },
+          {
+            "name": "c13.json",
+            "text": "{\"id\":\"c13\",\"tag\":\"c13\",\"Kind\":\"continue\",\"createdAt\":\"2026-10-15T01:13:00Z\"}"
+          }
+        ]
+      },
+      "expect": {
+        "listed": [
+          "c01.json",
+          "c02.json",
+          "c03.json",
+          "c04.json",
+          "c05.json",
+          "c06.json",
+          "c07.json",
+          "c08.json",
+          "c09.json",
+          "c10.json",
+          "c11.json",
+          "c12.json",
+          "c13.json"
+        ],
+        "order": ["c01", "c02", "c03", "c04", "c13", "c05", "c06", "c07", "c08", "c09", "c10", "c11", "c12"]
+      }
+    },
+    {
+      "name": "rule-shapes",
+      "input": {
+        "kind": "order",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "files": [
+          {
+            "name": "d01.json",
+            "text": "{\"id\":\"d01\",\"tag\":\"d01\",\"rule\":\"restart\",\"createdAt\":\"2026-10-15T01:01:00Z\"}"
+          },
+          {
+            "name": "d02.json",
+            "text": "{\"id\":\"d02\",\"tag\":\"d02\",\"rule\":\"RESTART\",\"createdAt\":\"2026-10-15T01:02:00Z\"}"
+          },
+          {
+            "name": "d03.json",
+            "text": "{\"id\":\"d03\",\"tag\":\"d03\",\"rule\":[\"restart\"],\"createdAt\":\"2026-10-15T01:03:00Z\"}"
+          },
+          {
+            "name": "d04.json",
+            "text": "{\"id\":\"d04\",\"tag\":\"d04\",\"rule\":[\"restart\",\"x\"],\"createdAt\":\"2026-10-15T01:04:00Z\"}"
+          },
+          {
+            "name": "d05.json",
+            "text": "{\"id\":\"d05\",\"tag\":\"d05\",\"rule\":true,\"createdAt\":\"2026-10-15T01:05:00Z\"}"
+          },
+          {
+            "name": "d06.json",
+            "text": "{\"id\":\"d06\",\"tag\":\"d06\",\"rule\":\" restart\",\"createdAt\":\"2026-10-15T01:06:00Z\"}"
+          },
+          {
+            "name": "d07.json",
+            "text": "{\"id\":\"d07\",\"tag\":\"d07\",\"rule\":null,\"createdAt\":\"2026-10-15T01:07:00Z\"}"
+          },
+          {
+            "name": "d08.json",
+            "text": "{\"id\":\"d08\",\"tag\":\"d08\",\"Rule\":\"restart\",\"createdAt\":\"2026-10-15T01:08:00Z\"}"
+          }
+        ]
+      },
+      "expect": {
+        "listed": [
+          "d01.json",
+          "d02.json",
+          "d03.json",
+          "d04.json",
+          "d05.json",
+          "d06.json",
+          "d07.json",
+          "d08.json"
+        ],
+        "order": ["d01", "d02", "d03", "d08", "d04", "d05", "d06", "d07"]
+      }
+    },
+    {
+      "name": "created-shapes",
+      "input": {
+        "kind": "order",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "files": [
+          {
+            "name": "e01.json",
+            "text": "{\"id\":\"e01\",\"tag\":\"e01\",\"createdAt\":null,\"seq\":5}"
+          },
+          {
+            "name": "e02.json",
+            "text": "{\"id\":\"e02\",\"tag\":\"e02\",\"createdAt\":\"\",\"seq\":4}"
+          },
+          {
+            "name": "e03.json",
+            "text": "{\"id\":\"e03\",\"tag\":\"e03\",\"createdAt\":\"not a date\",\"seq\":3}"
+          },
+          {"name": "e04.json", "text": "{\"id\":\"e04\",\"tag\":\"e04\",\"createdAt\":5,\"seq\":2}"},
+          {"name": "e05.json", "text": "{\"id\":\"e05\",\"tag\":\"e05\",\"seq\":1}"},
+          {
+            "name": "e06.json",
+            "text": "{\"id\":\"e06\",\"tag\":\"e06\",\"createdAt\":\"2026-10-15T01:00:00Z\"}"
+          },
+          {
+            "name": "e07.json",
+            "text": "{\"id\":\"e07\",\"tag\":\"e07\",\"createdAt\":\"2026-10-15T09:30:00+09:00\"}"
+          },
+          {
+            "name": "e08.json",
+            "text": "{\"id\":\"e08\",\"tag\":\"e08\",\"createdAt\":\"2026-10-15T01:00:00.0000001Z\"}"
+          },
+          {
+            "name": "e09.json",
+            "text": "{\"id\":\"e09\",\"tag\":\"e09\",\"createdAt\":\"2026-10-15T01:00:00.5Z\"}"
+          },
+          {
+            "name": "e10.json",
+            "text": "{\"id\":\"e10\",\"tag\":\"e10\",\"createdAt\":\"2026-10-15T01:00:00.123-00:30\"}"
+          }
+        ]
+      },
+      "expect": {
+        "listed": [
+          "e01.json",
+          "e02.json",
+          "e03.json",
+          "e04.json",
+          "e05.json",
+          "e06.json",
+          "e07.json",
+          "e08.json",
+          "e09.json",
+          "e10.json"
+        ],
+        "order": ["e05", "e04", "e03", "e02", "e01", "e07", "e06", "e08", "e09", "e10"]
+      }
+    },
+    {
+      "name": "seq-shapes",
+      "input": {
+        "kind": "order",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "files": [
+          {
+            "name": "f01.json",
+            "text": "{\"id\":\"f01\",\"tag\":\"f01\",\"createdAt\":\"2026-10-15T01:00:00Z\",\"seq\":3}"
+          },
+          {
+            "name": "f02.json",
+            "text": "{\"id\":\"f02\",\"tag\":\"f02\",\"createdAt\":\"2026-10-15T01:00:00Z\",\"seq\":\"3\"}"
+          },
+          {
+            "name": "f03.json",
+            "text": "{\"id\":\"f03\",\"tag\":\"f03\",\"createdAt\":\"2026-10-15T01:00:00Z\",\"seq\":\" 4 \"}"
+          },
+          {
+            "name": "f04.json",
+            "text": "{\"id\":\"f04\",\"tag\":\"f04\",\"createdAt\":\"2026-10-15T01:00:00Z\",\"seq\":\"2.5\"}"
+          },
+          {
+            "name": "f05.json",
+            "text": "{\"id\":\"f05\",\"tag\":\"f05\",\"createdAt\":\"2026-10-15T01:00:00Z\",\"seq\":2.5}"
+          },
+          {
+            "name": "f06.json",
+            "text": "{\"id\":\"f06\",\"tag\":\"f06\",\"createdAt\":\"2026-10-15T01:00:00Z\",\"seq\":3.5}"
+          },
+          {
+            "name": "f07.json",
+            "text": "{\"id\":\"f07\",\"tag\":\"f07\",\"createdAt\":\"2026-10-15T01:00:00Z\",\"seq\":\"0x10\"}"
+          },
+          {
+            "name": "f08.json",
+            "text": "{\"id\":\"f08\",\"tag\":\"f08\",\"createdAt\":\"2026-10-15T01:00:00Z\",\"seq\":\"1,000\"}"
+          },
+          {
+            "name": "f09.json",
+            "text": "{\"id\":\"f09\",\"tag\":\"f09\",\"createdAt\":\"2026-10-15T01:00:00Z\",\"seq\":\"+5\"}"
+          },
+          {
+            "name": "f10.json",
+            "text": "{\"id\":\"f10\",\"tag\":\"f10\",\"createdAt\":\"2026-10-15T01:00:00Z\",\"seq\":\"-0\"}"
+          },
+          {
+            "name": "f11.json",
+            "text": "{\"id\":\"f11\",\"tag\":\"f11\",\"createdAt\":\"2026-10-15T01:00:00Z\",\"seq\":\"07\"}"
+          },
+          {
+            "name": "f12.json",
+            "text": "{\"id\":\"f12\",\"tag\":\"f12\",\"createdAt\":\"2026-10-15T01:00:00Z\",\"seq\":-5}"
+          },
+          {
+            "name": "f13.json",
+            "text": "{\"id\":\"f13\",\"tag\":\"f13\",\"createdAt\":\"2026-10-15T01:00:00Z\",\"seq\":null}"
+          },
+          {
+            "name": "f14.json",
+            "text": "{\"id\":\"f14\",\"tag\":\"f14\",\"createdAt\":\"2026-10-15T01:00:00Z\"}"
+          },
+          {
+            "name": "f15.json",
+            "text": "{\"id\":\"f15\",\"tag\":\"f15\",\"createdAt\":\"2026-10-15T01:00:00Z\",\"seq\":true}"
+          },
+          {
+            "name": "f16.json",
+            "text": "{\"id\":\"f16\",\"tag\":\"f16\",\"createdAt\":\"2026-10-15T01:00:00Z\",\"seq\":false}"
+          },
+          {
+            "name": "f17.json",
+            "text": "{\"id\":\"f17\",\"tag\":\"f17\",\"createdAt\":\"2026-10-15T01:00:00Z\",\"seq\":\"abc\"}"
+          },
+          {
+            "name": "f18.json",
+            "text": "{\"id\":\"f18\",\"tag\":\"f18\",\"createdAt\":\"2026-10-15T01:00:00Z\",\"seq\":3000000000}"
+          },
+          {
+            "name": "f19.json",
+            "text": "{\"id\":\"f19\",\"tag\":\"f19\",\"createdAt\":\"2026-10-15T01:00:00Z\",\"seq\":\"1e3\"}"
+          },
+          {
+            "name": "f20.json",
+            "text": "{\"id\":\"f20\",\"tag\":\"f20\",\"createdAt\":\"2026-10-15T01:00:00Z\",\"seq\":[]}"
+          },
+          {
+            "name": "f21.json",
+            "text": "{\"id\":\"f21\",\"tag\":\"f21\",\"createdAt\":\"2026-10-15T01:00:00Z\",\"seq\":[1]}"
+          },
+          {
+            "name": "f22.json",
+            "text": "{\"id\":\"f22\",\"tag\":\"f22\",\"createdAt\":\"2026-10-15T01:00:00Z\",\"seq\":{}}"
+          },
+          {
+            "name": "f23.json",
+            "text": "{\"id\":\"f23\",\"tag\":\"f23\",\"createdAt\":\"2026-10-15T01:00:00Z\",\"seq\":\"-3\"}"
+          },
+          {
+            "name": "f24.json",
+            "text": "{\"id\":\"f24\",\"tag\":\"f24\",\"createdAt\":\"2026-10-15T01:00:00Z\",\"seq\":-1.5}"
+          }
+        ]
+      },
+      "expectByEdition": {
+        "Desktop": {
+          "listed": [
+            "f01.json",
+            "f02.json",
+            "f03.json",
+            "f04.json",
+            "f05.json",
+            "f06.json",
+            "f07.json",
+            "f08.json",
+            "f09.json",
+            "f10.json",
+            "f11.json",
+            "f12.json",
+            "f13.json",
+            "f14.json",
+            "f15.json",
+            "f16.json",
+            "f17.json",
+            "f18.json",
+            "f19.json",
+            "f20.json",
+            "f21.json",
+            "f22.json",
+            "f23.json",
+            "f24.json"
+          ],
+          "order": [
+            "f12",
+            "f23",
+            "f24",
+            "f20",
+            "f17",
+            "f21",
+            "f18",
+            "f22",
+            "f16",
+            "f13",
+            "f14",
+            "f10",
+            "f15",
+            "f04",
+            "f05",
+            "f02",
+            "f01",
+            "f06",
+            "f03",
+            "f09",
+            "f11",
+            "f07",
+            "f19",
+            "f08"
+          ]
+        },
+        "Core": {
+          "listed": [
+            "f01.json",
+            "f02.json",
+            "f03.json",
+            "f04.json",
+            "f05.json",
+            "f06.json",
+            "f07.json",
+            "f08.json",
+            "f09.json",
+            "f10.json",
+            "f11.json",
+            "f12.json",
+            "f13.json",
+            "f14.json",
+            "f15.json",
+            "f16.json",
+            "f17.json",
+            "f18.json",
+            "f19.json",
+            "f20.json",
+            "f21.json",
+            "f22.json",
+            "f23.json",
+            "f24.json"
+          ],
+          "order": [
+            "f12",
+            "f23",
+            "f24",
+            "f22",
+            "f21",
+            "f20",
+            "f18",
+            "f17",
+            "f14",
+            "f10",
+            "f16",
+            "f13",
+            "f15",
+            "f04",
+            "f05",
+            "f02",
+            "f01",
+            "f06",
+            "f03",
+            "f09",
+            "f11",
+            "f07",
+            "f08",
+            "f19"
+          ]
+        }
+      }
+    },
+    {
+      "name": "ties-2",
+      "input": {
+        "kind": "order",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "files": [
+          {"name": "t01.json", "text": "{\"id\":\"t01\",\"tag\":\"t01\"}"},
+          {"name": "t02.json", "text": "{\"id\":\"t02\",\"tag\":\"t02\"}"}
+        ]
+      },
+      "expectByEdition": {
+        "Desktop": {"listed": ["t01.json", "t02.json"], "order": ["t02", "t01"]},
+        "Core": {"listed": ["t01.json", "t02.json"], "order": ["t01", "t02"]}
+      }
+    },
+    {
+      "name": "ties-5",
+      "input": {
+        "kind": "order",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "files": [
+          {"name": "t01.json", "text": "{\"id\":\"t01\",\"tag\":\"t01\"}"},
+          {"name": "t02.json", "text": "{\"id\":\"t02\",\"tag\":\"t02\"}"},
+          {"name": "t03.json", "text": "{\"id\":\"t03\",\"tag\":\"t03\"}"},
+          {"name": "t04.json", "text": "{\"id\":\"t04\",\"tag\":\"t04\"}"},
+          {"name": "t05.json", "text": "{\"id\":\"t05\",\"tag\":\"t05\"}"}
+        ]
+      },
+      "expectByEdition": {
+        "Desktop": {
+          "listed": ["t01.json", "t02.json", "t03.json", "t04.json", "t05.json"],
+          "order": ["t04", "t05", "t03", "t01", "t02"]
+        },
+        "Core": {
+          "listed": ["t01.json", "t02.json", "t03.json", "t04.json", "t05.json"],
+          "order": ["t01", "t02", "t03", "t04", "t05"]
+        }
+      }
+    },
+    {
+      "name": "ties-17",
+      "input": {
+        "kind": "order",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "files": [
+          {"name": "t01.json", "text": "{\"id\":\"t01\",\"tag\":\"t01\"}"},
+          {"name": "t02.json", "text": "{\"id\":\"t02\",\"tag\":\"t02\"}"},
+          {"name": "t03.json", "text": "{\"id\":\"t03\",\"tag\":\"t03\"}"},
+          {"name": "t04.json", "text": "{\"id\":\"t04\",\"tag\":\"t04\"}"},
+          {"name": "t05.json", "text": "{\"id\":\"t05\",\"tag\":\"t05\"}"},
+          {"name": "t06.json", "text": "{\"id\":\"t06\",\"tag\":\"t06\"}"},
+          {"name": "t07.json", "text": "{\"id\":\"t07\",\"tag\":\"t07\"}"},
+          {"name": "t08.json", "text": "{\"id\":\"t08\",\"tag\":\"t08\"}"},
+          {"name": "t09.json", "text": "{\"id\":\"t09\",\"tag\":\"t09\"}"},
+          {"name": "t10.json", "text": "{\"id\":\"t10\",\"tag\":\"t10\"}"},
+          {"name": "t11.json", "text": "{\"id\":\"t11\",\"tag\":\"t11\"}"},
+          {"name": "t12.json", "text": "{\"id\":\"t12\",\"tag\":\"t12\"}"},
+          {"name": "t13.json", "text": "{\"id\":\"t13\",\"tag\":\"t13\"}"},
+          {"name": "t14.json", "text": "{\"id\":\"t14\",\"tag\":\"t14\"}"},
+          {"name": "t15.json", "text": "{\"id\":\"t15\",\"tag\":\"t15\"}"},
+          {"name": "t16.json", "text": "{\"id\":\"t16\",\"tag\":\"t16\"}"},
+          {"name": "t17.json", "text": "{\"id\":\"t17\",\"tag\":\"t17\"}"}
+        ]
+      },
+      "expectByEdition": {
+        "Desktop": {
+          "listed": [
+            "t01.json",
+            "t02.json",
+            "t03.json",
+            "t04.json",
+            "t05.json",
+            "t06.json",
+            "t07.json",
+            "t08.json",
+            "t09.json",
+            "t10.json",
+            "t11.json",
+            "t12.json",
+            "t13.json",
+            "t14.json",
+            "t15.json",
+            "t16.json",
+            "t17.json"
+          ],
+          "order": [
+            "t12",
+            "t13",
+            "t10",
+            "t11",
+            "t16",
+            "t17",
+            "t14",
+            "t15",
+            "t09",
+            "t03",
+            "t04",
+            "t01",
+            "t02",
+            "t07",
+            "t08",
+            "t05",
+            "t06"
+          ]
+        },
+        "Core": {
+          "listed": [
+            "t01.json",
+            "t02.json",
+            "t03.json",
+            "t04.json",
+            "t05.json",
+            "t06.json",
+            "t07.json",
+            "t08.json",
+            "t09.json",
+            "t10.json",
+            "t11.json",
+            "t12.json",
+            "t13.json",
+            "t14.json",
+            "t15.json",
+            "t16.json",
+            "t17.json"
+          ],
+          "order": [
+            "t01",
+            "t15",
+            "t14",
+            "t13",
+            "t12",
+            "t11",
+            "t10",
+            "t16",
+            "t09",
+            "t07",
+            "t06",
+            "t05",
+            "t04",
+            "t03",
+            "t02",
+            "t08",
+            "t17"
+          ]
+        }
+      }
+    },
+    {
+      "name": "ties-40",
+      "input": {
+        "kind": "order",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "files": [
+          {"name": "t01.json", "text": "{\"id\":\"t01\",\"tag\":\"t01\"}"},
+          {"name": "t02.json", "text": "{\"id\":\"t02\",\"tag\":\"t02\"}"},
+          {"name": "t03.json", "text": "{\"id\":\"t03\",\"tag\":\"t03\"}"},
+          {"name": "t04.json", "text": "{\"id\":\"t04\",\"tag\":\"t04\"}"},
+          {"name": "t05.json", "text": "{\"id\":\"t05\",\"tag\":\"t05\"}"},
+          {"name": "t06.json", "text": "{\"id\":\"t06\",\"tag\":\"t06\"}"},
+          {"name": "t07.json", "text": "{\"id\":\"t07\",\"tag\":\"t07\"}"},
+          {"name": "t08.json", "text": "{\"id\":\"t08\",\"tag\":\"t08\"}"},
+          {"name": "t09.json", "text": "{\"id\":\"t09\",\"tag\":\"t09\"}"},
+          {"name": "t10.json", "text": "{\"id\":\"t10\",\"tag\":\"t10\"}"},
+          {"name": "t11.json", "text": "{\"id\":\"t11\",\"tag\":\"t11\"}"},
+          {"name": "t12.json", "text": "{\"id\":\"t12\",\"tag\":\"t12\"}"},
+          {"name": "t13.json", "text": "{\"id\":\"t13\",\"tag\":\"t13\"}"},
+          {"name": "t14.json", "text": "{\"id\":\"t14\",\"tag\":\"t14\"}"},
+          {"name": "t15.json", "text": "{\"id\":\"t15\",\"tag\":\"t15\"}"},
+          {"name": "t16.json", "text": "{\"id\":\"t16\",\"tag\":\"t16\"}"},
+          {"name": "t17.json", "text": "{\"id\":\"t17\",\"tag\":\"t17\"}"},
+          {"name": "t18.json", "text": "{\"id\":\"t18\",\"tag\":\"t18\"}"},
+          {"name": "t19.json", "text": "{\"id\":\"t19\",\"tag\":\"t19\"}"},
+          {"name": "t20.json", "text": "{\"id\":\"t20\",\"tag\":\"t20\"}"},
+          {"name": "t21.json", "text": "{\"id\":\"t21\",\"tag\":\"t21\"}"},
+          {"name": "t22.json", "text": "{\"id\":\"t22\",\"tag\":\"t22\"}"},
+          {"name": "t23.json", "text": "{\"id\":\"t23\",\"tag\":\"t23\"}"},
+          {"name": "t24.json", "text": "{\"id\":\"t24\",\"tag\":\"t24\"}"},
+          {"name": "t25.json", "text": "{\"id\":\"t25\",\"tag\":\"t25\"}"},
+          {"name": "t26.json", "text": "{\"id\":\"t26\",\"tag\":\"t26\"}"},
+          {"name": "t27.json", "text": "{\"id\":\"t27\",\"tag\":\"t27\"}"},
+          {"name": "t28.json", "text": "{\"id\":\"t28\",\"tag\":\"t28\"}"},
+          {"name": "t29.json", "text": "{\"id\":\"t29\",\"tag\":\"t29\"}"},
+          {"name": "t30.json", "text": "{\"id\":\"t30\",\"tag\":\"t30\"}"},
+          {"name": "t31.json", "text": "{\"id\":\"t31\",\"tag\":\"t31\"}"},
+          {"name": "t32.json", "text": "{\"id\":\"t32\",\"tag\":\"t32\"}"},
+          {"name": "t33.json", "text": "{\"id\":\"t33\",\"tag\":\"t33\"}"},
+          {"name": "t34.json", "text": "{\"id\":\"t34\",\"tag\":\"t34\"}"},
+          {"name": "t35.json", "text": "{\"id\":\"t35\",\"tag\":\"t35\"}"},
+          {"name": "t36.json", "text": "{\"id\":\"t36\",\"tag\":\"t36\"}"},
+          {"name": "t37.json", "text": "{\"id\":\"t37\",\"tag\":\"t37\"}"},
+          {"name": "t38.json", "text": "{\"id\":\"t38\",\"tag\":\"t38\"}"},
+          {"name": "t39.json", "text": "{\"id\":\"t39\",\"tag\":\"t39\"}"},
+          {"name": "t40.json", "text": "{\"id\":\"t40\",\"tag\":\"t40\"}"}
+        ]
+      },
+      "expectByEdition": {
+        "Desktop": {
+          "listed": [
+            "t01.json",
+            "t02.json",
+            "t03.json",
+            "t04.json",
+            "t05.json",
+            "t06.json",
+            "t07.json",
+            "t08.json",
+            "t09.json",
+            "t10.json",
+            "t11.json",
+            "t12.json",
+            "t13.json",
+            "t14.json",
+            "t15.json",
+            "t16.json",
+            "t17.json",
+            "t18.json",
+            "t19.json",
+            "t20.json",
+            "t21.json",
+            "t22.json",
+            "t23.json",
+            "t24.json",
+            "t25.json",
+            "t26.json",
+            "t27.json",
+            "t28.json",
+            "t29.json",
+            "t30.json",
+            "t31.json",
+            "t32.json",
+            "t33.json",
+            "t34.json",
+            "t35.json",
+            "t36.json",
+            "t37.json",
+            "t38.json",
+            "t39.json",
+            "t40.json"
+          ],
+          "order": [
+            "t27",
+            "t26",
+            "t28",
+            "t30",
+            "t29",
+            "t22",
+            "t21",
+            "t23",
+            "t25",
+            "t24",
+            "t37",
+            "t36",
+            "t38",
+            "t40",
+            "t39",
+            "t32",
+            "t31",
+            "t33",
+            "t35",
+            "t34",
+            "t07",
+            "t06",
+            "t08",
+            "t10",
+            "t09",
+            "t02",
+            "t01",
+            "t03",
+            "t05",
+            "t04",
+            "t17",
+            "t16",
+            "t18",
+            "t20",
+            "t19",
+            "t12",
+            "t11",
+            "t13",
+            "t15",
+            "t14"
+          ]
+        },
+        "Core": {
+          "listed": [
+            "t01.json",
+            "t02.json",
+            "t03.json",
+            "t04.json",
+            "t05.json",
+            "t06.json",
+            "t07.json",
+            "t08.json",
+            "t09.json",
+            "t10.json",
+            "t11.json",
+            "t12.json",
+            "t13.json",
+            "t14.json",
+            "t15.json",
+            "t16.json",
+            "t17.json",
+            "t18.json",
+            "t19.json",
+            "t20.json",
+            "t21.json",
+            "t22.json",
+            "t23.json",
+            "t24.json",
+            "t25.json",
+            "t26.json",
+            "t27.json",
+            "t28.json",
+            "t29.json",
+            "t30.json",
+            "t31.json",
+            "t32.json",
+            "t33.json",
+            "t34.json",
+            "t35.json",
+            "t36.json",
+            "t37.json",
+            "t38.json",
+            "t39.json",
+            "t40.json"
+          ],
+          "order": [
+            "t01",
+            "t23",
+            "t24",
+            "t25",
+            "t26",
+            "t27",
+            "t28",
+            "t29",
+            "t22",
+            "t30",
+            "t32",
+            "t33",
+            "t34",
+            "t35",
+            "t36",
+            "t37",
+            "t38",
+            "t31",
+            "t21",
+            "t20",
+            "t19",
+            "t02",
+            "t03",
+            "t04",
+            "t05",
+            "t06",
+            "t07",
+            "t08",
+            "t09",
+            "t10",
+            "t11",
+            "t12",
+            "t13",
+            "t14",
+            "t15",
+            "t16",
+            "t17",
+            "t18",
+            "t39",
+            "t40"
+          ]
+        }
+      }
+    },
+    {
+      "name": "mixed-ties",
+      "input": {
+        "kind": "order",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "files": [
+          {
+            "name": "g01.json",
+            "text": "{\"id\":\"g01\",\"tag\":\"g01\",\"createdAt\":\"2026-10-15T01:00:00Z\",\"seq\":1}"
+          },
+          {
+            "name": "g02.json",
+            "text": "{\"id\":\"g02\",\"tag\":\"g02\",\"createdAt\":\"2026-10-15T02:00:00Z\",\"seq\":2}"
+          },
+          {
+            "name": "g03.json",
+            "text": "{\"id\":\"g03\",\"tag\":\"g03\",\"createdAt\":\"2026-10-15T01:00:00Z\",\"seq\":0}"
+          },
+          {
+            "name": "g04.json",
+            "text": "{\"id\":\"g04\",\"tag\":\"g04\",\"createdAt\":\"2026-10-15T02:00:00Z\",\"seq\":1}"
+          },
+          {
+            "name": "g05.json",
+            "text": "{\"id\":\"g05\",\"tag\":\"g05\",\"createdAt\":\"2026-10-15T01:00:00Z\",\"seq\":2,\"kind\":\"continue\"}"
+          },
+          {
+            "name": "g06.json",
+            "text": "{\"id\":\"g06\",\"tag\":\"g06\",\"createdAt\":\"2026-10-15T02:00:00Z\",\"seq\":0}"
+          },
+          {
+            "name": "g07.json",
+            "text": "{\"id\":\"g07\",\"tag\":\"g07\",\"createdAt\":\"2026-10-15T01:00:00Z\",\"seq\":1}"
+          },
+          {
+            "name": "g08.json",
+            "text": "{\"id\":\"g08\",\"tag\":\"g08\",\"createdAt\":\"2026-10-15T02:00:00Z\",\"seq\":2}"
+          },
+          {
+            "name": "g09.json",
+            "text": "{\"id\":\"g09\",\"tag\":\"g09\",\"createdAt\":\"2026-10-15T01:00:00Z\",\"seq\":0}"
+          },
+          {
+            "name": "g10.json",
+            "text": "{\"id\":\"g10\",\"tag\":\"g10\",\"createdAt\":\"2026-10-15T02:00:00Z\",\"seq\":1,\"kind\":\"continue\"}"
+          },
+          {
+            "name": "g11.json",
+            "text": "{\"id\":\"g11\",\"tag\":\"g11\",\"createdAt\":\"2026-10-15T01:00:00Z\",\"seq\":2}"
+          },
+          {
+            "name": "g12.json",
+            "text": "{\"id\":\"g12\",\"tag\":\"g12\",\"createdAt\":\"2026-10-15T02:00:00Z\",\"seq\":0}"
+          },
+          {
+            "name": "g13.json",
+            "text": "{\"id\":\"g13\",\"tag\":\"g13\",\"createdAt\":\"2026-10-15T01:00:00Z\",\"seq\":1}"
+          },
+          {
+            "name": "g14.json",
+            "text": "{\"id\":\"g14\",\"tag\":\"g14\",\"createdAt\":\"2026-10-15T02:00:00Z\",\"seq\":2}"
+          },
+          {
+            "name": "g15.json",
+            "text": "{\"id\":\"g15\",\"tag\":\"g15\",\"createdAt\":\"2026-10-15T01:00:00Z\",\"seq\":0,\"kind\":\"continue\"}"
+          },
+          {
+            "name": "g16.json",
+            "text": "{\"id\":\"g16\",\"tag\":\"g16\",\"createdAt\":\"2026-10-15T02:00:00Z\",\"seq\":1}"
+          },
+          {
+            "name": "g17.json",
+            "text": "{\"id\":\"g17\",\"tag\":\"g17\",\"createdAt\":\"2026-10-15T01:00:00Z\",\"seq\":2}"
+          },
+          {
+            "name": "g18.json",
+            "text": "{\"id\":\"g18\",\"tag\":\"g18\",\"createdAt\":\"2026-10-15T02:00:00Z\",\"seq\":0}"
+          },
+          {
+            "name": "g19.json",
+            "text": "{\"id\":\"g19\",\"tag\":\"g19\",\"createdAt\":\"2026-10-15T01:00:00Z\",\"seq\":1}"
+          },
+          {
+            "name": "g20.json",
+            "text": "{\"id\":\"g20\",\"tag\":\"g20\",\"createdAt\":\"2026-10-15T02:00:00Z\",\"seq\":2,\"kind\":\"continue\"}"
+          }
+        ]
+      },
+      "expectByEdition": {
+        "Desktop": {
+          "listed": [
+            "g01.json",
+            "g02.json",
+            "g03.json",
+            "g04.json",
+            "g05.json",
+            "g06.json",
+            "g07.json",
+            "g08.json",
+            "g09.json",
+            "g10.json",
+            "g11.json",
+            "g12.json",
+            "g13.json",
+            "g14.json",
+            "g15.json",
+            "g16.json",
+            "g17.json",
+            "g18.json",
+            "g19.json",
+            "g20.json"
+          ],
+          "order": [
+            "g15",
+            "g05",
+            "g10",
+            "g20",
+            "g03",
+            "g09",
+            "g01",
+            "g13",
+            "g07",
+            "g19",
+            "g17",
+            "g11",
+            "g18",
+            "g06",
+            "g12",
+            "g04",
+            "g16",
+            "g14",
+            "g02",
+            "g08"
+          ]
+        },
+        "Core": {
+          "listed": [
+            "g01.json",
+            "g02.json",
+            "g03.json",
+            "g04.json",
+            "g05.json",
+            "g06.json",
+            "g07.json",
+            "g08.json",
+            "g09.json",
+            "g10.json",
+            "g11.json",
+            "g12.json",
+            "g13.json",
+            "g14.json",
+            "g15.json",
+            "g16.json",
+            "g17.json",
+            "g18.json",
+            "g19.json",
+            "g20.json"
+          ],
+          "order": [
+            "g15",
+            "g05",
+            "g10",
+            "g20",
+            "g03",
+            "g09",
+            "g07",
+            "g19",
+            "g13",
+            "g01",
+            "g11",
+            "g17",
+            "g06",
+            "g12",
+            "g18",
+            "g16",
+            "g04",
+            "g08",
+            "g14",
+            "g02"
+          ]
+        }
+      }
+    },
+    {
+      "name": "files-skipped",
+      "input": {
+        "kind": "order",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "files": [
+          {
+            "name": "k01.json",
+            "text": "{\"id\":\"k01\",\"tag\":\"k01\",\"createdAt\":\"2026-10-15T01:01:00Z\"}"
+          },
+          {"name": "k02.json", "text": "{\"id\":\"k02\",\"tag\":\"k02\""},
+          {"name": "k03.json", "text": "not json"},
+          {"name": "k04.json", "text": "{\"id\":\"k04\",\"tag\":\"k04\"} x"},
+          {
+            "name": "k05.json",
+            "text": "{\"id\":\"k05\",\"tag\":\"k05\"}{\"id\":\"k05b\",\"tag\":\"k05b\"}"
+          },
+          {"name": "k06.json", "text": ""},
+          {"name": "k07.json", "text": "  \r\n "},
+          {
+            "name": "k08.json",
+            "text": "{\"id\":\"k08\",\"tag\":\"k08\",\"createdAt\":\"2026-10-15T01:08:00Z\"}",
+            "bom": true
+          },
+          {
+            "name": "u01.JSON",
+            "text": "{\"id\":\"u01\",\"tag\":\"u01\",\"createdAt\":\"2026-10-15T01:09:00Z\"}"
+          },
+          {"name": "n01.txt", "text": "{\"id\":\"n01\",\"tag\":\"n01\"}"},
+          {"name": "n02.json.bak", "text": "{\"id\":\"n02\",\"tag\":\"n02\"}"},
+          {"name": "n03.jsonx", "text": "{\"id\":\"n03\",\"tag\":\"n03\"}"},
+          {"name": "m01.json", "text": "{\"tag\":\"m01\"}"},
+          {"name": "m02.json", "text": "{\"id\":\"\",\"tag\":\"m02\"}"},
+          {"name": "m03.json", "text": "{\"id\":0,\"tag\":\"m03\"}"},
+          {"name": "m04.json", "text": "{\"id\":false,\"tag\":\"m04\"}"},
+          {"name": "m05.json", "text": "{\"id\":[],\"tag\":\"m05\"}"},
+          {"name": "m06.json", "text": "{\"id\":[0],\"tag\":\"m06\"}"},
+          {
+            "name": "m07.json",
+            "text": "{\"id\":{},\"tag\":\"m07\",\"createdAt\":\"2026-10-15T01:07:00Z\"}"
+          },
+          {
+            "name": "m08.json",
+            "text": "{\"Id\":\"m08\",\"tag\":\"m08\",\"createdAt\":\"2026-10-15T01:06:00Z\"}"
+          },
+          {
+            "name": "m09.json",
+            "text": "{\"id\":\"\u00e9\",\"tag\":\"m09\",\"createdAt\":\"2026-10-15T01:05:00Z\"}"
+          },
+          {"name": "p01.json", "text": "\"hello\""},
+          {"name": "p02.json", "text": "5"},
+          {"name": "p03.json", "text": "true"},
+          {"name": "p04.json", "text": "null"}
+        ],
+        "dirs": ["d01.json"]
+      },
+      "expect": {
+        "listed": [
+          "k01.json",
+          "k02.json",
+          "k03.json",
+          "k04.json",
+          "k05.json",
+          "k06.json",
+          "k07.json",
+          "k08.json",
+          "m01.json",
+          "m02.json",
+          "m03.json",
+          "m04.json",
+          "m05.json",
+          "m06.json",
+          "m07.json",
+          "m08.json",
+          "m09.json",
+          "p01.json",
+          "p02.json",
+          "p03.json",
+          "p04.json",
+          "u01.JSON"
+        ],
+        "order": ["k01", "m09", "m08", "m07", "k08", "u01"]
+      }
+    },
+    {
+      "name": "array-files",
+      "input": {
+        "kind": "order",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "files": [
+          {
+            "name": "r01.json",
+            "text": "[{\"id\":\"r01a\",\"tag\":\"r01a\",\"createdAt\":\"2026-10-15T01:11:00Z\"},{\"id\":\"r01b\",\"tag\":\"r01b\",\"createdAt\":\"2026-10-15T01:12:00Z\"}]"
+          },
+          {
+            "name": "r02.json",
+            "text": "[{\"id\":\"r02a\",\"tag\":\"r02a\",\"createdAt\":\"2026-10-15T01:21:00Z\"}]"
+          },
+          {"name": "r03.json", "text": "[]"},
+          {
+            "name": "r04.json",
+            "text": "[[{\"id\":\"r04a\",\"tag\":\"r04a\",\"createdAt\":\"2026-10-15T01:41:00Z\"}]]"
+          },
+          {
+            "name": "r05.json",
+            "text": "[[{\"id\":\"r05a\",\"tag\":\"r05a\",\"createdAt\":\"2026-10-15T01:51:00Z\"},{\"id\":\"r05b\",\"tag\":\"r05b\",\"createdAt\":\"2026-10-15T01:52:00Z\"}]]"
+          },
+          {
+            "name": "r06.json",
+            "text": "[{\"id\":\"r06a\",\"tag\":\"r06a\",\"createdAt\":\"2026-10-15T01:06:00Z\"},null]"
+          },
+          {
+            "name": "r07.json",
+            "text": "[{\"id\":\"r07a\",\"tag\":\"r07a\",\"createdAt\":\"2026-10-15T01:07:00Z\"},\"r07s\"]"
+          },
+          {
+            "name": "r08.json",
+            "text": "[{\"id\":\"r08a\",\"tag\":\"r08a\",\"createdAt\":\"2026-10-15T01:08:00Z\"},{\"x\":1,\"tag\":\"r08x\",\"createdAt\":\"2026-10-15T01:09:00Z\"}]"
+          },
+          {
+            "name": "r09.json",
+            "text": "[{\"x\":1,\"tag\":\"r09x\",\"createdAt\":\"2026-10-15T01:31:00Z\"},{\"y\":1,\"tag\":\"r09y\",\"createdAt\":\"2026-10-15T01:32:00Z\"}]"
+          },
+          {"name": "r10.json", "text": "[\"x\",\"y\"]"},
+          {
+            "name": "r11.json",
+            "text": "[{\"id\":[],\"tag\":\"r11a\"},{\"id\":[],\"tag\":\"r11b\"}]"
+          },
+          {
+            "name": "r12.json",
+            "text": "[{\"id\":0,\"tag\":\"r12a\",\"createdAt\":\"2026-10-15T01:33:00Z\"},{\"id\":0,\"tag\":\"r12b\",\"createdAt\":\"2026-10-15T01:34:00Z\"}]"
+          },
+          {"name": "r13.json", "text": "[{\"id\":[],\"tag\":\"r13a\"},{\"x\":1,\"tag\":\"r13b\"}]"},
+          {"name": "r14.json", "text": "[null,null]"},
+          {"name": "r15.json", "text": "[false,0]"}
+        ]
+      },
+      "expect": {
+        "listed": [
+          "r01.json",
+          "r02.json",
+          "r03.json",
+          "r04.json",
+          "r05.json",
+          "r06.json",
+          "r07.json",
+          "r08.json",
+          "r09.json",
+          "r10.json",
+          "r11.json",
+          "r12.json",
+          "r13.json",
+          "r14.json",
+          "r15.json"
+        ],
+        "order": [
+          "r07s",
+          "r06a",
+          "r07a",
+          "r08a",
+          "r08x",
+          "r01a",
+          "r01b",
+          "r02a",
+          "r09x",
+          "r09y",
+          "r12a",
+          "r12b",
+          "r04a",
+          "r05a",
+          "r05b"
+        ]
+      }
+    },
+    {
+      "name": "created-zoneless",
+      "input": {
+        "kind": "order",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "files": [
+          {
+            "name": "z01.json",
+            "text": "{\"id\":\"z01\",\"tag\":\"z01\",\"createdAt\":\"2026-10-15T05:00:00Z\"}"
+          },
+          {
+            "name": "z02.json",
+            "text": "{\"id\":\"z02\",\"tag\":\"z02\",\"createdAt\":\"2026-10-15T10:00:00\"}"
+          }
+        ]
+      },
+      "expectByEdition": {
+        "Desktop": {"listed": ["z01.json", "z02.json"], "order": ["z01", "z02"]},
+        "Core": {"listed": ["z01.json", "z02.json"], "order": ["z02", "z01"]}
+      }
+    },
+    {
+      "name": "first-zoneless",
+      "input": {
+        "kind": "order",
+        "zone": "SA Pacific Standard Time",
+        "utcOffsetMinutes": -300,
+        "files": [
+          {
+            "name": "y01.json",
+            "text": "{\"id\":\"y01\",\"tag\":\"y01\",\"first\":\"2026-10-15T12:00:00Z\"}"
+          },
+          {
+            "name": "y02.json",
+            "text": "{\"id\":\"y02\",\"tag\":\"y02\",\"first\":\"2026-10-15T10:00:00\"}"
+          }
+        ]
+      },
+      "expectByEdition": {
+        "Desktop": {"listed": ["y01.json", "y02.json"], "order": ["y01", "y02"]},
+        "Core": {"listed": ["y01.json", "y02.json"], "order": ["y02", "y01"]}
+      }
+    },
+    {
+      "name": "no-queue",
+      "input": {
+        "kind": "order",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "files": [],
+        "noQueue": true
+      },
+      "expect": {"listed": [], "order": []}
+    },
+    {
+      "name": "empty-queue",
+      "input": {"kind": "order", "zone": "Korea Standard Time", "utcOffsetMinutes": 540, "files": []},
+      "expect": {"listed": [], "order": []}
+    },
+    {
+      "name": "lane-provider",
+      "input": {"kind": "lane", "job": {"provider": "claude"}},
+      "expect": "claude"
+    },
+    {
+      "name": "lane-home",
+      "input": {"kind": "lane", "job": {"provider": "codex", "home": "acct\\.codex-b"}},
+      "expect": "codex|acct\\.codex-b"
+    },
+    {
+      "name": "lane-home-empty",
+      "input": {"kind": "lane", "job": {"provider": "claude", "home": ""}},
+      "expect": "claude"
+    },
+    {
+      "name": "lane-home-null",
+      "input": {"kind": "lane", "job": {"provider": "claude", "home": null}},
+      "expect": "claude"
+    },
+    {
+      "name": "lane-home-true",
+      "input": {"kind": "lane", "job": {"provider": "claude", "home": true}},
+      "expect": "claude|True"
+    },
+    {
+      "name": "lane-home-zero",
+      "input": {"kind": "lane", "job": {"provider": "claude", "home": 0}},
+      "expect": "claude"
+    },
+    {
+      "name": "lane-home-zero-text",
+      "input": {"kind": "lane", "job": {"provider": "claude", "home": "0"}},
+      "expect": "claude|0"
+    },
+    {
+      "name": "lane-home-space",
+      "input": {"kind": "lane", "job": {"provider": "claude", "home": " "}},
+      "expect": "claude| "
+    },
+    {
+      "name": "lane-home-list",
+      "input": {"kind": "lane", "job": {"provider": "claude", "home": ["a", "b"]}},
+      "expect": "claude|a b"
+    },
+    {
+      "name": "lane-home-list-null",
+      "input": {"kind": "lane", "job": {"provider": "claude", "home": [null, "x"]}},
+      "expect": "claude| x"
+    },
+    {
+      "name": "lane-home-empty-list",
+      "input": {"kind": "lane", "job": {"provider": "claude", "home": []}},
+      "expect": "claude"
+    },
+    {
+      "name": "lane-provider-null",
+      "input": {"kind": "lane", "job": {"provider": null, "home": "h"}},
+      "expect": "|h"
+    },
+    {
+      "name": "lane-provider-missing",
+      "input": {"kind": "lane", "job": {"home": "h"}},
+      "expect": "|h"
+    },
+    {
+      "name": "lane-provider-number",
+      "input": {"kind": "lane", "job": {"provider": 5}},
+      "expect": "5"
+    },
+    {
+      "name": "lane-provider-list",
+      "input": {"kind": "lane", "job": {"provider": ["claude"], "home": "h"}},
+      "expect": "claude|h"
+    },
+    {
+      "name": "lane-case",
+      "input": {"kind": "lane", "job": {"Provider": "claude", "HOME": "h"}},
+      "expect": "claude|h"
+    },
+    {
+      "name": "lane-non-ascii",
+      "input": {"kind": "lane", "job": {"provider": "claude", "home": "acct\\\u00e9l\u00e8ve \u4e2d"}},
+      "expect": "claude|acct\\\u00e9l\u00e8ve \u4e2d"
+    },
+    {"name": "lane-string-job", "input": {"kind": "lane", "job": "claude"}, "expect": ""}
+  ]
+}

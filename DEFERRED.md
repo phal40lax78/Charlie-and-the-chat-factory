@@ -1150,7 +1150,11 @@ session ending. Reading the chat in VS Code later - its tab brought to the
 front, its answer scrolled - clears nothing, since nothing outside the
 window knows a tab was looked at. The marks are kept in memory alone, so a
 restart clears every dot: marks read back from a file would mean turns
-that ended while no overlay watched, which it cannot know. Windows only:
+that ended while no overlay watched, which it cannot know. Since 0.10.15
+the overlay also restarts itself when it holds more than
+`overlay.restartMB` ([Update-ChatOverlayRestartDue](src/overlay-windows.ps1)),
+about once a day going by one PC's log, so the dots can go that often
+with no update. Windows only:
 [Invoke-ChatOverlayCycle](src/overlay-data.ps1) skips the marking where
 `WantUnread` is off, as it is on macOS, whose panel has no chip to clear a
 dot and reads no window in front to spare a chat one.
@@ -1812,6 +1816,73 @@ Windows calls.
 
 **Revisit when:** Only if the processor time comes to matter.
 
+## GC flags for the overlay
+
+**Scope:** The overlay and the watcher start with the collector settings
+Windows PowerShell 5.1 gives them: no `COMPlus_` variable is set by
+[Get-ChatOverlayLaunch](src/overlay.ps1),
+[Start-ChatOverlayProcess](src/overlay.ps1) or
+[Start-ChatqWatcherProcess](src/watcher.ps1). The overlay's one lever on
+its heap stays the full collection every 5 minutes in
+[Invoke-ChatOverlayHeapCompact](src/overlay-windows.ps1).
+
+**Why deferred:** measured 2026-10-19, after Word's preview ran the PC
+out of memory and 0.10.15 brought the memory restart. 5.1 runs on .NET
+Framework 4.8, where `GCHeapHardLimit`, `runtimeconfig.json` and
+`DOTNET_` do not apply; what the desktop CLR reads at its start are
+`COMPlus_` variables, and of those:
+
+- **`COMPlus_gcConcurrent=0` is read and changes nothing.** `powershell.exe`
+  already starts the CLR without concurrent collection:
+  `GCSettings.LatencyMode` reads `Batch` with the variable unset, with or
+  without `-STA`, and neither `powershell.exe.config` nor the registry
+  sets it. `=1` turns it to `Interactive`, which shows the variable is
+  read. pwsh 7 reads `Interactive` by default.
+- **`COMPlus_GCgen0size` is honoured.** In a fixed loop of 200,000
+  8,000-byte arrays, `0x400000` (4 MB) took the gen 0 collections from 175
+  to 632, the same in 3 fresh processes of 3; `0x1000000` (16 MB) took
+  them to 157, not a quarter, since the CLR goes on tuning the budget
+  itself.
+- **`COMPlus_GCConserveMemory=5` shows no effect anyone could point to.**
+  The gen 0, 1 and 2 counts were the baseline's, and so were private bytes
+  and the heap after half of 60,000 2 KB arrays were freed in gen 2 and
+  three gen 2 collections ran that do not compact.
+
+Then six 5.1 processes, one per setting, ran the overlay's own passes
+side by side for 40 minutes:
+[Invoke-ChatOverlayCycle](src/overlay-data.ps1) with `-Peek` every 2 s
+against the real transcripts, each with a data folder of its own, no
+window, nothing paired, every function that could send, write or start
+a process stubbed (none was called), and the real compaction every 5
+minutes. Private memory after the compaction, the median of the six
+samples from 15 minutes on: baseline 145.8 MB, `gcConcurrent=0` 144.7,
+`GCgen0size` 4 MB 144.0, 16 MB 145.9, `gcConcurrent=0` with 4 MB 144.6,
+`GCConserveMemory=5` 139.6. Two processes set alike differ by about 1 MB
+and 14% in pass time (the baseline against `gcConcurrent=0`, the same
+setting in effect). So none reaches the 10 MB a flag had to save to ship.
+The 4 MB gen 0 saves 1.9 MB for 25% more pass time (a median of 24.7 ms
+against 19.8, 5,178 gen 0 collections against 1,674). `GCConserveMemory`
+was 6.3 MB lower throughout (138-142 against 145-149) but in one process,
+with no mechanism shown.
+
+The figures are lower than the overlay's own: the processes had no
+window, panel, tray or native types, so they settled at about 145 MB
+where an overlay settles at 210-260, and only the comparison between
+them holds. The load was light - three rows, since few chats ran after
+that morning's reboot, with usage fetches, the phone, the ask and
+auto-continue off. The watcher was not measured.
+
+**Revisit when:** The overlay moves to pwsh 7, whose collector starts
+concurrent and takes .NET's own settings; the climb in FUTURE_WORK.md
+"The overlay's heap climbs in steps" is found to be gen 0 or
+fragmentation; or the watcher's memory comes to matter.
+
+**To close:** the same side-by-side run on the case that reopens it -
+the harness under a busy day, or the watcher - and only a flag that saves
+10 MB or more, set on the launching process just around `Start-Process`
+so the new CLR reads it, and taken out of the overlay's environment once
+it runs, so nothing it starts inherits it.
+
 ## Copilot Chat
 
 **Scope:** chatrm can find Copilot chats, but nothing can deliver a prompt to
@@ -2216,9 +2287,9 @@ a pending question by its id.
 
 **Scope:** Each held question starts a hidden PowerShell, at most 5 at
 once ([Start-ChatqAskHook](src/ask.ps1)). Since the loader's `CHATQ_ROLE`
-it loads the 15 parts the hook reaches, not all 22: 90 MB after a full
-collection where 102 were, 0.3 s to load where 0.4 was (median of 5 fresh
-loads, 2026-10-14). Most of that is Windows PowerShell itself, about
+it loads the 16 parts the hook reaches, not all 23: 94 MB after a full
+collection where 104 were, 0.4 s to load where 0.5 was (median of 5 fresh
+loads, 2026-10-15). Most of that is Windows PowerShell itself, about
 52 MB bare.
 
 **A lighter hook launcher.** **Why deferred:** it works, the cap bounds
@@ -2231,7 +2302,8 @@ the two against each other, and one PowerShell serving several
 questions.
 
 **Revisit when:** If the start cost or memory of held questions is ever seen to
-hurt.
+hurt. **Planned** (2026-10-15): the hook and the permission bridge as
+small native programs, [native/SPEC.md](native/SPEC.md), M8.
 
 ## A mode switched at the PC while a question waits
 
@@ -2423,3 +2495,352 @@ every part loads first; Get-ChatqClipboard gains the fallback with it.
 
 **Revisit when:** If the path or its fallback needs to change in more than one
 place, or another launcher is added.
+
+## A lazy shell's parameter names before the first use
+
+**Scope:** Until a lazy shell's first use, each command is a stand-in with
+no parameters of its own ([Enter-ChatShell](src/shell.ps1)). PowerShell
+completes a parameter's name itself, never through a completer, so where
+the tool's Tab handler is not the one asked - Ctrl+Space's menu, and Tab
+with `$ChatNoKeyBindings` set or no PSReadLine - `chatrm -Pro` offers
+only the common parameters. Tab with the handler bound loads the tool
+first, as an argument's Tab or any command does; after the load every
+way completes as before.
+
+**Why deferred:** binding Ctrl+Space would change that key in every
+shell, lazy or not, for a gap the first command closes; and a stand-in
+given its command's parameters would copy 18 signatures into shell.ps1,
+to be held equal to the real ones.
+
+**Revisit when:** If someone who completes through the menu, or without
+the key handlers, finds it in their way. **To close:** each stand-in's
+`param()` block written from its command's own, with the self-test
+holding the two equal.
+
+## The tool's own functions before a lazy shell's first use
+
+**Scope:** A lazy shell has the 18 commands, their aliases and what
+shell.ps1 itself defines. The rest of the tool's functions -
+`Get-ChatqJobs`, `Start-ChatqWatcher` and some 1,100 more - are not there
+until a command, Tab or Enter on a command's line, or a shell-start duty
+with something to do has loaded the tool ([Import-ChatTool](src/shell.ps1)).
+One typed at the prompt before that is not found.
+
+**Why deferred:** they are the tool's insides, called by its commands, not
+by a person; nothing in the repo, the extension or the overlay types one
+into a shell. A `CommandNotFoundAction` hook that loads the tool would
+answer every mistyped name in every shell with a 0.4 s load.
+
+**Revisit when:** If a script, a habit or another tool is seen calling one
+in a fresh shell. **To close:** a `CommandNotFoundAction` handler that
+loads the tool only for a name of the tool's own `Verb-Chat*` form, then
+has PowerShell look again.
+
+## Two launches of a native watcher at once
+
+**Scope:** [Write-ChatqNativePending](src/watcher.ps1) writes
+`data/native/pending.json` once `Start-Process` gives the child's pid, so
+a chatqd that finds the lock busy can ack - delete the record - before it
+is there, and still be running when the launch asks whether it exited.
+The record then waits for nobody, and 15 s on the next launch counts a
+`no ack` strike. [Send-ChatqNativeFuseAlert](src/watcher.ps1) marks
+`alerted` in `fuse.json` with no lock, so two launches that blow the fuse
+together could each send the alert.
+
+**Why deferred:** both need two launches within milliseconds of each
+other, and the cost is at most one false strike or one alert too many.
+
+**Revisit when:** If a false `no ack` shows in `chatqd.log`, or before M7
+makes the native watcher the default. **To close:** the record written
+before the start, under an id the child is given to ack by, and
+`fuse.json` saved under a lock.
+
+## A relative CHATQ_CHATQD
+
+**Scope:** [Get-ChatqNativePath](src/watcher.ps1), as chatqd's
+[Identity::of](native/crates/chatq-core/src/launch.rs) does, makes a
+relative `CHATQ_CHATQD` absolute against the process's own folder. Every
+watcher runs in your home folder, so a watcher's own launch of the next
+one - a restart, a handover - looks for the binary under it, not where
+the shell that set the variable was.
+
+**Why deferred:** `CHATQ_CHATQD` is a developer's setting, and giving the
+child an absolute one would mean an environment of its own, which
+`Start-Process` cannot set in Windows PowerShell 5.1.
+
+**Revisit when:** If the setting is documented for users, or launches move
+to `System.Diagnostics.Process`. **To close:** the first launch hands the
+absolute path down in the child's environment.
+
+## An unreadable record in data/native
+
+**Scope:** [Find-ChatqNativeStrikes](src/watcher.ps1), as chatqd's
+[launch::find_strikes](native/crates/chatq-core/src/launch.rs) does, reads
+`pending.json` and `last.json` with three tries 100 ms apart, and leaves
+one that will not parse where it is. A truncated record costs every
+launch some 0.4 s, an empty one 0.07, until it goes.
+
+**Why deferred:** both writers save a record aside and swap it in
+([Save-ChatqText](src/queue.ps1) and
+[fsx::save_text](native/crates/chatq-core/src/fsx.rs)), so a broken one
+needs an outside hand; and nothing makes `data/native` on a PC with no
+build.
+
+**Revisit when:** If one is seen. **To close:** a `pending.json` that does
+not parse deleted, on both sides, with a case for it in
+`native/vectors/launch.json`.
+
+## A CHATQ_CHATQD in 8.3 short names
+
+**Scope:** [Get-ChatqNativeIdentity](src/watcher.ps1) names a binary as
+.NET does, its 8.3 short names (`ADMINI~1`) expanded, in Windows
+PowerShell 5.1 and pwsh 7 alike; chatqd's
+[Identity::of](native/crates/chatq-core/src/launch.rs), through
+`std::path::absolute`, keeps them. A `CHATQ_CHATQD` written short is then
+two paths in `data/native/verified.json`, and chatqd's first respawn of
+that build runs preflight again.
+
+**Why deferred:** `CHATQ_CHATQD` is a developer's setting, the cost is one
+preflight, and the root is always long-named: both editions give
+`$PSScriptRoot` with its short names expanded, even for a loader
+dot-sourced by its short path.
+
+**Revisit when:** If a short name reaches chatqd any other way, or before
+M7 makes the native watcher the default. **To close:** `Identity::of`
+expands short names with `GetLongPathNameW`, as .NET does.
+
+## A script that stages a chatqd build
+
+**Scope:** `native/SPEC.md` 3.1 names a `native/stage.ps1` that copies a
+build into `bin/<version>/<target>/`, where the watcher looks for one.
+There is none: TESTING.md's S55 copies the exe by hand, and
+`CHATQ_CHATQD` names a build anywhere else.
+
+**Why deferred:** one developer, one target and one copy per version,
+which by hand is a single `Copy-Item`.
+
+**Revisit when:** If chatqd is built on a Mac by hand, or S55's copy
+becomes a chore. **To close:** `stage.ps1 [-Target <triple>]` building
+with `native/.cargo/config.toml` and copying into
+`bin/<ChatVersion>/<triple>/`.
+
+## pwsh 7's JSON constructors
+
+**Scope:** Newtonsoft reads a `new Name(args)` constructor where a value
+goes: pwsh 7 makes `new Date(1)` a `[datetime]` and drops a property
+that holds any other, where 5.1 throws on all of them. chatqd's grammar
+refuses one ([Newt::value](native/crates/chatq-core/src/json.rs)), so a
+file or stream line that holds one reads as `$null` under pwsh 7 too.
+json.rs's test `a_constructor_is_refused_a_known_divergence` pins the
+refusal.
+
+**Why deferred:** nothing chatq writes holds one, and Newtonsoft's
+`ParseConstructor` would take a grammar path and date code of its own.
+
+**Revisit when:** If a hand-edited `config.json` or job file with
+`new Date(` is reported. **To close:** a constructor branch in `Newt`,
+its dates read through [time::json_date](native/crates/chatq-core/src/time.rs),
+and json-compat.json cases under both editions.
+
+## PowerShell's culture compares, approximated
+
+**Scope:** `-eq`, `switch`, `StartsWith`, a `@{}` key and Sort-Object
+compare by the culture, not ordinally, and chatqd comes close without the
+culture's tables. [json::ieq](native/crates/chatq-core/src/json.rs) folds
+with `to_uppercase` past ASCII (`ß` equals `SS`). stream.rs skips soft
+hyphen and NUL alone ([stream::ignorable](native/crates/chatq-core/src/stream.rs)),
+not ZWJ or the BOM, nor ZWSP and some controls on pwsh 7; 5.1's `ToolIds`
+keys fold by simple upper case with `µ`, `ı` and `ſ` kept
+([stream::culture_fold_eq](native/crates/chatq-core/src/stream.rs)), and
+miss `é` against `e` + U+0301, `ß` against `ss` and the Kelvin sign
+against `k`. [board::status_line](native/crates/chatq-core/src/board.rs)
+sorts lane names case-blind ordinal, and
+[jobs::job_files](native/crates/chatq-core/src/jobs.rs) lists as 5.1 does
+under either edition, where pwsh 7's listing is collated. All of it is
+modelled under en-US, as the vectors are made.
+
+**Why deferred:** what these compare is text chatq writes in ASCII - the
+stream's words and tool ids, lane names, GUID job file names - and a real
+compare needs each edition's collation (NLS on 5.1, ICU on pwsh 7). The
+one compare that meets outside text, ntfy's prefix check, has scanned
+tables of its own in [wire.rs](native/crates/chatq-core/src/wire.rs).
+
+**Revisit when:** If a value past ASCII is seen in one of these compares,
+or a culture other than en-US changes one. **To close:** per-edition
+tables, scanned as `wire/collation.rs`'s were, behind one compare the
+callers share.
+
+## Numbers as a JSON read holds them
+
+**Scope:** a file's values reach chatqd as serde_json holds them
+([json::to_value](native/crates/chatq-core/src/json.rs)): a 5.1 decimal
+loses its scale (`1.50` is 1.5, so `[string]` gives `1.5`), an integer
+past a u64 is the nearest double, and one past a double, or a `NaN`, is
+text ([Tolerant::lossy](native/crates/chatq-core/src/json.rs)).
+[json::to_ps_string](native/crates/chatq-core/src/json.rs) writes
+`[string]` by 5.1's rules, so a negative zero gives `0` where pwsh 7
+gives `-0`. A long digit string is rounded correctly, where .NET Framework
+misrounds some by one bit. `[int]` of text takes what both editions read
+and pwsh 7's blank, not its `1kb`, `0b101` or `5d`
+([jobs::ps_int](native/crates/chatq-core/src/jobs.rs)); the reply
+registry leaves any number text but a plain integer to PowerShell
+([replystate::text_int](native/crates/chatq-core/src/replystate.rs)).
+
+**Why deferred:** no caller `[string]`s a 5.1 fraction or meets a negative
+zero, chatq writes `seq` and counts as plain integers, and keeping a
+decimal's scale means serde_json's `arbitrary_precision` or chatq's own
+value type in every module.
+
+**Revisit when:** If a caller prints a fraction read from a file, a `-0`
+reaches one, or a hand-written `seq` in another form is seen. **To
+close:** `PsVal`, or the token's digits, carried past the read where it
+matters, and a flavour on `to_ps_string`.
+
+## Dates past the shapes the vectors pin
+
+**Scope:** [time::parse_stamp_in](native/crates/chatq-core/src/time.rs)
+ports `[datetime]::Parse` for what stamps.json pins, and its doc lists the
+rest: month and day names, AM/PM, `GMT`, dates with `/` or `.`, years of
+1 or 2 digits, a time outside 0001-9999 once in the local zone. Also left:
+[time::resolve_offset](native/crates/chatq-core/src/time.rs) takes the
+smaller offset at a DST change, so a zone whose daylight time is behind
+its standard time, or whose base offset moves (Paraguay, 2024), is not
+modelled; [time::date_of](native/crates/chatq-core/src/time.rs) reads a
+string only, where PowerShell parses `[string]` of a number (`1.5` as a
+day of this year); [time::json_date](native/crates/chatq-core/src/time.rs)
+reads Newtonsoft's unescaped `/Date` offset as if escaped; and
+[board::text](native/crates/chatq-core/src/board.rs) prints a title that
+is exactly an ISO stamp as written, where pwsh 7 prints the `[datetime]`
+(`10/14/2026 08:00:00`).
+
+**Why deferred:** chatq writes its stamps in the `o` form; nothing writes
+the other shapes, and a number read as a date turns on the clock, so no
+vector could pin it.
+
+**Revisit when:** If a stamp in another shape, or a title that is a bare
+stamp, turns up in a real file. **To close:** that shape ported with a
+stamps.json case under both editions; for the board, `[string]` of the
+`[datetime]` pwsh 7 makes, from the dates
+[json::ps_dates_in](native/crates/chatq-core/src/json.rs) already finds.
+
+## Unicode tables scanned on one PC
+
+**Scope:** some case and collation answers are scans, not a library:
+runenv.rs's `KEEP_DESKTOP` and `KEEP_CORE` (Windows 11 22631, 5.1.22621
+and .NET 10.0.12, against Rust 1.99's Unicode 17), the ignorable and
+digit tables of [wire/collation.rs](native/crates/chatq-core/src/wire/collation.rs)
+(the same Windows' NLS and pwsh 7.6's ICU), and the 5.1 rules of
+[json::fold_char](native/crates/chatq-core/src/json.rs). The scripts that
+made `wire/collation.rs` were never checked in.
+
+**Why deferred:** each table holds for the versions it names, and
+env.json and wire.json pin samples of each, so a drift fails a vector
+rather than passing with a wrong answer.
+
+**Revisit when:** If one of those vectors fails on a CI image or another
+Windows build, or `native/rust-toolchain.toml` moves to a newer Unicode.
+**To close:** scan again; for wire's tables, write the scanner again and
+check it in beside the vector generators.
+
+## data/native records read as 5.1 reads them
+
+**Scope:** [launch::RECORDS](native/crates/chatq-core/src/launch.rs)
+reads `pending.json`, `last.json`, `verified.json` and `fuse.json` with
+5.1's grammar and stamps, whoever decides.
+[Get-ChatqWatcherEngine](src/watcher.ps1) reads them through
+[Read-ChatqJson](src/queue.ps1) under its own edition, so a hand-edited
+record that one grammar takes and the other refuses - a comment on pwsh
+7, single quotes on 5.1 - can read differently on the two sides.
+
+**Why deferred:** chatqd and [Save-ChatqNativeFuse](src/watcher.ps1)
+write strict JSON, which both read alike; launch has no watcher flavour
+to pass, and one decision must not turn on which process makes it.
+
+**Revisit when:** If a record that is not strict JSON is seen. **To
+close:** a record that the two grammars read differently counted as none
+on both sides, with a case for it in `native/vectors/launch.json`.
+
+## ntfy's lines read as strict JSON
+
+**Scope:** [wire::poll_batch](native/crates/chatq-core/src/wire.rs) reads
+each line of a fetched batch with serde_json, lone surrogate escapes made
+U+FFFD first, not with the edition's grammar. Where
+[Invoke-ChatqReplyPoll](src/phone.ps1) reads a line otherwise, nothing is
+pinned: a line that is a list, which PowerShell member-enumerates and
+chatqd skips; names that differ only by case, which PowerShell throws at;
+a BOM before a line; an event name past ASCII, beyond what the scanned
+tables cover; `Handled` under a Turkish or Azeri culture.
+
+**Why deferred:** ntfy's server writes these lines: one object each, its
+own lower-case names, string ids and the events it documents. None of the
+shapes above comes from it.
+
+**Revisit when:** If M3's native poll logs a line that PowerShell read
+otherwise, or ntfy changes its format. **To close:** the lines read
+through `json::ps_read` under the edition, a list line member-enumerated,
+with wire.json cases.
+
+## The reply registry's reads left to PowerShell
+
+**Scope:** [replystate::read](native/crates/chatq-core/src/replystate.rs)
+and [ReplyState::from_json](native/crates/chatq-core/src/replystate.rs)
+answer `Error::PsOnly` - nothing written, the change left to PowerShell -
+wherever the editions read a value in a way not ported: a file that is a
+list (`$raw | ConvertFrom-Json` unrolls it into `$j`, and its elements'
+fields leak in), a list where an object goes, a pwsh 7 `[datetime]` where
+text goes, number text other than a plain integer, a time
+`parse_stamp_in` does not read or within a day of the calendar's ends, a
+pwsh 7 ISO stamp outside the shapes both read alike (hour 24, an offset
+past 14 hours; the `newtonsoft_iso` guard in
+[Rd::date](native/crates/chatq-core/src/replystate.rs)), a pairing
+answer's `d` nested 3 deep or holding a date, a UTF-16 or UTF-32 file,
+a map name past printable ASCII, and a `reply.hours` the editions prune
+by differently. Ties at the 200-alert and 300-pick caps keep file order,
+where PowerShell's follow hashtable order.
+
+**Why deferred:** PsOnly writes nothing, so none of these can make a
+wrong file; the worst is a change PowerShell makes instead. A
+`replies.json` that [Save-ChatqReplyState](src/phone.ps1) wrote holds
+none of them.
+
+**Revisit when:** If M3's native registry logs a PsOnly for a file
+PowerShell wrote, or reply-state.json gains a case with such a stamp.
+**To close:** that shape pinned in reply-state.json under both editions,
+then ported.
+
+## A list where chatq writes an object
+
+**Scope:** PowerShell's `.name` on a list gives each item's value (member
+enumeration); [json::get](native/crates/chatq-core/src/json.rs) on a list
+gives none. So chatqd reads no field of a `config.json` that is still a
+list after [config::read_config](native/crates/chatq-core/src/config.rs)'s
+two unrolls (two items or more, or `[[[obj]]]` on 5.1), of a secret that
+is a list ([secret::unprotect](native/crates/chatq-core/src/secret.rs)),
+or of a `state.json` that is a list
+([WatchState::restore_in](native/crates/chatq-core/src/state.rs) sees no
+`handoff`). stream.rs follows member enumeration, and the reply registry
+leaves a list to PowerShell.
+
+**Why deferred:** nothing writes these files as lists, and member
+enumeration in `json::get` would change every caller's reading of a list.
+
+**Revisit when:** If a list-shaped `config.json`, `state.json` or secret
+is seen. **To close:** a member-enumerating lookup for those reads, with
+gates.json and state.json cases.
+
+## A run's environment off Windows
+
+**Scope:** [runenv::child_env](native/crates/chatq-core/src/runenv.rs)
+and [runenv::block](native/crates/chatq-core/src/runenv.rs) build a run's
+environment by .NET's Windows rules: names case-blind
+([runenv::same_name](native/crates/chatq-core/src/runenv.rs)), the block
+sorted by name. pwsh 7 on macOS keys the variables case-sensitively and
+does not sort the block. macOS checks runenv only against env.json's
+Windows answers.
+
+**Why deferred:** chatqd starts no run before M5, and no CLI has been run
+from chatqd on a Mac.
+
+**Revisit when:** When M5 brings native runs to macOS. **To close:** a
+Unix rule for `same_name` (ordinal) and `block` (the order .NET writes),
+with env.json answers made by pwsh on a Mac.

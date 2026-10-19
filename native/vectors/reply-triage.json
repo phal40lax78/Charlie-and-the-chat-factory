@@ -1,0 +1,1923 @@
+{
+  "about": "The reply poll's first look at what reaches the reply topic, which chatqd takes over (SPEC 3.7). A triage case is one message under a config, rc: the topic, the phone's key D as hex, the pairing in progress (pairId) and whether its key opens here (pairKey; pairing says how config.json held it). Its answer is Test-ChatqReplyMessage's verdict - junk with its stage and error, or a candidate of a kind (reply, compose, pair) - and log, the replies.log line a poll of that message alone (id m1) writes when it is junk and replies are on; watcher.log gets each such line after \"phone: \". native, where there is one, is chatqd's verdict where PowerShell's differs: a pairing answer past the checks before RSA is a candidate, whatever RSA makes of it. A sequence case is Invoke-ChatqReplyPoll -Force over each step's feed lines, or a fetch failing with fail, at the step's time, in a zone of a fixed offset and a culture with that time separator: per step what it returned (acted), the lines it logged, the junk log per stage (when a line was last logged, how many went unlogged since), its throttle times, the topic|id tags it holds as handled, and lastId and lastPolledAt in replies.json. Times are UTC round-trip stamps; log stamps are cut off, and an RSA error's text is cut to \"could not be read: ...\".",
+  "cases": [
+    {
+      "name": "triage paired: a good chatq1 reply",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": null,
+          "pairKey": false,
+          "pairing": "none"
+        },
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNO5gNBFBa2e5wKtsxlUhSO4z7G0rYQ6rFpX2QgAgbwQ3v6IOA_XepV31xEAIwqf-mtSM_Dy02-6ZZaDYHujcjrSRGgqnlzhLcoBkScu76ddf.WZmryJyHbvL2LQcuhtBiXVWvxlNPsf8mX_lIVyzQDZs"
+      },
+      "expect": {"junk": false, "stage": null, "error": null, "kind": "reply", "log": null}
+    },
+    {
+      "name": "triage paired: chatq1, one MAC character changed",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": null,
+          "pairKey": false,
+          "pairing": "none"
+        },
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNO5gNBFBa2e5wKtsxlUhSO4z7G0rYQ6rFpX2QgAgbwQ3v6IOA_XepV31xEAIwqf-mtSM_Dy02-6ZZaDYHujcjrSRGgqnlzhLcoBkScu76ddf.WZmryJyHbvM2LQcuhtBiXVWvxlNPsf8mX_lIVyzQDZs"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "mac",
+        "error": "the MAC does not match",
+        "kind": null,
+        "log": "reply m1 refused - mac: the MAC does not match"
+      }
+    },
+    {
+      "name": "triage paired: chatq1, one ciphertext character changed",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": null,
+          "pairKey": false,
+          "pairing": "none"
+        },
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd1jup8AecpTNO5gNBFBa2e5wKtsxlUhSO4z7G0rYQ6rFpX2QgAgbwQ3v6IOA_XepV31xEAIwqf-mtSM_Dy02-6ZZaDYHujcjrSRGgqnlzhLcoBkScu76ddf.WZmryJyHbvL2LQcuhtBiXVWvxlNPsf8mX_lIVyzQDZs"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "mac",
+        "error": "the MAC does not match",
+        "kind": null,
+        "log": "reply m1 refused - mac: the MAC does not match"
+      }
+    },
+    {
+      "name": "triage paired: chatq1, the MAC's unused bits set: the same MAC",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": null,
+          "pairKey": false,
+          "pairing": "none"
+        },
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNO5gNBFBa2e5wKtsxlUhSO4z7G0rYQ6rFpX2QgAgbwQ3v6IOA_XepV31xEAIwqf-mtSM_Dy02-6ZZaDYHujcjrSRGgqnlzhLcoBkScu76ddf.WZmryJyHbvL2LQcuhtBiXVWvxlNPsf8mX_lIVyzQDZt"
+      },
+      "expect": {"junk": false, "stage": null, "error": null, "kind": "reply", "log": null}
+    },
+    {
+      "name": "triage paired: chatq1, the MAC two characters short, len%4 = 1",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": null,
+          "pairKey": false,
+          "pairing": "none"
+        },
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNO5gNBFBa2e5wKtsxlUhSO4z7G0rYQ6rFpX2QgAgbwQ3v6IOA_XepV31xEAIwqf-mtSM_Dy02-6ZZaDYHujcjrSRGgqnlzhLcoBkScu76ddf.WZmryJyHbvL2LQcuhtBiXVWvxlNPsf8mX_lIVyzQD"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "format",
+        "error": "bad encoding",
+        "kind": null,
+        "log": "reply m1 refused - format: bad encoding"
+      }
+    },
+    {
+      "name": "triage paired: chatq1 sealed under another D",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": null,
+          "pairKey": false,
+          "pairing": "none"
+        },
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.Gn7ssHybANJNb0D_t-ETAHexi_99rebF5dwE71ig2TOK21k_R7Kb-Q9q2fQQAlUl5eaSk9Bec6iaVCiLQdpM6Mq8dQmnghbUJnCrSImSzRTfXaCs4WIs4ZUjdj4S-TQi.jK-yAMjapNk1VLKn5HTYnpwsvxjVHEiuVg1MRnLOzyk"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "mac",
+        "error": "the MAC does not match",
+        "kind": null,
+        "log": "reply m1 refused - mac: the MAC does not match"
+      }
+    },
+    {
+      "name": "triage paired: chatq1, a MAC that checks out over a ciphertext that does not decrypt",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": null,
+          "pairKey": false,
+          "pairing": "none"
+        },
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA.OjODu1R9eTaQHGwb2VJCfX1iGGBgX5tqAHSvp0ZU4Zg"
+      },
+      "expect": {"junk": false, "stage": null, "error": null, "kind": "reply", "log": null}
+    },
+    {
+      "name": "triage paired: chatq1, a v4 payload: past the MAC",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": null,
+          "pairKey": false,
+          "pairing": "none"
+        },
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.HyS7GcYeV9y3JRgamt2p3n2fCnP673Lt8giUuT56mVo.bzH7YXxct61Sj3J3rPyo1EglKwatsgTAY3FPomXi8WI"
+      },
+      "expect": {"junk": false, "stage": null, "error": null, "kind": "reply", "log": null}
+    },
+    {
+      "name": "triage paired: chatq1 with white space around",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": null,
+          "pairKey": false,
+          "pairing": "none"
+        },
+        "message": " \t\r\nchatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNO5gNBFBa2e5wKtsxlUhSO4z7G0rYQ6rFpX2QgAgbwQ3v6IOA_XepV31xEAIwqf-mtSM_Dy02-6ZZaDYHujcjrSRGgqnlzhLcoBkScu76ddf.WZmryJyHbvL2LQcuhtBiXVWvxlNPsf8mX_lIVyzQDZs \t\r\n"
+      },
+      "expect": {"junk": false, "stage": null, "error": null, "kind": "reply", "log": null}
+    },
+    {
+      "name": "triage paired: chatq1, U+FEFF in front",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": null,
+          "pairKey": false,
+          "pairing": "none"
+        },
+        "message": "\ufeffchatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNO5gNBFBa2e5wKtsxlUhSO4z7G0rYQ6rFpX2QgAgbwQ3v6IOA_XepV31xEAIwqf-mtSM_Dy02-6ZZaDYHujcjrSRGgqnlzhLcoBkScu76ddf.WZmryJyHbvL2LQcuhtBiXVWvxlNPsf8mX_lIVyzQDZs"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "mac",
+        "error": "the MAC does not match",
+        "kind": null,
+        "log": "reply m1 refused - mac: the MAC does not match"
+      }
+    },
+    {
+      "name": "triage paired: chatq1, U+200B inside the prefix",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": null,
+          "pairKey": false,
+          "pairing": "none"
+        },
+        "message": "chat\u200bq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNO5gNBFBa2e5wKtsxlUhSO4z7G0rYQ6rFpX2QgAgbwQ3v6IOA_XepV31xEAIwqf-mtSM_Dy02-6ZZaDYHujcjrSRGgqnlzhLcoBkScu76ddf.WZmryJyHbvL2LQcuhtBiXVWvxlNPsf8mX_lIVyzQDZs"
+      },
+      "expectByEdition": {
+        "Desktop": {
+          "junk": true,
+          "stage": "format",
+          "error": "not a chatq reply",
+          "kind": null,
+          "log": "reply m1 refused - format: not a chatq reply"
+        },
+        "Core": {
+          "junk": true,
+          "stage": "mac",
+          "error": "the MAC does not match",
+          "kind": null,
+          "log": "reply m1 refused - mac: the MAC does not match"
+        }
+      }
+    },
+    {
+      "name": "triage paired: chatq1, U+0661 for its 1",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": null,
+          "pairKey": false,
+          "pairing": "none"
+        },
+        "message": "chatq\u0661.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNO5gNBFBa2e5wKtsxlUhSO4z7G0rYQ6rFpX2QgAgbwQ3v6IOA_XepV31xEAIwqf-mtSM_Dy02-6ZZaDYHujcjrSRGgqnlzhLcoBkScu76ddf.WZmryJyHbvL2LQcuhtBiXVWvxlNPsf8mX_lIVyzQDZs"
+      },
+      "expectByEdition": {
+        "Desktop": {
+          "junk": true,
+          "stage": "format",
+          "error": "not a chatq reply",
+          "kind": null,
+          "log": "reply m1 refused - format: not a chatq reply"
+        },
+        "Core": {
+          "junk": true,
+          "stage": "mac",
+          "error": "the MAC does not match",
+          "kind": null,
+          "log": "reply m1 refused - mac: the MAC does not match"
+        }
+      }
+    },
+    {
+      "name": "triage paired: chatq1, the id in capitals",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": null,
+          "pairKey": false,
+          "pairing": "none"
+        },
+        "message": "chatq1.ABCDEFGHIJ.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNO5gNBFBa2e5wKtsxlUhSO4z7G0rYQ6rFpX2QgAgbwQ3v6IOA_XepV31xEAIwqf-mtSM_Dy02-6ZZaDYHujcjrSRGgqnlzhLcoBkScu76ddf.WZmryJyHbvL2LQcuhtBiXVWvxlNPsf8mX_lIVyzQDZs"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "format",
+        "error": "not a chatq reply",
+        "kind": null,
+        "log": "reply m1 refused - format: not a chatq reply"
+      }
+    },
+    {
+      "name": "triage paired: chatq1, four parts",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": null,
+          "pairKey": false,
+          "pairing": "none"
+        },
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNO5gNBFBa2e5wKtsxlUhSO4z7G0rYQ6rFpX2QgAgbwQ3v6IOA_XepV31xEAIwqf-mtSM_Dy02-6ZZaDYHujcjrSRGgqnlzhLcoBkScu76ddf"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "format",
+        "error": "not a chatq reply",
+        "kind": null,
+        "log": "reply m1 refused - format: not a chatq reply"
+      }
+    },
+    {
+      "name": "triage paired: hello",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": null,
+          "pairKey": false,
+          "pairing": "none"
+        },
+        "message": "hello"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "format",
+        "error": "not a chatq reply",
+        "kind": null,
+        "log": "reply m1 refused - format: not a chatq reply"
+      }
+    },
+    {
+      "name": "triage paired: empty",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": null,
+          "pairKey": false,
+          "pairing": "none"
+        },
+        "message": ""
+      },
+      "expect": {
+        "junk": true,
+        "stage": "format",
+        "error": "not a chatq reply",
+        "kind": null,
+        "log": "reply m1 refused - format: not a chatq reply"
+      }
+    },
+    {
+      "name": "triage paired: a good chatq3c message",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": null,
+          "pairKey": false,
+          "pairing": "none"
+        },
+        "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.3Mbd8TFMy7AnYX3mIW6cFtDrYL-n7A8MSGFTJJzTgZvPt-u4RyEJAGD8-Vg_12WNBNqer9YqigoaVSB6WX7VmXuNEBpJDvnLtjUvnBVPDht6s0i-zvIeEY78a--MXDwa.__0B6j2gPUaseRSEj-SNKFWXrP8PXejzHbRw012YSg0"
+      },
+      "expect": {"junk": false, "stage": null, "error": null, "kind": "compose", "log": null}
+    },
+    {
+      "name": "triage paired: chatq3c, one MAC character changed",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": null,
+          "pairKey": false,
+          "pairing": "none"
+        },
+        "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.3Mbd8TFMy7AnYX3mIW6cFtDrYL-n7A8MSGFTJJzTgZvPt-u4RyEJAGD8-Vg_12WNBNqer9YqigoaVSB6WX7VmXuNEBpJDvnLtjUvnBVPDht6s0i-zvIeEY78a--MXDwa.__0B6j2gPUbseRSEj-SNKFWXrP8PXejzHbRw012YSg0"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "mac",
+        "error": "the MAC does not match",
+        "kind": null,
+        "log": "reply m1 refused - mac: the MAC does not match"
+      }
+    },
+    {
+      "name": "triage paired: chatq3c. alone",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": null,
+          "pairKey": false,
+          "pairing": "none"
+        },
+        "message": "chatq3c."
+      },
+      "expect": {
+        "junk": true,
+        "stage": "format",
+        "error": "not a chatq message from the phone",
+        "kind": null,
+        "log": "reply m1 refused - format: not a chatq message from the phone"
+      }
+    },
+    {
+      "name": "triage paired: chatq3c.x after a space",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": null,
+          "pairKey": false,
+          "pairing": "none"
+        },
+        "message": " chatq3c.x"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "format",
+        "error": "not a chatq message from the phone",
+        "kind": null,
+        "log": "reply m1 refused - format: not a chatq message from the phone"
+      }
+    },
+    {
+      "name": "triage paired: chatq3c with no dot",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": null,
+          "pairKey": false,
+          "pairing": "none"
+        },
+        "message": "chatq3c"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "format",
+        "error": "not a chatq reply",
+        "kind": null,
+        "log": "reply m1 refused - format: not a chatq reply"
+      }
+    },
+    {
+      "name": "triage paired: chatq3c in capitals",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": null,
+          "pairKey": false,
+          "pairing": "none"
+        },
+        "message": "CHATQ3C.klmnopqrst.EBESExQVFhcYGRobHB0eHw.3Mbd8TFMy7AnYX3mIW6cFtDrYL-n7A8MSGFTJJzTgZvPt-u4RyEJAGD8-Vg_12WNBNqer9YqigoaVSB6WX7VmXuNEBpJDvnLtjUvnBVPDht6s0i-zvIeEY78a--MXDwa.__0B6j2gPUaseRSEj-SNKFWXrP8PXejzHbRw012YSg0"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "format",
+        "error": "not a chatq reply",
+        "kind": null,
+        "log": "reply m1 refused - format: not a chatq reply"
+      }
+    },
+    {
+      "name": "triage paired: chatq3c, U+FEFF in front",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": null,
+          "pairKey": false,
+          "pairing": "none"
+        },
+        "message": "\ufeffchatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.3Mbd8TFMy7AnYX3mIW6cFtDrYL-n7A8MSGFTJJzTgZvPt-u4RyEJAGD8-Vg_12WNBNqer9YqigoaVSB6WX7VmXuNEBpJDvnLtjUvnBVPDht6s0i-zvIeEY78a--MXDwa.__0B6j2gPUaseRSEj-SNKFWXrP8PXejzHbRw012YSg0"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "format",
+        "error": "not a chatq reply",
+        "kind": null,
+        "log": "reply m1 refused - format: not a chatq reply"
+      }
+    },
+    {
+      "name": "triage paired: chatq3c, U+00A0 in front",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": null,
+          "pairKey": false,
+          "pairing": "none"
+        },
+        "message": "\u00a0chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.3Mbd8TFMy7AnYX3mIW6cFtDrYL-n7A8MSGFTJJzTgZvPt-u4RyEJAGD8-Vg_12WNBNqer9YqigoaVSB6WX7VmXuNEBpJDvnLtjUvnBVPDht6s0i-zvIeEY78a--MXDwa.__0B6j2gPUaseRSEj-SNKFWXrP8PXejzHbRw012YSg0"
+      },
+      "expect": {"junk": false, "stage": null, "error": null, "kind": "compose", "log": null}
+    },
+    {
+      "name": "triage paired: chatq3c, U+0663 for its 3: the dispatch is ordinal",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": null,
+          "pairKey": false,
+          "pairing": "none"
+        },
+        "message": "chatq\u0663c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.3Mbd8TFMy7AnYX3mIW6cFtDrYL-n7A8MSGFTJJzTgZvPt-u4RyEJAGD8-Vg_12WNBNqer9YqigoaVSB6WX7VmXuNEBpJDvnLtjUvnBVPDht6s0i-zvIeEY78a--MXDwa.__0B6j2gPUaseRSEj-SNKFWXrP8PXejzHbRw012YSg0"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "format",
+        "error": "not a chatq reply",
+        "kind": null,
+        "log": "reply m1 refused - format: not a chatq reply"
+      }
+    },
+    {
+      "name": "triage paired: chatq3c relabelled chatq1",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": null,
+          "pairKey": false,
+          "pairing": "none"
+        },
+        "message": "chatq1.klmnopqrst.EBESExQVFhcYGRobHB0eHw.3Mbd8TFMy7AnYX3mIW6cFtDrYL-n7A8MSGFTJJzTgZvPt-u4RyEJAGD8-Vg_12WNBNqer9YqigoaVSB6WX7VmXuNEBpJDvnLtjUvnBVPDht6s0i-zvIeEY78a--MXDwa.__0B6j2gPUaseRSEj-SNKFWXrP8PXejzHbRw012YSg0"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "mac",
+        "error": "the MAC does not match",
+        "kind": null,
+        "log": "reply m1 refused - mac: the MAC does not match"
+      }
+    },
+    {
+      "name": "triage paired: the pairing fixture",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": null,
+          "pairKey": false,
+          "pairing": "none"
+        },
+        "message": "chatq2p.abcdefghij.byiI4hmBr1GLdZeUH-FqXD0pYeJwKccK6zlRXbrSZcEPg6H_IeZsb9-WT317YGtx2eTuLEJ3FvkYaSz8y8bGjpiV0QvzaLIndwBI0X6RBJ29A6u-deenZOwQADK33UpwWybi02o0OV7G5NPyOnb-oyMlffsaISktLhQovyfsmH4k3EnPgWFwg0KCPdcvLmGxRlPIFK56YDb_ofnGQh086PNoo6p3KKLW7HzIZrBSw4M_G5NesOkDpIlut2T0kC4mN6bqb5PR9y0_XGIPJ6NcB7oTSCOu-b6JSSaI0U_Z5c-yu3qCUKS_TUiKd8gYv6l4Ntfgx_mBTx58v-i2HkN62Q"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "pairing",
+        "error": "for no pairing in progress",
+        "kind": null,
+        "log": "pairing m1 refused - for no pairing in progress"
+      }
+    },
+    {
+      "name": "triage paired: chatq2p.x",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": null,
+          "pairKey": false,
+          "pairing": "none"
+        },
+        "message": "chatq2p.x"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "pairing",
+        "error": "not a pairing message",
+        "kind": null,
+        "log": "pairing m1 refused - not a pairing message"
+      }
+    },
+    {
+      "name": "triage pairing: the pairing fixture",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": "abcdefghij",
+          "pairKey": true,
+          "pairing": "fixture"
+        },
+        "message": "chatq2p.abcdefghij.byiI4hmBr1GLdZeUH-FqXD0pYeJwKccK6zlRXbrSZcEPg6H_IeZsb9-WT317YGtx2eTuLEJ3FvkYaSz8y8bGjpiV0QvzaLIndwBI0X6RBJ29A6u-deenZOwQADK33UpwWybi02o0OV7G5NPyOnb-oyMlffsaISktLhQovyfsmH4k3EnPgWFwg0KCPdcvLmGxRlPIFK56YDb_ofnGQh086PNoo6p3KKLW7HzIZrBSw4M_G5NesOkDpIlut2T0kC4mN6bqb5PR9y0_XGIPJ6NcB7oTSCOu-b6JSSaI0U_Z5c-yu3qCUKS_TUiKd8gYv6l4Ntfgx_mBTx58v-i2HkN62Q"
+      },
+      "expect": {"junk": false, "stage": null, "error": null, "kind": "pair", "log": null}
+    },
+    {
+      "name": "triage pairing: a pairing answer whose payload is v1",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": "abcdefghij",
+          "pairKey": true,
+          "pairing": "fixture"
+        },
+        "message": "chatq2p.abcdefghij.Y10H6zrGLkffzcEuj3MFkfxKlYlSAhLqOOTpO4EydEiBTHUN0DMh_5Bv68FD47KFQwMsFFK4BrE4-l-PZFJTYkPUhR1E4IwAxVKVZuyMEJeJD7nelXXpGsHoQoLn6INP5ZAPcNbIAk_SCReCGf349G5MW8O8q-0-ykHMXdvKsZ0OemuxaN5N5i8ipV4GvW_eB8Yk15NQr8kYez30Lt5Xm-Og0V_G6U6f9fVUYRIwYr2vDU1Yzxr4joE3jTCwIEgDY1x_AHfPV1dC7Nrh5LMte0KWPc5co9rEcdp1ATngq2OcuH9-EX5mT_WUfcqx4mS6B_lvelM0NnuBmpV0FxZYaw"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "pairing",
+        "error": "not a version 2 pairing",
+        "kind": null,
+        "native": {"junk": false, "stage": null, "error": null, "kind": "pair"},
+        "log": "pairing m1 refused - not a version 2 pairing"
+      }
+    },
+    {
+      "name": "triage pairing: two parts",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": "abcdefghij",
+          "pairKey": true,
+          "pairing": "fixture"
+        },
+        "message": "chatq2p.abcdefghij"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "pairing",
+        "error": "not a pairing message",
+        "kind": null,
+        "log": "pairing m1 refused - not a pairing message"
+      }
+    },
+    {
+      "name": "triage pairing: four parts",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": "abcdefghij",
+          "pairKey": true,
+          "pairing": "fixture"
+        },
+        "message": "chatq2p.abcdefghij.byiI4hmBr1GLdZeUH-FqXD0pYeJwKccK6zlRXbrSZcEPg6H_IeZsb9-WT317YGtx2eTuLEJ3FvkYaSz8y8bGjpiV0QvzaLIndwBI0X6RBJ29A6u-deenZOwQADK33UpwWybi02o0OV7G5NPyOnb-oyMlffsaISktLhQovyfsmH4k3EnPgWFwg0KCPdcvLmGxRlPIFK56YDb_ofnGQh086PNoo6p3KKLW7HzIZrBSw4M_G5NesOkDpIlut2T0kC4mN6bqb5PR9y0_XGIPJ6NcB7oTSCOu-b6JSSaI0U_Z5c-yu3qCUKS_TUiKd8gYv6l4Ntfgx_mBTx58v-i2HkN62Q.AAAA"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "pairing",
+        "error": "not a pairing message",
+        "kind": null,
+        "log": "pairing m1 refused - not a pairing message"
+      }
+    },
+    {
+      "name": "triage pairing: the id in capitals",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": "abcdefghij",
+          "pairKey": true,
+          "pairing": "fixture"
+        },
+        "message": "chatq2p.ABCDEFGHIJ.byiI4hmBr1GLdZeUH-FqXD0pYeJwKccK6zlRXbrSZcEPg6H_IeZsb9-WT317YGtx2eTuLEJ3FvkYaSz8y8bGjpiV0QvzaLIndwBI0X6RBJ29A6u-deenZOwQADK33UpwWybi02o0OV7G5NPyOnb-oyMlffsaISktLhQovyfsmH4k3EnPgWFwg0KCPdcvLmGxRlPIFK56YDb_ofnGQh086PNoo6p3KKLW7HzIZrBSw4M_G5NesOkDpIlut2T0kC4mN6bqb5PR9y0_XGIPJ6NcB7oTSCOu-b6JSSaI0U_Z5c-yu3qCUKS_TUiKd8gYv6l4Ntfgx_mBTx58v-i2HkN62Q"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "pairing",
+        "error": "not a pairing message",
+        "kind": null,
+        "log": "pairing m1 refused - not a pairing message"
+      }
+    },
+    {
+      "name": "triage pairing: another id",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": "abcdefghij",
+          "pairKey": true,
+          "pairing": "fixture"
+        },
+        "message": "chatq2p.bcdefghijk.byiI4hmBr1GLdZeUH-FqXD0pYeJwKccK6zlRXbrSZcEPg6H_IeZsb9-WT317YGtx2eTuLEJ3FvkYaSz8y8bGjpiV0QvzaLIndwBI0X6RBJ29A6u-deenZOwQADK33UpwWybi02o0OV7G5NPyOnb-oyMlffsaISktLhQovyfsmH4k3EnPgWFwg0KCPdcvLmGxRlPIFK56YDb_ofnGQh086PNoo6p3KKLW7HzIZrBSw4M_G5NesOkDpIlut2T0kC4mN6bqb5PR9y0_XGIPJ6NcB7oTSCOu-b6JSSaI0U_Z5c-yu3qCUKS_TUiKd8gYv6l4Ntfgx_mBTx58v-i2HkN62Q"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "pairing",
+        "error": "for no pairing in progress",
+        "kind": null,
+        "log": "pairing m1 refused - for no pairing in progress"
+      }
+    },
+    {
+      "name": "triage pairing: a line feed after the id",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": "abcdefghij",
+          "pairKey": true,
+          "pairing": "fixture"
+        },
+        "message": "chatq2p.abcdefghij\n.byiI4hmBr1GLdZeUH-FqXD0pYeJwKccK6zlRXbrSZcEPg6H_IeZsb9-WT317YGtx2eTuLEJ3FvkYaSz8y8bGjpiV0QvzaLIndwBI0X6RBJ29A6u-deenZOwQADK33UpwWybi02o0OV7G5NPyOnb-oyMlffsaISktLhQovyfsmH4k3EnPgWFwg0KCPdcvLmGxRlPIFK56YDb_ofnGQh086PNoo6p3KKLW7HzIZrBSw4M_G5NesOkDpIlut2T0kC4mN6bqb5PR9y0_XGIPJ6NcB7oTSCOu-b6JSSaI0U_Z5c-yu3qCUKS_TUiKd8gYv6l4Ntfgx_mBTx58v-i2HkN62Q"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "pairing",
+        "error": "for no pairing in progress",
+        "kind": null,
+        "log": "pairing m1 refused - for no pairing in progress"
+      }
+    },
+    {
+      "name": "triage pairing: a ciphertext of 3 bytes",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": "abcdefghij",
+          "pairKey": true,
+          "pairing": "fixture"
+        },
+        "message": "chatq2p.abcdefghij.AAAA"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "pairing",
+        "error": "bad encoding",
+        "kind": null,
+        "log": "pairing m1 refused - bad encoding"
+      }
+    },
+    {
+      "name": "triage pairing: a ciphertext of 63 bytes",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": "abcdefghij",
+          "pairKey": true,
+          "pairing": "fixture"
+        },
+        "message": "chatq2p.abcdefghij.AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "pairing",
+        "error": "bad encoding",
+        "kind": null,
+        "log": "pairing m1 refused - bad encoding"
+      }
+    },
+    {
+      "name": "triage pairing: a ciphertext of 64 bytes",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": "abcdefghij",
+          "pairKey": true,
+          "pairing": "fixture"
+        },
+        "message": "chatq2p.abcdefghij.AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "pairing",
+        "error": "could not be read: ...",
+        "kind": null,
+        "native": {"junk": false, "stage": null, "error": null, "kind": "pair"},
+        "log": "pairing m1 refused - could not be read: ..."
+      }
+    },
+    {
+      "name": "triage pairing: a ciphertext of 1024 bytes",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": "abcdefghij",
+          "pairKey": true,
+          "pairing": "fixture"
+        },
+        "message": "chatq2p.abcdefghij.AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "pairing",
+        "error": "could not be read: ...",
+        "kind": null,
+        "native": {"junk": false, "stage": null, "error": null, "kind": "pair"},
+        "log": "pairing m1 refused - could not be read: ..."
+      }
+    },
+    {
+      "name": "triage pairing: a ciphertext of 1025 bytes",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": "abcdefghij",
+          "pairKey": true,
+          "pairing": "fixture"
+        },
+        "message": "chatq2p.abcdefghij.AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "pairing",
+        "error": "bad encoding",
+        "kind": null,
+        "log": "pairing m1 refused - bad encoding"
+      }
+    },
+    {
+      "name": "triage pairing: a ciphertext a character short, len%4 = 1",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": "abcdefghij",
+          "pairKey": true,
+          "pairing": "fixture"
+        },
+        "message": "chatq2p.abcdefghij.byiI4hmBr1GLdZeUH-FqXD0pYeJwKccK6zlRXbrSZcEPg6H_IeZsb9-WT317YGtx2eTuLEJ3FvkYaSz8y8bGjpiV0QvzaLIndwBI0X6RBJ29A6u-deenZOwQADK33UpwWybi02o0OV7G5NPyOnb-oyMlffsaISktLhQovyfsmH4k3EnPgWFwg0KCPdcvLmGxRlPIFK56YDb_ofnGQh086PNoo6p3KKLW7HzIZrBSw4M_G5NesOkDpIlut2T0kC4mN6bqb5PR9y0_XGIPJ6NcB7oTSCOu-b6JSSaI0U_Z5c-yu3qCUKS_TUiKd8gYv6l4Ntfgx_mBTx58v-i2HkN62"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "pairing",
+        "error": "bad encoding",
+        "kind": null,
+        "log": "pairing m1 refused - bad encoding"
+      }
+    },
+    {
+      "name": "triage pairing: the ciphertext's unused bits set",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": "abcdefghij",
+          "pairKey": true,
+          "pairing": "fixture"
+        },
+        "message": "chatq2p.abcdefghij.byiI4hmBr1GLdZeUH-FqXD0pYeJwKccK6zlRXbrSZcEPg6H_IeZsb9-WT317YGtx2eTuLEJ3FvkYaSz8y8bGjpiV0QvzaLIndwBI0X6RBJ29A6u-deenZOwQADK33UpwWybi02o0OV7G5NPyOnb-oyMlffsaISktLhQovyfsmH4k3EnPgWFwg0KCPdcvLmGxRlPIFK56YDb_ofnGQh086PNoo6p3KKLW7HzIZrBSw4M_G5NesOkDpIlut2T0kC4mN6bqb5PR9y0_XGIPJ6NcB7oTSCOu-b6JSSaI0U_Z5c-yu3qCUKS_TUiKd8gYv6l4Ntfgx_mBTx58v-i2HkN62R"
+      },
+      "expect": {"junk": false, "stage": null, "error": null, "kind": "pair", "log": null}
+    },
+    {
+      "name": "triage pairing: white space around",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": "abcdefghij",
+          "pairKey": true,
+          "pairing": "fixture"
+        },
+        "message": " \t\r\nchatq2p.abcdefghij.byiI4hmBr1GLdZeUH-FqXD0pYeJwKccK6zlRXbrSZcEPg6H_IeZsb9-WT317YGtx2eTuLEJ3FvkYaSz8y8bGjpiV0QvzaLIndwBI0X6RBJ29A6u-deenZOwQADK33UpwWybi02o0OV7G5NPyOnb-oyMlffsaISktLhQovyfsmH4k3EnPgWFwg0KCPdcvLmGxRlPIFK56YDb_ofnGQh086PNoo6p3KKLW7HzIZrBSw4M_G5NesOkDpIlut2T0kC4mN6bqb5PR9y0_XGIPJ6NcB7oTSCOu-b6JSSaI0U_Z5c-yu3qCUKS_TUiKd8gYv6l4Ntfgx_mBTx58v-i2HkN62Q \t\r\n"
+      },
+      "expect": {"junk": false, "stage": null, "error": null, "kind": "pair", "log": null}
+    },
+    {
+      "name": "triage pairing: U+FEFF in front",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": "abcdefghij",
+          "pairKey": true,
+          "pairing": "fixture"
+        },
+        "message": "\ufeffchatq2p.abcdefghij.byiI4hmBr1GLdZeUH-FqXD0pYeJwKccK6zlRXbrSZcEPg6H_IeZsb9-WT317YGtx2eTuLEJ3FvkYaSz8y8bGjpiV0QvzaLIndwBI0X6RBJ29A6u-deenZOwQADK33UpwWybi02o0OV7G5NPyOnb-oyMlffsaISktLhQovyfsmH4k3EnPgWFwg0KCPdcvLmGxRlPIFK56YDb_ofnGQh086PNoo6p3KKLW7HzIZrBSw4M_G5NesOkDpIlut2T0kC4mN6bqb5PR9y0_XGIPJ6NcB7oTSCOu-b6JSSaI0U_Z5c-yu3qCUKS_TUiKd8gYv6l4Ntfgx_mBTx58v-i2HkN62Q"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "format",
+        "error": "not a chatq reply",
+        "kind": null,
+        "log": "reply m1 refused - format: not a chatq reply"
+      }
+    },
+    {
+      "name": "triage pairing: a good chatq3c message",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": "abcdefghij",
+          "pairKey": true,
+          "pairing": "fixture"
+        },
+        "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.3Mbd8TFMy7AnYX3mIW6cFtDrYL-n7A8MSGFTJJzTgZvPt-u4RyEJAGD8-Vg_12WNBNqer9YqigoaVSB6WX7VmXuNEBpJDvnLtjUvnBVPDht6s0i-zvIeEY78a--MXDwa.__0B6j2gPUaseRSEj-SNKFWXrP8PXejzHbRw012YSg0"
+      },
+      "expect": {"junk": false, "stage": null, "error": null, "kind": "compose", "log": null}
+    },
+    {
+      "name": "triage pairing: a good chatq1 reply",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": "abcdefghij",
+          "pairKey": true,
+          "pairing": "fixture"
+        },
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNO5gNBFBa2e5wKtsxlUhSO4z7G0rYQ6rFpX2QgAgbwQ3v6IOA_XepV31xEAIwqf-mtSM_Dy02-6ZZaDYHujcjrSRGgqnlzhLcoBkScu76ddf.WZmryJyHbvL2LQcuhtBiXVWvxlNPsf8mX_lIVyzQDZs"
+      },
+      "expect": {"junk": false, "stage": null, "error": null, "kind": "reply", "log": null}
+    },
+    {
+      "name": "triage unreadable: the pairing fixture",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": "abcdefghij",
+          "pairKey": false,
+          "pairing": "unreadable"
+        },
+        "message": "chatq2p.abcdefghij.byiI4hmBr1GLdZeUH-FqXD0pYeJwKccK6zlRXbrSZcEPg6H_IeZsb9-WT317YGtx2eTuLEJ3FvkYaSz8y8bGjpiV0QvzaLIndwBI0X6RBJ29A6u-deenZOwQADK33UpwWybi02o0OV7G5NPyOnb-oyMlffsaISktLhQovyfsmH4k3EnPgWFwg0KCPdcvLmGxRlPIFK56YDb_ofnGQh086PNoo6p3KKLW7HzIZrBSw4M_G5NesOkDpIlut2T0kC4mN6bqb5PR9y0_XGIPJ6NcB7oTSCOu-b6JSSaI0U_Z5c-yu3qCUKS_TUiKd8gYv6l4Ntfgx_mBTx58v-i2HkN62Q"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "pairing",
+        "error": "the pairing key cannot be read here",
+        "kind": null,
+        "log": "pairing m1 refused - the pairing key cannot be read here"
+      }
+    },
+    {
+      "name": "triage unreadable: chatq2p.x",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": "abcdefghij",
+          "pairKey": false,
+          "pairing": "unreadable"
+        },
+        "message": "chatq2p.x"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "pairing",
+        "error": "the pairing key cannot be read here",
+        "kind": null,
+        "log": "pairing m1 refused - the pairing key cannot be read here"
+      }
+    },
+    {
+      "name": "triage unreadable: a good chatq1 reply",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": "abcdefghij",
+          "pairKey": false,
+          "pairing": "unreadable"
+        },
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNO5gNBFBa2e5wKtsxlUhSO4z7G0rYQ6rFpX2QgAgbwQ3v6IOA_XepV31xEAIwqf-mtSM_Dy02-6ZZaDYHujcjrSRGgqnlzhLcoBkScu76ddf.WZmryJyHbvL2LQcuhtBiXVWvxlNPsf8mX_lIVyzQDZs"
+      },
+      "expect": {"junk": false, "stage": null, "error": null, "kind": "reply", "log": null}
+    },
+    {
+      "name": "triage no pairing key: the pairing fixture",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": "abcdefghij",
+          "pairKey": false,
+          "pairing": "absent"
+        },
+        "message": "chatq2p.abcdefghij.byiI4hmBr1GLdZeUH-FqXD0pYeJwKccK6zlRXbrSZcEPg6H_IeZsb9-WT317YGtx2eTuLEJ3FvkYaSz8y8bGjpiV0QvzaLIndwBI0X6RBJ29A6u-deenZOwQADK33UpwWybi02o0OV7G5NPyOnb-oyMlffsaISktLhQovyfsmH4k3EnPgWFwg0KCPdcvLmGxRlPIFK56YDb_ofnGQh086PNoo6p3KKLW7HzIZrBSw4M_G5NesOkDpIlut2T0kC4mN6bqb5PR9y0_XGIPJ6NcB7oTSCOu-b6JSSaI0U_Z5c-yu3qCUKS_TUiKd8gYv6l4Ntfgx_mBTx58v-i2HkN62Q"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "pairing",
+        "error": "the pairing key cannot be read here",
+        "kind": null,
+        "log": "pairing m1 refused - the pairing key cannot be read here"
+      }
+    },
+    {
+      "name": "triage garbage key: the pairing fixture",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": "abcdefghij",
+          "pairKey": true,
+          "pairing": "garbage"
+        },
+        "message": "chatq2p.abcdefghij.byiI4hmBr1GLdZeUH-FqXD0pYeJwKccK6zlRXbrSZcEPg6H_IeZsb9-WT317YGtx2eTuLEJ3FvkYaSz8y8bGjpiV0QvzaLIndwBI0X6RBJ29A6u-deenZOwQADK33UpwWybi02o0OV7G5NPyOnb-oyMlffsaISktLhQovyfsmH4k3EnPgWFwg0KCPdcvLmGxRlPIFK56YDb_ofnGQh086PNoo6p3KKLW7HzIZrBSw4M_G5NesOkDpIlut2T0kC4mN6bqb5PR9y0_XGIPJ6NcB7oTSCOu-b6JSSaI0U_Z5c-yu3qCUKS_TUiKd8gYv6l4Ntfgx_mBTx58v-i2HkN62Q"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "pairing",
+        "error": "could not be read: ...",
+        "kind": null,
+        "native": {"junk": false, "stage": null, "error": null, "kind": "pair"},
+        "log": "pairing m1 refused - could not be read: ..."
+      }
+    },
+    {
+      "name": "triage unpaired: the pairing fixture",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": null,
+          "pairId": "abcdefghij",
+          "pairKey": true,
+          "pairing": "fixture"
+        },
+        "message": "chatq2p.abcdefghij.byiI4hmBr1GLdZeUH-FqXD0pYeJwKccK6zlRXbrSZcEPg6H_IeZsb9-WT317YGtx2eTuLEJ3FvkYaSz8y8bGjpiV0QvzaLIndwBI0X6RBJ29A6u-deenZOwQADK33UpwWybi02o0OV7G5NPyOnb-oyMlffsaISktLhQovyfsmH4k3EnPgWFwg0KCPdcvLmGxRlPIFK56YDb_ofnGQh086PNoo6p3KKLW7HzIZrBSw4M_G5NesOkDpIlut2T0kC4mN6bqb5PR9y0_XGIPJ6NcB7oTSCOu-b6JSSaI0U_Z5c-yu3qCUKS_TUiKd8gYv6l4Ntfgx_mBTx58v-i2HkN62Q"
+      },
+      "expect": {"junk": false, "stage": null, "error": null, "kind": "pair", "log": null}
+    },
+    {
+      "name": "triage unpaired: a good chatq1 reply",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": null,
+          "pairId": "abcdefghij",
+          "pairKey": true,
+          "pairing": "fixture"
+        },
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNO5gNBFBa2e5wKtsxlUhSO4z7G0rYQ6rFpX2QgAgbwQ3v6IOA_XepV31xEAIwqf-mtSM_Dy02-6ZZaDYHujcjrSRGgqnlzhLcoBkScu76ddf.WZmryJyHbvL2LQcuhtBiXVWvxlNPsf8mX_lIVyzQDZs"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "format",
+        "error": "no phone paired",
+        "kind": null,
+        "log": "reply m1 refused - format: no phone paired"
+      }
+    },
+    {
+      "name": "triage unpaired: a good chatq3c message",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": null,
+          "pairId": "abcdefghij",
+          "pairKey": true,
+          "pairing": "fixture"
+        },
+        "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.3Mbd8TFMy7AnYX3mIW6cFtDrYL-n7A8MSGFTJJzTgZvPt-u4RyEJAGD8-Vg_12WNBNqer9YqigoaVSB6WX7VmXuNEBpJDvnLtjUvnBVPDht6s0i-zvIeEY78a--MXDwa.__0B6j2gPUaseRSEj-SNKFWXrP8PXejzHbRw012YSg0"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "format",
+        "error": "no phone paired",
+        "kind": null,
+        "log": "reply m1 refused - format: no phone paired"
+      }
+    },
+    {
+      "name": "triage unpaired: chatq1, the MAC two characters short: the encoding before the key",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": null,
+          "pairId": "abcdefghij",
+          "pairKey": true,
+          "pairing": "fixture"
+        },
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNO5gNBFBa2e5wKtsxlUhSO4z7G0rYQ6rFpX2QgAgbwQ3v6IOA_XepV31xEAIwqf-mtSM_Dy02-6ZZaDYHujcjrSRGgqnlzhLcoBkScu76ddf.WZmryJyHbvL2LQcuhtBiXVWvxlNPsf8mX_lIVyzQD"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "format",
+        "error": "bad encoding",
+        "kind": null,
+        "log": "reply m1 refused - format: bad encoding"
+      }
+    },
+    {
+      "name": "triage off: a good chatq1 reply",
+      "input": {
+        "rc": {"topic": "triage", "master": null, "pairId": null, "pairKey": false, "pairing": "none"},
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNO5gNBFBa2e5wKtsxlUhSO4z7G0rYQ6rFpX2QgAgbwQ3v6IOA_XepV31xEAIwqf-mtSM_Dy02-6ZZaDYHujcjrSRGgqnlzhLcoBkScu76ddf.WZmryJyHbvL2LQcuhtBiXVWvxlNPsf8mX_lIVyzQDZs"
+      },
+      "expect": {"junk": true, "stage": "format", "error": "no phone paired", "kind": null, "log": null}
+    },
+    {
+      "name": "triage off: the pairing fixture",
+      "input": {
+        "rc": {"topic": "triage", "master": null, "pairId": null, "pairKey": false, "pairing": "none"},
+        "message": "chatq2p.abcdefghij.byiI4hmBr1GLdZeUH-FqXD0pYeJwKccK6zlRXbrSZcEPg6H_IeZsb9-WT317YGtx2eTuLEJ3FvkYaSz8y8bGjpiV0QvzaLIndwBI0X6RBJ29A6u-deenZOwQADK33UpwWybi02o0OV7G5NPyOnb-oyMlffsaISktLhQovyfsmH4k3EnPgWFwg0KCPdcvLmGxRlPIFK56YDb_ofnGQh086PNoo6p3KKLW7HzIZrBSw4M_G5NesOkDpIlut2T0kC4mN6bqb5PR9y0_XGIPJ6NcB7oTSCOu-b6JSSaI0U_Z5c-yu3qCUKS_TUiKd8gYv6l4Ntfgx_mBTx58v-i2HkN62Q"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "pairing",
+        "error": "for no pairing in progress",
+        "kind": null,
+        "log": null
+      }
+    },
+    {
+      "name": "triage short key: a good chatq1 reply",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e",
+          "pairId": "abcdefghij",
+          "pairKey": true,
+          "pairing": "fixture"
+        },
+        "message": "chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNO5gNBFBa2e5wKtsxlUhSO4z7G0rYQ6rFpX2QgAgbwQ3v6IOA_XepV31xEAIwqf-mtSM_Dy02-6ZZaDYHujcjrSRGgqnlzhLcoBkScu76ddf.WZmryJyHbvL2LQcuhtBiXVWvxlNPsf8mX_lIVyzQDZs"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "format",
+        "error": "no phone paired",
+        "kind": null,
+        "log": "reply m1 refused - format: no phone paired"
+      }
+    },
+    {
+      "name": "triage short key: a good chatq3c message",
+      "input": {
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e",
+          "pairId": "abcdefghij",
+          "pairKey": true,
+          "pairing": "fixture"
+        },
+        "message": "chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.3Mbd8TFMy7AnYX3mIW6cFtDrYL-n7A8MSGFTJJzTgZvPt-u4RyEJAGD8-Vg_12WNBNqer9YqigoaVSB6WX7VmXuNEBpJDvnLtjUvnBVPDht6s0i-zvIeEY78a--MXDwa.__0B6j2gPUaseRSEj-SNKFWXrP8PXejzHbRw012YSg0"
+      },
+      "expect": {
+        "junk": true,
+        "stage": "format",
+        "error": "no phone paired",
+        "kind": null,
+        "log": "reply m1 refused - format: no phone paired"
+      }
+    },
+    {
+      "name": "sequence: junk floods, throttles and saves, en-US in Korea",
+      "input": {
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540,
+        "culture": "en-US",
+        "timeSep": ":",
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": null,
+          "pairKey": false,
+          "pairing": "none"
+        },
+        "steps": [
+          {
+            "at": "2026-10-15T00:00:00Z",
+            "lines": [
+              "{\"id\":\"o1\",\"time\":1790000000,\"event\":\"open\",\"topic\":\"triage\"}",
+              "{\"id\":\"k1\",\"time\":1790000001,\"event\":\"keepalive\",\"topic\":\"triage\"}",
+              "{\"id\":\"m1\",\"event\":\"message\",\"message\":\"chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNO5gNBFBa2e5wKtsxlUhSO4z7G0rYQ6rFpX2QgAgbwQ3v6IOA_XepV31xEAIwqf-mtSM_Dy02-6ZZaDYHujcjrSRGgqnlzhLcoBkScu76ddf.WZmryJyHbvM2LQcuhtBiXVWvxlNPsf8mX_lIVyzQDZs\"}",
+              "{\"id\":\"m2\",\"event\":\"message\",\"message\":\"hello\"}",
+              "{\"id\":\"m3\",\"event\":\"message\",\"message\":\"chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd1jup8AecpTNO5gNBFBa2e5wKtsxlUhSO4z7G0rYQ6rFpX2QgAgbwQ3v6IOA_XepV31xEAIwqf-mtSM_Dy02-6ZZaDYHujcjrSRGgqnlzhLcoBkScu76ddf.WZmryJyHbvL2LQcuhtBiXVWvxlNPsf8mX_lIVyzQDZs\"}",
+              "not json",
+              "",
+              "   "
+            ]
+          },
+          {
+            "at": "2026-10-15T00:02:00Z",
+            "lines": [
+              "{\"id\":\"m4\",\"event\":\"message\",\"message\":\"chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNO5gNBFBa2e5wKtsxlUhSO4z7G0rYQ6rFpX2QgAgbwQ3v6IOA_XepV31xEAIwqf-mtSM_Dy02-6ZZaDYHujcjrSRGgqnlzhLcoBkScu76ddf.WZmryJyHbvM2LQcuhtBiXVWvxlNPsf8mX_lIVyzQDZs\"}",
+              "{\"id\":\"m5\",\"event\":\"message\",\"message\":\"\"}",
+              "{\"id\":\"m1\",\"event\":\"message\",\"message\":\"chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNO5gNBFBa2e5wKtsxlUhSO4z7G0rYQ6rFpX2QgAgbwQ3v6IOA_XepV31xEAIwqf-mtSM_Dy02-6ZZaDYHujcjrSRGgqnlzhLcoBkScu76ddf.WZmryJyHbvM2LQcuhtBiXVWvxlNPsf8mX_lIVyzQDZs\"}"
+            ]
+          },
+          {"at": "2026-10-15T00:04:00Z", "lines": []},
+          {
+            "at": "2026-10-15T00:04:59.9999999Z",
+            "lines": [
+              "{\"id\":\"m6\",\"event\":\"message\",\"message\":\"chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNO5gNBFBa2e5wKtsxlUhSO4z7G0rYQ6rFpX2QgAgbwQ3v6IOA_XepV31xEAIwqf-mtSM_Dy02-6ZZaDYHujcjrSRGgqnlzhLcoBkScu76ddf.WZmryJyHbvM2LQcuhtBiXVWvxlNPsf8mX_lIVyzQDZs\"}"
+            ]
+          },
+          {
+            "at": "2026-10-15T00:05:00Z",
+            "lines": [
+              "{\"id\":\"m7\",\"event\":\"message\",\"message\":\"chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNO5gNBFBa2e5wKtsxlUhSO4z7G0rYQ6rFpX2QgAgbwQ3v6IOA_XepV31xEAIwqf-mtSM_Dy02-6ZZaDYHujcjrSRGgqnlzhLcoBkScu76ddf.WZmryJyHbvM2LQcuhtBiXVWvxlNPsf8mX_lIVyzQDZs\"}"
+            ]
+          },
+          {
+            "at": "2026-10-15T00:07:00Z",
+            "lines": ["{\"id\":\"m8\",\"event\":\"message\",\"message\":\"\"}"]
+          },
+          {
+            "at": "2026-10-15T00:07:01Z",
+            "lines": [
+              "{\"id\":\"bad id!\",\"event\":\"message\",\"message\":\"hello\"}",
+              "{\"id\":\"M7\",\"event\":\"message\",\"message\":\"chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNO5gNBFBa2e5wKtsxlUhSO4z7G0rYQ6rFpX2QgAgbwQ3v6IOA_XepV31xEAIwqf-mtSM_Dy02-6ZZaDYHujcjrSRGgqnlzhLcoBkScu76ddf.WZmryJyHbvM2LQcuhtBiXVWvxlNPsf8mX_lIVyzQDZs\"}"
+            ]
+          },
+          {
+            "at": "2026-10-15T00:16:01Z",
+            "lines": ["{\"id\":\"bad id!\",\"event\":\"message\",\"message\":\"hello\"}"]
+          },
+          {
+            "at": "2026-10-15T00:17:01Z",
+            "lines": ["{\"id\":\"bad id!\",\"event\":\"message\",\"message\":\"hello\"}"]
+          },
+          {"at": "2026-10-15T00:18:00Z", "fail": "boom\r\nsecond line\n\nthird"},
+          {"at": "2026-10-15T00:27:59Z", "fail": "boom"},
+          {"at": "2026-10-15T00:28:00Z", "fail": "boom again"},
+          {
+            "at": "2026-10-15T00:29:00Z",
+            "lines": [
+              "{\"id\":\"abc\\n\",\"event\":\"message\",\"message\":\"x\"}",
+              "{\"id\":12345,\"event\":\"message\",\"message\":\"chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNO5gNBFBa2e5wKtsxlUhSO4z7G0rYQ6rFpX2QgAgbwQ3v6IOA_XepV31xEAIwqf-mtSM_Dy02-6ZZaDYHujcjrSRGgqnlzhLcoBkScu76ddf.WZmryJyHbvM2LQcuhtBiXVWvxlNPsf8mX_lIVyzQDZs\"}",
+              "{\"id\":true,\"event\":\"MESSAGE\",\"message\":\"hello\"}",
+              "{\"id\":false,\"event\":\"message\",\"message\":\"hello\"}",
+              "{\"id\":0,\"event\":\"message\",\"message\":\"hello\"}",
+              "{\"id\":[\"ab\"],\"event\":\"message\",\"message\":\"hello\"}",
+              "{\"event\":\"message\",\"message\":\"hello\"}",
+              "{\"id\":{\"x\":1},\"event\":\"message\",\"message\":\"hello\"}",
+              "{\"id\":[\"a\",\"b\"],\"event\":\"message\",\"message\":\"hello\"}",
+              "{\"id\":\"a.b\",\"event\":\"message\",\"message\":\"hello\"}",
+              "{\"id\":\"\",\"event\":\"message\",\"message\":\"hello\"}",
+              "{\"id\":null,\"event\":\"message\",\"message\":\"hello\"}",
+              "{\"id\":-5,\"event\":\"message\",\"message\":\"hello\"}",
+              "{\"id\":1.5,\"event\":\"message\",\"message\":\"hello\"}",
+              "{\"id\":\"abcdefghijabcdefghijabcdefghijabcdefghij\",\"event\":\"message\"}",
+              "{\"id\":\"abcdefghijabcdefghijabcdefghijabcdefghijk\",\"event\":\"message\",\"message\":\"hello\"}",
+              "{\"id\":\"n1\",\"event\":\"message\",\"message\":5}",
+              "{\"id\":\"n2\",\"event\":\"message\",\"message\":true}",
+              "{\"id\":\"n3\",\"event\":\"message\",\"message\":[\"chatq3c.x\",\"y\"]}",
+              "{\"id\":\"n4\",\"event\":\"message\",\"message\":\"chatq2p.abcdefghij.AAAA\"}",
+              "{\"id\":\"n5\",\"event\":\"message\",\"message\":\"chatq3c.zz\"}"
+            ]
+          },
+          {
+            "at": "2026-10-15T00:29:30Z",
+            "lines": [
+              "{\"id\":\"e1\",\"event\":\"MESSAGE\",\"message\":\"hello\"}",
+              "{\"id\":\"e2\",\"event\":\"Message\",\"message\":\"hello\"}",
+              "{\"id\":\"e3\",\"Event\":\"message\",\"message\":\"hello\"}",
+              "{\"id\":\"e4\",\"event\":true,\"message\":\"hello\"}",
+              "{\"id\":\"e5\",\"event\":[],\"message\":\"hello\"}",
+              "{\"id\":\"e6\",\"event\":[\"message\"],\"message\":\"hello\"}",
+              "{\"id\":\"e7\",\"event\":[\"\"],\"message\":\"hello\"}",
+              "{\"id\":\"e8\",\"event\":[null],\"message\":\"hello\"}",
+              "{\"id\":\"e9\",\"event\":[0],\"message\":\"hello\"}",
+              "{\"id\":\"e10\",\"event\":[false],\"message\":\"hello\"}",
+              "{\"id\":\"e11\",\"event\":[true],\"message\":\"hello\"}",
+              "{\"id\":\"e12\",\"event\":[[]],\"message\":\"hello\"}",
+              "{\"id\":\"e13\",\"event\":[\"MESSAGE\"],\"message\":\"hello\"}",
+              "{\"id\":\"e14\",\"event\":null,\"message\":\"hello\"}",
+              "{\"id\":\"e15\",\"event\":false,\"message\":\"hello\"}",
+              "{\"id\":\"e16\",\"event\":0,\"message\":\"hello\"}",
+              "{\"id\":\"e17\",\"event\":1,\"message\":\"hello\"}",
+              "{\"id\":\"e18\",\"event\":{},\"message\":\"hello\"}",
+              "{\"id\":\"e19\",\"event\":{\"a\":1},\"message\":\"hello\"}",
+              "{\"id\":\"e20\",\"event\":\"message \",\"message\":\"hello\"}",
+              "{\"id\":\"e21\",\"event\":\" message\",\"message\":\"hello\"}",
+              "{\"id\":\"e22\",\"event\":[\"message\",\"x\"],\"message\":\"hello\"}",
+              "{\"id\":\"e23\",\"event\":[\"x\"],\"message\":\"hello\"}",
+              "{\"id\":\"e24\",\"message\":\"hello\"}",
+              "{\"id\":\"e25\",\"event\":\"open\",\"message\":\"hello\"}",
+              "\"message\"",
+              "5",
+              "null",
+              "{\"id\":\"e26\",\"event\":\"message\",\"message\":\"hello\"}\r",
+              "  {\"id\":\"e27\",\"event\":\"message\",\"message\":\"hello\"}\t"
+            ]
+          },
+          {"at": "2026-10-15T00:40:00Z", "lines": []},
+          {
+            "at": "2026-10-15T00:45:00Z",
+            "lines": ["{\"id\":\"z1\",\"event\":\"message\",\"message\":\"hello\"}"]
+          }
+        ]
+      },
+      "expect": {
+        "steps": [
+          {
+            "acted": 0,
+            "log": [
+              "reply m1 refused - mac: the MAC does not match",
+              "reply m2 refused - format: not a chatq reply"
+            ],
+            "junk": {
+              "format": {"at": "2026-10-15T00:00:00.0000000Z", "count": 0},
+              "mac": {"at": "2026-10-15T00:00:00.0000000Z", "count": 1}
+            },
+            "polledAt": "2026-10-15T00:00:00.0000000Z",
+            "errAt": null,
+            "badIdAt": null,
+            "savedAt": "2026-10-15T00:00:00.0000000Z",
+            "handled": ["triage|m1", "triage|m2", "triage|m3"],
+            "lastId": "m3",
+            "lastPolledAt": "2026-10-15T00:00:00.0000000Z"
+          },
+          {
+            "acted": 0,
+            "log": [],
+            "junk": {
+              "format": {"at": "2026-10-15T00:00:00.0000000Z", "count": 1},
+              "mac": {"at": "2026-10-15T00:00:00.0000000Z", "count": 2}
+            },
+            "polledAt": "2026-10-15T00:02:00.0000000Z",
+            "errAt": null,
+            "badIdAt": null,
+            "savedAt": "2026-10-15T00:02:00.0000000Z",
+            "handled": ["triage|m1", "triage|m2", "triage|m3", "triage|m4", "triage|m5"],
+            "lastId": "m1",
+            "lastPolledAt": "2026-10-15T00:02:00.0000000Z"
+          },
+          {
+            "acted": 0,
+            "log": [],
+            "junk": {
+              "format": {"at": "2026-10-15T00:00:00.0000000Z", "count": 1},
+              "mac": {"at": "2026-10-15T00:00:00.0000000Z", "count": 2}
+            },
+            "polledAt": "2026-10-15T00:04:00.0000000Z",
+            "errAt": null,
+            "badIdAt": null,
+            "savedAt": "2026-10-15T00:02:00.0000000Z",
+            "handled": ["triage|m1", "triage|m2", "triage|m3", "triage|m4", "triage|m5"],
+            "lastId": "m1",
+            "lastPolledAt": "2026-10-15T00:02:00.0000000Z"
+          },
+          {
+            "acted": 0,
+            "log": [],
+            "junk": {
+              "format": {"at": "2026-10-15T00:00:00.0000000Z", "count": 1},
+              "mac": {"at": "2026-10-15T00:00:00.0000000Z", "count": 3}
+            },
+            "polledAt": "2026-10-15T00:04:59.9999999Z",
+            "errAt": null,
+            "badIdAt": null,
+            "savedAt": "2026-10-15T00:04:59.9999999Z",
+            "handled": ["triage|m1", "triage|m2", "triage|m3", "triage|m4", "triage|m5", "triage|m6"],
+            "lastId": "m6",
+            "lastPolledAt": "2026-10-15T00:04:59.9999999Z"
+          },
+          {
+            "acted": 0,
+            "log": [
+              "reply m7 refused - mac: the MAC does not match (and 3 more at this stage since 09:00)"
+            ],
+            "junk": {
+              "format": {"at": "2026-10-15T00:00:00.0000000Z", "count": 1},
+              "mac": {"at": "2026-10-15T00:05:00.0000000Z", "count": 0}
+            },
+            "polledAt": "2026-10-15T00:05:00.0000000Z",
+            "errAt": null,
+            "badIdAt": null,
+            "savedAt": "2026-10-15T00:05:00.0000000Z",
+            "handled": [
+              "triage|m1",
+              "triage|m2",
+              "triage|m3",
+              "triage|m4",
+              "triage|m5",
+              "triage|m6",
+              "triage|m7"
+            ],
+            "lastId": "m7",
+            "lastPolledAt": "2026-10-15T00:05:00.0000000Z"
+          },
+          {
+            "acted": 0,
+            "log": ["reply m8 refused - format: not a chatq reply (and 1 more at this stage since 09:00)"],
+            "junk": {
+              "format": {"at": "2026-10-15T00:07:00.0000000Z", "count": 0},
+              "mac": {"at": "2026-10-15T00:05:00.0000000Z", "count": 0}
+            },
+            "polledAt": "2026-10-15T00:07:00.0000000Z",
+            "errAt": null,
+            "badIdAt": null,
+            "savedAt": "2026-10-15T00:07:00.0000000Z",
+            "handled": [
+              "triage|m1",
+              "triage|m2",
+              "triage|m3",
+              "triage|m4",
+              "triage|m5",
+              "triage|m6",
+              "triage|m7",
+              "triage|m8"
+            ],
+            "lastId": "m8",
+            "lastPolledAt": "2026-10-15T00:07:00.0000000Z"
+          },
+          {
+            "acted": 0,
+            "log": ["a message whose id is not ntfy's shape - skipped"],
+            "junk": {
+              "format": {"at": "2026-10-15T00:07:00.0000000Z", "count": 0},
+              "mac": {"at": "2026-10-15T00:05:00.0000000Z", "count": 0}
+            },
+            "polledAt": "2026-10-15T00:07:01.0000000Z",
+            "errAt": null,
+            "badIdAt": "2026-10-15T00:07:01.0000000Z",
+            "savedAt": "2026-10-15T00:07:01.0000000Z",
+            "handled": [
+              "triage|m1",
+              "triage|m2",
+              "triage|m3",
+              "triage|m4",
+              "triage|m5",
+              "triage|m6",
+              "triage|m7",
+              "triage|m8"
+            ],
+            "lastId": "M7",
+            "lastPolledAt": "2026-10-15T00:07:01.0000000Z"
+          },
+          {
+            "acted": 0,
+            "log": [],
+            "junk": {
+              "format": {"at": "2026-10-15T00:07:00.0000000Z", "count": 0},
+              "mac": {"at": "2026-10-15T00:05:00.0000000Z", "count": 0}
+            },
+            "polledAt": "2026-10-15T00:16:01.0000000Z",
+            "errAt": null,
+            "badIdAt": "2026-10-15T00:07:01.0000000Z",
+            "savedAt": "2026-10-15T00:16:01.0000000Z",
+            "handled": [
+              "triage|m1",
+              "triage|m2",
+              "triage|m3",
+              "triage|m4",
+              "triage|m5",
+              "triage|m6",
+              "triage|m7",
+              "triage|m8"
+            ],
+            "lastId": "M7",
+            "lastPolledAt": "2026-10-15T00:16:01.0000000Z"
+          },
+          {
+            "acted": 0,
+            "log": ["a message whose id is not ntfy's shape - skipped"],
+            "junk": {
+              "format": {"at": "2026-10-15T00:07:00.0000000Z", "count": 0},
+              "mac": {"at": "2026-10-15T00:05:00.0000000Z", "count": 0}
+            },
+            "polledAt": "2026-10-15T00:17:01.0000000Z",
+            "errAt": null,
+            "badIdAt": "2026-10-15T00:17:01.0000000Z",
+            "savedAt": "2026-10-15T00:16:01.0000000Z",
+            "handled": [
+              "triage|m1",
+              "triage|m2",
+              "triage|m3",
+              "triage|m4",
+              "triage|m5",
+              "triage|m6",
+              "triage|m7",
+              "triage|m8"
+            ],
+            "lastId": "M7",
+            "lastPolledAt": "2026-10-15T00:16:01.0000000Z"
+          },
+          {
+            "acted": 0,
+            "log": ["poll failed: boom second line third"],
+            "junk": {
+              "format": {"at": "2026-10-15T00:07:00.0000000Z", "count": 0},
+              "mac": {"at": "2026-10-15T00:05:00.0000000Z", "count": 0}
+            },
+            "polledAt": "2026-10-15T00:18:00.0000000Z",
+            "errAt": "2026-10-15T00:18:00.0000000Z",
+            "badIdAt": "2026-10-15T00:17:01.0000000Z",
+            "savedAt": "2026-10-15T00:16:01.0000000Z",
+            "handled": [
+              "triage|m1",
+              "triage|m2",
+              "triage|m3",
+              "triage|m4",
+              "triage|m5",
+              "triage|m6",
+              "triage|m7",
+              "triage|m8"
+            ],
+            "lastId": "M7",
+            "lastPolledAt": "2026-10-15T00:16:01.0000000Z"
+          },
+          {
+            "acted": 0,
+            "log": [],
+            "junk": {
+              "format": {"at": "2026-10-15T00:07:00.0000000Z", "count": 0},
+              "mac": {"at": "2026-10-15T00:05:00.0000000Z", "count": 0}
+            },
+            "polledAt": "2026-10-15T00:27:59.0000000Z",
+            "errAt": "2026-10-15T00:18:00.0000000Z",
+            "badIdAt": "2026-10-15T00:17:01.0000000Z",
+            "savedAt": "2026-10-15T00:16:01.0000000Z",
+            "handled": [
+              "triage|m1",
+              "triage|m2",
+              "triage|m3",
+              "triage|m4",
+              "triage|m5",
+              "triage|m6",
+              "triage|m7",
+              "triage|m8"
+            ],
+            "lastId": "M7",
+            "lastPolledAt": "2026-10-15T00:16:01.0000000Z"
+          },
+          {
+            "acted": 0,
+            "log": ["poll failed: boom again"],
+            "junk": {
+              "format": {"at": "2026-10-15T00:07:00.0000000Z", "count": 0},
+              "mac": {"at": "2026-10-15T00:05:00.0000000Z", "count": 0}
+            },
+            "polledAt": "2026-10-15T00:28:00.0000000Z",
+            "errAt": "2026-10-15T00:28:00.0000000Z",
+            "badIdAt": "2026-10-15T00:17:01.0000000Z",
+            "savedAt": "2026-10-15T00:16:01.0000000Z",
+            "handled": [
+              "triage|m1",
+              "triage|m2",
+              "triage|m3",
+              "triage|m4",
+              "triage|m5",
+              "triage|m6",
+              "triage|m7",
+              "triage|m8"
+            ],
+            "lastId": "M7",
+            "lastPolledAt": "2026-10-15T00:16:01.0000000Z"
+          },
+          {
+            "acted": 0,
+            "log": [
+              "reply abc  refused - format: not a chatq reply",
+              "reply 12345 refused - mac: the MAC does not match",
+              "a message whose id is not ntfy's shape - skipped",
+              "pairing n4 refused - for no pairing in progress"
+            ],
+            "junk": {
+              "format": {"at": "2026-10-15T00:29:00.0000000Z", "count": 9},
+              "mac": {"at": "2026-10-15T00:29:00.0000000Z", "count": 0},
+              "pairing": {"at": "2026-10-15T00:29:00.0000000Z", "count": 0}
+            },
+            "polledAt": "2026-10-15T00:29:00.0000000Z",
+            "errAt": "2026-10-15T00:28:00.0000000Z",
+            "badIdAt": "2026-10-15T00:29:00.0000000Z",
+            "savedAt": "2026-10-15T00:29:00.0000000Z",
+            "handled": [
+              "triage|0",
+              "triage|12345",
+              "triage|False",
+              "triage|True",
+              "triage|ab",
+              "triage|abc\n",
+              "triage|abcdefghijabcdefghijabcdefghijabcdefghij",
+              "triage|m1",
+              "triage|m2",
+              "triage|m3",
+              "triage|m4",
+              "triage|m5",
+              "triage|m6",
+              "triage|m7",
+              "triage|m8",
+              "triage|n1",
+              "triage|n2",
+              "triage|n3",
+              "triage|n4",
+              "triage|n5"
+            ],
+            "lastId": "n5",
+            "lastPolledAt": "2026-10-15T00:29:00.0000000Z"
+          },
+          {
+            "acted": 0,
+            "log": [],
+            "junk": {
+              "format": {"at": "2026-10-15T00:29:00.0000000Z", "count": 24},
+              "mac": {"at": "2026-10-15T00:29:00.0000000Z", "count": 0},
+              "pairing": {"at": "2026-10-15T00:29:00.0000000Z", "count": 0}
+            },
+            "polledAt": "2026-10-15T00:29:30.0000000Z",
+            "errAt": "2026-10-15T00:28:00.0000000Z",
+            "badIdAt": "2026-10-15T00:29:00.0000000Z",
+            "savedAt": "2026-10-15T00:29:30.0000000Z",
+            "handled": [
+              "triage|0",
+              "triage|12345",
+              "triage|False",
+              "triage|True",
+              "triage|ab",
+              "triage|abc\n",
+              "triage|abcdefghijabcdefghijabcdefghijabcdefghij",
+              "triage|e1",
+              "triage|e10",
+              "triage|e11",
+              "triage|e12",
+              "triage|e13",
+              "triage|e2",
+              "triage|e26",
+              "triage|e27",
+              "triage|e3",
+              "triage|e4",
+              "triage|e5",
+              "triage|e6",
+              "triage|e7",
+              "triage|e8",
+              "triage|e9",
+              "triage|m1",
+              "triage|m2",
+              "triage|m3",
+              "triage|m4",
+              "triage|m5",
+              "triage|m6",
+              "triage|m7",
+              "triage|m8",
+              "triage|n1",
+              "triage|n2",
+              "triage|n3",
+              "triage|n4",
+              "triage|n5"
+            ],
+            "lastId": "e27",
+            "lastPolledAt": "2026-10-15T00:29:30.0000000Z"
+          },
+          {
+            "acted": 0,
+            "log": [],
+            "junk": {
+              "format": {"at": "2026-10-15T00:29:00.0000000Z", "count": 24},
+              "mac": {"at": "2026-10-15T00:29:00.0000000Z", "count": 0},
+              "pairing": {"at": "2026-10-15T00:29:00.0000000Z", "count": 0}
+            },
+            "polledAt": "2026-10-15T00:40:00.0000000Z",
+            "errAt": "2026-10-15T00:28:00.0000000Z",
+            "badIdAt": "2026-10-15T00:29:00.0000000Z",
+            "savedAt": "2026-10-15T00:40:00.0000000Z",
+            "handled": [
+              "triage|0",
+              "triage|12345",
+              "triage|False",
+              "triage|True",
+              "triage|ab",
+              "triage|abc\n",
+              "triage|abcdefghijabcdefghijabcdefghijabcdefghij",
+              "triage|e1",
+              "triage|e10",
+              "triage|e11",
+              "triage|e12",
+              "triage|e13",
+              "triage|e2",
+              "triage|e26",
+              "triage|e27",
+              "triage|e3",
+              "triage|e4",
+              "triage|e5",
+              "triage|e6",
+              "triage|e7",
+              "triage|e8",
+              "triage|e9",
+              "triage|m1",
+              "triage|m2",
+              "triage|m3",
+              "triage|m4",
+              "triage|m5",
+              "triage|m6",
+              "triage|m7",
+              "triage|m8",
+              "triage|n1",
+              "triage|n2",
+              "triage|n3",
+              "triage|n4",
+              "triage|n5"
+            ],
+            "lastId": "e27",
+            "lastPolledAt": "2026-10-15T00:40:00.0000000Z"
+          },
+          {
+            "acted": 0,
+            "log": ["reply z1 refused - format: not a chatq reply (and 24 more at this stage since 09:29)"],
+            "junk": {
+              "format": {"at": "2026-10-15T00:45:00.0000000Z", "count": 0},
+              "mac": {"at": "2026-10-15T00:29:00.0000000Z", "count": 0},
+              "pairing": {"at": "2026-10-15T00:29:00.0000000Z", "count": 0}
+            },
+            "polledAt": "2026-10-15T00:45:00.0000000Z",
+            "errAt": "2026-10-15T00:28:00.0000000Z",
+            "badIdAt": "2026-10-15T00:29:00.0000000Z",
+            "savedAt": "2026-10-15T00:45:00.0000000Z",
+            "handled": [
+              "triage|0",
+              "triage|12345",
+              "triage|False",
+              "triage|True",
+              "triage|ab",
+              "triage|abc\n",
+              "triage|abcdefghijabcdefghijabcdefghijabcdefghij",
+              "triage|e1",
+              "triage|e10",
+              "triage|e11",
+              "triage|e12",
+              "triage|e13",
+              "triage|e2",
+              "triage|e26",
+              "triage|e27",
+              "triage|e3",
+              "triage|e4",
+              "triage|e5",
+              "triage|e6",
+              "triage|e7",
+              "triage|e8",
+              "triage|e9",
+              "triage|m1",
+              "triage|m2",
+              "triage|m3",
+              "triage|m4",
+              "triage|m5",
+              "triage|m6",
+              "triage|m7",
+              "triage|m8",
+              "triage|n1",
+              "triage|n2",
+              "triage|n3",
+              "triage|n4",
+              "triage|n5",
+              "triage|z1"
+            ],
+            "lastId": "z1",
+            "lastPolledAt": "2026-10-15T00:45:00.0000000Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "sequence: pairing junk, fi-FI in India",
+      "input": {
+        "zone": "India Standard Time",
+        "utcOffsetMinutes": 330,
+        "culture": "fi-FI",
+        "timeSep": ".",
+        "rc": {
+          "topic": "triage",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "pairId": "abcdefghij",
+          "pairKey": true,
+          "pairing": "fixture"
+        },
+        "steps": [
+          {
+            "at": "2026-10-15T03:00:00Z",
+            "lines": [
+              "{\"id\":\"p1\",\"event\":\"message\",\"message\":\"chatq2p.abcdefghij\"}",
+              "{\"id\":\"p2\",\"event\":\"message\",\"message\":\"chatq2p.bcdefghijk.byiI4hmBr1GLdZeUH-FqXD0pYeJwKccK6zlRXbrSZcEPg6H_IeZsb9-WT317YGtx2eTuLEJ3FvkYaSz8y8bGjpiV0QvzaLIndwBI0X6RBJ29A6u-deenZOwQADK33UpwWybi02o0OV7G5NPyOnb-oyMlffsaISktLhQovyfsmH4k3EnPgWFwg0KCPdcvLmGxRlPIFK56YDb_ofnGQh086PNoo6p3KKLW7HzIZrBSw4M_G5NesOkDpIlut2T0kC4mN6bqb5PR9y0_XGIPJ6NcB7oTSCOu-b6JSSaI0U_Z5c-yu3qCUKS_TUiKd8gYv6l4Ntfgx_mBTx58v-i2HkN62Q\"}",
+              "{\"id\":\"p3\",\"event\":\"message\",\"message\":\"chatq2p.abcdefghij.AAAA\"}",
+              "{\"id\":\"c1\",\"event\":\"message\",\"message\":\"chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.3Mbd8TFMy7AnYX3mIW6cFtDrYL-n7A8MSGFTJJzTgZvPt-u4RyEJAGD8-Vg_12WNBNqer9YqigoaVSB6WX7VmXuNEBpJDvnLtjUvnBVPDht6s0i-zvIeEY78a--MXDwa.__0B6j2gPUbseRSEj-SNKFWXrP8PXejzHbRw012YSg0\"}",
+              "{\"id\":\"r1\",\"event\":\"message\",\"message\":\"chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.Gn7ssHybANJNb0D_t-ETAHexi_99rebF5dwE71ig2TOK21k_R7Kb-Q9q2fQQAlUl5eaSk9Bec6iaVCiLQdpM6Mq8dQmnghbUJnCrSImSzRTfXaCs4WIs4ZUjdj4S-TQi.jK-yAMjapNk1VLKn5HTYnpwsvxjVHEiuVg1MRnLOzyk\"}"
+            ]
+          },
+          {
+            "at": "2026-10-15T03:06:00Z",
+            "lines": [
+              "{\"id\":\"p4\",\"event\":\"message\",\"message\":\"chatq2p.abcdefghij\\n.byiI4hmBr1GLdZeUH-FqXD0pYeJwKccK6zlRXbrSZcEPg6H_IeZsb9-WT317YGtx2eTuLEJ3FvkYaSz8y8bGjpiV0QvzaLIndwBI0X6RBJ29A6u-deenZOwQADK33UpwWybi02o0OV7G5NPyOnb-oyMlffsaISktLhQovyfsmH4k3EnPgWFwg0KCPdcvLmGxRlPIFK56YDb_ofnGQh086PNoo6p3KKLW7HzIZrBSw4M_G5NesOkDpIlut2T0kC4mN6bqb5PR9y0_XGIPJ6NcB7oTSCOu-b6JSSaI0U_Z5c-yu3qCUKS_TUiKd8gYv6l4Ntfgx_mBTx58v-i2HkN62Q\"}",
+              "{\"id\":\"r2\",\"event\":\"message\",\"message\":\"chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNO5gNBFBa2e5wKtsxlUhSO4z7G0rYQ6rFpX2QgAgbwQ3v6IOA_XepV31xEAIwqf-mtSM_Dy02-6ZZaDYHujcjrSRGgqnlzhLcoBkScu76ddf.WZmryJyHbvM2LQcuhtBiXVWvxlNPsf8mX_lIVyzQDZs\"}"
+            ]
+          },
+          {
+            "at": "2026-10-15T03:06:30Z",
+            "lines": [
+              "{\"id\":\"p5\",\"event\":\"message\",\"message\":\"chatq2p.abcdefghij.AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB\"}",
+              "{\"id\":\"p6\",\"event\":\"message\",\"message\":\"chatq2p.abcdefghij.AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE\"}"
+            ]
+          },
+          {
+            "at": "2026-10-15T03:12:00Z",
+            "lines": ["{\"id\":\"p7\",\"event\":\"message\",\"message\":\"chatq2p.x\"}"]
+          }
+        ]
+      },
+      "expect": {
+        "steps": [
+          {
+            "acted": 0,
+            "log": [
+              "pairing p1 refused - not a pairing message",
+              "reply c1 refused - mac: the MAC does not match"
+            ],
+            "junk": {
+              "mac": {"at": "2026-10-15T03:00:00.0000000Z", "count": 1},
+              "pairing": {"at": "2026-10-15T03:00:00.0000000Z", "count": 2}
+            },
+            "polledAt": "2026-10-15T03:00:00.0000000Z",
+            "errAt": null,
+            "badIdAt": null,
+            "savedAt": "2026-10-15T03:00:00.0000000Z",
+            "handled": ["triage|c1", "triage|p1", "triage|p2", "triage|p3", "triage|r1"],
+            "lastId": "r1",
+            "lastPolledAt": "2026-10-15T03:00:00.0000000Z"
+          },
+          {
+            "acted": 0,
+            "log": [
+              "pairing p4 refused - for no pairing in progress (and 2 more at this stage since 08.30)",
+              "reply r2 refused - mac: the MAC does not match (and 1 more at this stage since 08.30)"
+            ],
+            "junk": {
+              "mac": {"at": "2026-10-15T03:06:00.0000000Z", "count": 0},
+              "pairing": {"at": "2026-10-15T03:06:00.0000000Z", "count": 0}
+            },
+            "polledAt": "2026-10-15T03:06:00.0000000Z",
+            "errAt": null,
+            "badIdAt": null,
+            "savedAt": "2026-10-15T03:06:00.0000000Z",
+            "handled": [
+              "triage|c1",
+              "triage|p1",
+              "triage|p2",
+              "triage|p3",
+              "triage|p4",
+              "triage|r1",
+              "triage|r2"
+            ],
+            "lastId": "r2",
+            "lastPolledAt": "2026-10-15T03:06:00.0000000Z"
+          },
+          {
+            "acted": 0,
+            "log": [],
+            "junk": {
+              "mac": {"at": "2026-10-15T03:06:00.0000000Z", "count": 0},
+              "pairing": {"at": "2026-10-15T03:06:00.0000000Z", "count": 2}
+            },
+            "polledAt": "2026-10-15T03:06:30.0000000Z",
+            "errAt": null,
+            "badIdAt": null,
+            "savedAt": "2026-10-15T03:06:30.0000000Z",
+            "handled": [
+              "triage|c1",
+              "triage|p1",
+              "triage|p2",
+              "triage|p3",
+              "triage|p4",
+              "triage|p5",
+              "triage|p6",
+              "triage|r1",
+              "triage|r2"
+            ],
+            "lastId": "p6",
+            "lastPolledAt": "2026-10-15T03:06:30.0000000Z"
+          },
+          {
+            "acted": 0,
+            "log": ["pairing p7 refused - not a pairing message (and 2 more at this stage since 08.36)"],
+            "junk": {
+              "mac": {"at": "2026-10-15T03:06:00.0000000Z", "count": 0},
+              "pairing": {"at": "2026-10-15T03:12:00.0000000Z", "count": 0}
+            },
+            "polledAt": "2026-10-15T03:12:00.0000000Z",
+            "errAt": null,
+            "badIdAt": null,
+            "savedAt": "2026-10-15T03:12:00.0000000Z",
+            "handled": [
+              "triage|c1",
+              "triage|p1",
+              "triage|p2",
+              "triage|p3",
+              "triage|p4",
+              "triage|p5",
+              "triage|p6",
+              "triage|p7",
+              "triage|r1",
+              "triage|r2"
+            ],
+            "lastId": "p7",
+            "lastPolledAt": "2026-10-15T03:12:00.0000000Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "sequence: no key, a pairing key that does not open, ko-KR at UTC+0 over midnight",
+      "input": {
+        "zone": "Greenwich Standard Time",
+        "utcOffsetMinutes": 0,
+        "culture": "ko-KR",
+        "timeSep": ":",
+        "rc": {
+          "topic": "triage",
+          "master": null,
+          "pairId": "abcdefghij",
+          "pairKey": false,
+          "pairing": "unreadable"
+        },
+        "steps": [
+          {
+            "at": "2026-10-15T23:58:00Z",
+            "lines": [
+              "{\"id\":\"q1\",\"event\":\"message\",\"message\":\"chatq2p.abcdefghij.byiI4hmBr1GLdZeUH-FqXD0pYeJwKccK6zlRXbrSZcEPg6H_IeZsb9-WT317YGtx2eTuLEJ3FvkYaSz8y8bGjpiV0QvzaLIndwBI0X6RBJ29A6u-deenZOwQADK33UpwWybi02o0OV7G5NPyOnb-oyMlffsaISktLhQovyfsmH4k3EnPgWFwg0KCPdcvLmGxRlPIFK56YDb_ofnGQh086PNoo6p3KKLW7HzIZrBSw4M_G5NesOkDpIlut2T0kC4mN6bqb5PR9y0_XGIPJ6NcB7oTSCOu-b6JSSaI0U_Z5c-yu3qCUKS_TUiKd8gYv6l4Ntfgx_mBTx58v-i2HkN62Q\"}",
+              "{\"id\":\"q2\",\"event\":\"message\",\"message\":\"chatq2p.x\"}",
+              "{\"id\":\"q3\",\"event\":\"message\",\"message\":\"chatq1.abcdefghij.EBESExQVFhcYGRobHB0eHw.xO-98YQ9Jd0jup8AecpTNO5gNBFBa2e5wKtsxlUhSO4z7G0rYQ6rFpX2QgAgbwQ3v6IOA_XepV31xEAIwqf-mtSM_Dy02-6ZZaDYHujcjrSRGgqnlzhLcoBkScu76ddf.WZmryJyHbvL2LQcuhtBiXVWvxlNPsf8mX_lIVyzQDZs\"}",
+              "{\"id\":\"q4\",\"event\":\"message\",\"message\":\"chatq3c.klmnopqrst.EBESExQVFhcYGRobHB0eHw.3Mbd8TFMy7AnYX3mIW6cFtDrYL-n7A8MSGFTJJzTgZvPt-u4RyEJAGD8-Vg_12WNBNqer9YqigoaVSB6WX7VmXuNEBpJDvnLtjUvnBVPDht6s0i-zvIeEY78a--MXDwa.__0B6j2gPUaseRSEj-SNKFWXrP8PXejzHbRw012YSg0\"}"
+            ]
+          },
+          {
+            "at": "2026-10-16T00:03:00Z",
+            "lines": [
+              "{\"id\":\"q5\",\"event\":\"message\",\"message\":\"chatq2p.abcdefghij.byiI4hmBr1GLdZeUH-FqXD0pYeJwKccK6zlRXbrSZcEPg6H_IeZsb9-WT317YGtx2eTuLEJ3FvkYaSz8y8bGjpiV0QvzaLIndwBI0X6RBJ29A6u-deenZOwQADK33UpwWybi02o0OV7G5NPyOnb-oyMlffsaISktLhQovyfsmH4k3EnPgWFwg0KCPdcvLmGxRlPIFK56YDb_ofnGQh086PNoo6p3KKLW7HzIZrBSw4M_G5NesOkDpIlut2T0kC4mN6bqb5PR9y0_XGIPJ6NcB7oTSCOu-b6JSSaI0U_Z5c-yu3qCUKS_TUiKd8gYv6l4Ntfgx_mBTx58v-i2HkN62Q\"}",
+              "{\"id\":\"q6\",\"event\":\"message\",\"message\":\"hello\"}"
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "steps": [
+          {
+            "acted": 0,
+            "log": [
+              "pairing q1 refused - the pairing key cannot be read here",
+              "reply q3 refused - format: no phone paired"
+            ],
+            "junk": {
+              "format": {"at": "2026-10-15T23:58:00.0000000Z", "count": 1},
+              "pairing": {"at": "2026-10-15T23:58:00.0000000Z", "count": 1}
+            },
+            "polledAt": "2026-10-15T23:58:00.0000000Z",
+            "errAt": null,
+            "badIdAt": null,
+            "savedAt": "2026-10-15T23:58:00.0000000Z",
+            "handled": ["triage|q1", "triage|q2", "triage|q3", "triage|q4"],
+            "lastId": "q4",
+            "lastPolledAt": "2026-10-15T23:58:00.0000000Z"
+          },
+          {
+            "acted": 0,
+            "log": [
+              "pairing q5 refused - the pairing key cannot be read here (and 1 more at this stage since 23:58)",
+              "reply q6 refused - format: not a chatq reply (and 1 more at this stage since 23:58)"
+            ],
+            "junk": {
+              "format": {"at": "2026-10-16T00:03:00.0000000Z", "count": 0},
+              "pairing": {"at": "2026-10-16T00:03:00.0000000Z", "count": 0}
+            },
+            "polledAt": "2026-10-16T00:03:00.0000000Z",
+            "errAt": null,
+            "badIdAt": null,
+            "savedAt": "2026-10-16T00:03:00.0000000Z",
+            "handled": ["triage|q1", "triage|q2", "triage|q3", "triage|q4", "triage|q5", "triage|q6"],
+            "lastId": "q6",
+            "lastPolledAt": "2026-10-16T00:03:00.0000000Z"
+          }
+        ]
+      }
+    }
+  ]
+}

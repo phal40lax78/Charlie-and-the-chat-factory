@@ -1,0 +1,503 @@
+{
+  "about": "Get-ChatqDueTime (src/watcher.ps1): the latest of the lane's limit plus 60 s, its next overload check, notBefore, deferUntil and retryAt that is still ahead, or null for now; and Update-ChatqBlock's skip rule: a lane rescanned at most every 10 minutes unless forced. Lanes are case-blind hashtable keys. A job is read from data/queue, so a zoneless stamp is UTC to 5.1 and the zone's wall clock to pwsh 7.",
+  "cases": [
+    {
+      "name": "nothing to wait for",
+      "input": {
+        "fn": "due",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "claude"}
+      },
+      "expect": {"due": null}
+    },
+    {
+      "name": "a limit ahead: a minute past its reset",
+      "input": {
+        "fn": "due",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "claude"},
+        "blocked": {"lane": "claude", "until": "2026-10-15T11:00:00.0000000Z"}
+      },
+      "expect": {"due": "2026-10-15T11:01:00.0000000Z"}
+    },
+    {
+      "name": "a limit a second ahead",
+      "input": {
+        "fn": "due",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "claude"},
+        "blocked": {"lane": "claude", "until": "2026-10-15T09:00:01.0000000Z"}
+      },
+      "expect": {"due": "2026-10-15T09:01:01.0000000Z"}
+    },
+    {
+      "name": "a limit ending now",
+      "input": {
+        "fn": "due",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "claude"},
+        "blocked": {"lane": "claude", "until": "2026-10-15T09:00:00.0000000Z"}
+      },
+      "expect": {"due": null}
+    },
+    {
+      "name": "a limit just over",
+      "input": {
+        "fn": "due",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "claude"},
+        "blocked": {"lane": "claude", "until": "2026-10-15T08:59:59.0000000Z"}
+      },
+      "expect": {"due": null}
+    },
+    {
+      "name": "another lane's limit",
+      "input": {
+        "fn": "due",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "claude"},
+        "blocked": {"lane": "codex", "until": "2026-10-15T11:00:00.0000000Z"}
+      },
+      "expect": {"due": null}
+    },
+    {
+      "name": "a lane key in other letters",
+      "input": {
+        "fn": "due",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "claude"},
+        "blocked": {"lane": "Claude", "until": "2026-10-15T11:00:00.0000000Z"}
+      },
+      "expect": {"due": "2026-10-15T11:01:00.0000000Z"}
+    },
+    {
+      "name": "a home is a lane of its own",
+      "input": {
+        "fn": "due",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "claude", "home": "work"},
+        "blocked": {"lane": "claude|work", "until": "2026-10-15T11:00:00.0000000Z"}
+      },
+      "expect": {"due": "2026-10-15T11:01:00.0000000Z"}
+    },
+    {
+      "name": "no home is not that lane",
+      "input": {
+        "fn": "due",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "claude"},
+        "blocked": {"lane": "claude|work", "until": "2026-10-15T11:00:00.0000000Z"}
+      },
+      "expect": {"due": null}
+    },
+    {
+      "name": "a codex job on its own lane",
+      "input": {
+        "fn": "due",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "codex"},
+        "blocked": {"lane": "codex", "until": "2026-10-15T10:30:00.0000000Z"}
+      },
+      "expect": {"due": "2026-10-15T10:31:00.0000000Z"}
+    },
+    {
+      "name": "an overload check ahead",
+      "input": {
+        "fn": "due",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "claude"},
+        "outage": {"lane": "claude", "next": "2026-10-15T09:05:00.0000000Z"}
+      },
+      "expect": {"due": "2026-10-15T09:05:00.0000000Z"}
+    },
+    {
+      "name": "an overload check due now",
+      "input": {
+        "fn": "due",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "claude"},
+        "outage": {"lane": "claude", "next": "2026-10-15T09:00:00.0000000Z"}
+      },
+      "expect": {"due": null}
+    },
+    {
+      "name": "notBefore ahead",
+      "input": {
+        "fn": "due",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "claude", "notBefore": "2026-10-15T12:00:00.0000000Z"}
+      },
+      "expect": {"due": "2026-10-15T12:00:00.0000000Z"}
+    },
+    {
+      "name": "notBefore passed",
+      "input": {
+        "fn": "due",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "claude", "notBefore": "2026-10-15T08:00:00.0000000Z"}
+      },
+      "expect": {"due": null}
+    },
+    {
+      "name": "notBefore a tick ahead",
+      "input": {
+        "fn": "due",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "claude", "notBefore": "2026-10-15T09:00:00.0000001Z"}
+      },
+      "expect": {"due": "2026-10-15T09:00:00.0000001Z"}
+    },
+    {
+      "name": "deferUntil ahead, with an offset",
+      "input": {
+        "fn": "due",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "claude", "deferUntil": "2026-10-15T20:30:00.0000000+09:00"}
+      },
+      "expect": {"due": "2026-10-15T11:30:00.0000000Z"}
+    },
+    {
+      "name": "retryAt ahead",
+      "input": {
+        "fn": "due",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "claude", "retryAt": "2026-10-15T09:10:00.0000000Z"}
+      },
+      "expect": {"due": "2026-10-15T09:10:00.0000000Z"}
+    },
+    {
+      "name": "the latest of them all",
+      "input": {
+        "fn": "due",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {
+          "id": "j1",
+          "provider": "claude",
+          "notBefore": "2026-10-15T11:00:00.0000000Z",
+          "deferUntil": "2026-10-15T09:10:00.0000000Z",
+          "retryAt": "2026-10-15T10:30:00.0000000Z"
+        },
+        "blocked": {"lane": "claude", "until": "2026-10-15T10:00:00.0000000Z"},
+        "outage": {"lane": "claude", "next": "2026-10-15T09:30:00.0000000Z"}
+      },
+      "expect": {"due": "2026-10-15T11:00:00.0000000Z"}
+    },
+    {
+      "name": "a limit beats a notBefore at its reset",
+      "input": {
+        "fn": "due",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "claude", "notBefore": "2026-10-15T10:00:00.0000000Z"},
+        "blocked": {"lane": "claude", "until": "2026-10-15T10:00:00.0000000Z"}
+      },
+      "expect": {"due": "2026-10-15T10:01:00.0000000Z"}
+    },
+    {
+      "name": "only what is still ahead counts",
+      "input": {
+        "fn": "due",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {
+          "id": "j1",
+          "provider": "claude",
+          "notBefore": "2026-10-15T08:00:00.0000000Z",
+          "retryAt": "2026-10-15T09:20:00.0000000Z"
+        },
+        "blocked": {"lane": "claude", "until": "2026-10-15T08:30:00.0000000Z"}
+      },
+      "expect": {"due": "2026-10-15T09:20:00.0000000Z"}
+    },
+    {
+      "name": "notBefore no time at all",
+      "input": {
+        "fn": "due",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "claude", "notBefore": "tomorrow"}
+      },
+      "expect": {"due": null}
+    },
+    {
+      "name": "notBefore empty",
+      "input": {
+        "fn": "due",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "claude", "notBefore": ""}
+      },
+      "expect": {"due": null}
+    },
+    {
+      "name": "a zoneless notBefore in UTC",
+      "input": {
+        "fn": "due",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "claude", "notBefore": "2026-10-15T10:00:00"}
+      },
+      "expect": {"due": "2026-10-15T10:00:00.0000000Z"}
+    },
+    {
+      "name": "a zoneless notBefore east of UTC",
+      "input": {
+        "fn": "due",
+        "zone": "India Standard Time",
+        "utcOffsetMinutes": 330,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "claude", "notBefore": "2026-10-15T10:00:00"}
+      },
+      "expectByEdition": {"Desktop": {"due": "2026-10-15T10:00:00.0000000Z"}, "Core": {"due": null}}
+    },
+    {
+      "name": "a zoneless notBefore west of UTC",
+      "input": {
+        "fn": "due",
+        "zone": "SA Pacific Standard Time",
+        "utcOffsetMinutes": -300,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "claude", "notBefore": "2026-10-15T08:00:00"}
+      },
+      "expectByEdition": {"Desktop": {"due": null}, "Core": {"due": "2026-10-15T13:00:00.0000000Z"}}
+    },
+    {
+      "name": "stamps with a zone, east of UTC",
+      "input": {
+        "fn": "due",
+        "zone": "India Standard Time",
+        "utcOffsetMinutes": 330,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {
+          "id": "j1",
+          "provider": "claude",
+          "notBefore": "2026-10-15T12:00:00.0000000Z",
+          "retryAt": "2026-10-15T16:00:00.0000000+05:30"
+        },
+        "blocked": {"lane": "claude", "until": "2026-10-15T10:00:00.0000000Z"}
+      },
+      "expect": {"due": "2026-10-15T12:00:00.0000000Z"}
+    },
+    {
+      "name": "a limit west of UTC",
+      "input": {
+        "fn": "due",
+        "zone": "SA Pacific Standard Time",
+        "utcOffsetMinutes": -300,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "claude"},
+        "blocked": {"lane": "claude", "until": "2026-10-15T09:30:00.0000000Z"}
+      },
+      "expect": {"due": "2026-10-15T09:31:00.0000000Z"}
+    },
+    {
+      "name": "rescan: never scanned",
+      "input": {
+        "fn": "rescan",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "claude"},
+        "force": false
+      },
+      "expect": {"scanned": true, "scannedAt": "2026-10-15T09:00:00.0000000Z"}
+    },
+    {
+      "name": "rescan: scanned 9:59 ago",
+      "input": {
+        "fn": "rescan",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "claude"},
+        "scanned": {"lane": "claude", "at": "2026-10-15T08:50:01.0000000Z"},
+        "force": false
+      },
+      "expect": {"scanned": false, "scannedAt": "2026-10-15T08:50:01.0000000Z"}
+    },
+    {
+      "name": "rescan: scanned 10 minutes ago",
+      "input": {
+        "fn": "rescan",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "claude"},
+        "scanned": {"lane": "claude", "at": "2026-10-15T08:50:00.0000000Z"},
+        "force": false
+      },
+      "expect": {"scanned": true, "scannedAt": "2026-10-15T09:00:00.0000000Z"}
+    },
+    {
+      "name": "rescan: scanned a tick under 10 minutes ago",
+      "input": {
+        "fn": "rescan",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "claude"},
+        "scanned": {"lane": "claude", "at": "2026-10-15T08:50:00.0000001Z"},
+        "force": false
+      },
+      "expect": {"scanned": false, "scannedAt": "2026-10-15T08:50:00.0000001Z"}
+    },
+    {
+      "name": "rescan: scanned an hour ago",
+      "input": {
+        "fn": "rescan",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "claude"},
+        "scanned": {"lane": "claude", "at": "2026-10-15T08:00:00.0000000Z"},
+        "force": false
+      },
+      "expect": {"scanned": true, "scannedAt": "2026-10-15T09:00:00.0000000Z"}
+    },
+    {
+      "name": "rescan: forced a minute after a scan",
+      "input": {
+        "fn": "rescan",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "claude"},
+        "scanned": {"lane": "claude", "at": "2026-10-15T08:59:00.0000000Z"},
+        "force": true
+      },
+      "expect": {"scanned": true, "scannedAt": "2026-10-15T09:00:00.0000000Z"}
+    },
+    {
+      "name": "rescan: scanned ahead of the clock",
+      "input": {
+        "fn": "rescan",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "claude"},
+        "scanned": {"lane": "claude", "at": "2026-10-15T09:05:00.0000000Z"},
+        "force": false
+      },
+      "expect": {"scanned": false, "scannedAt": "2026-10-15T09:05:00.0000000Z"}
+    },
+    {
+      "name": "rescan: a lane key in other letters",
+      "input": {
+        "fn": "rescan",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "claude"},
+        "scanned": {"lane": "CLAUDE", "at": "2026-10-15T08:59:00.0000000Z"},
+        "force": false
+      },
+      "expect": {"scanned": false, "scannedAt": "2026-10-15T08:59:00.0000000Z"}
+    },
+    {
+      "name": "rescan: another lane scanned",
+      "input": {
+        "fn": "rescan",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "claude"},
+        "scanned": {"lane": "codex", "at": "2026-10-15T08:59:00.0000000Z"},
+        "force": false
+      },
+      "expect": {"scanned": true, "scannedAt": "2026-10-15T09:00:00.0000000Z"}
+    },
+    {
+      "name": "rescan: a home is a lane of its own",
+      "input": {
+        "fn": "rescan",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "claude", "home": "work"},
+        "scanned": {"lane": "claude", "at": "2026-10-15T08:59:00.0000000Z"},
+        "force": false
+      },
+      "expect": {"scanned": true, "scannedAt": "2026-10-15T09:00:00.0000000Z"}
+    },
+    {
+      "name": "rescan: a home lane scanned",
+      "input": {
+        "fn": "rescan",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "claude", "home": "work"},
+        "scanned": {"lane": "claude|work", "at": "2026-10-15T08:59:00.0000000Z"},
+        "force": false
+      },
+      "expect": {"scanned": false, "scannedAt": "2026-10-15T08:59:00.0000000Z"}
+    },
+    {
+      "name": "rescan: a codex lane scanned",
+      "input": {
+        "fn": "rescan",
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "codex"},
+        "scanned": {"lane": "codex", "at": "2026-10-15T08:55:00.0000000Z"},
+        "force": false
+      },
+      "expect": {"scanned": false, "scannedAt": "2026-10-15T08:55:00.0000000Z"}
+    },
+    {
+      "name": "rescan: scanned 9:59 ago, east of UTC",
+      "input": {
+        "fn": "rescan",
+        "zone": "India Standard Time",
+        "utcOffsetMinutes": 330,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "job": {"id": "j1", "provider": "claude"},
+        "scanned": {"lane": "claude", "at": "2026-10-15T08:50:01.0000000Z"},
+        "force": false
+      },
+      "expect": {"scanned": false, "scannedAt": "2026-10-15T08:50:01.0000000Z"}
+    }
+  ]
+}

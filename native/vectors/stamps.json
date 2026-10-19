@@ -1,0 +1,3700 @@
+{
+  "about": "Get-ChatqStamp and Add-ChatqLogLine's local stamp at an instant in a zone ({utc, local}); ConvertTo-ChatqDate of the at of a JSON file Read-ChatqJson read, as the UTC 'o' of the instant it names, or null",
+  "cases": [
+    {
+      "name": "stamp seven digits",
+      "input": {
+        "kind": "stamp",
+        "at": "2026-10-15T01:02:03.1234567Z",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": {"utc": "2026-10-15T01:02:03.1234567Z", "local": "2026-10-15T10:02:03.1234567+09:00"}
+    },
+    {
+      "name": "stamp whole second",
+      "input": {
+        "kind": "stamp",
+        "at": "2026-10-15T01:02:03.0000000Z",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": {"utc": "2026-10-15T01:02:03.0000000Z", "local": "2026-10-15T10:02:03.0000000+09:00"}
+    },
+    {
+      "name": "stamp leading zeros",
+      "input": {
+        "kind": "stamp",
+        "at": "2026-01-05T01:02:03.0000400Z",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": {"utc": "2026-01-05T01:02:03.0000400Z", "local": "2026-01-05T10:02:03.0000400+09:00"}
+    },
+    {
+      "name": "stamp one tick",
+      "input": {
+        "kind": "stamp",
+        "at": "2026-10-15T01:02:03.0000001Z",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": {"utc": "2026-10-15T01:02:03.0000001Z", "local": "2026-10-15T10:02:03.0000001+09:00"}
+    },
+    {
+      "name": "stamp new year in the zone",
+      "input": {
+        "kind": "stamp",
+        "at": "2026-12-31T23:59:59.9999999Z",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": {"utc": "2026-12-31T23:59:59.9999999Z", "local": "2027-01-01T08:59:59.9999999+09:00"}
+    },
+    {
+      "name": "stamp epoch",
+      "input": {
+        "kind": "stamp",
+        "at": "1970-01-01T00:00:00.0000000Z",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": {"utc": "1970-01-01T00:00:00.0000000Z", "local": "1970-01-01T09:00:00.0000000+09:00"}
+    },
+    {
+      "name": "stamp India",
+      "input": {
+        "kind": "stamp",
+        "at": "2026-10-15T01:02:03.1234567Z",
+        "zone": "India Standard Time",
+        "utcOffsetMinutes": 330
+      },
+      "expect": {"utc": "2026-10-15T01:02:03.1234567Z", "local": "2026-10-15T06:32:03.1234567+05:30"}
+    },
+    {
+      "name": "stamp Nepal",
+      "input": {
+        "kind": "stamp",
+        "at": "2026-10-15T01:02:03.1234567Z",
+        "zone": "Nepal Standard Time",
+        "utcOffsetMinutes": 345
+      },
+      "expect": {"utc": "2026-10-15T01:02:03.1234567Z", "local": "2026-10-15T06:47:03.1234567+05:45"}
+    },
+    {
+      "name": "stamp Pacific winter",
+      "input": {
+        "kind": "stamp",
+        "at": "2026-01-15T01:02:03.1234567Z",
+        "zone": "Pacific Standard Time",
+        "utcOffsetMinutes": -480
+      },
+      "expect": {"utc": "2026-01-15T01:02:03.1234567Z", "local": "2026-01-14T17:02:03.1234567-08:00"}
+    },
+    {
+      "name": "stamp Pacific summer",
+      "input": {
+        "kind": "stamp",
+        "at": "2026-07-15T01:02:03.1234567Z",
+        "zone": "Pacific Standard Time",
+        "utcOffsetMinutes": -420
+      },
+      "expect": {"utc": "2026-07-15T01:02:03.1234567Z", "local": "2026-07-14T18:02:03.1234567-07:00"}
+    },
+    {
+      "name": "stamp Newfoundland winter",
+      "input": {
+        "kind": "stamp",
+        "at": "2026-01-15T01:02:03.1234567Z",
+        "zone": "Newfoundland Standard Time",
+        "utcOffsetMinutes": -210
+      },
+      "expect": {"utc": "2026-01-15T01:02:03.1234567Z", "local": "2026-01-14T21:32:03.1234567-03:30"}
+    },
+    {
+      "name": "stamp Newfoundland summer",
+      "input": {
+        "kind": "stamp",
+        "at": "2026-07-15T01:02:03.1234567Z",
+        "zone": "Newfoundland Standard Time",
+        "utcOffsetMinutes": -150
+      },
+      "expect": {"utc": "2026-07-15T01:02:03.1234567Z", "local": "2026-07-14T22:32:03.1234567-02:30"}
+    },
+    {
+      "name": "stamp Chatham summer",
+      "input": {
+        "kind": "stamp",
+        "at": "2026-01-15T01:02:03.1234567Z",
+        "zone": "Chatham Islands Standard Time",
+        "utcOffsetMinutes": 825
+      },
+      "expect": {"utc": "2026-01-15T01:02:03.1234567Z", "local": "2026-01-15T14:47:03.1234567+13:45"}
+    },
+    {
+      "name": "stamp Chatham winter",
+      "input": {
+        "kind": "stamp",
+        "at": "2026-07-15T01:02:03.1234567Z",
+        "zone": "Chatham Islands Standard Time",
+        "utcOffsetMinutes": 765
+      },
+      "expect": {"utc": "2026-07-15T01:02:03.1234567Z", "local": "2026-07-15T13:47:03.1234567+12:45"}
+    },
+    {
+      "name": "stamp Marquesas",
+      "input": {
+        "kind": "stamp",
+        "at": "2026-10-15T01:02:03.1234567Z",
+        "zone": "Marquesas Standard Time",
+        "utcOffsetMinutes": -570
+      },
+      "expect": {"utc": "2026-10-15T01:02:03.1234567Z", "local": "2026-10-14T15:32:03.1234567-09:30"}
+    },
+    {
+      "name": "stamp Line Islands",
+      "input": {
+        "kind": "stamp",
+        "at": "2026-10-15T01:02:03.1234567Z",
+        "zone": "Line Islands Standard Time",
+        "utcOffsetMinutes": 840
+      },
+      "expect": {"utc": "2026-10-15T01:02:03.1234567Z", "local": "2026-10-15T15:02:03.1234567+14:00"}
+    },
+    {
+      "name": "stamp Dateline",
+      "input": {
+        "kind": "stamp",
+        "at": "2026-10-15T01:02:03.1234567Z",
+        "zone": "Dateline Standard Time",
+        "utcOffsetMinutes": -720
+      },
+      "expect": {"utc": "2026-10-15T01:02:03.1234567Z", "local": "2026-10-14T13:02:03.1234567-12:00"}
+    },
+    {
+      "name": "stamp Greenwich",
+      "input": {
+        "kind": "stamp",
+        "at": "2026-10-15T01:02:03.1234567Z",
+        "zone": "Greenwich Standard Time",
+        "utcOffsetMinutes": 0
+      },
+      "expect": {"utc": "2026-10-15T01:02:03.1234567Z", "local": "2026-10-15T01:02:03.1234567+00:00"}
+    },
+    {
+      "name": "stamp GMT winter",
+      "input": {
+        "kind": "stamp",
+        "at": "2026-01-15T01:02:03.1234567Z",
+        "zone": "GMT Standard Time",
+        "utcOffsetMinutes": 0
+      },
+      "expect": {"utc": "2026-01-15T01:02:03.1234567Z", "local": "2026-01-15T01:02:03.1234567+00:00"}
+    },
+    {
+      "name": "stamp GMT summer",
+      "input": {
+        "kind": "stamp",
+        "at": "2026-07-15T01:02:03.1234567Z",
+        "zone": "GMT Standard Time",
+        "utcOffsetMinutes": 60
+      },
+      "expect": {"utc": "2026-07-15T01:02:03.1234567Z", "local": "2026-07-15T02:02:03.1234567+01:00"}
+    },
+    {
+      "name": "stamp Pacific last tick before the change at 2026-03-08T10:00:00Z",
+      "input": {
+        "kind": "stamp",
+        "at": "2026-03-08T09:59:59.9999999Z",
+        "zone": "Pacific Standard Time",
+        "change": "2026-03-08T10:00:00Z",
+        "before": -480,
+        "after": -420
+      },
+      "expect": {"utc": "2026-03-08T09:59:59.9999999Z", "local": "2026-03-08T01:59:59.9999999-08:00"}
+    },
+    {
+      "name": "stamp Pacific first tick of the change at 2026-03-08T10:00:00Z",
+      "input": {
+        "kind": "stamp",
+        "at": "2026-03-08T10:00:00.0000000Z",
+        "zone": "Pacific Standard Time",
+        "change": "2026-03-08T10:00:00Z",
+        "before": -480,
+        "after": -420
+      },
+      "expect": {"utc": "2026-03-08T10:00:00.0000000Z", "local": "2026-03-08T03:00:00.0000000-07:00"}
+    },
+    {
+      "name": "stamp Pacific last tick before the change at 2026-11-01T09:00:00Z",
+      "input": {
+        "kind": "stamp",
+        "at": "2026-11-01T08:59:59.9999999Z",
+        "zone": "Pacific Standard Time",
+        "change": "2026-11-01T09:00:00Z",
+        "before": -420,
+        "after": -480
+      },
+      "expect": {"utc": "2026-11-01T08:59:59.9999999Z", "local": "2026-11-01T01:59:59.9999999-07:00"}
+    },
+    {
+      "name": "stamp Pacific first tick of the change at 2026-11-01T09:00:00Z",
+      "input": {
+        "kind": "stamp",
+        "at": "2026-11-01T09:00:00.0000000Z",
+        "zone": "Pacific Standard Time",
+        "change": "2026-11-01T09:00:00Z",
+        "before": -420,
+        "after": -480
+      },
+      "expect": {"utc": "2026-11-01T09:00:00.0000000Z", "local": "2026-11-01T01:00:00.0000000-08:00"}
+    },
+    {
+      "name": "stamp W. Europe last tick before the change at 2026-03-29T01:00:00Z",
+      "input": {
+        "kind": "stamp",
+        "at": "2026-03-29T00:59:59.9999999Z",
+        "zone": "W. Europe Standard Time",
+        "change": "2026-03-29T01:00:00Z",
+        "before": 60,
+        "after": 120
+      },
+      "expect": {"utc": "2026-03-29T00:59:59.9999999Z", "local": "2026-03-29T01:59:59.9999999+01:00"}
+    },
+    {
+      "name": "stamp W. Europe first tick of the change at 2026-03-29T01:00:00Z",
+      "input": {
+        "kind": "stamp",
+        "at": "2026-03-29T01:00:00.0000000Z",
+        "zone": "W. Europe Standard Time",
+        "change": "2026-03-29T01:00:00Z",
+        "before": 60,
+        "after": 120
+      },
+      "expect": {"utc": "2026-03-29T01:00:00.0000000Z", "local": "2026-03-29T03:00:00.0000000+02:00"}
+    },
+    {
+      "name": "stamp W. Europe last tick before the change at 2026-10-25T01:00:00Z",
+      "input": {
+        "kind": "stamp",
+        "at": "2026-10-25T00:59:59.9999999Z",
+        "zone": "W. Europe Standard Time",
+        "change": "2026-10-25T01:00:00Z",
+        "before": 120,
+        "after": 60
+      },
+      "expect": {"utc": "2026-10-25T00:59:59.9999999Z", "local": "2026-10-25T02:59:59.9999999+02:00"}
+    },
+    {
+      "name": "stamp W. Europe first tick of the change at 2026-10-25T01:00:00Z",
+      "input": {
+        "kind": "stamp",
+        "at": "2026-10-25T01:00:00.0000000Z",
+        "zone": "W. Europe Standard Time",
+        "change": "2026-10-25T01:00:00Z",
+        "before": 120,
+        "after": 60
+      },
+      "expect": {"utc": "2026-10-25T01:00:00.0000000Z", "local": "2026-10-25T02:00:00.0000000+01:00"}
+    },
+    {
+      "name": "stamp Lord Howe last tick before the change at 2026-04-04T15:00:00Z",
+      "input": {
+        "kind": "stamp",
+        "at": "2026-04-04T14:59:59.9999999Z",
+        "zone": "Lord Howe Standard Time",
+        "change": "2026-04-04T15:00:00Z",
+        "before": 660,
+        "after": 630
+      },
+      "expect": {"utc": "2026-04-04T14:59:59.9999999Z", "local": "2026-04-05T01:59:59.9999999+11:00"}
+    },
+    {
+      "name": "stamp Lord Howe first tick of the change at 2026-04-04T15:00:00Z",
+      "input": {
+        "kind": "stamp",
+        "at": "2026-04-04T15:00:00.0000000Z",
+        "zone": "Lord Howe Standard Time",
+        "change": "2026-04-04T15:00:00Z",
+        "before": 660,
+        "after": 630
+      },
+      "expect": {"utc": "2026-04-04T15:00:00.0000000Z", "local": "2026-04-05T01:30:00.0000000+10:30"}
+    },
+    {
+      "name": "stamp Lord Howe last tick before the change at 2026-10-03T15:30:00Z",
+      "input": {
+        "kind": "stamp",
+        "at": "2026-10-03T15:29:59.9999999Z",
+        "zone": "Lord Howe Standard Time",
+        "change": "2026-10-03T15:30:00Z",
+        "before": 630,
+        "after": 660
+      },
+      "expect": {"utc": "2026-10-03T15:29:59.9999999Z", "local": "2026-10-04T01:59:59.9999999+10:30"}
+    },
+    {
+      "name": "stamp Lord Howe first tick of the change at 2026-10-03T15:30:00Z",
+      "input": {
+        "kind": "stamp",
+        "at": "2026-10-03T15:30:00.0000000Z",
+        "zone": "Lord Howe Standard Time",
+        "change": "2026-10-03T15:30:00Z",
+        "before": 630,
+        "after": 660
+      },
+      "expect": {"utc": "2026-10-03T15:30:00.0000000Z", "local": "2026-10-04T02:30:00.0000000+11:00"}
+    },
+    {
+      "name": "date o seven digits Z",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.1234567Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.1234567Z"
+    },
+    {
+      "name": "date o seven digits +09:00",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T10:02:03.1234567+09:00\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.1234567Z"
+    },
+    {
+      "name": "date o seven digits -07:00",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-14T18:02:03.1234567-07:00\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.1234567Z"
+    },
+    {
+      "name": "date o +05:30",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T06:32:03.1234567+05:30\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.1234567Z"
+    },
+    {
+      "name": "date o +05:45",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T06:47:03.1234567+05:45\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.1234567Z"
+    },
+    {
+      "name": "date o -09:30",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-14T15:32:03.1234567-09:30\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.1234567Z"
+    },
+    {
+      "name": "date o +00:00",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.1234567+00:00\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.1234567Z"
+    },
+    {
+      "name": "date o -00:00",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.1234567-00:00\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.1234567Z"
+    },
+    {
+      "name": "date three digits Z",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.123Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.1230000Z"
+    },
+    {
+      "name": "date one digit Z",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.5Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.5000000Z"
+    },
+    {
+      "name": "date no fraction Z",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date no fraction +09:00",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T10:02:03+09:00\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date zero fraction Z",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.0000000Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date lowercase z",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date leap day",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2024-02-29T01:02:03Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2024-02-29T01:02:03.0000000Z"
+    },
+    {
+      "name": "date epoch Z",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"1970-01-01T00:00:00.0000000Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "1970-01-01T00:00:00.0000000Z"
+    },
+    {
+      "name": "date offset +0900",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T10:02:03+0900\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date offset +09",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T10:02:03+09\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date offset +9",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T10:02:03+9\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date offset +130",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03+130\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-14T23:32:03.0000000Z"
+    },
+    {
+      "name": "date offset +01:3",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03+01:3\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-14T23:59:03.0000000Z"
+    },
+    {
+      "name": "date offset +01:",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03+01:\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expectByEdition": {"Desktop": null, "Core": "2026-10-15T00:02:03.0000000Z"}
+    },
+    {
+      "name": "date offset +14:00",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03+14:00\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-14T11:02:03.0000000Z"
+    },
+    {
+      "name": "date offset -14:00",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03-14:00\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T15:02:03.0000000Z"
+    },
+    {
+      "name": "date offset +14:01",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03+14:01\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-14T11:01:03.0000000Z"
+    },
+    {
+      "name": "date offset +15:00",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03+15:00\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-14T10:02:03.0000000Z"
+    },
+    {
+      "name": "date offset +99:59",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03+99:59\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-10T21:03:03.0000000Z"
+    },
+    {
+      "name": "date offset +99:99",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03+99:99\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expectByEdition": {"Desktop": null, "Core": "2026-10-10T20:23:03.0000000Z"}
+    },
+    {
+      "name": "date offset +09:60",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03+09:60\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expectByEdition": {"Desktop": null, "Core": "2026-10-14T15:02:03.0000000Z"}
+    },
+    {
+      "name": "date offset +12345",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03+12345\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date offset +09:00:00",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03+09:00:00\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date offset -9",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.1234567-9\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T10:02:03.1234567Z"
+    },
+    {
+      "name": "date offset -09:3",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03-09:3\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T10:05:03.0000000Z"
+    },
+    {
+      "name": "date offset -0:30",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03-0:30\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:32:03.0000000Z"
+    },
+    {
+      "name": "date offset +:30",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03+:30\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date a sign alone",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.1234567-\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date offset then a letter",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03+09:00X\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expectByEdition": {"Desktop": "2026-10-14T16:02:03.0000000Z", "Core": null}
+    },
+    {
+      "name": "date offset then Z",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03+09:00Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expectByEdition": {"Desktop": "2026-10-14T16:02:03.0000000Z", "Core": null}
+    },
+    {
+      "name": "date offset +0900 then Z",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03+0900Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expectByEdition": {"Desktop": "2026-10-14T16:02:03.0000000Z", "Core": null}
+    },
+    {
+      "name": "date offset +09 then Z",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03+09Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expectByEdition": {"Desktop": "2026-10-14T16:02:03.0000000Z", "Core": null}
+    },
+    {
+      "name": "date offset +1 then a letter",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03+1X\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expectByEdition": {"Desktop": "2026-10-15T00:02:03.0000000Z", "Core": null}
+    },
+    {
+      "name": "date offset then two letters",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03+09:00XY\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date offset then a space and a letter",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03+09:00 X\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date offset then a space",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03+09:00 \"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-14T16:02:03.0000000Z"
+    },
+    {
+      "name": "date offset then NUL",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03+09:00\\u0000\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-14T16:02:03.0000000Z"
+    },
+    {
+      "name": "date offset then a letter and NUL",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03+09:00X\\u0000\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expectByEdition": {"Desktop": "2026-10-14T16:02:03.0000000Z", "Core": null}
+    },
+    {
+      "name": "date offset then a space and NUL",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03+09:00 \\u0000\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-14T16:02:03.0000000Z"
+    },
+    {
+      "name": "date space then offset",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03 +09:00\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-14T16:02:03.0000000Z"
+    },
+    {
+      "name": "date space then -09",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03 -09\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T10:02:03.0000000Z"
+    },
+    {
+      "name": "date fraction space Z",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.1234567 Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.1234567Z"
+    },
+    {
+      "name": "date sign then a space",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03+ 09:00\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date two zones",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03ZZ\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date Z then a digit",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03Z1\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date space then Z",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03 Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date hour 24 Z",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T24:00:00Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expectByEdition": {"Desktop": null, "Core": "2026-10-16T00:00:00.0000000Z"}
+    },
+    {
+      "name": "date hour 24 zoneless",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T24:00:00\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expectByEdition": {"Desktop": null, "Core": "2026-10-15T15:00:00.0000000Z"}
+    },
+    {
+      "name": "date hour 24 and a tick",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T24:00:00.0000001Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date hour 25",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T25:00:00Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date minute 60",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:60:03Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date second 60",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T23:59:60Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date no seconds",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:00.0000000Z"
+    },
+    {
+      "name": "date no seconds Z",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:00.0000000Z"
+    },
+    {
+      "name": "date no seconds +09:00",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02+09:00\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-14T16:02:00.0000000Z"
+    },
+    {
+      "name": "date no seconds +15:00",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02+15:00\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expectByEdition": {"Desktop": "2026-10-14T10:02:00.0000000Z", "Core": null}
+    },
+    {
+      "name": "date no seconds space Z",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02 Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:00.0000000Z"
+    },
+    {
+      "name": "date no seconds space +09:00",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02 +09:00\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-14T16:02:00.0000000Z"
+    },
+    {
+      "name": "date hour only",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date one-digit hour",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T1:02:03Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date three parts after seconds",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03:04Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date spaces around colons",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01 : 02 : 03Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date two digits after seconds",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:0312\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expectByEdition": {"Desktop": null, "Core": "2026-10-14T16:02:03.0000000Z"}
+    },
+    {
+      "name": "date eight digits Z",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.12345678Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.1234568Z"
+    },
+    {
+      "name": "date nine digits Z",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.123456789Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.1234568Z"
+    },
+    {
+      "name": "date nine digits zoneless",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.123456789\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expectByEdition": {"Desktop": "2026-10-15T01:02:03.1234568Z", "Core": "2026-10-14T16:02:03.1234567Z"}
+    },
+    {
+      "name": "date ten digits zoneless",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.1234567812\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.1234568Z"
+    },
+    {
+      "name": "date rounds up to the second",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.99999995Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:04.0000000Z"
+    },
+    {
+      "name": "date rounds up to the day",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T23:59:59.99999999Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-16T00:00:00.0000000Z"
+    },
+    {
+      "name": "date rounds half a tick up",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.00000005Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000001Z"
+    },
+    {
+      "name": "date rounds 2.5 ticks up",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.00000025Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000003Z"
+    },
+    {
+      "name": "date rounds 4.5 ticks up",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.00000045Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000005Z"
+    },
+    {
+      "name": "date rounds 6.65 ticks",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.12345665Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.1234567Z"
+    },
+    {
+      "name": "date rounds down",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.999999949Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.9999999Z"
+    },
+    {
+      "name": "date rounds a long tail down",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.000000049999Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date fifty zero digits",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.00000000000000000000000000000000000000000000000000Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date twenty-five nines",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.9999999999999999999999999Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:04.0000000Z"
+    },
+    {
+      "name": "date comma fraction",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03,5Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expectByEdition": {"Desktop": null, "Core": "2026-10-15T01:02:03.5000000Z"}
+    },
+    {
+      "name": "date dot and no digits",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date dot then Z",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date space before a fraction",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03 .5Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date two fractions",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.5,5Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date comma and no digits",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03,\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date Z then a dot",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03Z.\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date space then a dot",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03 .\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date zoneless seven digits",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.1234567\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expectByEdition": {"Desktop": "2026-10-15T01:02:03.1234567Z", "Core": "2026-10-14T16:02:03.1234567Z"}
+    },
+    {
+      "name": "date zoneless whole second",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expectByEdition": {"Desktop": "2026-10-15T01:02:03.0000000Z", "Core": "2026-10-14T16:02:03.0000000Z"}
+    },
+    {
+      "name": "date zoneless one digit",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.5\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expectByEdition": {"Desktop": "2026-10-15T01:02:03.5000000Z", "Core": "2026-10-14T16:02:03.5000000Z"}
+    },
+    {
+      "name": "date lowercase t",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15t01:02:03\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date lowercase t and Z",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15t01:02:03Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date space before T",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 T01:02:03Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date space after T",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T 01:02:03\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date spaces around T",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 T 01:02:03\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date space and lowercase t",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 t01:02:03Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date dot before T",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15.T01:02:03Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date leading space",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\" 2026-10-15T01:02:03Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date trailing space",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03Z \"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date zoneless leading space",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\" 2026-10-15T01:02:03\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date zoneless trailing space",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03 \"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date leading tab",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"\\t2026-10-15T01:02:03Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date trailing CRLF",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03Z\\r\\n\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date leading no-break space",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"\\u00a02026-10-15T01:02:03Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date trailing ideographic space",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03Z\\u3000\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date trailing tab",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03Z\\t\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date trailing next line",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03Z\\u0085\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date trailing line separator",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03Z\\u2028\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date trailing zero-width space",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03Z\\u200b\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date leading byte order mark",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"\\ufeff2026-10-15T01:02:03Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date trailing NULs",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03Z\\u0000\\u0000\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date space then NUL",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03Z \\u0000\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date NUL before Z",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03\\u0000Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date NUL then a letter",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03Z\\u0000x\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date zoneless NUL",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03\\u0000\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date one-digit month and day",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-1-5T01:02:03Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-01-05T01:02:03.0000000Z"
+    },
+    {
+      "name": "date five-digit year",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"02026-10-15T01:02:03Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date two-digit year",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"26-10-15T01:02:03Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date three-digit year",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"999-10-15T01:02:03Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "0999-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date year 0999",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"0999-10-15T01:02:03Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "0999-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date year 0100",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"0100-10-15T01:02:03Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "0100-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date year 0000",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"0000-10-15T01:02:03Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date year 10000",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"10000-01-01T01:02:03Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date six-digit year",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"002026-10-15T01:02:03Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date eight-digit year",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"00002026-10-15T01:02:03Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date nine-digit year",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"000002026-10-15T01:02:03Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date month 0",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-00-15T01:02:03Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date day 0",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-00T01:02:03Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date day 32",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-32T01:02:03Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date April 31",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-04-31T01:02:03Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date three-digit month",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-001-15T01:02:03Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date February 29 2026",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-02-29T00:00:00Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date month 13",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-13-01T00:00:00Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date year and month",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10T01:02:03Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date compact",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"20261015T010203Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date a letter first",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"x2026-10-15T01:02:03Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date date only",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T00:00:00.0000000Z"
+    },
+    {
+      "name": "date date one-digit month and day",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-1-5\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-01-05T00:00:00.0000000Z"
+    },
+    {
+      "name": "date date five-digit year",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"02026-10-15\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T00:00:00.0000000Z"
+    },
+    {
+      "name": "date date three-digit month",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-010-15\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date date three-digit day",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-015\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date date trailing space",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 \"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T00:00:00.0000000Z"
+    },
+    {
+      "name": "date date leading space",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\" 2026-10-15\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T00:00:00.0000000Z"
+    },
+    {
+      "name": "date date Z",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T00:00:00.0000000Z"
+    },
+    {
+      "name": "date date space Z",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T00:00:00.0000000Z"
+    },
+    {
+      "name": "date date +09:00",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15+09:00\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-14T15:00:00.0000000Z"
+    },
+    {
+      "name": "date date space +09:00",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 +09:00\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-14T15:00:00.0000000Z"
+    },
+    {
+      "name": "date date +15:00",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15+15:00\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expectByEdition": {"Desktop": "2026-10-14T09:00:00.0000000Z", "Core": null}
+    },
+    {
+      "name": "date date three-digit year",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"999-10-15\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "0999-10-15T00:00:00.0000000Z"
+    },
+    {
+      "name": "date date dot",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15.\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T00:00:00.0000000Z"
+    },
+    {
+      "name": "date date comma",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15,\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T00:00:00.0000000Z"
+    },
+    {
+      "name": "date date dot Z",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15.Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T00:00:00.0000000Z"
+    },
+    {
+      "name": "date date Z dot",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15Z.\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T00:00:00.0000000Z"
+    },
+    {
+      "name": "date date +09:00 dot",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15+09:00.\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-14T15:00:00.0000000Z"
+    },
+    {
+      "name": "date date +0900",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15+0900\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-14T15:00:00.0000000Z"
+    },
+    {
+      "name": "date date -0930",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15-0930\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T09:30:00.0000000Z"
+    },
+    {
+      "name": "date date -9",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15-9\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T09:00:00.0000000Z"
+    },
+    {
+      "name": "date date space +14:01",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 +14:01\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expectByEdition": {"Desktop": "2026-10-14T09:59:00.0000000Z", "Core": null}
+    },
+    {
+      "name": "date space form",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date space form two spaces",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15  01:02:03\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date space form tab",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15\\t01:02:03\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date space form one-digit parts",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 1:2:3\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date space form no seconds",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:2\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:00.0000000Z"
+    },
+    {
+      "name": "date space form hour only",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date space form three-digit hour",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 001:02:03\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date space form hour 24",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 24:00:00\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date space form fraction",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03.5\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.5000000Z"
+    },
+    {
+      "name": "date space form nine digits",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03.123456789\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.1234568Z"
+    },
+    {
+      "name": "date space form rounds up to the day",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 23:59:59.99999999\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-16T00:00:00.0000000Z"
+    },
+    {
+      "name": "date space form dot and no digits",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03.\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date space form comma fraction",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03,5\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expectByEdition": {"Desktop": null, "Core": "2026-10-15T01:02:03.5000000Z"}
+    },
+    {
+      "name": "date space form Z",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date space form space z",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03 z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date space form space Z space",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03 Z \"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date space form fraction Z",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03.1234567Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.1234567Z"
+    },
+    {
+      "name": "date space form +09:00",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03+09:00\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-14T16:02:03.0000000Z"
+    },
+    {
+      "name": "date space form space +09",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03 +09\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-14T16:02:03.0000000Z"
+    },
+    {
+      "name": "date space form +9",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03+9\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-14T16:02:03.0000000Z"
+    },
+    {
+      "name": "date space form +0900",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03+0900\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-14T16:02:03.0000000Z"
+    },
+    {
+      "name": "date space form space -0930",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03 -0930\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T10:32:03.0000000Z"
+    },
+    {
+      "name": "date space form +1:3",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03+1:3\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-14T23:59:03.0000000Z"
+    },
+    {
+      "name": "date space form +14:00",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03+14:00\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-14T11:02:03.0000000Z"
+    },
+    {
+      "name": "date space form +15:00",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03+15:00\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expectByEdition": {"Desktop": "2026-10-14T10:02:03.0000000Z", "Core": null}
+    },
+    {
+      "name": "date space form +99",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03+99\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expectByEdition": {"Desktop": "2026-10-10T22:02:03.0000000Z", "Core": null}
+    },
+    {
+      "name": "date space form +09:60",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03+09:60\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date space form fraction space +09:00",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03.1234567 +09:00\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-14T16:02:03.1234567Z"
+    },
+    {
+      "name": "date space form +09:00 space",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03+09:00 \"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-14T16:02:03.0000000Z"
+    },
+    {
+      "name": "date space form no seconds Z",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:00.0000000Z"
+    },
+    {
+      "name": "date space form no seconds +09:00",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02+09:00\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-14T16:02:00.0000000Z"
+    },
+    {
+      "name": "date space form +09:00Z",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03+09:00Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date space form +09:00 then a letter",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03+09:00X\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date space form Z then a digit",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03Z1\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date space form offset then Z",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03 +09:00 Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date space form dot between",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15.01:02:03\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date space form comma and space between",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15, 01:02:03\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date space form comma between",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15,01:02:03\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date space form no seconds dot",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02.\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:00.0000000Z"
+    },
+    {
+      "name": "date space form no seconds comma Z",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02,Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:00.0000000Z"
+    },
+    {
+      "name": "date space form no seconds fraction",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02.5\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date space form no seconds comma fraction",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02,5\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date space form comma",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03,\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date space form comma Z",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03,Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date space form comma +09:00",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03,+09:00\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-14T16:02:03.0000000Z"
+    },
+    {
+      "name": "date space form comma fraction Z",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03,5Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expectByEdition": {"Desktop": null, "Core": "2026-10-15T01:02:03.5000000Z"}
+    },
+    {
+      "name": "date space form two dots",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03..\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date space form space fraction",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03 .5\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date space form two fractions",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03.5.5\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date space form fraction dot",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03.5.\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.5000000Z"
+    },
+    {
+      "name": "date space form space dot space Z",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03 . Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date space form space comma Z",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03 ,Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date space form spaces around a colon",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01 : 02\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:00.0000000Z"
+    },
+    {
+      "name": "date space form space after a colon Z",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01: 02 Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:00.0000000Z"
+    },
+    {
+      "name": "date space form colon after seconds",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03:\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date space form sign then a space",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03+ 09:00\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date space form two offsets",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03+09:00 +09:00\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date space form Z then an offset",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03Z+09:00\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date space form a sign alone",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03-\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date space form +0",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03+0\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "date space form space +1",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03 +1\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T00:02:03.0000000Z"
+    },
+    {
+      "name": "date space form space +01:3",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03 +01:3\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-14T23:59:03.0000000Z"
+    },
+    {
+      "name": "date space form space +01:",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03 +01:\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date space form space +0130",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03 +0130\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-14T23:32:03.0000000Z"
+    },
+    {
+      "name": "date space form space +130",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03 +130\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-14T23:32:03.0000000Z"
+    },
+    {
+      "name": "date space form +123",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03+123\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-14T23:39:03.0000000Z"
+    },
+    {
+      "name": "date space form +1:30",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03+1:30\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-14T23:32:03.0000000Z"
+    },
+    {
+      "name": "date space form -14:00",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03-14:00\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T15:02:03.0000000Z"
+    },
+    {
+      "name": "date space form +14:01",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03+14:01\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expectByEdition": {"Desktop": "2026-10-14T11:01:03.0000000Z", "Core": null}
+    },
+    {
+      "name": "date space form dot -09:00",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02:03.-09:00\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T10:02:03.0000000Z"
+    },
+    {
+      "name": "date space form no seconds -09:00",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15 01:02-09:00\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T10:02:00.0000000Z"
+    },
+    {
+      "name": "date empty",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date spaces",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"   \"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date a word",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"tomorrow\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date words",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"not a date\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date a year",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date digits",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"12345\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date null",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":null}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date no at",
+      "input": {"kind": "date", "text": "{}", "zone": "Korea Standard Time", "utcOffsetMinutes": 540},
+      "expect": null
+    },
+    {
+      "name": "date zero",
+      "input": {"kind": "date", "text": "{\"at\":0}", "zone": "Korea Standard Time", "utcOffsetMinutes": 540},
+      "expect": null
+    },
+    {
+      "name": "date an integer",
+      "input": {"kind": "date", "text": "{\"at\":5}", "zone": "Korea Standard Time", "utcOffsetMinutes": 540},
+      "expect": null
+    },
+    {
+      "name": "date a negative integer",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":-1}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date a year number",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":2026}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date milliseconds as a number",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":1760490123123}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date an exponent",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":1e3}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date true",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":true}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date false",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":false}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date an object",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":{\"a\":1}}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date an empty object",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":{}}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date an empty array",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":[]}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date ms date",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"\\/Date(1760490123123)\\/\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2025-10-15T01:02:03.1230000Z"
+    },
+    {
+      "name": "date ms date zero",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"\\/Date(0)\\/\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "1970-01-01T00:00:00.0000000Z"
+    },
+    {
+      "name": "date ms date negative",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"\\/Date(-1000)\\/\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "1969-12-31T23:59:59.0000000Z"
+    },
+    {
+      "name": "date ms date +0900",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"\\/Date(1760490123123+0900)\\/\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2025-10-15T01:02:03.1230000Z"
+    },
+    {
+      "name": "date ms date -0130",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"\\/Date(1760490123123-0130)\\/\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2025-10-15T01:02:03.1230000Z"
+    },
+    {
+      "name": "date ms date negative -0130",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"\\/Date(-1000-0130)\\/\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "1969-12-31T23:59:59.0000000Z"
+    },
+    {
+      "name": "date ms date +09",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"\\/Date(1760490123123+09)\\/\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expectByEdition": {"Desktop": null, "Core": "2025-10-15T01:02:03.1230000Z"}
+    },
+    {
+      "name": "date ms date and a letter",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"\\/Date(1760490123123Z)\\/\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expectByEdition": {"Desktop": "2025-10-15T01:02:03.1230000Z", "Core": null}
+    },
+    {
+      "name": "date ms date no digits",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"\\/Date()\\/\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date ms date words",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"\\/Date(abc)\\/\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date ms date then more",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"\\/Date(1760490123123)\\/x\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date ms date past year 9999",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"\\/Date(253402300800000)\\/\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date ms date past a long",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"\\/Date(99999999999999999999)\\/\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": null
+    },
+    {
+      "name": "date ms date wraps",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"\\/Date(1844674407370955)\\/\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "1969-12-31T23:59:59.9998384Z"
+    },
+    {
+      "name": "zoneless India",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.1234567\"}",
+        "zone": "India Standard Time",
+        "utcOffsetMinutes": 330
+      },
+      "expectByEdition": {"Desktop": "2026-10-15T01:02:03.1234567Z", "Core": "2026-10-14T19:32:03.1234567Z"}
+    },
+    {
+      "name": "zoneless Nepal",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.1234567\"}",
+        "zone": "Nepal Standard Time",
+        "utcOffsetMinutes": 345
+      },
+      "expectByEdition": {"Desktop": "2026-10-15T01:02:03.1234567Z", "Core": "2026-10-14T19:17:03.1234567Z"}
+    },
+    {
+      "name": "zoneless Pacific",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.1234567\"}",
+        "zone": "Pacific Standard Time",
+        "utcOffsetMinutes": -420
+      },
+      "expectByEdition": {"Desktop": "2026-10-15T01:02:03.1234567Z", "Core": "2026-10-15T08:02:03.1234567Z"}
+    },
+    {
+      "name": "zoneless Newfoundland",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.1234567\"}",
+        "zone": "Newfoundland Standard Time",
+        "utcOffsetMinutes": -150
+      },
+      "expectByEdition": {"Desktop": "2026-10-15T01:02:03.1234567Z", "Core": "2026-10-15T03:32:03.1234567Z"}
+    },
+    {
+      "name": "zoneless Chatham",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.1234567\"}",
+        "zone": "Chatham Islands Standard Time",
+        "utcOffsetMinutes": 825
+      },
+      "expectByEdition": {"Desktop": "2026-10-15T01:02:03.1234567Z", "Core": "2026-10-14T11:17:03.1234567Z"}
+    },
+    {
+      "name": "zoneless Marquesas",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.1234567\"}",
+        "zone": "Marquesas Standard Time",
+        "utcOffsetMinutes": -570
+      },
+      "expectByEdition": {"Desktop": "2026-10-15T01:02:03.1234567Z", "Core": "2026-10-15T10:32:03.1234567Z"}
+    },
+    {
+      "name": "zoneless Line Islands",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.1234567\"}",
+        "zone": "Line Islands Standard Time",
+        "utcOffsetMinutes": 840
+      },
+      "expectByEdition": {"Desktop": "2026-10-15T01:02:03.1234567Z", "Core": "2026-10-14T11:02:03.1234567Z"}
+    },
+    {
+      "name": "zoneless Dateline",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.1234567\"}",
+        "zone": "Dateline Standard Time",
+        "utcOffsetMinutes": -720
+      },
+      "expectByEdition": {"Desktop": "2026-10-15T01:02:03.1234567Z", "Core": "2026-10-15T13:02:03.1234567Z"}
+    },
+    {
+      "name": "zoneless Greenwich",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T01:02:03.1234567\"}",
+        "zone": "Greenwich Standard Time",
+        "utcOffsetMinutes": 0
+      },
+      "expect": "2026-10-15T01:02:03.1234567Z"
+    },
+    {
+      "name": "offset under Pacific",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T06:32:03.1234567+05:30\"}",
+        "zone": "Pacific Standard Time",
+        "utcOffsetMinutes": -420
+      },
+      "expect": "2026-10-15T01:02:03.1234567Z"
+    },
+    {
+      "name": "hour 24 zoneless under Pacific",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-15T24:00:00\"}",
+        "zone": "Pacific Standard Time",
+        "utcOffsetMinutes": -420
+      },
+      "expectByEdition": {"Desktop": null, "Core": "2026-10-16T07:00:00.0000000Z"}
+    },
+    {
+      "name": "dst Pacific skipped time 2026-03-08T10:00:00Z, before",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-03-08T01:59:59.9999999\"}",
+        "zone": "Pacific Standard Time",
+        "change": "2026-03-08T10:00:00Z",
+        "before": -480,
+        "after": -420
+      },
+      "expectByEdition": {"Desktop": "2026-03-08T01:59:59.9999999Z", "Core": "2026-03-08T09:59:59.9999999Z"}
+    },
+    {
+      "name": "dst Pacific skipped time 2026-03-08T10:00:00Z, first",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-03-08T02:00:00.0000000\"}",
+        "zone": "Pacific Standard Time",
+        "change": "2026-03-08T10:00:00Z",
+        "before": -480,
+        "after": -420
+      },
+      "expectByEdition": {"Desktop": "2026-03-08T02:00:00.0000000Z", "Core": "2026-03-08T10:00:00.0000000Z"}
+    },
+    {
+      "name": "dst Pacific skipped time 2026-03-08T10:00:00Z, middle",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-03-08T02:30:00.0000000\"}",
+        "zone": "Pacific Standard Time",
+        "change": "2026-03-08T10:00:00Z",
+        "before": -480,
+        "after": -420
+      },
+      "expectByEdition": {"Desktop": "2026-03-08T02:30:00.0000000Z", "Core": "2026-03-08T10:30:00.0000000Z"}
+    },
+    {
+      "name": "dst Pacific skipped time 2026-03-08T10:00:00Z, last",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-03-08T02:59:59.9999999\"}",
+        "zone": "Pacific Standard Time",
+        "change": "2026-03-08T10:00:00Z",
+        "before": -480,
+        "after": -420
+      },
+      "expectByEdition": {"Desktop": "2026-03-08T02:59:59.9999999Z", "Core": "2026-03-08T10:59:59.9999999Z"}
+    },
+    {
+      "name": "dst Pacific skipped time 2026-03-08T10:00:00Z, after",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-03-08T03:00:00.0000000\"}",
+        "zone": "Pacific Standard Time",
+        "change": "2026-03-08T10:00:00Z",
+        "before": -480,
+        "after": -420
+      },
+      "expectByEdition": {"Desktop": "2026-03-08T03:00:00.0000000Z", "Core": "2026-03-08T10:00:00.0000000Z"}
+    },
+    {
+      "name": "dst Pacific repeated time 2026-11-01T09:00:00Z, before",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-11-01T00:59:59.9999999\"}",
+        "zone": "Pacific Standard Time",
+        "change": "2026-11-01T09:00:00Z",
+        "before": -420,
+        "after": -480
+      },
+      "expectByEdition": {"Desktop": "2026-11-01T00:59:59.9999999Z", "Core": "2026-11-01T07:59:59.9999999Z"}
+    },
+    {
+      "name": "dst Pacific repeated time 2026-11-01T09:00:00Z, first",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-11-01T01:00:00.0000000\"}",
+        "zone": "Pacific Standard Time",
+        "change": "2026-11-01T09:00:00Z",
+        "before": -420,
+        "after": -480
+      },
+      "expectByEdition": {"Desktop": "2026-11-01T01:00:00.0000000Z", "Core": "2026-11-01T09:00:00.0000000Z"}
+    },
+    {
+      "name": "dst Pacific repeated time 2026-11-01T09:00:00Z, middle",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-11-01T01:30:00.0000000\"}",
+        "zone": "Pacific Standard Time",
+        "change": "2026-11-01T09:00:00Z",
+        "before": -420,
+        "after": -480
+      },
+      "expectByEdition": {"Desktop": "2026-11-01T01:30:00.0000000Z", "Core": "2026-11-01T09:30:00.0000000Z"}
+    },
+    {
+      "name": "dst Pacific repeated time 2026-11-01T09:00:00Z, last",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-11-01T01:59:59.9999999\"}",
+        "zone": "Pacific Standard Time",
+        "change": "2026-11-01T09:00:00Z",
+        "before": -420,
+        "after": -480
+      },
+      "expectByEdition": {"Desktop": "2026-11-01T01:59:59.9999999Z", "Core": "2026-11-01T09:59:59.9999999Z"}
+    },
+    {
+      "name": "dst Pacific repeated time 2026-11-01T09:00:00Z, after",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-11-01T02:00:00.0000000\"}",
+        "zone": "Pacific Standard Time",
+        "change": "2026-11-01T09:00:00Z",
+        "before": -420,
+        "after": -480
+      },
+      "expectByEdition": {"Desktop": "2026-11-01T02:00:00.0000000Z", "Core": "2026-11-01T10:00:00.0000000Z"}
+    },
+    {
+      "name": "dst W. Europe skipped time 2026-03-29T01:00:00Z, before",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-03-29T01:59:59.9999999\"}",
+        "zone": "W. Europe Standard Time",
+        "change": "2026-03-29T01:00:00Z",
+        "before": 60,
+        "after": 120
+      },
+      "expectByEdition": {"Desktop": "2026-03-29T01:59:59.9999999Z", "Core": "2026-03-29T00:59:59.9999999Z"}
+    },
+    {
+      "name": "dst W. Europe skipped time 2026-03-29T01:00:00Z, first",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-03-29T02:00:00.0000000\"}",
+        "zone": "W. Europe Standard Time",
+        "change": "2026-03-29T01:00:00Z",
+        "before": 60,
+        "after": 120
+      },
+      "expectByEdition": {"Desktop": "2026-03-29T02:00:00.0000000Z", "Core": "2026-03-29T01:00:00.0000000Z"}
+    },
+    {
+      "name": "dst W. Europe skipped time 2026-03-29T01:00:00Z, middle",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-03-29T02:30:00.0000000\"}",
+        "zone": "W. Europe Standard Time",
+        "change": "2026-03-29T01:00:00Z",
+        "before": 60,
+        "after": 120
+      },
+      "expectByEdition": {"Desktop": "2026-03-29T02:30:00.0000000Z", "Core": "2026-03-29T01:30:00.0000000Z"}
+    },
+    {
+      "name": "dst W. Europe skipped time 2026-03-29T01:00:00Z, last",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-03-29T02:59:59.9999999\"}",
+        "zone": "W. Europe Standard Time",
+        "change": "2026-03-29T01:00:00Z",
+        "before": 60,
+        "after": 120
+      },
+      "expectByEdition": {"Desktop": "2026-03-29T02:59:59.9999999Z", "Core": "2026-03-29T01:59:59.9999999Z"}
+    },
+    {
+      "name": "dst W. Europe skipped time 2026-03-29T01:00:00Z, after",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-03-29T03:00:00.0000000\"}",
+        "zone": "W. Europe Standard Time",
+        "change": "2026-03-29T01:00:00Z",
+        "before": 60,
+        "after": 120
+      },
+      "expectByEdition": {"Desktop": "2026-03-29T03:00:00.0000000Z", "Core": "2026-03-29T01:00:00.0000000Z"}
+    },
+    {
+      "name": "dst W. Europe repeated time 2026-10-25T01:00:00Z, before",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-25T01:59:59.9999999\"}",
+        "zone": "W. Europe Standard Time",
+        "change": "2026-10-25T01:00:00Z",
+        "before": 120,
+        "after": 60
+      },
+      "expectByEdition": {"Desktop": "2026-10-25T01:59:59.9999999Z", "Core": "2026-10-24T23:59:59.9999999Z"}
+    },
+    {
+      "name": "dst W. Europe repeated time 2026-10-25T01:00:00Z, first",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-25T02:00:00.0000000\"}",
+        "zone": "W. Europe Standard Time",
+        "change": "2026-10-25T01:00:00Z",
+        "before": 120,
+        "after": 60
+      },
+      "expectByEdition": {"Desktop": "2026-10-25T02:00:00.0000000Z", "Core": "2026-10-25T01:00:00.0000000Z"}
+    },
+    {
+      "name": "dst W. Europe repeated time 2026-10-25T01:00:00Z, middle",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-25T02:30:00.0000000\"}",
+        "zone": "W. Europe Standard Time",
+        "change": "2026-10-25T01:00:00Z",
+        "before": 120,
+        "after": 60
+      },
+      "expectByEdition": {"Desktop": "2026-10-25T02:30:00.0000000Z", "Core": "2026-10-25T01:30:00.0000000Z"}
+    },
+    {
+      "name": "dst W. Europe repeated time 2026-10-25T01:00:00Z, last",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-25T02:59:59.9999999\"}",
+        "zone": "W. Europe Standard Time",
+        "change": "2026-10-25T01:00:00Z",
+        "before": 120,
+        "after": 60
+      },
+      "expectByEdition": {"Desktop": "2026-10-25T02:59:59.9999999Z", "Core": "2026-10-25T01:59:59.9999999Z"}
+    },
+    {
+      "name": "dst W. Europe repeated time 2026-10-25T01:00:00Z, after",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-25T03:00:00.0000000\"}",
+        "zone": "W. Europe Standard Time",
+        "change": "2026-10-25T01:00:00Z",
+        "before": 120,
+        "after": 60
+      },
+      "expectByEdition": {"Desktop": "2026-10-25T03:00:00.0000000Z", "Core": "2026-10-25T02:00:00.0000000Z"}
+    },
+    {
+      "name": "dst Lord Howe repeated time 2026-04-04T15:00:00Z, before",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-04-05T01:29:59.9999999\"}",
+        "zone": "Lord Howe Standard Time",
+        "change": "2026-04-04T15:00:00Z",
+        "before": 660,
+        "after": 630
+      },
+      "expectByEdition": {"Desktop": "2026-04-05T01:29:59.9999999Z", "Core": "2026-04-04T14:29:59.9999999Z"}
+    },
+    {
+      "name": "dst Lord Howe repeated time 2026-04-04T15:00:00Z, first",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-04-05T01:30:00.0000000\"}",
+        "zone": "Lord Howe Standard Time",
+        "change": "2026-04-04T15:00:00Z",
+        "before": 660,
+        "after": 630
+      },
+      "expectByEdition": {"Desktop": "2026-04-05T01:30:00.0000000Z", "Core": "2026-04-04T15:00:00.0000000Z"}
+    },
+    {
+      "name": "dst Lord Howe repeated time 2026-04-04T15:00:00Z, middle",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-04-05T01:45:00.0000000\"}",
+        "zone": "Lord Howe Standard Time",
+        "change": "2026-04-04T15:00:00Z",
+        "before": 660,
+        "after": 630
+      },
+      "expectByEdition": {"Desktop": "2026-04-05T01:45:00.0000000Z", "Core": "2026-04-04T15:15:00.0000000Z"}
+    },
+    {
+      "name": "dst Lord Howe repeated time 2026-04-04T15:00:00Z, last",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-04-05T01:59:59.9999999\"}",
+        "zone": "Lord Howe Standard Time",
+        "change": "2026-04-04T15:00:00Z",
+        "before": 660,
+        "after": 630
+      },
+      "expectByEdition": {"Desktop": "2026-04-05T01:59:59.9999999Z", "Core": "2026-04-04T15:29:59.9999999Z"}
+    },
+    {
+      "name": "dst Lord Howe repeated time 2026-04-04T15:00:00Z, after",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-04-05T02:00:00.0000000\"}",
+        "zone": "Lord Howe Standard Time",
+        "change": "2026-04-04T15:00:00Z",
+        "before": 660,
+        "after": 630
+      },
+      "expectByEdition": {"Desktop": "2026-04-05T02:00:00.0000000Z", "Core": "2026-04-04T15:30:00.0000000Z"}
+    },
+    {
+      "name": "dst Lord Howe skipped time 2026-10-03T15:30:00Z, before",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-04T01:59:59.9999999\"}",
+        "zone": "Lord Howe Standard Time",
+        "change": "2026-10-03T15:30:00Z",
+        "before": 630,
+        "after": 660
+      },
+      "expectByEdition": {"Desktop": "2026-10-04T01:59:59.9999999Z", "Core": "2026-10-03T15:29:59.9999999Z"}
+    },
+    {
+      "name": "dst Lord Howe skipped time 2026-10-03T15:30:00Z, first",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-04T02:00:00.0000000\"}",
+        "zone": "Lord Howe Standard Time",
+        "change": "2026-10-03T15:30:00Z",
+        "before": 630,
+        "after": 660
+      },
+      "expectByEdition": {"Desktop": "2026-10-04T02:00:00.0000000Z", "Core": "2026-10-03T15:30:00.0000000Z"}
+    },
+    {
+      "name": "dst Lord Howe skipped time 2026-10-03T15:30:00Z, middle",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-04T02:15:00.0000000\"}",
+        "zone": "Lord Howe Standard Time",
+        "change": "2026-10-03T15:30:00Z",
+        "before": 630,
+        "after": 660
+      },
+      "expectByEdition": {"Desktop": "2026-10-04T02:15:00.0000000Z", "Core": "2026-10-03T15:45:00.0000000Z"}
+    },
+    {
+      "name": "dst Lord Howe skipped time 2026-10-03T15:30:00Z, last",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-04T02:29:59.9999999\"}",
+        "zone": "Lord Howe Standard Time",
+        "change": "2026-10-03T15:30:00Z",
+        "before": 630,
+        "after": 660
+      },
+      "expectByEdition": {"Desktop": "2026-10-04T02:29:59.9999999Z", "Core": "2026-10-03T15:59:59.9999999Z"}
+    },
+    {
+      "name": "dst Lord Howe skipped time 2026-10-03T15:30:00Z, after",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-10-04T02:30:00.0000000\"}",
+        "zone": "Lord Howe Standard Time",
+        "change": "2026-10-03T15:30:00Z",
+        "before": 630,
+        "after": 660
+      },
+      "expectByEdition": {"Desktop": "2026-10-04T02:30:00.0000000Z", "Core": "2026-10-03T15:30:00.0000000Z"}
+    },
+    {
+      "name": "dst Pacific repeated time -07:00",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-11-01T01:30:00-07:00\"}",
+        "zone": "Pacific Standard Time",
+        "change": "2026-11-01T09:00:00Z",
+        "before": -420,
+        "after": -480
+      },
+      "expect": "2026-11-01T08:30:00.0000000Z"
+    },
+    {
+      "name": "dst Pacific repeated time -08:00",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-11-01T01:30:00-08:00\"}",
+        "zone": "Pacific Standard Time",
+        "change": "2026-11-01T09:00:00Z",
+        "before": -420,
+        "after": -480
+      },
+      "expect": "2026-11-01T09:30:00.0000000Z"
+    },
+    {
+      "name": "dst Pacific skipped time space form",
+      "input": {
+        "kind": "date",
+        "text": "{\"at\":\"2026-03-08 02:30:00\"}",
+        "zone": "Pacific Standard Time",
+        "change": "2026-03-08T10:00:00Z",
+        "before": -480,
+        "after": -420
+      },
+      "expect": "2026-03-08T02:30:00.0000000Z"
+    },
+    {
+      "name": "5.1 writes a Utc DateTime",
+      "by": "Desktop",
+      "input": {
+        "kind": "date",
+        "from": "Utc 2026-10-15T01:02:03.1234567Z",
+        "text": "{\"at\":\"\\/Date(1792026123123)\\/\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.1230000Z"
+    },
+    {
+      "name": "5.1 writes a Local DateTime",
+      "by": "Desktop",
+      "input": {
+        "kind": "date",
+        "from": "Local 2026-10-15T10:02:03.1234567+09:00",
+        "text": "{\"at\":\"\\/Date(1792026123123)\\/\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.1230000Z"
+    },
+    {
+      "name": "5.1 writes an Unspecified DateTime",
+      "by": "Desktop",
+      "input": {
+        "kind": "date",
+        "from": "Unspecified 2026-10-15T10:02:03.1234567",
+        "text": "{\"at\":\"\\/Date(1792026123123)\\/\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.1230000Z"
+    },
+    {
+      "name": "5.1 writes a DateTime before 1970",
+      "by": "Desktop",
+      "input": {
+        "kind": "date",
+        "from": "Utc 1969-12-31T23:59:58.9999999Z",
+        "text": "{\"at\":\"\\/Date(-1000)\\/\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "1969-12-31T23:59:59.0000000Z"
+    },
+    {
+      "name": "5.1 rewrites ms date +0900",
+      "by": "Desktop",
+      "input": {
+        "kind": "date",
+        "from": "{\"at\":\"\\/Date(1760490123123+0900)\\/\"}",
+        "text": "{\"at\":\"\\/Date(1760490123123)\\/\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2025-10-15T01:02:03.1230000Z"
+    },
+    {
+      "name": "pwsh 7 rewrites seven digits Z",
+      "by": "Core",
+      "input": {
+        "kind": "date",
+        "from": "{\"at\":\"2026-10-15T01:02:03.1234567Z\"}",
+        "text": "{\"at\":\"2026-10-15T01:02:03.1234567Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.1234567Z"
+    },
+    {
+      "name": "pwsh 7 rewrites trailing zeros Z",
+      "by": "Core",
+      "input": {
+        "kind": "date",
+        "from": "{\"at\":\"2026-10-15T01:02:03.1230000Z\"}",
+        "text": "{\"at\":\"2026-10-15T01:02:03.123Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.1230000Z"
+    },
+    {
+      "name": "pwsh 7 rewrites zero fraction Z",
+      "by": "Core",
+      "input": {
+        "kind": "date",
+        "from": "{\"at\":\"2026-10-15T01:02:03.0000000Z\"}",
+        "text": "{\"at\":\"2026-10-15T01:02:03Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.0000000Z"
+    },
+    {
+      "name": "pwsh 7 rewrites +05:30",
+      "by": "Core",
+      "input": {
+        "kind": "date",
+        "from": "{\"at\":\"2026-10-15T06:32:03.1234567+05:30\"}",
+        "text": "{\"at\":\"2026-10-15T10:02:03.1234567+09:00\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-15T01:02:03.1234567Z"
+    },
+    {
+      "name": "pwsh 7 rewrites zoneless",
+      "by": "Core",
+      "input": {
+        "kind": "date",
+        "from": "{\"at\":\"2026-10-15T01:02:03\"}",
+        "text": "{\"at\":\"2026-10-15T01:02:03\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expectByEdition": {"Desktop": "2026-10-15T01:02:03.0000000Z", "Core": "2026-10-14T16:02:03.0000000Z"}
+    },
+    {
+      "name": "pwsh 7 rewrites zoneless one digit",
+      "by": "Core",
+      "input": {
+        "kind": "date",
+        "from": "{\"at\":\"2026-10-15T01:02:03.5\"}",
+        "text": "{\"at\":\"2026-10-15T01:02:03.5\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expectByEdition": {"Desktop": "2026-10-15T01:02:03.5000000Z", "Core": "2026-10-14T16:02:03.5000000Z"}
+    },
+    {
+      "name": "pwsh 7 rewrites hour 24 Z",
+      "by": "Core",
+      "input": {
+        "kind": "date",
+        "from": "{\"at\":\"2026-10-15T24:00:00Z\"}",
+        "text": "{\"at\":\"2026-10-16T00:00:00Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-16T00:00:00.0000000Z"
+    },
+    {
+      "name": "pwsh 7 rewrites +09:60",
+      "by": "Core",
+      "input": {
+        "kind": "date",
+        "from": "{\"at\":\"2026-10-15T01:02:03+09:60\"}",
+        "text": "{\"at\":\"2026-10-15T00:02:03+09:00\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2026-10-14T15:02:03.0000000Z"
+    },
+    {
+      "name": "pwsh 7 rewrites ms date",
+      "by": "Core",
+      "input": {
+        "kind": "date",
+        "from": "{\"at\":\"\\/Date(1760490123123)\\/\"}",
+        "text": "{\"at\":\"2025-10-15T01:02:03.123Z\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2025-10-15T01:02:03.1230000Z"
+    },
+    {
+      "name": "pwsh 7 rewrites ms date +0900",
+      "by": "Core",
+      "input": {
+        "kind": "date",
+        "from": "{\"at\":\"\\/Date(1760490123123+0900)\\/\"}",
+        "text": "{\"at\":\"2025-10-15T10:02:03.123+09:00\"}",
+        "zone": "Korea Standard Time",
+        "utcOffsetMinutes": 540
+      },
+      "expect": "2025-10-15T01:02:03.1230000Z"
+    }
+  ]
+}

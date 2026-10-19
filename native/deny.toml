@@ -1,0 +1,23 @@
+# cargo deny check (SPEC 3.4), run in native/ by the native-windows CI leg:
+# any advisory against any crate fails it, and so does a crate under a
+# licence not listed here or from anywhere but crates.io.
+[graph]
+targets = ["x86_64-pc-windows-msvc", "aarch64-apple-darwin", "x86_64-apple-darwin"]
+
+[advisories]
+# the defaults: every advisory is an error, unmaintained ones included
+
+[licenses]
+# Zlib is foldhash's, under hashbrown
+allow = ["MIT", "Apache-2.0", "BSD-3-Clause", "Unicode-3.0", "Zlib"]
+# chatq-core and chatqd themselves (publish = false) carry none
+private = { ignore = true }
+
+[bans]
+wildcards = "deny"
+# the workspace's own path dependencies
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

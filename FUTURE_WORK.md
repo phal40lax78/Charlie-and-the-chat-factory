@@ -363,8 +363,9 @@ and say which records are left.
 **Why deferred:** every limit seen on this machine was `five_hour`.
 - A model-scoped limit (`seven_day_opus`, a `weekly_scoped` cache entry) no
   longer blocks the queue. The probe, asked with each chat's own model, decides.
-- A job waiting on a real weekly limit just waits, without holding the machine
-  awake.
+- A job waiting on a real weekly limit just waits - and holds the machine
+  awake all the while, against what the loop means to do: see "A wait days
+  out keeps the machine awake".
 
 **To close:** capture a real `seven_day` / `seven_day_opus` rejection. Check
 the exact `rateLimitType` names against the list in `$script:ChatqWideLimits`.
@@ -835,3 +836,222 @@ they are:
 **Why it waits:** the cause is unknown until a click that fails is
 logged. **To close:** get the `revealed` line from **Chat Manager: Show
 log** after such a click, then act on that case.
+
+## The rest of the tool in Rust
+
+[native/SPEC.md](native/SPEC.md) plans the watcher in Rust, `chatqd`, in
+milestones, and 0.10.15 has the first two. M0 is the build, the lock, the
+engine's choice and the fuse, with the PowerShell watcher taking over
+every pass that has work. M1 is `chatq-core`, the contract both engines
+share, and 19 more vector files, made by the PowerShell side and checked
+by a Rust runner under both editions. So neither saves anything yet in
+real use; made to wait under its test seam, M0 measured 1.1 MB private
+where the PowerShell watcher sits at about 104. After them: M2 the loop
+with PowerShell steps, M3 listening - where
+`reply.listen always` stops costing a PowerShell all day - M4 the lane
+gate, M5 runs, M6 alerts, M7 the rest and native by default; M8 the
+question hook and the permission bridge as small native programs
+(DEFERRED.md, "A lighter launcher for the ask hook"); M9 the overlay, one
+Rust window for Windows and macOS, after a spike of its window
+behaviours. The commands a shell runs stay PowerShell: a full port of
+them is not planned. **Why it waits:** each milestone is its own
+release, checked as the SPEC says before the next. **To close:** the
+milestones in order.
+
+M1's vectors do not reach four things a later milestone ports, so that
+milestone's checks have to:
+- **The tick inside a run** (M5): the heartbeat save, the in-run reply
+  poll and the quick ask-landed look are an `$onTick` closure built inside
+  [Invoke-ChatqJob](src/watcher.ps1). Only their constants are pinned
+  ([timers::HEARTBEAT_SECONDS](native/crates/chatq-core/src/timers.rs),
+  [timers::RUN_ASKING_POLL_SECONDS](native/crates/chatq-core/src/timers.rs)
+  and the two in [gates.rs](native/crates/chatq-core/src/gates.rs)), by
+  unit tests.
+- **A run's state back in PowerShell** (M5): the stream state chatqd will
+  hand the post-run step is rebuilt in PowerShell only in the vector
+  generator ([Test-NvStreamStateRebuild](tests/vectors/stream-state.ps1)).
+- **The respawn after `queue empty`** (M2): a watcher leaving an empty
+  queue starts another when a shell's alert opened the reply window just
+  as it let go of the lock ([Invoke-ChatqWatchLoop](src/watcher.ps1);
+  chatqd's exit does the same through
+  [spawn::respawn](native/crates/chatqd/src/watch/spawn.rs)). No timers
+  case reaches it - a stub that answers once per pass cannot be both shut
+  and open - so nothing checks the two engines agree there, short of a
+  harness stub that answers per call.
+- **Where polling got to** (M3): [wire::poll_batch](native/crates/chatq-core/src/wire.rs)
+  says what to save ([wire::Save](native/crates/chatq-core/src/wire.rs)),
+  but [replystate.rs](native/crates/chatq-core/src/replystate.rs) does not
+  write it yet: `lastId` and `lastPolledAt` under replies.lock, then the
+  junk tags marked handled.
+
+## The arrows' own binding after a second dot-source
+
+[Register-ChatKeyHandlers](src/shell.ps1) records what Up and Down were
+bound to before it binds them, so off a chat line they keep doing it.
+Run again in a shell that has the tool loaded - `. $PROFILE` a second
+time - it records its own handler, `ChatCycleOrHistory`, which names no
+PSReadLine function, and the arrows fall back to plain history: a binding
+of the user's own, `HistorySearchBackward` say, is gone until a new shell.
+As old as the arrows' handling; a lazy shell's second dot-source before
+the first use leaves the keys alone. **Why it waits:** found in the lazy
+load's review, never seen in use. **To close:** keep what was recorded
+when the bound function is the tool's own.
+
+## The overlay's heap climbs in steps
+
+With the heap left after each compaction in the overlay's log (0.10.13),
+one overlay on 2026-10-15 kept 101 MB of live objects at 17:40, 108 at
+18:05, 116 at 19:25 and 135 at 20:11, its private memory after the
+compaction going from 234 MB to 274; it then hit an
+`OutOfMemoryException` with the PC at 95% of its memory. The next one
+went from 103 MB at 20:50 to 119 at 21:30. The heap holds level for an
+hour at a time and then climbs 5 to 13 MB at once - more like something
+kept for each new thing, a chat, an agent's transcript or a card, than a
+slow leak. **Why it waits:** seen over one evening of many new chats and
+agents, not tied to a cause. **To close:** read the log over a quiet day
+against the chats that came and went; if it still climbs, take two full
+dumps hours apart and compare the types that grew.
+
+Since 0.10.15 the overlay restarts itself once a compaction leaves it at
+`overlay.restartMB` (300) or more and 50 MB over where the run settled
+([Update-ChatOverlayRestartDue](src/overlay-windows.ps1)): over 78 runs
+in the log the figure after a compaction was 260 MB in the middle, 292
+at the 90th and 322 at the most, the last long run sitting at 315 to 322
+with a 146 to 152 MB heap some 30 hours in. That bounds the climb; it
+does not explain it, and the restart costs the unread dots each time. So
+this stays open: the stop line's `a memory restart` in `overlay.log`
+says how often it bites.
+
+## What a restart takes from under the user
+
+Found in the review of 0.10.15's memory restart, never seen in use; each
+is as old as the restart on new code, now likelier at about once a day.
+A reset ask's phone alert still waiting for you to be away is kept only
+in memory (`Ctx.AskPhone`), so any restart drops it. The memory restart
+waits for [Test-ChatOverlayUnderWay](src/overlay-windows.ps1) but not for
+the pointer to leave the panel, so a hover card can vanish while it is
+read. And a leak or memory balloon on a later pass replaces an ask's
+balloon still up, after which a click no longer opens the console (the
+ask stays on the panel's banner and in the tray menu). **Why it waits:**
+none seen yet. **To close:** keep `AskPhone` in `overlay-state.json`; add
+`-not $H.PointerIn` to the memory branch of
+[Invoke-ChatOverlayTick](src/overlay-windows.ps1) with a life-test step;
+hold the newer balloon while an ask's shows, if `BalloonTipClosed` fires
+reliably on Windows 10 and 11.
+
+## A lazy shell's 19 MB over a bare one
+
+A lazy shell's load is 73.8 MB private, a bare Windows PowerShell with
+PSReadLine 54.9 (median of 5 after a full collection, 2026-10-15). Most of
+the 19 MB is thought to be `Microsoft.PowerShell.Utility`, loaded at
+profile time by the cmdlets the load still uses (`Set-Alias`,
+`ConvertFrom-Json`), but no part is measured on its own. **Why it waits:**
+the lazy load came first. **To close:** time and weigh each part of
+[Enter-ChatShell](src/shell.ps1) on its own; replace a module's cmdlet
+with a .NET call where one is the cost - but weigh it in a real VS Code
+terminal first, whose shell integration may load the same modules anyway.
+
+## A native watcher's launch on a Mac
+
+0.10.15's launch of a native watcher has a Mac branch that has never run:
+the `universal-apple-darwin` folder under `bin/<version>/`, the owner's
+exec bit [Get-ChatqWatcherEngine](src/watcher.ps1) asks for, which a VSIX
+does not keep, and the start through `nohup` in
+[Start-ChatqNativeProcess](src/watcher.ps1). No Mac build of chatqd
+exists yet. **Why it waits:** no Mac here (Tier 2). **To close:**
+[native/SPEC.md](native/SPEC.md) M0's Tier 2 - build, sign and run
+chatqd on a Mac - then [TESTING.md](TESTING.md)'s S55 there.
+
+## A wait days out keeps the machine awake
+
+[Invoke-ChatqWatchLoop](src/watcher.ps1) means to hold the machine awake
+only for a wait of 6 hours or less: its comment says a weekly limit days
+out should not keep a laptop from sleeping. But the test is on `$nextAt`,
+which starts 15 minutes out and is only ever moved sooner, so it is
+always true. While any job waits - on a five-hour reset, a weekly limit
+or a `-At` for Friday - Windows is told to stay awake
+([Set-ChatqKeepAwake](src/watcher.ps1)), and a Mac or Linux box runs
+`caffeinate` or `systemd-inhibit`. M1's timers vector pins every waiting
+pass as `awake on`, and chatqd's
+[timers::keep_awake](native/crates/chatq-core/src/timers.rs), checked
+against it, tests the same `$nextAt`. **Why it waits:** found while M1
+pinned the loop, and M1 changes no behaviour. **To close:** test the time the wait is for - the
+earliest [Get-ChatqDueTime](src/watcher.ps1) of the jobs waiting, or the
+soon alert's - not `$nextAt`, in the loop and in `timers::keep_awake`
+together; then make timers.json again under both editions, with a job due
+7 hours out that records `awake off`.
+
+## One bad value stops a whole file's reader
+
+Three readers throw at one value they cannot convert, and so stop far
+more than that value's own work. chatq writes good values, so only a
+hand-edited or damaged file does this, as with the held alert above
+("The simplification review: what it left out"). M1's vectors pin each as
+it is, and chatqd follows in the first two.
+- **data/replies.json.** [Get-ChatqReplyState](src/phone.ps1) casts an
+  alert's `uses` and `seq` with `[int]`, even in an alert long expired,
+  and [Read-ChatqBoardState](src/phone-down.ps1) the down channel's
+  counts. One that is not a number throws, and so does every
+  [Use-ChatqReplyState](src/phone.ps1) after it: replies, pairing and the
+  phone board stop until the file is mended by hand (reply-state cases
+  `a use count no number`, `a seq past Int32`, `down counts no number`).
+- **A job with no `promptFile`.** [Get-ChatqPromptPath](src/queue.ps1) then
+  names the queue folder, `ReadAllText` throws on it, and
+  [Write-ChatqBoard](src/alerts.ps1)'s empty catch writes no board at
+  all: queue.md stays as it was for every job, not only that one
+  ([board::text](native/crates/chatq-core/src/board.rs) gives None the
+  same way).
+- **An outage's `attempts` in state.json after a handoff.**
+  [Restore-ChatqWatchState](src/watcher.ps1)'s `[int]` throws and ends the
+  new watcher; its finally saves the state with the handoff off, so the
+  watcher after it starts cold. Queued jobs wait for that next start.
+  chatqd keeps 0 instead ([WatchState::restore_in](native/crates/chatq-core/src/state.rs)).
+
+**Why it waits:** each fix decides what such a value reads as, and chatqd
+has to change with it. **To close:** read each as its neighbours are read
+when absent - a count that is no number as 0, a job with no prompt file
+as an empty prompt - and make reply-state.json, board.json and
+state.json again under both editions.
+
+## alerts.log never rolls
+
+[Send-ChatqAlert](src/alerts.ps1) appends every alert to
+data/logs/alerts.log with no size check, where watcher.log, jobs.log and
+the rest roll to `.1` past 1 MB ([Add-ChatqLogLine](src/queue.ps1)). It
+was 181 KB on this PC on 2026-10-16, so it grows slowly, but without end.
+chatqd's [log::add_alert_line](native/crates/chatq-core/src/log.rs) does
+the same. **Why it waits:** found while M1 pinned the logs. **To close:**
+roll it as Add-ChatqLogLine does, in both, with a log.json case past 1 MB.
+The tool never reads the file back - the held summary only names it - so
+a roll loses nothing it uses.
+
+## What only a probe pinned
+
+Some PowerShell behaviour chatqd follows cannot be a vector, so a unit
+test pins it from a probe run once, on this PC, in October 2026. Nothing
+asks PowerShell again, so a new pwsh or a Windows update that changes one
+goes unseen.
+- **Answers a vector file cannot carry.** 5.1 reads a vector file back with
+  its own ConvertFrom-Json, which stops at 102 levels and drops or refuses
+  `__type`; the pwsh 7 side reads it into `[ordered]`, which refuses two
+  names that differ only by case under its own fold (µ and Μ, ς and Σ);
+  and numbers past a long never read back the same in both. So the depth
+  limits, those name pairs, `__type`, twenty-digit numbers and pwsh 7's
+  `new Date(...)` are unit tests in [json.rs](native/crates/chatq-core/src/json.rs)
+  (`nesting_as_deep_as_each_convertfrom_json_reads`,
+  `keys_twin_by_case_as_each_edition_folds`, `a_type_hint_is_5_1s_alone`,
+  `twenty_digits_are_a_big_integer_in_pwsh_7`,
+  `a_constructor_is_refused_a_known_divergence`), and SecureString's
+  65,536-unit limit one in [secret.rs](native/crates/chatq-core/src/secret.rs)
+  (`plaintext_is_utf16le_within_securestring_limits`): its hex is past
+  the command line's 32,767 characters.
+
+The tables scanned from one PC - wire/collation.rs, runenv.rs's keep
+lists - are a deferral of their own: DEFERRED.md, "Unicode tables scanned
+on one PC".
+
+**Why it waits:** M1 needed the answers, not the means to ask again.
+**To close:** read the pwsh 7 side's answers with an ordinal dictionary,
+so the name pairs can be vectors; and check in a probe script that asks
+each of the rest under both editions and compares with what the unit
+tests hold, run in CI's PowerShell legs.
