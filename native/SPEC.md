@@ -1,6 +1,6 @@
 # chatqd: the native watcher (SPEC)
 
-Status: revision 2, with M0 corrections found while reading the PS sources for M0 (2026-10-15; listed in §8 "M0 corrections"). Revision 2 answers both critiques. Each gap is either fixed in the section it belongs to, or explained in §8 under "Review items not taken as proposed". M0 and M1 are built, in ChatVersion `0.10.15`, and M2 in `0.10.16` (§7): where a section names a module, it says what that module does; the rest is the plan for M3 on. Revision 3 (2026-10-18) writes M2's step contract into §2.4, §3.6, §4.4, §4.5, §6.5 and §8, with your six decisions of 2026-10-18 (§8 "M2 contract notes").
+Status: revision 2, with M0 corrections found while reading the PS sources for M0 (2026-10-15; listed in §8 "M0 corrections"). Revision 2 answers both critiques. Each gap is either fixed in the section it belongs to, or explained in §8 under "Review items not taken as proposed". M0 and M1 are built, in ChatVersion `0.10.15`, and M2 in `0.10.16` (§7): where a section names a module, it says what that module does; the rest is the plan for M3 on. Revision 3 (2026-10-18) writes M2's step contract into §2.4, §3.6, §4.4, §4.5, §6.5 and §8, with your six decisions of 2026-10-18 (§8 "M2 contract notes"). Revision 4 (2026-10-20) adds the M9 spike's findings and memory (§8 "The M9 spike"); M9 itself stays outside this SPEC (§7).
 Owner folder: `native/` (new, top level). Binary: `chatqd` (`chatqd.exe` on Windows).
 
 The name `chatqd` follows the `chatq*` command family and the Unix habit of naming a daemon with a `d`. It is one multicall binary: `chatqd watch` now, and later `chatqd ask-hook` and `chatqd permit` (milestone M8). That means one file to sign, one hash for antivirus reputation, and one download per platform.
@@ -11,7 +11,7 @@ The name `chatqd` follows the `chatq*` command family and the Unix habit of nami
 
 Replace the hidden PowerShell watcher ([Invoke-ChatqWatchLoop](src/watcher.ps1)) with a native process. No other process should be able to tell the difference. That covers every shell, the overlay, the extension, the phone page, the CLIs and the self-test.
 
-Why: memory. The watcher loads 23 parts and sits at about **104 MB private** in steady state. That figure is from the loader's own measurement in [Charlie-and-the-chat-factory.ps1](Charlie-and-the-chat-factory.ps1). Windows PowerShell alone is about 52 MB (DEFERRED.md "A lighter launcher for the ask hook"). The watcher lives for hours: it waits on limits, and with `reply.listen always` it listens all the time. Idle memory is the payoff.
+Why: memory. The watcher loads 23 parts and sits at about **104 MB private** in steady state. That figure is from the loader's own measurement in [Charlie-and-the-chat-factory.ps1](Charlie-and-the-chat-factory.ps1); a running watcher measured 150 to 225 MB private over a day on 2026-10-19 (§3.3). Windows PowerShell alone is about 52 MB (DEFERRED.md "A lighter launcher for the ask hook"). The watcher lives for hours: it waits on limits, and with `reply.listen always` it listens all the time. Idle memory is the payoff.
 
 **The rule.** The shell commands stay PowerShell. So every file in `data/`, every environment variable, every lock and every format below is a **contract**, and both engines obey it at the same time. Anything chatqd cannot yet do goes to PowerShell in one of two ways:
 
@@ -629,7 +629,7 @@ The work is one child process at a time, one HTTP request at a time and a 2 s po
 | M6 after a toast | ≤ 8 MB | ≤ 12 MB |
 | During a run, chatqd alone | ≤ 16 MB plus queued lines | ≤ 20 MB |
 
-Today's figure is 104 MB. Each milestone's Tier 1 check records the real numbers in TESTING.md, and a miss is a finding, not a silent re-target.
+Today's figure, measured over a day on this PC (2026-10-19/20): a running PowerShell watcher is 150 to 225 MB private from its first minute, 174.5 on average while it runs (179 MB working set), 158.5 on 0.10.17 and 0.10.18. §0's 104 MB is the loader's own measurement, not a running watcher's. A watcher that lives under about 40 minutes is never trimmed, so its working set sits some 20 MB above private; one that lives a day is trimmed to about 55. With `reply.hours` 0.5 it ran 58% of the day: 103 MB private averaged over it. The M0 row holds: chatqd waiting under the `hold` seam measured 1.1 to 1.8 MB private, 5.2 to 7.1 working set, in 8 test samples. The M3 row is not measured yet. Each milestone's Tier 1 check records the real numbers in TESTING.md, and a miss is a finding, not a silent re-target.
 
 **How it is met.**
 
@@ -1570,7 +1570,7 @@ As §5, with its own SPEC. This includes the liveness predicate change and the b
 
 ### M9: Overlay
 
-Out of this SPEC's scope.
+Out of this SPEC's scope. Its spike ran 2026-10-20 (TESTING.md S58); what it found that binds M9's design is in §8 "The M9 spike".
 
 ---
 
@@ -1591,7 +1591,7 @@ Out of this SPEC's scope.
    - the three carriers and the audit with type round-trips (§3.6);
    - every candidate batch going whole to one step (§3.7);
    - the file-backed nonces and `lastId` in `replies.json`.
-5. **Step latency and transient memory.** About 0.4 s and 100 MB per step; heavy on a PC already short of memory. Bounded by the gates, so no step runs on a pass where PS would have done nothing. Measured at M2 and M5, with per-hour step counts recorded in TESTING.md.
+5. **Step latency and transient memory.** About 0.4 s and 85 to 211 MB private per step (median 140, 9 test samples, 2026-10-19); heavy on a PC already short of memory. Bounded by the gates, so no step runs on a pass where PS would have done nothing. Measured at M2 and M5, with per-hour step counts recorded in TESTING.md.
 6. **Orphan semantics.** They depend on steps killing themselves when chatqd dies. The parent check compares pid and start time on both OSes (§3.6), and the `-Existing` writes never resurrect. Residual: up to one tick (5 s) of a step's work after chatqd died, which is no worse than a PS watcher killed mid-write.
 7. **Image name and parent change.** Task Manager shows `chatqd`. A run's CLI parent becomes chatqd (M5) or `powershell` (a step, M2–M4). §5.6's audit makes "nothing keys on the watcher's image" a test, not an assertion. User scripts outside the repo that key on it would see a difference.
 8. **Two engines drift.** Every behaviour change must land in both, plus vectors, until the PS watcher is retired. Drift is held down by the vector regeneration check, the contract harness, and the decision to keep policy (retry rules, outcome classification, reply acting, the board while listening) in shared PS functions both engines call. The cost is real.
@@ -1671,6 +1671,41 @@ Open, for review:
 - **A `soon` step that keeps failing runs every pass** until the reset is past, since neither engine records a failed soon attempt. It needs a step that does not start or dies inside [Send-ChatqUsageSoon](src/phone-extras.ps1), which never throws. Recording it as sent would lose the alert; leaving it costs one step a pass while it lasts (FUTURE_WORK.md "A heads-up step that keeps failing").
 - **chatqd does not honour the `clock` seam in M2.** Its gates run on the real clock while a step's [Get-ChatqNow](src/phone-extras.ps1) follows the seam. A harness case that moves the clock into or out of quiet hours can see chatqd skip a `held` step the PS watcher would run. Such cases set no `clock` in M2.
 
+### Memory, measured (2026-10-19/20)
+
+One day on this PC, live processes told from tests by the logs' start and stop lines.
+
+- **No job ran.** Every minute the watcher ran, it listened: each live alert from the overlay opens the reply window ([Send-ChatqAlert](src/alerts.ps1), [Open-ChatqReplyWindow](src/phone.ps1)) and starts a watcher. With `reply.hours` 0.5 it ran 58% of the day. M2 would have saved nothing.
+- **M3** would save about 98 MB private averaged over the day, about 166 while a watcher runs, if listening meets §3.3's 8 MB.
+- **The overlay** ran all day at 271 MB private. M9 at an 80 MB gate would save about 191, about twice M3; the spike held 6.8 (below). Its memory restart ([Update-ChatOverlayRestartDue](src/overlay-windows.ps1)) was never due: no run drifted more than 12 MB past where it settled.
+- **Without a port,** `reply.on` false ([Test-ChatqReplyOpen](src/phone.ps1)) or `liveAlerts` false ([Test-ChatqLiveAlertsOn](src/phone.ps1)) takes the watcher off such a day: the same saving as M3. The first loses everything from the phone; the second the live alerts themselves. Not taken: replies to live alerts stay (8 of the 12 replies in the 26 days before).
+- **Stop rule.** Time-weighted private MB of the live overlay and watcher over a 24 h log, 374 that day. The watcher port stops for memory below 50; M9 goes at 80 or less after an hour of its spike and stops above 150; memory work stops at 100 or when every item left projects under 50 a day. A day with queued jobs is measured before M4 and M5 are ruled out for memory.
+- **The M9 spike** (2026-10-20, TESTING.md S58): one Slint process with the five windows, the tray, the hotkey, the content read live and a stand-in for the collector's reads held 6.8 MB private at its highest over minutes 45-60 by its own sampler (median 6.5; memlog's minute samples 6.6, median 6.5), a slope of -0.01 MB/h over minutes 30-60, a start peak of 6.3, handles flat (32 GDI, 34 USER, 256 from minute 5) and CPU 0.055% of the machine by process times (65.2 M cycles a second, not yet "The overlay's own cost"'s measure); the UI alone held 5.0 MB, and the live overlay 314 beside it. With §3.3's 8 MB for TLS and the steps M9 would start (2.5 live-alert senders an hour, from the measured day's 53 in 21.25 h, times risk 5's 85 to 211 MB, times about 5 s each, as that day's measured senders lasted: 0.3 to 0.7), the projected overlay is 15.1 to 15.5 MB; at risk 5's 0.4 s a step it would be 14.8 to 14.9. By the stop rule: go on Windows for memory (6.8 at or under 80, the slope under 2 MB/h); the behaviours held, bar six left to the hand, the chord held down among them (TESTING.md "Still to check by hand"); a Tier 2 Mac check comes before M9 builds past Windows. The spike has no collector, so the 191 holds only once the collector moves.
+
+### The M9 spike (2026-10-20)
+
+What TESTING.md S58 found that binds M9's design on Windows, each in the spike's code under `native/spikes/overlay/` (in your working tree only, not committed). None is a stop.
+
+- **Five windows move in one batch, sized through Slint.** Following the panel from `WM_WINDOWPOSCHANGED` showed the windows a frame apart in one of five traced moves, in two of ten runs, and the batch never did, so all five move in one DeferWindowPos batch with SWP_NOSIZE (`win32::move_together`). Sizes go through Slint as logical sizes, rounded as Slint rounds (`Glue::replace`, `Glue::px` in glue.rs). A batch that sized a window before Slint knew its new scale panicked Slint's software renderer.
+- **A scale change is the port's to place.** winit resizes each window alone, from its current physical size, so rounding compounds; Slint only takes the scale. `WM_DPICHANGED` reached a window only when it was next moved or sized, up to 8 s apart (the cause not proven), so the port re-places all five on a change and sizes them again once each has its scale.
+- **winit rewrites the extended style on every show.** A `WM_STYLECHANGING` subclass holds it (`win32::make_overlay`), set while the window is hidden (`show_no_activate` in main.rs); not activating, no taskbar entry and no drag and drop are set through winit's attributes (`unstable-winit-030`, in `main`).
+- **Click-through is winit's hit test and a window per strip.** `set_cursor_hittest` (TRANSPARENT and LAYERED) on the panel and one no-activate window per strip (`mouse::set_lock`); alpha-0 pixels, HTTRANSPARENT, SetWindowRgn and WS_EX_TRANSPARENT alone (`win32::set_click_through`) each failed.
+- **A layered window needs its attributes.** `set_cursor_hittest` makes WS_EX_LAYERED with no SetLayeredWindowAttributes, so the window never draws until `win32::layered_opaque` sets them.
+- **A shown window is cloaked until it paints.** A layered card shows its last picture while the UI thread is busy; DWMWA_CLOAK until the next `WM_PAINT` (`win32::cloak_until_painted`) shows no stale frame.
+- **Han text needs a fallback list.** Slint's default, Yu Gothic, draws simplified Chinese as nothing, silently; `han_fallbacks` in main.rs sets a list through fontique (`unstable-fontique-011`).
+- **Fonts are mapped, not private.** Malgun, the two Microsoft CJK faces, Yu Gothic and Segoe UI Emoji map about 12 to 20 MB each, with 16 MB of font cache: working set, not the private figure the gate counts.
+- **opengl32 in the module list is the PC's.** The MarkAny filter on this PC (`imgsf50filter_x64.dll`) injects opengl32, glu32 and dxcore into every GUI process, so a check for a GPU path reads the exe's own imports, not the module list.
+- **The tray runs on the UI thread.** Every tray-icon, muda and global-hotkey event is heard where the crate hears it and handed to Slint's loop with `invoke_from_event_loop`; no loop or poll of the port's own. global-hotkey sends a release from a thread it starts for each press, which by its source polls the key every 50 ms. The menu takes the foreground, and after each close it stayed the spike's for up to 40 s in the 10 s samples; whether the WPF overlay keeps it the same way was not looked at.
+- **The balloon needs tray-icon forked or patched.** Its NIF_INFO goes on tray-icon's own window under a uID the crate keeps private, found in the spike by Shell_NotifyIconGetRect (`tray::find_uid`). A git source fails §3.4's "crates.io only", so the change is a `[patch]` to a vendored path crate or a fix upstream (DEFERRED.md "tray-icon's private balloon id").
+- **The tooltip is cut at 127 units.** At 128 Windows loses the NUL silently; `gate::tray::cut_tip` keeps 126 and an ellipsis, never splitting a surrogate pair. muda has no bold item and no item tooltips.
+- **muda's ids are new on every rebuild.** A handler matches the id the last build gave, never one kept from before.
+- **The menu's modal loop stops Slint's timers.** Gaps of 1.2 to 6.3 s, the menu's time open; the port needs a SetTimer/`WM_TIMER` tick that runs inside the menu's loop, or accepts a card frozen while the menu is open (FUTURE_WORK.md "Slint's timers while the tray menu is open").
+- **The pointer can be unreadable.** GetCursorPos fails while the input desktop is another's, the lock screen's say; `win32::cursor_now` gives none and the poll skips that read.
+- **The close toast covers the topmost windows.** Windows' own toast drew over the spike's topmost status window at the screen's foot, where the panel's home is (FUTURE_WORK.md "The toast over the panel's corner").
+- **Slint's preferred height ignores `for` rows before the first show.** The card read 61 px, one line, for six before it first showed; the spike takes the wanted rects after each show (`glue::show_next`).
+- **One size read uses Slint's private API.** `Glue::item_size` reads an item's size through `slint::private_unstable_api`, which can change in any Slint release (DEFERRED.md "Slint's private API in the spike").
+- **Licences.** Slint is taken under Royalty-free 2.0, with the Slint badge in the README when M9 ships; the overlay's graph adds BSL-1.0, ISC and BSD-2-Clause, outside §3.4's allow-list, which M9's own `deny.toml` would have to name.
+
 ### Open questions for you
 
 1. **Name and folder.** Decided 2026-10-15: `chatqd` in `native/`, binaries at `R/bin/<version>/<target>/`, beside `data/`, since they are shipped code, not runtime data.
@@ -1687,6 +1722,6 @@ Open, for review:
 
 ### Decided beyond this SPEC (2026-10-15)
 
-- **Order of the whole port:** lazy profile (PS) and the overlay's heap log first, then this watcher, then the M8 stubs, then the overlay (M9).
-- **M9 overlay:** one cross-platform Rust UI (candidate: Slint's software renderer, with `tray-icon` and `global-hotkey`), platform modules only where a window behaviour needs one. A spike checks the overlay's must-have window behaviours first; no GPU-rendered toolkit, no WebView.
+- **Order of the whole port:** lazy profile (PS) and the overlay's heap log first, then this watcher, then the M8 stubs, then the overlay (M9). **Changed 2026-10-20**, from the measured day (§8 "Memory, measured"): after M2, the M9 spike comes next, then M3; replies to live alerts stay, so M3 is what takes the watcher off a day of them. The spike ran the same day (§8 "The M9 spike"), so M3 is next.
+- **M9 overlay:** one cross-platform Rust UI (Slint's software renderer on winit, Slint 1.18.1 under its Royalty-free 2.0 licence, with `tray-icon` and `global-hotkey`), platform modules only where a window behaviour needs one; no GPU-rendered toolkit, no WebView. **Spiked 2026-10-20** (TESTING.md S58): the must-have window behaviours it checked held on Windows, six left to the hand (TESTING.md "Still to check by hand"), with the design consequences in §8 "The M9 spike"; memory: go on Windows, 6.8 MB at the gate. A Windows go does not settle "one cross-platform UI": a Tier 2 Mac check comes before M9 builds past Windows (DEFERRED.md "The M9 spike on a Mac").
 - **Shell commands stay PowerShell.** Porting them too is future work, not planned.

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.10.20 — A reload ask is a quiet note
+
+- **A reload ask is a quiet note at the panel's foot, gone in 30 s.**
+  A VS Code window's reload question is no longer a yellow warning up
+  with the usage: its marker is dim, an `i` in a ring, under the rows
+  where the said marker goes, and its card no longer leads in yellow.
+  Unanswered, it leaves the overlay 30 s after it came - the notice is
+  still in VS Code's notification centre - as **later** would. Its
+  **reload** and **later** come up on the panel, just past the marker,
+  where they hung out past the panel's side.
+
 ## 0.10.19 — The bin on the tile
 
 - **Delete is on the tile, always.** Every chat's tile, and a Recent

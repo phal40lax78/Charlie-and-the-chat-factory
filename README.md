@@ -1810,9 +1810,9 @@ Windows no wider than a chat's tile, about 150 units:
   on it and its card comes up beside the panel, as a chat's does, with a
   word in its colour - **MEMORY**, **LEAK**, **WATCHER**, **NEXT**,
   **ERROR**, **CONTINUE?**, **RELOAD?**, **OPENING**, **UNLOCKED** - and
-  the words in full, kept up as they change. The notes and the two asks
-  sit in the header, under the usage gauges; what the chip said and the
-  unlocked hint at the foot, under every row. Folded to one line, the
+  the words in full, kept up as they change. The notes and the limit's
+  ask sit in the header, under the usage gauges; a reload's ask, what
+  the chip said and the unlocked hint at the foot, under every row. Folded to one line, the
   header's markers are drawn under it, a rest away still. `charlie
   -Print` and the macOS panel keep their lines of words.
 - **The ask, once the limit is over:** a marker at the foot of the header,
@@ -2761,13 +2761,16 @@ warning did not name that is working by then is asked about first.
 **A reload asked for shows on the overlay too.** VS Code's notice slides
 into the notification centre after a few seconds, easy to miss. So while
 any of chatq's reload questions is unanswered in a window, the overlay
-(Windows) has a marker under its usage, its card saying **RELOAD?** and
+(Windows) has a dim marker at its foot, under the rows, its card saying **RELOAD?** and
 *projA needs a reload - "Old chat" deleted - the chat list still shows
-it*, then the notice's own words, which its tooltip has too. Rest on it and the chip offers
+it*, then the notice's own words, which its tooltip has too. Rest on it and the chip offers,
+on the panel beside the marker,
 **reload** - **reload anyway** where the notice's button is that - which
 is the notice's button, clicked, with the same checks; and **later**,
 which takes it off the overlay and leaves the notice to answer in VS
-Code. The window reads the answer within 2 s. VS Code cannot take a
+Code. The window reads the answer within 2 s. Left unanswered, the
+marker goes by itself 30 s after it came, as **later** would, the
+notice still waiting in VS Code. VS Code cannot take a
 notice down, so one answered from the overlay stays up; its button still
 does what it says. Answered in VS Code, the
 marker goes at the next look. Collapsed, the panel counts it (`1 reload

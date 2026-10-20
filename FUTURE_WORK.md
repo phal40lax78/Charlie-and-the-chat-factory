@@ -861,22 +861,29 @@ engine's choice and the fuse, with the PowerShell watcher taking over
 every pass that has work. M1 is `chatq-core`, the contract both engines
 share, and 19 more vector files, made by the PowerShell side and checked
 by a Rust runner under both editions. Made to wait under its test seam,
-M0 measured 1.1 MB private where the PowerShell watcher sits at about
-104. 0.10.16 has M2: chatqd runs the loop itself, each piece of
-PowerShell work a short-lived step, and hands over to a PowerShell
-watcher only while the phone's reply window is open - with replies on,
-after nearly every pick, so the gain shows mainly with replies off until
-M3. What it saves on a real night is TESTING.md's S57, not yet run.
-After it: M3 listening - where
-`reply.listen always` stops costing a PowerShell all day - M4 the lane
-gate, M5 runs, M6 alerts, M7 the rest and native by default; M8 the
-question hook and the permission bridge as small native programs
-(DEFERRED.md, "A lighter launcher for the ask hook"); M9 the overlay, one
-Rust window for Windows and macOS, after a spike of its window
-behaviours. The commands a shell runs stay PowerShell: a full port of
-them is not planned. **Why it waits:** each milestone is its own
-release, checked as the SPEC says before the next. **To close:** the
-milestones in order.
+M0 measured 1.1 MB private where a running PowerShell watcher sits at
+150 to 225 (native/SPEC.md 3.3). 0.10.16 has M2: chatqd runs the loop
+itself, each piece of PowerShell work a short-lived step, and hands over
+to a PowerShell watcher only while the phone's reply window is open -
+with replies on, after nearly every pick, so the gain shows mainly with
+replies off until M3. What it saves on a real night is TESTING.md's S57,
+not yet run. A day measured on 2026-10-19 with nothing queued puts M2
+at nothing - the watcher only listened, for the live alerts' reply
+windows - M3 at about 98 MB private averaged over the day, and M9 at its
+80 MB gate at about 191 (SPEC 8, "Memory, measured"). So since
+2026-10-20 the order is: the M9 spike, a check of the overlay's window
+behaviours in one Rust window, run on Windows that day (TESTING.md
+S58: 6.8 MB at its gate, a go on Windows), its Mac check still to come
+(DEFERRED.md, "The M9 spike on a Mac"); M3 listening - where replies
+to live alerts and `reply.listen always` stop costing a PowerShell -
+M4 the lane gate, M5 runs, M6 alerts, M7 the rest and native by
+default; M8 the question hook and the permission bridge as small
+native programs (DEFERRED.md, "A lighter launcher for the ask hook");
+M9 itself, on the spike's findings (SPEC 8, "The M9 spike"), if the
+stop rule says go. The commands a shell runs stay PowerShell: a full
+port of them is not planned. **Why it waits:** each milestone is its
+own release, checked as the SPEC says before the next. **To close:**
+the milestones in order.
 
 M1's vectors do not reach three things a later milestone ports, so that
 milestone's checks have to, and M2 leaves one replay to M3:
@@ -939,6 +946,12 @@ does not explain it, and the restart costs the unread dots each time. So
 this stays open: the stop line's `a memory restart` in `overlay.log`
 says how often it bites.
 
+On 2026-10-19 the restart was never due. From 30 minutes in, no run's
+figure after a compaction went more than 12 MB past where it settled;
+the run before that night's reboot settled at 278 and reached 324 about
+22 hours in, under its 328. But code-change restarts kept every run that
+day under 7.6 h, so the quiet day this asks for is still to be read.
+
 ## What a restart takes from under the user
 
 Found in the review of 0.10.15's memory restart, never seen in use; each
@@ -955,6 +968,46 @@ none seen yet. **To close:** keep `AskPhone` in `overlay-state.json`; add
 [Invoke-ChatOverlayTick](src/overlay-windows.ps1) with a life-test step;
 hold the newer balloon while an ask's shows, if `BalloonTipClosed` fires
 reliably on Windows 10 and 11.
+
+## What sets an overlay run's level
+
+A run settles within minutes of starting and then barely moves, but
+where it settles differs: 229 to 301 MB private across 2026-10-19's long
+runs, 221 to 293 among the 0.10.18 runs alone, 303 to 307 at the start
+of 0.10.19's. That spread is larger than anything a restart gives back
+(0 to 33 MB) or a compaction (median 0). **Why it waits:** found in the
+day's memory log; the logs don't say what differs at start. **To
+close:** log at start what [Start-ChatOverlayHost](src/overlay-windows.ps1)
+read - transcripts, rows, cards - beside the settled figure, over a
+week, and see what tracks it.
+
+## The panel stays wide after a scale change
+
+On 2026-10-20 the display went from 2560x1440 to 1920x1080 and the scale
+went 125%, 150%, then back to 100%, all while 0.10.19's overlay ran.
+Afterwards the panel was 460x422 px at 96 dpi; its normal width is
+[Get-ChatOverlayPanelWidth](src/overlay-windows.ps1)'s 162 units. The
+bar followed it (444 = 460 - 16, from
+[Set-ChatOverlayControlsPlacement](src/overlay-windows.ps1)), and so did
+the edges (468x430). The card kept its 337. Only a restart puts it back.
+The likely cause, not proven:
+[New-ChatOverlayWindow](src/overlay-windows.ps1) sets Width once, and
+nothing sets it again.
+SizeToContent=Height re-asserts the height, but no setting re-asserts
+the width. With per-monitor DPI scaling on, WPF writes the current
+pixel width over the current scale into Width on each resize. A resize
+mid-change can then store a wrong width, and each later change scales
+it again. The log has no scale or size lines to show the order.
+Moving, collapsing, a theme change and the console all keep the wrong
+width: [Exit-ChatOverlayConsoleMode](src/overlay-windows.ps1) puts
+back the width saved on entry. **Why it waits:** found while the M9
+spike's scale test ran, and the user chose to log it. **To close:**
+put Get-ChatOverlayPanelWidth back on the panel in the SizeChanged
+handler and in the tick's Set-ChatOverlayControlsPlacement, outside the
+console. Make the console's exit restore that width, not the saved one.
+Add a Tier 0 check that forces a wrong Width and expects all three back.
+Then do a Tier 1 run of 100, 125, 150 and back to 100% with the live
+overlay: expect panel width = 162 x dpi / 96 after each change.
 
 ## A lazy shell's 19 MB over a bare one
 
@@ -1101,3 +1154,91 @@ on one PC".
 so the name pairs can be vectors; and check in a probe script that asks
 each of the rest under both editions and compares with what the unit
 tests hold, run in CI's PowerShell legs.
+
+## Slint's timers while the tray menu is open
+
+In the M9 spike (TESTING.md S58), a right click opened tray-icon's menu
+on the UI thread, and Windows ran the menu's own modal loop there: no
+Slint timer fired until it closed. The three opens by hand left gaps of
+6,340, 2,119 and 1,151 ms, each the menu's time open. The overlay's
+tick is a timer, so on the port the panel, the chip and a card left up
+would freeze while the menu shows. The spike's gate already logs its
+hour from the sampler's own thread for this reason: its close runs on
+Slint timers, which a menu left open would hold until the watchdog
+ended the process (`gate::sample::spawn`). **Why it waits:** the spike
+only had to show where tray events land; the cure is M9's design. **To
+close:** a SetTimer on the panel's own window, whose `WM_TIMER` the
+menu's loop still sends, driving the tick while the menu is up; or a
+frozen card accepted, said in the SPEC. Then a hand run: the menu held
+open 10 s, the clock and a card going on.
+
+## The toast over the panel's corner
+
+The spike's toasts, captured 1 s after the first balloon and 0.5, 2 and
+3.5 s into the close one, drew over its topmost status window at the
+foot of the screen: 52,168 to 52,175 pixels changed in each capture
+over two runs, 14,752 or 14,753 of them outside that window
+(`tray::standin::watch_close`). A Windows toast sits above every
+topmost window, so on the port any toast or balloon - the close
+balloon, a memory warning, an ask - covers the panel while it shows, if
+the panel is at its home in the screen's bottom-right corner. Whether
+the WPF overlay is covered the same way today was not looked at. **Why
+it waits:** seen in the spike's captures, never on the live panel. **To
+close:** capture the live panel at its home while a balloon shows; if
+it is covered there too, leave it; if not, find what the WPF windows do
+that the spike's do not.
+
+## The spike's tray: what it left open
+
+Three tray findings in the M9 spike (TESTING.md S58) rest on less than
+a proof:
+- **GDI and USER objects at first use.** By hand, GDI went 10 to 19 and
+  USER 14 to 26 in steps - 7 and 9 at the first real balloon click, 2
+  and 3 more over the three menu opens and a hover - and stayed flat
+  between: read as a cost paid once, though the run's own verdict says
+  GROWS. The gate hour's 123 menu builds stayed at 32 GDI and 34 USER,
+  but it opened no menu and clicked no balloon after minute 5, so it
+  does not show that a hundred opens stay flat.
+- **The foreground after the menu.** After each close of the menu the
+  foreground stayed the spike's, in the 10 s samples for up to 40 s,
+  where the overlay's windows never take it. Whether the WPF overlay's
+  tray menu leaves it the same way was not looked at.
+- **No icon left after the close.** The close balloon's 4 s, then
+  NIM_DELETE, left no ghost dot in the hand run or the captures, but
+  nothing hovered the tray's corner after the exit, which is when
+  Explorer drops a dead icon.
+
+**Why it waits:** the spike's hour checked memory, not the tray's
+long-run cost. **To close:** in M9's tray, open the menu and click a
+balloon 100 times in a Tier 1 run, the handle counts logged; note which
+window is in front after each close of the menu, beside the WPF
+overlay's; and after the close, hover the tray's corner and count its
+icons.
+
+## When a window hears its scale change
+
+On the spike's first scale runs, `WM_DPICHANGED` reached each of the
+five windows only when it was next moved or sized, up to 8 s apart, not
+when the scale changed. The spike works round it by moving all five in
+one batch on a change, which brings every window's message inside that
+batch (TESTING.md S58, item 5). Why Windows waits is not proven; the
+spike logs the context of each message (`win32::on_screen_change`), and
+that log does not say. **Why it waits:** the work-round passed, so the
+cause no longer blocks M9. **To close:** a window of its own, never
+moved, logging when its `WM_DPICHANGED` comes after a scale change in
+Settings; if never, say so in the port's comment beside the batch.
+
+## The M9 spike's processor figure
+
+The spike reports its processor time as a share of the whole machine,
+from GetProcessTimes, beside its cycles a second
+(`gate::sample::summary`): 0.045% and 45.2 M cycles a second for the UI
+alone, 0.055% (31.8 s) and 65.2 M cycles a second over the gate hour.
+TESTING.md's "The overlay's own cost" puts the WPF overlay at 5.6% of
+one core by cycles over a busy second's cycles, a figure
+GetProcessTimes reads at a fraction of the truth for PowerShell. No
+busy second was timed beside the spike, so the two figures are not
+one measure. **Why it waits:** the gate is memory; the processor was
+for information. **To close:** time a busy second's cycles before and
+after a run of the spike, or of M9's first build, and give its cycles
+as a share of one core beside the overlay's 5.6%.

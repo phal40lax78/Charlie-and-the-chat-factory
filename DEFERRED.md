@@ -2873,3 +2873,132 @@ from chatqd on a Mac.
 **Revisit when:** When M5 brings native runs to macOS. **To close:** a
 Unix rule for `same_name` (ordinal) and `block` (the order .NET writes),
 with env.json answers made by pwsh on a Mac.
+
+## The M9 spike on a Mac
+
+**Scope:** The M9 spike (TESTING.md S58) ran on Windows alone. Its
+window behaviours rest on a Win32 module, `win32.rs` in
+`native/spikes/overlay/` - the style subclass, the hit strips, the
+batch move, the cloak - with no macOS counterpart written, so "one
+cross-platform UI" (native/SPEC.md 8, "Decided beyond this SPEC") is
+checked on Windows only.
+
+**Why deferred:** no Mac here (Tier 2), and the plan put the Windows
+go or stop first: a stop there would have made the Mac check moot.
+
+**Revisit when:** Before M9 builds past Windows, or when a Mac is to
+hand. **To close:** a Mac module for the same behaviours, then
+TESTING.md's S58 on a Mac, by the same memory gate.
+
+## The M9 spike's checks left to the hand
+
+**Scope:** Six of the spike's must-haves were met by a stand-in, or
+not at all, and never by a hand (TESTING.md "Still to check by hand",
+S58): the chord held down, logged by `tray::hotkey_event`, since Chrome
+Remote Desktop passed no press; a 128-unit tooltip, hovered only while
+127 were set; the bar and tile drags with all five windows shown
+(`gate::on_drag`); a real click on the locked panel's body, where
+WindowFromPoint stood in (`mouse::probe`); the slider kept past its
+end, driven by value (`gate::slide`); and the panel's text against the
+WPF panel by eye.
+
+**Why deferred:** each has a stand-in that passed, or a port decision
+that makes it moot - the tooltip is cut at 127 - and the gate is
+memory; the user's time at this PC went to the runs that could stop
+the plan.
+
+**Revisit when:** When M9 builds the real windows, before its own Tier
+1 run, or sooner if the user is at this PC with the spike built. **To
+close:** those six by hand, recorded under S58.
+
+## Slint's private API in the spike
+
+**Scope:** `Glue::item_size` (the spike's glue.rs) reads the window
+item's size through `slint::private_unstable_api` (`WindowInner`), as
+the software renderer reads it: an out property bound to the card's
+width said 337 while its item held more. Slint promises nothing for
+that API, and any release may change it.
+
+**Why deferred:** the spike needed the figure the renderer asserts on,
+to find why a scale change panicked; nothing public gave it, and the
+spike is thrown away.
+
+**Revisit when:** When M9 sizes its windows. **To close:** a public
+way to the same size - a property the item itself sets, or one Slint
+adds - or, if none, the Slint version pinned with a test that fails
+when the private call does.
+
+## tray-icon's private balloon id
+
+**Scope:** tray-icon 0.26.1 has no balloon. The spike sends NIF_INFO
+itself, on tray-icon's own window, under the icon's uID, which the
+crate keeps private; `tray::find_uid` finds it by asking
+Shell_NotifyIconGetRect for each id from 1 to 16. The gate's
+`gate::tray::balloon` does the same.
+
+**Why deferred:** enough to show the balloon and its click work on
+Slint's loop (both did); the real fix is a change to a crate, which
+native/SPEC.md 3.4 allows only from crates.io.
+
+**Revisit when:** When M9 builds its tray. **To close:** the uID, or a
+balloon call, exposed by tray-icon - upstream, or a `[patch]` to a
+vendored path crate under `native/` - and find_uid's search removed.
+
+## The tray menu's bold item and tooltips
+
+**Scope:** muda, under tray-icon, draws no bold default item and no
+item tooltips, so the spike's menu (`gate::tray::rebuild`) has
+neither, where the WPF overlay's tray menu has both.
+
+**Why deferred:** the plan counted both as not a stop; the menu works
+without them.
+
+**Revisit when:** If M9's menu is missed without them. **To close:** a
+bold item through SetMenuDefaultItem on muda's menu handle, or a menu
+of the port's own; tooltips only with owner-drawn items.
+
+## The foreground grant from the overlay
+
+**Scope:** The plan's optional probe - AllowSetForegroundWindow and
+SetForegroundWindow on a Notepad window, from the spike's
+non-activating process - was not run, so whether a click on the port's
+panel can bring another window to the front is not known
+(`mouse::start` has step 2's checks; none tries it).
+
+**Why deferred:** it changes which window is in front, the plan
+counted a failure as a finding and not a stop, and no step needed it.
+
+**Revisit when:** When M9 ports a click that brings a window forward,
+a chat's tile opening its VS Code window say (FUTURE_WORK.md, "A chat's
+title clicked while VS Code is in front"). **To close:** the probe,
+with the user's go-ahead, on a Notepad they open.
+
+## A second screen for the spike
+
+**Scope:** The spike's scale test (`glue::scale_phase`) changed this
+one monitor's scale in Settings, standing in for a second screen. A
+real second monitor at another scale, a window dragged across, and a
+screen unplugged (TESTING.md S23, item 11) were not tried.
+
+**Why deferred:** one monitor here; the scale change brings the same
+`WM_DPICHANGED` and re-place the port must handle.
+
+**Revisit when:** When a second monitor is on this PC, or M9's own
+Tier 1 run. **To close:** the five windows dragged to a screen at
+another scale and back, 0 px error, and an unplug that brings the
+panel back on the screen left.
+
+## The collector left to M9 proper
+
+**Scope:** The spike carries no collector: `gate::readload::spawn`
+stands in for its resident reads, and nothing compares what it would
+show with the WPF overlay's. The console, the command file, the lock,
+state writes, TLS and the PowerShell steps are left out too, so the
+spike's figure is the UI and its resident duties, not the overlay.
+
+**Why deferred:** the spike's question was whether the UI fits the
+memory gate; the collector's port, and its parity, is M9 itself.
+
+**Revisit when:** When M9 starts. **To close:** the projected figure
+(TESTING.md S58, 15.1 to 15.5 MB) measured again with the real
+collector, against the 191 MB a day native/SPEC.md 8 counts on.

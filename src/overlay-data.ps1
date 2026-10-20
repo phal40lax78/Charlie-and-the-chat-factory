@@ -2658,8 +2658,9 @@ function New-ChatOverlayContext {
         AutoQueued = [System.Collections.Generic.List[object]]::new()
         # the reloads VS Code windows ask about (Read-ChatReloadPending), read
         # every 2 s; ReloadAnswered: "<pid>:<id>" answered here, and when, left
-        # out until the window has taken the answer
-        Reloads = @(); ReloadsAt = $never; ReloadAnswered = @{}
+        # out until the window has taken the answer; ReloadSeen: "<pid>:<id>"
+        # and when a pass first had it, left out 30 s on
+        Reloads = @(); ReloadsAt = $never; ReloadAnswered = @{}; ReloadSeen = @{}
         # the code on disk as the host started (Get-ChatOverlayCodeStamp) -
         # noted by the Windows and macOS hosts alone - when it was last looked
         # at, and a change seen, not yet held still (Test-ChatOverlayCodeChanged)
@@ -3038,14 +3039,21 @@ function Invoke-ChatOverlayCycle {
         }
     }
     # a reload a window asks about: its notice slides away in seconds, so the
-    # overlay says it too, until it is answered there or here
+    # overlay says it too, until it is answered there or here - or for 30 s,
+    # the notice still in VS Code's notification centre after that
     if ($Ctx.ReloadAnswered -isnot [hashtable]) { $Ctx.ReloadAnswered = @{} }
+    if ($Ctx.ReloadSeen -isnot [hashtable]) { $Ctx.ReloadSeen = @{} }
     if ($Ctx.ReloadsAt -isnot [datetime] -or ($now - $Ctx.ReloadsAt).TotalSeconds -ge 2 -or $Ctx.ReloadsAt -gt $now) {
         $Ctx.ReloadsAt = $now
         try { $Ctx.Reloads = @(Read-ChatReloadPending) } catch { $Ctx.Reloads = @(); Write-ChatOverlayLog "reload-pending: $($_.Exception.Message)" }
     }
     foreach ($k in @($Ctx.ReloadAnswered.Keys)) { if (($now - $Ctx.ReloadAnswered[$k]).TotalSeconds -ge 30) { $Ctx.ReloadAnswered.Remove($k) } }
-    $reloads = @($Ctx.Reloads | Where-Object { $_ -and -not $Ctx.ReloadAnswered.ContainsKey("$($_.pid):$($_.id)") })
+    # an ask the window no longer has is forgotten, so its seen time goes too
+    $asked = @($Ctx.Reloads | Where-Object { $_ } | ForEach-Object { "$($_.pid):$($_.id)" })
+    foreach ($k in @($Ctx.ReloadSeen.Keys)) { if ($k -notin $asked) { $Ctx.ReloadSeen.Remove($k) } }
+    foreach ($k in $asked) { if (-not $Ctx.ReloadSeen.ContainsKey($k) -or $Ctx.ReloadSeen[$k] -gt $now) { $Ctx.ReloadSeen[$k] = $now } }
+    $reloads = @($Ctx.Reloads | Where-Object { $_ -and -not $Ctx.ReloadAnswered.ContainsKey("$($_.pid):$($_.id)") -and
+            ($now - $Ctx.ReloadSeen["$($_.pid):$($_.id)"]).TotalSeconds -lt 30 })
     # Windows' memory running short: a note here, news for the host's tray -
     # the hosts' passes alone, so -Print compiles no type for it
     # - and a program growing fast, looked at first: memory's top programs

@@ -74,6 +74,25 @@ $ctxR.ReloadAnswered["${PID}:$PID-2-b"] = (Get-Date).AddSeconds(-31)
 $snapR3 = Invoke-ChatOverlayCycle $ctxR -Peek
 Check 'answered here, it is left out for 30 s - then shown again, the window never having taken it' (@($snapR2.header.reload).Count -eq 0 -and
     @($snapR3.header.reload).Count -eq 1 -and -not $ctxR.ReloadAnswered.Count) "$(@($snapR2.header.reload).Count) $(@($snapR3.header.reload).Count)"
+# unanswered, it goes by itself 30 s after a pass first had it; a newer
+# ask in the window is another, shown its own 30 s
+$seenR = $ctxR.ReloadSeen["${PID}:$PID-2-b"]
+$ctxR.ReloadSeen["${PID}:$PID-2-b"] = (Get-Date).AddSeconds(-29)
+$snapR4 = Invoke-ChatOverlayCycle $ctxR -Peek
+$ctxR.ReloadSeen["${PID}:$PID-2-b"] = (Get-Date).AddSeconds(-31)
+$snapR5 = Invoke-ChatOverlayCycle $ctxR -Peek
+$ctxR.ReloadSeen['1:gone'] = (Get-Date).AddSeconds(-5)
+$askC = [ordered]@{ id = "$PID-3-c"; state = 'offered'; say = 'x'; text = 't'; at = 3 }
+Write-RpFile $PID $meStart @($askA, $askB, $askC)
+$ctxR.ReloadsAt = [datetime]::MinValue
+$snapR6 = Invoke-ChatOverlayCycle $ctxR -Peek
+Check 'unanswered, a reload ask leaves the overlay 30 s after it was first seen; a newer one shows; a gone one''s time is dropped' ($seenR -is [datetime] -and
+    @($snapR4.header.reload).Count -eq 1 -and @($snapR5.header.reload).Count -eq 0 -and
+    @($snapR6.header.reload).Count -eq 1 -and @($snapR6.header.reload)[0].id -eq "$PID-3-c" -and -not $ctxR.ReloadSeen.ContainsKey('1:gone') -and
+    -not $ctxR.ReloadSeen.ContainsKey("${PID}:$PID-2-b")) "$(@($snapR4.header.reload).Count) $(@($snapR5.header.reload).Count) $(@($snapR6.header.reload).Count) $($ctxR.ReloadSeen.Keys -join ',')"
+Write-RpFile $PID $meStart @($askA, $askB)
+$ctxR.ReloadsAt = [datetime]::MinValue
+$ctxR.ReloadSeen.Clear()
 Check 'the reload file is read every 2 s, not every pass' ((Get-Command Invoke-ChatOverlayCycle).Definition.Contains('($now - $Ctx.ReloadsAt).TotalSeconds -ge 2')) ''
 Check 'Format-ChatOverlayReloadText: a window with no name, and no why' ((Format-ChatOverlayReloadText ([pscustomobject]@{ window = ''; say = '' })) -eq 'a VS Code window needs a reload') ''
 
@@ -96,6 +115,30 @@ try {
 }
 finally { ${function:Invoke-ChatOverlayReloadAnswer} = $fnRl }
 Check 'reload and later go to the answer, a press dragged from one to the other to neither' (($script:RlAns -join '|') -eq "$PID-2-b=reload|$PID-2-b=later") ($script:RlAns -join '|')
+
+# the banner at the panel's foot, dim, not in the header; its room kept there
+$script:RlDrawn = @()
+$fnNotice = ${function:Add-ChatOverlayNotice}
+${function:Add-ChatOverlayNotice} = { param($Panel, $Notice) $script:RlDrawn += $Notice; [pscustomobject]@{ ToolTip = $null } }
+try {
+    $rlSnap = [pscustomobject]@{ header = [pscustomobject]@{ notes = @(); reload = @([pscustomobject]@{ pid = $PID; id = 'a'; state = 'offered'; window = 'W'; say = 's'; text = 't' }) } }
+    $rlHead = Add-ChatOverlayHeadNotices @{} $null $rlSnap
+    $rlHeadN = $script:RlDrawn.Count
+    Add-ChatOverlayReloads @{} $null $rlSnap
+}
+finally { ${function:Add-ChatOverlayNotice} = $fnNotice }
+Check 'a reload''s banner: not among the header''s markers, drawn by the foot''s, dim - no warning yellow' (-not $rlHead -and $rlHeadN -eq 0 -and
+    $script:RlDrawn.Count -eq 1 -and $script:RlDrawn[0].kind -eq 'reload' -and $script:RlDrawn[0].tone -eq 'dim' -and $script:RlDrawn[0].word -eq 'RELOAD?') ($script:RlDrawn | ConvertTo-Json -Compress)
+$frRl = Get-ChatOverlayFootRoom @{ Locked = $true; Snap = $rlSnap }
+Check 'the foot keeps room for each reload''s banner too' ($frRl -eq 48) "$frRl"
+# its answers on the panel, just past its marker - not out past the side;
+# the card goes past only what spills over the panel's right
+$scrRl = [pscustomobject]@{ X = 0; Y = 0; Width = 1920; Height = 1040 }
+$cpRl = Get-ChatOverlayChipLayout @(1700, 500, 150, 24) @(1700, 500, 150, 24) $null @(90, 18) $scrRl @() @(1700, 150, 150, 400) 5 1739
+$cpRr = Get-ChatOverlayChipLayout @(20, 500, 150, 24) @(20, 500, 150, 24) $null @(140, 18) $scrRl @() @(20, 150, 150, 400) 5 59
+Check 'a reload''s answers sit on the panel past the marker, centred on its line; the card pushed only by a spill' (
+    ($cpRl.X + $cpRl.WordsAt[0]) -eq 1739 -and ($cpRl.Y + $cpRl.WordsAt[1]) -eq 503 -and $cpRl.Out -eq 0 -and
+    ($cpRr.X + $cpRr.WordsAt[0]) -eq 59 -and $cpRr.Out -eq 29) "$($cpRl.X)+$($cpRl.WordsAt -join ',') out $($cpRl.Out); $($cpRr.X)+$($cpRr.WordsAt -join ',') out $($cpRr.Out)"
 
 # the answer from the chip: written, marked answered, said on the panel's line
 $fnHide = ${function:Hide-ChatOverlayChip}; $fnView = ${function:Update-ChatOverlayView}; $fnTray = ${function:Update-ChatOverlayTray}

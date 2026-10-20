@@ -260,7 +260,9 @@ permit section takes the bridge's pwsh leg from a `pwsh` on the PATH alone.
   4 points of that machine's 31.6 GB at its peak, about 1.3 GB: start one
   under 90%.
 
-What it covers (at 0.10.19, 1887 checks in `run-tests.ps1` under 5.1,
+What it covers (at 0.10.20, 1891 checks in `run-tests.ps1` under 5.1
+and 1892 under pwsh 7, 479 in `extension-check.js`, 261, 138 and 39,
+and 178 in `cargo test`; at 0.10.19, 1887 checks in `run-tests.ps1` under 5.1,
 479 in `extension-check.js`, 261, 138 and 39, and 178 in `cargo test`; at 0.10.16, 1895 checks in `run-tests.ps1` under 5.1
 and 1896 under pwsh 7, 479 in `extension-check.js`, and 178 in `cargo
 test` - chatq-core's 129 unit tests, its 20 vector runners and
@@ -307,7 +309,7 @@ pwsh 7, 279, 250, 78 and 35):
 | find and delete | the index holds all three providers; a Hangul Codex name read as UTF-8; an escaped Claude title unescaped; `chatfind` by title, by prompt, and `-Deep` for text past the previews; the index saved while a reader holds it for 150 ms, and a warning, not silence, when the hold outlasts the tries; `chatrm -Force` removes the transcript and every leftover (sidecars, file-history, session-env, tasks, debug, security, telemetry, todos, a job folder by the id inside it, plan files) and writes a tombstone; a plan another chat shares is kept; a locked transcript keeps its leftovers; a chat with a queued prompt is kept, and `-DropJobs` drops the job then deletes; a deleted Claude chat's windows named in the reload request's `closeTabs` before it goes ([Get-ChatCloseTabs](src/chatrm.ps1)), against fake `data/open-tabs/` files for two live windows and a dead one: `chatrm` of two chats one request with three entries, the dead window's file passed by and removed, and no `sessionId` or `hostPids` on the request; a chat with no tab gets no `closeTabs`, a Codex thread no entry; the delete chip's one entry, still an array, with its Claude home; `chatclean` of a ghost a window lists, one entry with that window's pid, the ghost's id, its label and home |
 | archive | Claude archive → tombstone and index row gone → restore over the window's stub, leftovers and all, tombstone cleared; never over a chat with messages; not while open in a window; Codex through `codex archive` / `unarchive`; a Codex thread at work is kept ([Get-ChatCodexBusy](src/chatrm.ps1)): a record written just now, or a last `task_started` with no `task_complete` / `turn_aborted` after it in a rollout held open to write (the test holds it as codex does), is busy - a file only touched, every turn ended, a start quoted in a reply's text, an open turn in a rollout no process holds (a killed codex), a turn left open and then a later one finished, an open turn in a rollout untouched past `ChatCodexTurnStaleHours`, and a start further back than the tail read are not; end to end, `chatarchive` on the sandbox thread with either kind of work leaves it in `sessions/`, unarchived, and says why; `chatuninstall -All` refuses while the archive holds one; one Codex home - [Get-ChatCodexHomeOf](src/chatrm.ps1) finds a rollout's home above `sessions/` or `archived_sessions/`, and with `CODEX_HOME` pointed elsewhere an archive and its restore still go to the thread's own home, which the manifest and the row keep, never making the other; a second home's archive listed with `-CodexHome`, and not by default; `chatarchive` takes `chatrm`'s parameters less `-Archive`, and `chatrm` given `-Archive`, `-Arch` or `-Archive:$true` says `chatarchive` does that and moves nothing; `chatarchive` in the `-Provider` and title completers, the Enter fill-in, the `chat` cheat sheet and `Get-Help` |
 | reload safety | in a project of its own: all finished → idle; `busy` or `waiting` from `claude agents` → active though the transcript reads finished; a workflow started and not reported → active, where the transcript alone reads finished; the chat's process gone, or the start older than the process → idle; its `<task-notification>` → idle; a background agent, reported, then woken by SendMessage → active again; a background shell → not counted; the reload request carries `busy` either way; a chat only touched this minute, by a `cost-state` record with no turn and no time in it as a reloading window writes → not active; a chat whose last turn was written this minute → active, unless it is the one a queued run just wrote (`-Except`) — but that chat busy in a window still counts; a neighbour written 3 minutes ago → active over `quietMinutes`, not over one minute; a folder whose only chat is the one the run wrote → idle, not unjudged; a queued run into that chat, open and idle, with nobody at the PC → a `ran` request with `away` true and `busy` false, the one the window may take by itself |
-| a reload on the overlay | `tests/sections/reload-ask.ps1`, with `data/reload-pending/` files as the extension writes them, a BOM included, for this test's own pid: one entry a window, its newest ask, how many it has open; a window gone - a pid no process has - its file removed, and one whose pid is alive but started three days after the file says removed as reused; no ask left, or no folder, nothing; `Write-ChatReloadAnswer` - no BOM, the ask's id, the answer and a UTC time `Date.parse` reads; two windows asking at once - this process and another whose start time can be read - an entry each, and the pass takes both; a pass puts it in `header.reload` and a `reload` note (`<window> needs a reload - <why>`), the tray tooltip counts it; answered here → left out, and shown again 30 s on if the window never took it; the chips - **reload**, **reload anyway** where the notice's is, and **later**, no open or delete - and the banner no row count takes for a row; a release on the chip pressed alone answering; the answer from the chip written, the banner's marker gone in the redraw at once, the panel's said marker saying it |
+| a reload on the overlay | `tests/sections/reload-ask.ps1`, with `data/reload-pending/` files as the extension writes them, a BOM included, for this test's own pid: one entry a window, its newest ask, how many it has open; a window gone - a pid no process has - its file removed, and one whose pid is alive but started three days after the file says removed as reused; no ask left, or no folder, nothing; `Write-ChatReloadAnswer` - no BOM, the ask's id, the answer and a UTC time `Date.parse` reads; two windows asking at once - this process and another whose start time can be read - an entry each, and the pass takes both; a pass puts it in `header.reload` and a `reload` note (`<window> needs a reload - <why>`), the tray tooltip counts it; answered here → left out, and shown again 30 s on if the window never took it; unanswered → left out 30 s after a pass first had it, a newer ask shown its own 30 s, a gone ask's time dropped; the chips - **reload**, **reload anyway** where the notice's is, and **later**, no open or delete - and the banner no row count takes for a row; a release on the chip pressed alone answering; the banner drawn at the foot, dim, none in the header, its room kept there; its answers on the panel past the marker, the card pushed only by what spills over the panel's side; the answer from the chip written, the banner's marker gone in the redraw at once, the panel's said marker saying it |
 | background work | `tests/sections/background.ps1`, after reload safety, on a chat of its own: a workflow, an agent and a background shell each start something (`Step-ChatBackgroundLine`), and a shell counts only with `-Shells` - the reload checks leave it out; the ends - a `<task-notification>` and its `queued_command` copy, a `TaskStop` result (none for one that failed), a workflow's run record written since its start (one from before is the run a resumed run keeps the id of), an agent's own transcript ending its turn - never mid tool call, owed a result, mid-stream, refused (Claude Code tries a fallback model), out of tokens, or untouched since the start - its last word read whole past a 100 KB report or 90 KB of record after it, and past keys that differ only in case (Windows PowerShell's JSON refuses those; checked against all 2,626 agent transcripts on the dev machine, none read differently from the whole file); SendMessage waking a reported agent starts it again at the wake's time; `-SkipPrint` and `-Since`; `Get-ChatBackgroundTasks` held by neither a killed workflow nor a finished agent; `Update-ChatBackgroundScan` finding the same, a last line half written waiting with the rest counted read, then read from where it stopped, 300 bytes a call with longer lines taken whole, a shrunk file read afresh; lines longer than its 40 KB piece searched a piece at a time - a word the piece's end cuts in two, the line after one with no word, a word in a long line's first piece - the same in one call, 300 bytes a call, and 1 byte a call, where the piece is held to four times what is kept for a cut word; the overlay - an idle chat with a workflow out a working row, `workflow 7m`, a busy one `working` as ever, a start older than the process none, a fresh cache the same answer; a shell `shell 4m` while `Get-ChatShellChildCount` finds a shell under the chat, none when it finds none, and the transcript's word where it cannot tell; two starts and one shell running - the newest, and its time; a print-mode run's shells counted; the count over all the chat's processes, unknown if any is; on Windows a count from Toolhelp32 in milliseconds; a chat the limit cut off reads cut off, not `shell`, and is counted from the cut-off, not from when the shell began; past its slice one transcript a pass, all with `-Whole`; the words for one kind, several, and a mix |
 | completion | one completer per command: `chatq 3` completes nothing, `chatq` never offers Copilot, subagent chats only with `-All`, hex completes an id, a hex-looking title still completes, a typographic apostrophe quoted; the cycler skips subagents and, for `chatq`, Copilot; a tail left mid-line comes off a `chatq` line |
 | install | one profile line replaces chatrm's and chatq's; uninstall leaves the rest of the profile; `chatinstall` moves a running watcher and overlay to the new copy, and `-NoRestart` leaves them; `Test-ChatProfileLine` counts only a line loading this copy, never an old tool's; the script copied without `src/` names the parts missing and defines no command; a shell's load leaves out the overlay's three parts - every call from the other 23 into them one already looked at, reached only from inside them or from the phone setup's window, never at a top level - and, loaded in a process of its own, has `charlie`, `chatconsole` and the console's folders without them, the same under `CHATQ_OVERLAY` but for stand-ins of the overlay's two hosts, and all 26 under `CHATQ_ALLPARTS`; a role's load (`CHATQ_ROLE`, [Get-ChatqPermitLaunch](src/permit.ps1) and [ask-hook.ps1](src/ask-hook.ps1) set it): each list in the loader holds every part its entry reaches - [Start-ChatqPermitBridge](src/permit.ps1)'s 10 parts, [Start-ChatqAskHook](src/ask.ps1)'s 16 - by the commands it calls, `${function:}` references, `Verb-Chat*` names in strings and the variables it reads but never sets, followed through each part's top level; loaded in a process of its own, the bridge's parts alone with `CHATQ_ALLPARTS` set or not, the hook's alone, `CHATQ_ROLE` gone from the environment once read, and a role not known loading as a shell; an older copy's launch - `CHATQ_OVERLAY` alone, the overlay's host or the phone setup's window called by name - started again through this copy's own, why the overlay's could not start thrown for the old launch to log, the phone setup's staying until the window it started holds the lock or a caller's wait is up; the phone setup's window, started for real, with every part and none of `CHATQ_OVERLAY`, `CHATQ_ALLPARTS` or Bypass once loaded; every C# compile in `src/` goes through [Invoke-ChatCompile](src/queue.ps1), its files in a folder of its own in `data/tmp`, gone after, and `TEMP` put back, a failed one's too; a day-old folder there - what a process killed mid-compile left - swept by the next compile, a young one kept; a `data/tmp` csc cannot work in - too long, or a character outside the PC's code page - left alone, and `TEMP` with it; `chatoverlay`, the overlay's old name, an alias of `charlie` set Global like `chatqnotify`'s, and a case-sensitive sweep of `src/*.ps1` and the loader finding the word only on the alias line, in `charlie`'s help note, in the helper windows' titles and in the macOS App Nap reason - every other place says `charlie` |
@@ -1642,9 +1644,11 @@ live overlay, read-only.
       itself) brings it back after signing out and in and opening a shell
       - also when it was closed by × or `chatoverlay -Stop` before signing
       out, the close kept only until then.
-  14. After an hour, memory is still about 170 MB, and CPU stays under 0.2%
-      with the 120 ms pointer check running; the log shows no 429 at the
-      five-minute pace.
+  14. After an hour, memory is near where the run settled - 221 to 307 MB
+      private on 2026-10-19/20 (FUTURE_WORK.md, "What sets an overlay
+      run's level"), 314 beside S58's gate hour - and CPU by cycles near
+      "The overlay's own cost"'s 5.6% of a core, with the 120 ms pointer
+      check running; the log shows no 429 at the five-minute pace.
   15. `/compact` in a chat, the style full: `chatoverlay -Print` while it
       runs shows "command running" under its row, and `/compact` once it
       ends; the panel's row shows no prompt either way.
@@ -2824,6 +2828,29 @@ live overlay, read-only.
      opens the window: `chatqd.log` shows the handoff, the PowerShell
      watcher logs `carrying on` and listens, and does not probe a lane
      or send a heads-up chatqd had just done.
+- **S58, the overlay in Slint, by hand** (native/SPEC.md 8, "The M9
+  spike"): run 2026-10-20, recorded under
+  [The overlay in Slint, the M9 spike (S58)](#the-overlay-in-slint-the-m9-spike-s58).
+  Still to see, each a must-have the spike's checks stood in for or
+  missed (DEFERRED.md, "The M9 spike's checks left to the hand"):
+  1. **The chord held.** At this PC's own keyboard, not over Chrome
+     Remote Desktop, which passed no press at all: the spare chord held
+     down logs one press, not a stream.
+  2. **A 128-unit tooltip.** With 128 units set, the tray icon hovered:
+     note what Windows shows. Moot for the port, which cuts at 127
+     (`gate::tray::cut_tip`), but never seen: the one hover came while
+     127 were set.
+  3. **Drags.** The panel dragged by its bar with all five windows shown
+     (the glued hand run logged none), and a tile pressed and moved 4 px:
+     the bar, edges and chip within 1 px of the panel throughout.
+  4. **Locked.** A real click on the locked panel's body lands on the
+     window beneath. WindowFromPoint stood in, every probe point as
+     wanted; no hand click on the body was made.
+  5. **The slider.** The opacity slider in the settings window, dragged
+     past its end, keeps the pointer in a window that is never active.
+     The gate set its value (`gate::slide`), never by a pointer.
+  6. **Beside WPF.** The tiles, clock, gauge and card text against the
+     live panel by eye: the same wraps and elisions.
 
 ### Permissions from the phone (S35)
 
@@ -2995,6 +3022,195 @@ chatq at Unreleased - with nothing done to the VS Code the work runs in:
   the chat deleted with `chatrm <id> -NoWait` from the home folder, where
   its reload request matches no window.
 
+### The overlay in Slint, the M9 spike (S58)
+
+**S58, run 2026-10-20** on this PC - one monitor, 2560x1440 at 96 dpi,
+1920x1080 from the scale run on; rustc 1.99.0; Slint 1.18.1's software
+renderer on winit, tray-icon 0.26.1, global-hotkey 0.9.0 - with
+`overlay-spike.exe`, a throwaway exe in `native/spikes/overlay/`, run
+beside the live WPF overlay and never touching it. One question, for
+native/SPEC.md 8 ("The M9 spike"): can one Slint process carry the
+overlay's must-have window behaviours on Windows and stay at or under
+80 MB private after an hour? Riskiest first, each step a mode of the
+spike, its log `data/spike.log` beside the exe:
+1. **Built** (Tier 0). `cargo build --release --manifest-path
+   native/spikes/overlay/Cargo.toml --config native/.cargo/config.toml
+   --target-dir <a folder outside the repo>`, so VS Code's file watcher
+   never sees the build. chatqd's release profile; 307 crates; the exe
+   9,905,664 bytes. Licences from `cargo metadata`: Slint is GPL-3.0 OR
+   Royalty-free-2.0 OR paid, taken under Royalty-free 2.0, with the
+   Slint badge in the README when M9 ships; BSL-1.0, ISC and
+   BSD-2-Clause are outside native/SPEC.md 3.4's cargo-deny list.
+2. **The floor and a probe window** (C1). Pass: an empty window at 40 MB
+   or under; no opengl32, d3d11, dxgi or d3d12 of the toolkit's; the
+   styles and the foreground window read back over 50 shows; and by eye
+   no caret moved, no taskbar or Alt+Tab entry, no glyph a box. Passed:
+   2.8 MB private empty (12 MB working set), 3.5 to 5.4 MB with the
+   probe over its runs; styles intact 50 of 50, the foreground changed
+   0 of 50; per-pixel alpha seen over a magenta window; no taskbar
+   button by UI Automation; typing stayed in Notepad. winit with
+   softbuffer (path A) was enough, so no layered platform of our own
+   (path B) was built. opengl32 was in the module list, put there by the
+   PC's MarkAny filter (`imgsf50filter_x64.dll`), which injects it, with
+   glu32 and dxcore, into every GUI process. Found:
+   - winit rewrites `GWL_EXSTYLE` on every show; a `WM_STYLECHANGING`
+     subclass (`win32::make_overlay`) undid 101 rewrites over 50 shows,
+     set while the window is hidden (`show_no_activate`, main.rs). Not
+     activating, no taskbar entry and no drag and drop are set through
+     winit's attributes (`main`).
+   - Slint's default Han fallback, Yu Gothic, drew simplified Chinese
+     (队) as nothing, silently; `han_fallbacks` (main.rs) sets a list
+     through fontique.
+   - Fonts are mapped, not private: `malgun` 12.8 MB, `msjh` 20.4,
+     `msyh` 18.8, `yugothr` 13.2, `seguiemj` 11.8 and the font cache
+     16.0, in the working set and none of it in the private figure.
+3. **The mouse model.** Pass: click-through switched live; the strips
+   clickable and the rest passing through, also at 30% opacity; the
+   120 ms poll of pointer and buttons quiet while hidden. The first run
+   scored 88 of 130 probes: alpha-0 pixels, HTTRANSPARENT, SetWindowRgn
+   and WS_EX_TRANSPARENT alone each failed. What holds is winit's
+   `set_cursor_hittest` (TRANSPARENT and LAYERED) on the panel and one
+   no-activate window per strip (`mouse::set_lock`): 230 of 230 probes
+   by WindowFromPoint, 530 of 530 in the hand run; opacity 30 to 100
+   fine; 3.2 MB. By hand: typing normal, 6 clicks right, 3 bar drags.
+4. **Five windows glued** (C2). Pass: 0 px placement and glue error;
+   chip and card above bar and edges, those above the panel; no stale
+   frame over 200 shows; height following content with the top held;
+   the work area from GetMonitorInfo. Passed: 0 px and 0 px; the z-order
+   right in 421 checks; height drift 0 px; 4.4 to 4.7 MB. By hand
+   (180 s): no flicker, the foreground never ours. Found:
+   - Following the panel from `WM_WINDOWPOSCHANGED` showed the windows
+     a frame apart in one of five traced moves, in two of ten runs; the
+     batch never did, so all five move in one DeferWindowPos batch
+     (`win32::move_together`).
+   - `set_cursor_hittest` makes a window WS_EX_LAYERED with no
+     SetLayeredWindowAttributes, so it never drew
+     (`win32::layered_opaque`).
+   - A layered card showed its last picture while the UI thread was busy
+     (forced, 50 of 50); cloaked until its next `WM_PAINT`
+     (`win32::cloak_until_painted`), 0 of 50.
+   - Slint's preferred height leaves out `for` rows before a window
+     first shows (`glue::place_and_show` says so); the spike takes the
+     wanted rects after each show (`glue::show_next`).
+5. **A scale change**, standing in for a second screen, made in
+   Settings. Pass: 0 px error, each window at its logical size. The
+   first run failed: winit resizes each window alone, from its current
+   physical size, so rounding compounded (the chip 64x26, 96x40, 64x27,
+   96x41), and `WM_DPICHANGED` reached a window only when it was next
+   moved or sized, up to 8 s apart. The second panicked in Slint's
+   software renderer (`buffer of size 3744 with 96 pixels per line is
+   too small`): the batch had sized a window before Slint knew its
+   scale. What holds: the batch only moves (SWP_NOSIZE), and a second
+   re-place sizes each window through Slint, in logical units
+   (`Glue::replace`), rounding as Slint does (`Glue::px`: a 125% card
+   423 px, not 421). Run at 17:27:22, 125, 150 and 100%: passed, every
+   `WM_DPICHANGED` inside our own batch. `Glue::item_size` reads a size
+   through Slint's `private_unstable_api` (DEFERRED.md, "Slint's private
+   API in the spike").
+6. **The tray, a balloon, the hotkey.** Pass: handle counts flat over
+   1,800 redraws; a 127-unit tooltip; a balloon's click back; a close
+   balloon through a 4 s exit; "taken" for a second instance. Passed on
+   their own: 1,800 redraws and 8 menu rebuilds at 10 GDI and 14 USER
+   objects from the 300th redraw on (13 USER at the first); 3.1 MB;
+   a second instance got `AlreadyRegistered`
+   on the spare chord Ctrl+Alt+Shift+F12; the close balloon stayed up
+   through the 4 s, then NIM_DELETE left no icon. Then messages posted
+   to the spike's own windows (`tray::standin::start`): two left clicks,
+   a menu command, a balloon click and 11 `WM_HOTKEY`, all handled on
+   the UI thread. By hand at 20:22, over Chrome Remote Desktop: the menu
+   opened 3 times on the UI thread, real balloon clicks came back at
+   13.2 and 183.9 s, no ghost dot. GDI went 10 to 19 and USER 14 to 26
+   in steps, at the first real balloon click and the menu's opens, flat
+   between; the run's own verdict says GROWS, read here as a cost paid
+   once, not proven (FUTURE_WORK.md, "The spike's tray: what it left
+   open"). After each close of the menu the foreground stayed the
+   spike's, in the 10 s samples for up to 40 s. Found:
+   - The balloon is NIF_INFO on tray-icon's own window, under its
+     private uID (2), found by Shell_NotifyIconGetRect
+     (`tray::find_uid`): the port needs tray-icon forked or patched.
+   - A 128-unit tooltip loses its NUL silently; muda has no bold item
+     and no item tooltips.
+   - muda's ids are new on every rebuild: never keep one.
+   - Slint's timers stop while the menu is open: gaps of 6,340, 2,119
+     and 1,151 ms, the menu's time open.
+   - global-hotkey sends the release from a thread it starts for each
+     press; by its source, that thread polls the key every 50 ms.
+   - The toast covered the topmost status window: 52,168 to 52,175
+     pixels changed in each capture over two runs, 14,752 or 14,753 of
+     them outside that window.
+7. **The UI alone, 10 minutes** (`--ui-only --seconds 600`, from
+   21:21:41), the exercise seam driving chip, card, settings and opacity
+   on a timer. Passed: 5.0 MB private, flat over minutes 1-10 (5.1 at
+   the start); 32 GDI, 32 USER, 248 handles, flat; slope from minute 1
+   -0.52 MB/h; 0.045% of the machine, 45.2 M cycles a second; probes
+   120 of 120, the foreground ours 0 times, 120 restacks with 0 wrong,
+   250 style rewrites undone. memlog read 4.7 to 5.1 MB, and the live
+   WPF overlay 314 MB beside it.
+8. **The gate hour** (`--gate --seconds 3660`, from 21:32:13): steps 2-6
+   at once, the content read live and read-only from `data/overlay.json`,
+   the exercise on, and a stand-in for the collector's reads
+   (`gate::readload::spawn`) - a pass every 2 s with a stat cache per
+   file, bounded tails of the open chats, a 20-entry Recent pool, the
+   Toolhelp32 table, 15 leak samples, card tails up to 4 MB, a 16 MB
+   scan budget, and a snapshot written to the exe's own `data/`. Pass:
+   the gate figure, the highest minute sample over minutes 45-60, at
+   80 MB or under is go, over 150 a stop, between the user's call; a
+   slope over 2 MB/h over minutes 30-60 means an 8-hour run before any
+   go; handles flat from minute 5. Result, to 22:33:19: the gate figure
+   6.8 MB by the spike's own sampler, median 6.5 MB over its 16 samples,
+   the highest 10 s read 7.0 MB; slope -0.01 MB/h over minutes 30-60
+   (+0.50 from minute 1, for information); start peak 6.3 MB over the
+   first 5 minutes, 2.1 at minute 0 before the windows; handles FLAT,
+   32 GDI, 34 USER and 256 at minute 5 and at most over minutes 40-60,
+   7 to 9 threads from minute 3 (7 over minutes 40-60), no tray
+   first-use event after minute 5; CPU 31.8 s, 0.055% of the machine by
+   process times, 65.2 M cycles a second. memlog read 4.8 MB at the
+   start, then 5.8 to 6.6; its own figure over minutes 45-60 is 6.6
+   (median 6.5), a go as well. The live WPF overlay read 314 to 315 MB
+   beside it. Through the hour: 203 chip and 305 card shows, no card
+   height wrong; 61 settings opens, 2,919 slider steps; 366
+   click-through toggles, probes 732 of 732; 732 restacks and 61 style
+   checks with 0 wrong; 122 height checks with 0 px drift or error; the
+   foreground ours 0 times, no read skipped for the input desktop, no
+   screen change; 1,830 tray redraws with 0 errors, 123 menu builds at
+   32 GDI and 34 USER; 375 content reads with 0 failed, 86 views drawn;
+   1,830 read-load passes, 60.8 MB read in 29.3 s, the slowest 59 ms,
+   0 errors. The read-load's first pass read 9.16 MB in 65 reads
+   (26 ms), each pass after it about 262 KB. The close balloon stayed
+   its 4 s, the icon dropped with no ghost, the hotkey unregistered.
+   Go on Windows by the gate, for memory; the behaviours held, bar the
+   six left to the hand (Still to check by hand, S58), the chord held
+   down among them. Projected overlay: 15.1 to 15.5 MB - the gate
+   figure, native/SPEC.md 3.3's 8 MB for TLS, and the steps M9
+   would start, 0.3 to 0.7 MB: fires an hour, 2.5 (53 live alerts, each
+   an outbox sender, in 2026-10-19/20's measured 21.25 h), times 85 to
+   211 MB (native/SPEC.md 8, risk 5), times how long each lasts, about
+   5 s, as that day's six measured senders lasted. Those senders, 147 to
+   241 MB, give 15.3 to 15.6; at risk 5's 0.4 s a step, 14.8 to 14.9.
+   The spike has no collector, so the 191 MB a day SPEC 8 counts on
+   holds only once the collector moves.
+9. **macOS** (step 6): not run, no Mac here; Tier 2's S58 on a Mac.
+
+**How**, with the live overlay left alone:
+- **Memory:** a copy of memlog outside the repo with `overlay-spike.exe`
+  as a role of its own, private bytes (PrivateMemorySize64) once a
+  minute, the field behind the WPF overlay's 271 MB; and the spike's own
+  sampler (`gate::sample::spawn`), a read every 10 s and a sample a
+  minute with GDI, USER, thread and handle counts, its summary
+  (`gate::sample::summary`) logged at minute 60.
+- **CPU:** GetProcessTimes over the run as a share of every logical
+  processor, beside QueryProcessCycleTime's cycles a second. "The
+  overlay's own cost" divides cycles by a busy second's cycles; no busy
+  second was timed here, so the two are not one measure yet.
+- **Input,** never the user's mouse or keys: the exercise seam,
+  WindowFromPoint probes, and messages posted to the spike's own
+  windows. The tray menu was opened only by hand, since it takes the
+  foreground.
+- **The hotkey** on a spare chord; the live overlay's chords were never
+  registered or pressed by the spike.
+- **The scale** changed by the user in Settings, 100% to 125%, 150% and
+  back.
+
 ## Tier 2: other hardware
 
 ### Still to check on other hardware
@@ -3042,6 +3258,13 @@ chatq at Unreleased - with nothing done to the VS Code the work runs in:
   once; and chatqd killed mid-run, the step gone within about 10 s.
   The `native-macos` CI leg runs `tests/watch.rs`'s stub steps under
   `pwsh`, never the real `native-step.ps1`.
+- **S58 on a Mac** (native/SPEC.md 8, "The M9 spike"), before M9 builds
+  past Windows (DEFERRED.md, "The M9 spike on a Mac"): the spike's
+  must-haves under macOS - focus never taken, no Dock icon, per-pixel
+  alpha, click-through switched live, the tray, its menu and a
+  notification's click, "taken" for a second instance's chord, Hangul
+  and simplified Chinese drawn - and its memory after an hour, by the
+  same gate. The spike's Win32 module has no Mac counterpart yet.
 - **macOS and Linux** are untested; the Unix branches are written but have never
   run.
 
