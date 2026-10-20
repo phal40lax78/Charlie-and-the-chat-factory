@@ -4,6 +4,21 @@ Open problems: what is still to find out or to do. Each says why it waits
 and what closing it would take. Deliberate deferrals - what was knowingly
 left as it is - are in [DEFERRED.md](DEFERRED.md).
 
+## A Recent line's chip hint cut at the screen's left edge
+
+**Why it waits:** found in review for 0.10.19; it needs a narrow Recent
+line on a panel flush to its screen's left edge.
+- **The gap.** The chip's hint - `click again`, `opening 3s`, `sure?` -
+  is right-aligned in a 72-unit room left of the bin
+  ([New-ChatOverlayChipContent](src/overlay-windows.ps1)). A Recent
+  line's box is narrower than that room, so the room hangs past the
+  panel's left side. Flush to the screen's edge,
+  [Get-ChatOverlayChipLayout](src/overlay-windows.ps1) cuts the part past
+  the screen rather than moving the window, so the bin stays on the
+  tile's bin. A long hint loses its first letters there.
+- **Closing it.** Draw the hint somewhere that always has room, e.g. on
+  the card's side as the words are, and drop the room from the icons.
+
 ## Deliver into a live Codex chat through `codex queue`
 
 **Why deferred:** found after v0.1.0, and re-read on codex-cli 0.159.2

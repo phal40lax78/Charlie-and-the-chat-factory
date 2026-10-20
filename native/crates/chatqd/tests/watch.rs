@@ -7,7 +7,7 @@
 
 use chatq_core::fsx::{lock_held, try_lock};
 use chatq_core::launch::{Identity, encode_command};
-use chatq_core::paths::Paths;
+use chatq_core::paths::{NEWLINE, Paths};
 use chatq_core::time::stamp_utc;
 use serde_json::{Value, json};
 use std::fs;
@@ -331,10 +331,12 @@ fn empty_queue_exits_and_lets_go() {
     assert_eq!(st["version"], VER);
     assert_eq!(st["pid"], last["pid"]);
     let board = fs::read_to_string(r.p.board()).unwrap();
-    assert!(board.starts_with(
-        "# chatq\r\n\r\nchatq \u{b7} 0 queued \u{b7} watcher running \u{b7} updated "
-    ));
-    assert!(board.ends_with("\r\n\r\n_nothing queued_\r\n"));
+    // the board's lines end as the OS's do (board.rs, paths::NEWLINE)
+    let n = NEWLINE;
+    assert!(board.starts_with(&format!(
+        "# chatq{n}{n}chatq \u{b7} 0 queued \u{b7} watcher running \u{b7} updated "
+    )));
+    assert!(board.ends_with(&format!("{n}{n}_nothing queued_{n}")));
     assert!(r.spawns().is_empty());
     assert!(
         r.log("chatqd.log")
@@ -408,7 +410,9 @@ fn wake_now_fresh_and_stale() {
     // state.json is saved just before the wait reads wake's mtime, so a
     // write in between is seen only by the next pass, a wait (30 s) later
     r.until(35, || r.lines().iter().any(|l| l == "woken: -Now"));
-    r.until(2, || fs::read_to_string(r.p.wake()).unwrap() == "seen\r\n");
+    r.until(2, || {
+        fs::read_to_string(r.p.wake()).unwrap() == format!("seen{NEWLINE}")
+    });
     // a -Now left lying around: the mtime changes, the word is ignored
     fs::write(r.p.wake(), "now\r\n").unwrap();
     let f = fs::File::options().write(true).open(r.p.wake()).unwrap();
@@ -437,7 +441,10 @@ fn a_queued_job_is_picked_through_a_step_the_now_taken() {
     let lines = r.lines();
     assert_eq!(lines.len(), 4, "{lines:?}");
     assert_eq!(lines[1..3], ["woken: -Now", "queue empty"]);
-    assert_eq!(fs::read_to_string(r.p.wake()).unwrap(), "seen\r\n");
+    assert_eq!(
+        fs::read_to_string(r.p.wake()).unwrap(),
+        format!("seen{NEWLINE}")
+    );
     let job = r.json(&r.job_file());
     assert!(job["deferUntil"].is_null(), "the -Now's write");
     assert_eq!(job["state"], "done", "the stub's run");
@@ -552,10 +559,9 @@ fn an_open_reply_window_hands_over_with_w() {
         encode_command(cmd)
     );
     assert_eq!(s[0]["cmdline"], line);
-    assert_eq!(
-        s[0]["cwd"],
-        std::env::var("USERPROFILE").unwrap_or_default()
-    );
+    // spawn::home's variable
+    let home = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+    assert_eq!(s[0]["cwd"], std::env::var(home).unwrap_or_default());
 }
 
 #[test]

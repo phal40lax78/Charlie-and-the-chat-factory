@@ -1344,10 +1344,11 @@ function Get-ChatOverlayRowHeight {
 function Test-ChatOverlayOpenRowElement {
     # an element of the panel that draws one of the rows maxRows counts: a
     # row's wrapper, tagged with its row - not a Recent line, nor a banner,
-    # nor a usage gauge (Add-ChatOverlayGauge), which are tagged the same
-    # way for the chip and the card but are no rows of those
+    # nor a usage gauge (Add-ChatOverlayGauge), nor a notice's marker
+    # (Add-ChatOverlayNotice), which are tagged the same way for the chip
+    # and the card but are no rows of those
     param($El)
-    return [bool]($El.Tag -and $El.Tag -isnot [string] -and [string](Get-ChatField $El.Tag 'kind') -notin 'recent', 'ask', 'reload', 'usage')
+    return [bool]($El.Tag -and $El.Tag -isnot [string] -and [string](Get-ChatField $El.Tag 'kind') -notin 'recent', 'ask', 'reload', 'usage', 'notice')
 }
 
 function Get-ChatOverlayDrawnRows {
@@ -2098,7 +2099,7 @@ function Set-ChatOverlayChipHint {
 }
 
 function Get-ChatOverlayDeleteSay {
-    # the panel's line for a delete chip's outcome (Remove-ChatSessionById's
+    # the panel's said marker for a delete chip's outcome (Remove-ChatSessionById's
     # Done and Say), as the open's is (Get-ChatOverlayOpenSay). Pure.
     param([bool]$Done, [string]$Say)
     if ($Done) { return @{ Kind = 'delete'; Text = $Say; Tone = 'dim'; Keep = 5 } }
@@ -2110,7 +2111,7 @@ function Invoke-ChatOverlayDeleteChip {
     # chip's unless the console's own), turns the error's colour, and the
     # chip says "sure?", for 4 s (Update-ChatOverlayChip) - and a second one
     # on the same row in that time deletes; the second half of a
-    # double-click is no answer. How it went is said on the panel's line,
+    # double-click is no answer. How it went is said by the panel's said marker,
     # as an open's is, and in the tray. Never throws into the window's thread.
     param($H, $Row, $Glyph = $null)
     if (-not $H -or -not $Row) { return }
@@ -2140,7 +2141,7 @@ function Invoke-ChatOverlayDeleteChip {
             $H.Ctx.RecentAt = [datetime]::MinValue
         }
         if ($r.Say) { Show-ChatOverlayBalloon $H $r.Say }
-        Set-ChatOverlayOpenSay $H (Get-ChatOverlayDeleteSay ([bool]$r.Done) ([string]$r.Say))
+        Set-ChatOverlayOpenSay $H (Get-ChatOverlayDeleteSay ([bool]$r.Done) ([string]$r.Say)) $key
     }
     catch {
         Write-ChatOverlayLog "delete chip: $($_.Exception.Message)"
@@ -2237,8 +2238,8 @@ function Step-ChatOverlayChipState {
 }
 
 function Get-ChatOverlayRowRects {
-    # Each drawn row's rect, its first line's - a banner's; a chat's row is
-    # its tile alone, so its own - and its tile (Name: one part, the open
+    # Each drawn row's rect, its first line's - a chat's row is its tile
+    # alone, a marker its short tile, so its own - and its tile (Name: one part, the open
     # the chip rings, Add-ChatOverlayTileRow), in screen pixels:
     # what the pointer is matched against and the chip placed by. Only while
     # the pointer is on the panel or the chip; a row not laid out yet is
@@ -2303,16 +2304,19 @@ function Test-ChatOverlayCardLeft {
 function Get-ChatOverlayChipLayout {
     <#
     Where the chip's parts go (New-ChatOverlayChipContent), all in screen
-    pixels. The panel is no wider than a tile (Get-ChatOverlayPanelWidth),
-    so its icons (-Icons, width and height) and words (-Words) hang just
-    outside it (-Panel, a rect), -Gap off its side, on the side the hover
-    card takes (Test-ChatOverlayCardLeft): the icons first, centred on the
-    row (-Row, a rect), then the words past them, -Gap on, centred on -Line
-    - a banner's first line, a chat's row whole. Its ring (-Name, the rect
-    of the row's tile) goes exactly over the tile. A part with no width is
-    not there. The chip's window spans them: X and Y its corner, kept on
-    the screen, IconsAt, WordsAt and NameAt each part's offset in it; Left
-    the side; Out how far past the panel's side the icons and words reach,
+    pixels. Its icons (-Icons, width and height) sit on the row's tile, at
+    its right end -Gap in - over the bin it draws (New-ChatOverlayTileBin) - centred on the row (-Row, a rect) - on the row
+    itself where there is no tile - so delete is on the panel. The panel
+    is no wider than a tile (Get-ChatOverlayPanelWidth), so the words
+    (-Words) hang just outside it (-Panel, a rect), -Gap off its side, on
+    the side the hover card takes (Test-ChatOverlayCardLeft), centred on
+    -Line - a chat's row whole, a marker's. Its ring (-Name,
+    the rect of the row's tile) goes exactly over the tile. A part with no
+    width is not there. The chip's window spans them: X and Y its corner,
+    held off the screen's left and top edges - a part past one is cut
+    there, not moved, as is one past its right or foot - IconsAt, WordsAt
+    and NameAt each part's offset in it; Left the side; Out how far past
+    the panel's side the words reach, or a narrow tile's icons,
     for the card to go past (Get-ChatOverlayCardPlacement). Pure, for the
     tests.
     #>
@@ -2327,27 +2331,28 @@ function Get-ChatOverlayChipLayout {
         $parts += , @($nx, $ny, ([int](@($nr | ForEach-Object { $_[0] + $_[2] }) | Measure-Object -Maximum).Maximum - $nx),
             ([int](@($nr | ForEach-Object { $_[1] + $_[3] }) | Measure-Object -Maximum).Maximum - $ny), 'Name')
     }
-    # the edge the next part out starts from, moving away from the panel
-    $edge = if ($left) { $Panel[0] } else { $Panel[0] + $Panel[2] }
-    $out = 0
-    foreach ($k in 'Icons', 'Words') {
-        $s = if ($k -eq 'Icons') { $Icons } else { $Words }
-        if (-not $s -or $s[0] -le 0) { continue }
-        $on = if ($k -eq 'Icons') { $Row } else { $Line }
-        $x = if ($left) { $edge - $Gap - $s[0] } else { $edge + $Gap }
-        $parts += , @($x, ($on[1] + [int][Math]::Round(($on[3] - $s[1]) / 2.0)), $s[0], $s[1], $k)
-        $edge = if ($left) { $x } else { $x + $s[0] }
-        $out = [Math]::Abs($edge - $(if ($left) { $Panel[0] } else { $Panel[0] + $Panel[2] }))
+    if ($Icons -and $Icons[0] -gt 0) {
+        $right = if ($nr.Count) { $parts[0][0] + $parts[0][2] } else { $Row[0] + $Row[2] }
+        $parts += , @(($right - $Gap - $Icons[0]), ($Row[1] + [int][Math]::Round(($Row[3] - $Icons[1]) / 2.0)), $Icons[0], $Icons[1], 'Icons')
     }
+    $out = 0
+    if ($Words -and $Words[0] -gt 0) {
+        $x = if ($left) { $Panel[0] - $Gap - $Words[0] } else { $Panel[0] + $Panel[2] + $Gap }
+        $parts += , @($x, ($Line[1] + [int][Math]::Round(($Line[3] - $Words[1]) / 2.0)), $Words[0], $Words[1], 'Words')
+        $out = $Gap + $Words[0]
+    }
+    # a narrow tile's icons - a Recent line's - out past the panel too
+    $ic = @($parts | Where-Object { $_[4] -eq 'Icons' })
+    if ($ic.Count -and $left) { $out = [Math]::Max($out, $Panel[0] - $ic[0][0]) }
     if (-not $parts.Count) { return $null }
     $x0 = [int](@($parts | ForEach-Object { $_[0] }) | Measure-Object -Minimum).Minimum
     $y0 = [int](@($parts | ForEach-Object { $_[1] }) | Measure-Object -Minimum).Minimum
-    $w = [int](@($parts | ForEach-Object { $_[0] + $_[2] }) | Measure-Object -Maximum).Maximum - $x0
-    $h = [int](@($parts | ForEach-Object { $_[1] + $_[3] }) | Measure-Object -Maximum).Maximum - $y0
-    $x = [Math]::Max($Screen.X, [Math]::Min($x0, $Screen.X + $Screen.Width - $w))
-    $y = [Math]::Max($Screen.Y, [Math]::Min($y0, $Screen.Y + $Screen.Height - $h))
+    $x = [Math]::Max($Screen.X, $x0)
+    $y = [Math]::Max($Screen.Y, $y0)
     $at = @{ X = [int]$x; Y = [int]$y; IconsAt = $null; WordsAt = $null; NameAt = $null; Left = $left; Out = [int]$out }
-    foreach ($p in $parts) { $at["$($p[4])At"] = @([int]($p[0] - $x0), [int]($p[1] - $y0)) }
+    # from the window as kept on the screen, so each part stays where it
+    # goes and one held off the screen's edge is cut there, not moved
+    foreach ($p in $parts) { $at["$($p[4])At"] = @([int]($p[0] - $x), [int]($p[1] - $y)) }
     return [pscustomobject]$at
 }
 
@@ -2378,7 +2383,7 @@ function New-ChatOverlayChipContent {
     ($H.ChipNames, Set-ChatOverlayChipName) - $H.ChipNameBox; its words -
     auto-continue's, a banner's answers - one bordered chip each, side by
     side ($H.ChipWords); and delete (New-ChatOverlayActionIcon) on the
-    panel's ground, after room for what the chip says ($H.ChipHint,
+    tile, on the panel's ground, after room for what the chip says ($H.ChipHint,
     Set-ChatOverlayChipHint) - $H.ChipIcons. Made anew when the look
     changes, and when the row's actions or its tile's size do
     (Get-ChatOverlayChipNameSig) - the banner's count can change under a
@@ -2423,6 +2428,8 @@ function New-ChatOverlayChipContent {
                 $room = [System.Windows.Controls.Grid]::new()
                 $room.Width = 72
                 $room.Margin = [System.Windows.Thickness]::new(0, 0, 3, 0)
+                # over the tile: a click there is the ring's, under it
+                $room.IsHitTestVisible = $false
                 $hb = [System.Windows.Controls.Border]::new()
                 $hb.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Right
                 $hb.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
@@ -2439,7 +2446,9 @@ function New-ChatOverlayChipContent {
             $face = New-ChatOverlayActionIcon $a
             $b = [System.Windows.Controls.Border]::new()
             $b.CornerRadius = $face.CornerRadius
-            $b.Background = Get-ChatOverlayBrush 'panel'
+            # over the tile's own (New-ChatOverlayTileBin): see-through, but
+            # still taking the pointer
+            $b.Background = [System.Windows.Media.Brushes]::Transparent
             # its face's height, not the hint box's beside it
             $b.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
             $b.Child = $face
@@ -2533,12 +2542,21 @@ function Register-ChatOverlayChipPress {
             $at = if ($e.Timestamp) { [int64]$e.Timestamp } else { [int64][Environment]::TickCount }
             $X.ChipPressed = [bool]$X.ChipArmed -or (Test-ChatOverlayChipPressCounts $X.ChipShownTick $at)
             $X.ChipPressedId = [string]$s.Tag
-            if ([string]$s.Tag -eq 'open') { Set-ChatOverlayNameLit $X.ChipNames $true -Now -Down }
+            if ([string]$s.Tag -eq 'open') {
+                Set-ChatOverlayNameLit $X.ChipNames $true -Now -Down
+                # a drag of the panel if it moves before it is let go
+                # (Move-ChatOverlayTileDrag)
+                $r = [ChatOverlayNative]::GetRect($X.Hwnd)
+                $c = [ChatOverlayNative]::GetRect($X.ChipHwnd)
+                $m = [System.Windows.Forms.Control]::MousePosition
+                if ($r -and $c) { $X.TileDrag = @{ Mx = $m.X; My = $m.Y; X = $r[0]; Y = $r[1]; Cx = $c[0]; Cy = $c[1] }; [void]$s.CaptureMouse() }
+            }
         })
     $El.add_MouseLeftButtonUp({
             param($s, $e)
             $e.Handled = $true
             $X = $script:ChatOverlayHost
+            if (Stop-ChatOverlayTileDrag $X $s) { return }
             $was = [string]$X.ChipPressedId
             $armed = [bool]$X.ChipPressed
             $X.ChipPressed = $false
@@ -2556,18 +2574,63 @@ function Register-ChatOverlayChipPress {
             Invoke-ChatOverlayChipRelease $X $(if ($armed) { $was } else { '' }) ([string]$s.Tag)
         })
     if ([string]$Action.Id -eq 'open') {
+        $El.add_MouseMove({ param($s, $e) Move-ChatOverlayTileDrag $script:ChatOverlayHost })
+        $El.add_LostMouseCapture({ param($s, $e) [void](Stop-ChatOverlayTileDrag $script:ChatOverlayHost $null) })
         $El.add_MouseLeave({ param($s, $e) $X = $script:ChatOverlayHost; if ($X.ChipPressedId -eq 'open') { Set-ChatOverlayNameLit $X.ChipNames $true -Now } })
     }
 }
 
+function Test-ChatOverlayTileDragStarts {
+    # whether a press on a tile has moved far enough to drag the panel
+    # rather than open: more than -Slop pixels either way. Pure.
+    param([int]$Dx, [int]$Dy, [int]$Slop = 4)
+    return ([Math]::Abs($Dx) -gt $Slop -or [Math]::Abs($Dy) -gt $Slop)
+}
+
+function Move-ChatOverlayTileDrag {
+    # A press on a tile's ring ($H.TileDrag, Register-ChatOverlayChipPress)
+    # that moves past the slop (Test-ChatOverlayTileDragStarts) drags the
+    # panel as the bar does (Start-ChatOverlayGripDrag): the card goes, the
+    # ring unlit, and the chip moves with the panel. Never an open after.
+    param($H)
+    if (-not $H -or -not $H.TileDrag) { return }
+    $d = $H.TileDrag
+    $m = [System.Windows.Forms.Control]::MousePosition
+    $dx = $m.X - $d.Mx
+    $dy = $m.Y - $d.My
+    if (-not $H.GripDrag) {
+        if (-not (Test-ChatOverlayTileDragStarts $dx $dy)) { return }
+        $H.GripDrag = @{ Mx = $d.Mx; My = $d.My; X = $d.X; Y = $d.Y }
+        $H.Dragging = $true
+        Hide-ChatOverlayCard $H
+        Set-ChatOverlayNameLit $H.ChipNames $false -Now
+    }
+    Move-ChatOverlayGripDrag
+    [ChatOverlayNative]::MoveTo($H.ChipHwnd, $d.Cx + $dx, $d.Cy + $dy)
+}
+
+function Stop-ChatOverlayTileDrag {
+    # let go of a press on a tile, -El the ring that took the mouse: true
+    # when it had dragged the panel - kept where it ended, the press spent
+    # - so the release opens nothing
+    param($H, $El)
+    if (-not $H -or -not $H.TileDrag) { return $false }
+    $H.TileDrag = $null
+    if ($El -and $El.IsMouseCaptured) { $El.ReleaseMouseCapture() }
+    if (-not $H.GripDrag) { return $false }
+    Stop-ChatOverlayGripDrag $null
+    $H.ChipPressed = $false
+    $H.ChipPressedId = $null
+    return $true
+}
+
 function Set-ChatOverlayChipPlacement {
-    # Beside its row, wherever that row is drawn now: the ring over the
-    # tile, the icons and words outside the panel where
+    # On its row, wherever that row is drawn now: the ring over the tile,
+    # the icons on its right end and the words outside the panel where
     # Get-ChatOverlayChipLayout puts them, each part set at its offset in
-    # the window - the hint's room on the far side of delete from the
-    # panel, its words against delete. How far they reach past the panel
-    # is kept ($H.ChipOut), for the card to go past them
-    # (Set-ChatOverlayCardPlacement).
+    # the window - the hint's room left of delete, its words against it.
+    # How far the words reach past the panel is kept ($H.ChipOut), for the
+    # card to go past them (Set-ChatOverlayCardPlacement).
     param($H)
     if (-not $H.ChipWin -or $H.ChipHwnd -eq [IntPtr]::Zero -or -not $H.ChipLine) { return }
     $p = [ChatOverlayNative]::GetRect($H.Hwnd)
@@ -2583,22 +2646,19 @@ function Set-ChatOverlayChipPlacement {
     }
     $l = [int[]]$H.ChipLine
     $a = Get-ChatOverlayWorkArea $p
-    $left = Test-ChatOverlayCardLeft $p $a
-    # the hint's room on the side away from the panel
-    if ($H.ChipHintBox) {
-        $room = $H.ChipHintBox.Parent
-        $i = $H.ChipIcons.Children.IndexOf($room)
-        $want = if ($left) { 0 } else { $H.ChipIcons.Children.Count - 1 }
-        if ($i -ge 0 -and $i -ne $want) { $H.ChipIcons.Children.RemoveAt($i); $H.ChipIcons.Children.Insert($want, $room) }
-        $room.Margin = if ($left) { [System.Windows.Thickness]::new(0, 0, 3, 0) } else { [System.Windows.Thickness]::new(3, 0, 0, 0) }
-        $H.ChipHintBox.HorizontalAlignment = if ($left) { [System.Windows.HorizontalAlignment]::Right } else { [System.Windows.HorizontalAlignment]::Left }
-    }
     $icons = & $size $H.ChipIcons
+    # rounded with the gap before it, so delete's right edge falls where the
+    # tile's bin's does (New-ChatOverlayTileBin), not a pixel off
+    $gap = [int][Math]::Round($script:ChatOverlayCardGap * $px)
+    if ($icons) {
+        $iw = $H.ChipIcons.DesiredSize.Width - $H.ChipIcons.Margin.Left
+        $icons[0] = [int][Math]::Round(($iw + $script:ChatOverlayCardGap) * $px) - $gap
+    }
     $row = if ($H.ChipRect) { [int[]]$H.ChipRect } else { [int[]]$H.ChipLine }
     # the ring round the tile
     $nm = @(if ($H.ChipNames.Count) { @($H.ChipName | Where-Object { $_ }) })
     $nr = @($nm | ForEach-Object { , [int[]]$_.Rect })
-    $at = Get-ChatOverlayChipLayout $row $l $icons (& $size $H.ChipWords) $a $nr $p ([int][Math]::Round($script:ChatOverlayCardGap * $px))
+    $at = Get-ChatOverlayChipLayout $row $l $icons (& $size $H.ChipWords) $a $nr $p $gap
     if (-not $at) { return }
     $H.ChipOut = $at.Out
     foreach ($k in 'Icons', 'Words', 'NameBox') {
@@ -2697,6 +2757,9 @@ function Update-ChatOverlayChip {
     # is only read.
     param($H, $At, [bool]$Down, [datetime]$Now, [bool]$OnPanel)
     if (-not $H.ChipWin) { return }
+    # a tile's press holds the mouse in the chip: hiding it would end the
+    # press, and the drag with it (Move-ChatOverlayTileDrag)
+    if ($H.TileDrag) { return }
     # a "sure?" not clicked in time goes back to delete
     if ($H.DelArmKey -and -not (Test-ChatOverlayDeleteArmed $H.DelArmKey $H.DelArmAt $H.DelArmKey $Now)) { Reset-ChatOverlayDeleteArm $H }
     $blocked = [bool]($H.Dragging -or $H.GripDrag)
@@ -2706,8 +2769,9 @@ function Update-ChatOverlayChip {
     $acts = @()
     if (($OnPanel -or $onChip) -and -not $blocked) {
         $entry = Find-ChatOverlayRowAt $At @(Get-ChatOverlayRowRects $H)
-        # folded, the gauges' cards alone: the chats are counts then
-        if ($entry -and $H.Collapsed -and [string](Get-ChatField $entry.Row 'kind') -ne 'usage') { $entry = $null }
+        # folded, the gauges' and the markers' alone: the chats are counts
+        # then, and a memory warning is still a rest away
+        if ($entry -and $H.Collapsed -and [string](Get-ChatField $entry.Row 'kind') -notin 'usage', 'notice', 'ask', 'reload') { $entry = $null }
         if ($entry) { $acts = @(Get-ChatOverlayChipActions $entry.Row) }
         if ($entry -and -not $acts.Count -and -not (Test-ChatOverlayCardRow $entry.Row)) { $entry = $null }
     }
@@ -2772,9 +2836,11 @@ $script:ChatOverlayCardGap = 5
 
 function Test-ChatOverlayCardRow {
     # a row a card is for: a chat - open, cut off, or Recent - a queued
-    # prompt, or a provider's usage gauge; never a banner. Pure.
+    # prompt, a provider's usage gauge, or a marker - a notice's
+    # (Add-ChatOverlayNotice) or a banner's, whose words are on its card
+    # alone. Pure.
     param($Row)
-    return [bool]($Row -and [string](Get-ChatField $Row 'kind') -in 'session', 'cutoff', 'recent', 'job', 'usage')
+    return [bool]($Row -and [string](Get-ChatField $Row 'kind') -in 'session', 'cutoff', 'recent', 'job', 'usage', 'notice', 'ask', 'reload')
 }
 
 function Get-ChatOverlayCardPlacement {
@@ -2783,14 +2849,25 @@ function Get-ChatOverlayCardPlacement {
     # (Test-ChatOverlayCardLeft) - -Gap off it, and past -Push more: the
     # chip's icons and words there (Get-ChatOverlayChipLayout's Out); its
     # top level with its row's (-Row, a rect), and kept on the screen: over
-    # the panel's edge sooner than off it. All in screen pixels, -Size its
-    # width and height. Pure, for the tests.
-    param([int[]]$Panel, [int[]]$Row, [int[]]$Size, $Screen, [int]$Gap, [int]$Push = 0)
+    # the panel's edge sooner than off it. -Below - a usage gauge's card -
+    # under its row instead, -Gap down, centred on it and kept on the
+    # screen - over it (Above) where the screen's foot leaves no room under
+    # it - TipX where the row's middle falls across the card. All in
+    # screen pixels, -Size its width and height. Pure, for the tests.
+    param([int[]]$Panel, [int[]]$Row, [int[]]$Size, $Screen, [int]$Gap, [int]$Push = 0, [switch]$Below)
+    if ($Below) {
+        $mid = $Row[0] + $Row[2] / 2.0
+        $x = [Math]::Max($Screen.X, [Math]::Min([int][Math]::Round($mid - $Size[0] / 2.0), $Screen.X + $Screen.Width - $Size[0]))
+        $y = $Row[1] + $Row[3] + $Gap
+        $above = $y + $Size[1] -gt $Screen.Y + $Screen.Height -and $Row[1] - $Gap - $Size[1] -ge $Screen.Y
+        $y = if ($above) { $Row[1] - $Gap - $Size[1] } else { [Math]::Max($Screen.Y, [Math]::Min($y, $Screen.Y + $Screen.Height - $Size[1])) }
+        return [pscustomobject]@{ X = [int]$x; Y = [int]$y; Left = $false; Below = $true; Above = [bool]$above; TipX = [int][Math]::Round($mid - $x) }
+    }
     $left = Test-ChatOverlayCardLeft $Panel $Screen
     $x = if ($left) { $Panel[0] - $Gap - $Push - $Size[0] } else { $Panel[0] + $Panel[2] + $Gap + $Push }
     $x = [Math]::Max($Screen.X, [Math]::Min($x, $Screen.X + $Screen.Width - $Size[0]))
     $y = [Math]::Max($Screen.Y, [Math]::Min($Row[1], $Screen.Y + $Screen.Height - $Size[1]))
-    return [pscustomobject]@{ X = [int]$x; Y = [int]$y; Left = $left }
+    return [pscustomobject]@{ X = [int]$x; Y = [int]$y; Left = $left; Below = $false; Above = $false; TipX = 0 }
 }
 
 function New-ChatOverlayCardWindow {
@@ -2818,8 +2895,9 @@ function New-ChatOverlayCardContent {
     <#
     The card's face, from its model (Get-ChatOverlayCardModel): a bubble
     in the panel's ground and trim, its tail toward the chat's row
-    (Set-ChatOverlayCardShape). Whose it is first - its project and title,
-    held to two lines, the panel's row being its tile alone - and under
+    (Set-ChatOverlayCardShape). Whose it is first - its project a line of
+    its own, its title under it held to two lines, the panel's row being
+    its tile alone - and under
     them what its state says that the state line does not
     (Get-ChatOverlayCardWords), then a rule. A usage gauge's card, -M's
     Usage, is its provider's line instead (Add-ChatOverlayUsage): each
@@ -2849,7 +2927,7 @@ function New-ChatOverlayCardContent {
     $frame.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
     $frame.Padding = [System.Windows.Thickness]::new(12, 9, 12, 10)
     [void]$root.Children.Add($frame)
-    $H.CardShape = @{ Path = $shape; Body = $frame; Sig = $null; Left = $true; TipY = 0 }
+    $H.CardShape = @{ Path = $shape; Body = $frame; Sig = $null; Left = $true; TipY = 0; Below = $false; Above = $false }
     $s = [System.Windows.Controls.StackPanel]::new()
     $frame.Child = $s
     $H.CardClock = $null
@@ -2857,7 +2935,30 @@ function New-ChatOverlayCardContent {
     # passed (Update-ChatOverlayClock)
     $H.Clocks = [System.Collections.Generic.List[object]]::new()
     if (Get-ChatField $M 'Usage') {
+        # under its gauge, its tail on top (Set-ChatOverlayCardShape)
+        $H.CardShape.Below = $true
+        $frame.Margin = [System.Windows.Thickness]::new(0, $script:ChatOverlayCardTail, 0, 0)
         Add-ChatOverlayUsage $H $s $M.Usage
+        $H.CardWin.Content = $root
+        return
+    }
+    if (Get-ChatField $M 'Notice') {
+        # a marker's (Add-ChatOverlayNotice): its word in its tone's colour,
+        # then its words in full, a line each, wrapped - the first in the
+        # text's colour, the rest dim
+        $n = $M.Notice
+        $w = New-ChatOverlayText ([string]$n.Word) ([string]$n.Tone) 10 -Bold
+        $w.Tag = 'word'
+        [void]$s.Children.Add($w)
+        $first = $true
+        foreach ($ln in @(([string]$n.Text) -split "`n" | Where-Object { $_ })) {
+            $t = New-ChatOverlayText $ln $(if ($first) { 'text' } else { 'dim' }) $(if ($first) { 12 } else { 11 })
+            $t.TextWrapping = [System.Windows.TextWrapping]::Wrap
+            $t.Margin = [System.Windows.Thickness]::new(0, $(if ($first) { 2 } else { 3 }), 0, 0)
+            $t.Tag = 'text'
+            $first = $false
+            [void]$s.Children.Add($t)
+        }
         $H.CardWin.Content = $root
         return
     }
@@ -2913,17 +3014,34 @@ function New-ChatOverlayCardContent {
     }
     # whose it is
     if ($M.Project -or $M.Title) {
-        $who = New-ChatOverlayText '' 'text'
-        $who.Tag = 'who'
-        if ($M.Project) { $who.Inlines.Add((& $run $M.Project 'project' -Bold)) }
-        if ($M.Title) { $who.Inlines.Add((& $run "$(if ($M.Project) { '  ' })$($M.Title)" 'text')) }
-        & $wrap $who 2 12
-        [void]$s.Children.Add($who)
+        # the project a line of its own, the title under it
+        if ($M.Project) {
+            $pj = New-ChatOverlayText '' 'text' -Trim
+            $pj.Tag = if ($M.Title) { 'project' } else { 'who' }
+            $pj.Inlines.Add((& $run $M.Project 'project' -Bold))
+            [void]$s.Children.Add($pj)
+        }
+        if ($M.Title) {
+            $who = New-ChatOverlayText '' 'text'
+            $who.Tag = 'who'
+            $who.Inlines.Add((& $run $M.Title 'text'))
+            & $wrap $who 2 12
+            [void]$s.Children.Add($who)
+        }
         if ($M.Words) {
             $ww = New-ChatOverlayText ([string]$M.Words) 'dim' 11 -Trim
             $ww.Tag = 'words'
             $ww.Margin = [System.Windows.Thickness]::new(0, 1, 0, 0)
             [void]$s.Children.Add($ww)
+        }
+        if ($M.Said) {
+            # the chip's open or delete about this chat, as its marker's card
+            # says it (Add-ChatOverlayOpenSay)
+            $sd = New-ChatOverlayText ([string]$M.Said.Text) ([string]$M.Said.Tone) 11
+            $sd.TextWrapping = [System.Windows.TextWrapping]::Wrap
+            $sd.Tag = 'said'
+            $sd.Margin = [System.Windows.Thickness]::new(0, 2, 0, 0)
+            [void]$s.Children.Add($sd)
         }
         [void]$s.Children.Add((& $rule))
     }
@@ -2977,10 +3095,11 @@ function New-ChatOverlayCardContent {
 }
 
 function Set-ChatOverlayCardPlacement {
-    # beside the panel, past the chip's icons and words while it is up
-    # ($H.ChipOut), level with the card's row wherever that is drawn now
-    # (Get-ChatOverlayCardPlacement), its tail at the row's middle
-    # (Set-ChatOverlayCardShape): moved only when that changed
+    # beside the panel, past the chip's words while it is up ($H.ChipOut),
+    # level with the card's row wherever that is drawn now - a usage
+    # gauge's under it, or over it near the screen's foot
+    # (Get-ChatOverlayCardPlacement) - its tail at the
+    # row's middle (Set-ChatOverlayCardShape): moved only when that changed
     param($H)
     if (-not $H.CardKey -or -not $H.CardWin -or -not $H.CardWin.Content -or $H.CardHwnd -eq [IntPtr]::Zero -or -not $H.CardRect) { return }
     $p = [ChatOverlayNative]::GetRect($H.Hwnd)
@@ -2994,9 +3113,17 @@ function Set-ChatOverlayCardPlacement {
     }
     $size = @([int][Math]::Ceiling($w.Width * $px), [int][Math]::Ceiling($hgt * $px))
     $push = if ($H.ChipWin -and $H.ChipWin.IsVisible) { [int]$H.ChipOut } else { 0 }
-    $at = Get-ChatOverlayCardPlacement $p ([int[]]$H.CardRect) $size (Get-ChatOverlayWorkArea $p) ([int][Math]::Round($script:ChatOverlayCardGap * $px)) $push
+    $below = [bool]$H.CardShape.Below
+    $at = Get-ChatOverlayCardPlacement $p ([int[]]$H.CardRect) $size (Get-ChatOverlayWorkArea $p) ([int][Math]::Round($script:ChatOverlayCardGap * $px)) $push -Below:$below
     $r = [int[]]$H.CardRect
-    Set-ChatOverlayCardShape $H $at.Left ((($r[1] + $r[3] / 2) - $at.Y) / $px) $hgt
+    if ($below) {
+        # the tail's room on the side it comes from
+        $H.CardShape.Above = [bool]$at.Above
+        $tl = $script:ChatOverlayCardTail
+        $H.CardShape.Body.Margin = if ($at.Above) { [System.Windows.Thickness]::new(0, 0, 0, $tl) } else { [System.Windows.Thickness]::new(0, $tl, 0, 0) }
+    }
+    $tip = if ($below) { $at.TipX / $px } else { (($r[1] + $r[3] / 2) - $at.Y) / $px }
+    Set-ChatOverlayCardShape $H $at.Left $tip $hgt
     $c = [ChatOverlayNative]::GetRect($H.CardHwnd)
     if ($c -and $c[0] -eq $at.X -and $c[1] -eq $at.Y) { return }
     [ChatOverlayNative]::MoveTo($H.CardHwnd, $at.X, $at.Y)
@@ -3009,7 +3136,10 @@ function Set-ChatOverlayCardShape {
     the right), its tip -TipY units down - the middle of the chat's row -
     so the card reads as that chat's own words. Kept on the body's straight
     edge when the row's middle is past it, as on a card held up off the
-    screen's foot. Drawn again only when the side, the tip or the card's
+    screen's foot. A usage gauge's card ($H.CardShape.Below) hangs under
+    it instead: its body -Tail down, the tail up from its top, -TipY then
+    units across - over it ($H.CardShape.Above), the tail down from its
+    foot. Drawn again only when the side, the tip or the card's
     -Height changed.
     #>
     param($H, [bool]$Left, [double]$TipY, [double]$Height)
@@ -3019,6 +3149,27 @@ function Set-ChatOverlayCardShape {
     $t = $script:ChatOverlayCardTail
     $rad = 8
     $half = 6
+    if ($sh.Below) {
+        $x = [Math]::Round([Math]::Max($rad + $half, [Math]::Min($TipY, $w - $rad - $half)))
+        $up = [bool]$sh.Above
+        $sig = "below|$up|$x|$Height"
+        if ($sh.Sig -eq $sig) { return }
+        $sh.Sig = $sig
+        $sh.TipY = $x
+        $sh.Body.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
+        $top = if ($up) { 0 } else { $t }
+        $body = [System.Windows.Media.RectangleGeometry]::new([System.Windows.Rect]::new(0.5, $top + 0.5, $w - 1, [Math]::Max(1, $Height - $t - 1)), $rad, $rad)
+        $base = if ($up) { $Height - $t - 2.5 } else { $t + 2.5 }
+        $f = [System.Windows.Media.PathFigure]::new()
+        $f.StartPoint = [System.Windows.Point]::new($x - $half, $base)
+        $f.Segments.Add([System.Windows.Media.LineSegment]::new([System.Windows.Point]::new($x, $(if ($up) { $Height - 0.5 } else { 0.5 })), $true))
+        $f.Segments.Add([System.Windows.Media.LineSegment]::new([System.Windows.Point]::new($x + $half, $base), $true))
+        $f.IsClosed = $true
+        $tail = [System.Windows.Media.PathGeometry]::new()
+        $tail.Figures.Add($f)
+        $sh.Path.Data = [System.Windows.Media.CombinedGeometry]::new([System.Windows.Media.GeometryCombineMode]::Union, $body, $tail)
+        return
+    }
     $y = if ($Height -lt 2 * ($rad + $half)) { $Height / 2 } else { [Math]::Max($rad + $half, [Math]::Min($TipY, $Height - $rad - $half)) }
     $y = [Math]::Round($y)
     $sig = "$Left|$y|$Height"
@@ -3109,6 +3260,17 @@ function Update-ChatOverlayCard {
             if ($H.CardWin.IsVisible) { Set-ChatOverlayCardPlacement $H }
             return
         }
+        # a marker's card: its word and words as its tag carries them now
+        # (Get-ChatOverlayNoticeModel) - an open's seconds, memory's percent
+        $nm = Get-ChatOverlayNoticeModel $Row
+        if ($nm) {
+            $sig = "notice`n$($nm.Word)`n$($nm.Tone)`n$($nm.Text)"
+            if ($sig -eq $H.CardSig) { return }
+            $H.CardSig = $sig
+            New-ChatOverlayCardContent $H ([pscustomobject]@{ Notice = $nm })
+            if ($H.CardWin.IsVisible) { Set-ChatOverlayCardPlacement $H }
+            return
+        }
         $src = Get-ChatOverlayCardSource $H.Ctx $Row
         $len = if ($src.Path) { try { [System.IO.FileInfo]::new($src.Path).Length } catch { [int64]-1 } } else { [int64]-1 }
         if ($src.Path -ne $H.CardPath -or ($src.Path -and (-not $H.CardTail -or $len -ne $H.CardTail.Length))) {
@@ -3117,7 +3279,11 @@ function Update-ChatOverlayCard {
         }
         $m = Get-ChatOverlayCardModel $Row $H.CardTail $src ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())
         $m | Add-Member -NotePropertyName Words -NotePropertyValue (Get-ChatOverlayCardWords $Row $m)
-        $sig = (@($m.Project, $m.Title, $m.Words, $m.Label, $m.Tone, $m.Tool, $m.What, $m.From, $m.At, $m.Tasks) +
+        # the chip's open or delete said about this chat, while it is
+        # (Set-ChatOverlayOpenSay's -About)
+        $said = $H.OpenSay
+        $m | Add-Member -NotePropertyName Said -NotePropertyValue $(if ($said -and $said.About -and $said.About -eq [string](Get-ChatField $Row 'key')) { $said })
+        $sig = (@($m.Project, $m.Title, $m.Words, "$($m.Said.Tone)=$($m.Said.Text)", $m.Label, $m.Tone, $m.Tool, $m.What, $m.From, $m.At, $m.Tasks) +
             @($m.Steps | ForEach-Object { "$($_.Tool)=$($_.What)" }) + @($m.Turns | ForEach-Object { "$($_.Who)=$($_.At)=$($_.Text)" })) -join "`n"
         if ($sig -eq $H.CardSig) { return }
         $H.CardSig = $sig
@@ -3170,7 +3336,7 @@ function Start-ChatShowFreshProcess {
 
 function Get-ChatOverlayOpenSay {
     <#
-    The panel's line about an open from the chip: Kind, Text, Tone, and
+    The panel's said marker about an open from the chip: Kind, Text, Tone, and
     Keep - how many seconds it stays once said, 0 while the open runs.
     -State busy (-Seconds so far), done (-Code, its child's exit), behind
     (opened, but its window could not be brought to the front -
@@ -3195,11 +3361,17 @@ function Get-ChatOverlayOpenSay {
 }
 
 function Set-ChatOverlayOpenSay {
-    # the panel's open line said, or taken away ($null), and drawn at once
-    param($H, $Say)
-    if ($Say) { $Say.Until = if ($Say.Keep) { (Get-Date).AddSeconds($Say.Keep) } else { $null } }
+    # the panel's said marker said, or taken away ($null), and drawn at
+    # once (Add-ChatOverlayOpenSay); -About, the key of the chat it is
+    # about, whose card says it too while up (Update-ChatOverlayCard)
+    param($H, $Say, [string]$About = '')
+    if ($Say) {
+        $Say.Until = if ($Say.Keep) { (Get-Date).AddSeconds($Say.Keep) } else { $null }
+        $Say.About = $About
+    }
     $H.OpenSay = $Say
     if ($H.Stack -and $H.Snap) { Update-ChatOverlayView $H $H.Snap }
+    Update-ChatOverlayCard $H
 }
 
 function Invoke-ChatOverlayOpen {
@@ -3217,19 +3389,21 @@ function Invoke-ChatOverlayOpen {
     if (-not $H -or -not $Row -or $H.OpenProc) { return }
     $title = [string](Get-ChatField $Row 'title')
     $H.Raise = $null
+    # the chat whose card says how the open goes (Set-ChatOverlayOpenSay)
+    $H.OpenKey = [string](Get-ChatField $Row 'key')
     $H.OpenCwd = [string](Get-ChatField $Row 'cwd')
     $H.OpenFront = [int64](Invoke-ChatOverlayFrontCall 'foreground')
     [void](Grant-ChatOverlayFront @(Get-ChatCodePids))
     $p = Start-ChatShowFreshProcess $H $Row
     if (-not $p) {
         Write-ChatOverlayLog "open: its child did not start" -Always
-        Set-ChatOverlayOpenSay $H (Get-ChatOverlayOpenSay $title 'nostart')
+        Set-ChatOverlayOpenSay $H (Get-ChatOverlayOpenSay $title 'nostart') $H.OpenKey
         return
     }
     $H.OpenProc = $p
     $H.OpenAt = Get-Date
     $H.OpenTitle = $title
-    Set-ChatOverlayOpenSay $H (Get-ChatOverlayOpenSay $title 'busy')
+    Set-ChatOverlayOpenSay $H (Get-ChatOverlayOpenSay $title 'busy') $H.OpenKey
     # kept for the line its end writes, and for the dot an open that worked
     # takes away (Update-ChatOverlayOpen)
     $sid = [string]$Row.sessionId
@@ -3433,8 +3607,8 @@ function Update-ChatOverlayOpen {
     # and a dismissed offer leaves the turn unseen. Turned
     # away, failed before the request, or no answer, its turn is still
     # unseen, and the dot stays.
-    # While it runs, the panel's line and the chip count its seconds; once
-    # over, the line says how it went, a while, then goes.
+    # While it runs, the said marker's card and the chip count its seconds;
+    # once over, the marker says how it went, a while, then goes.
     # An end that showed the chat brings its VS Code window to the front
     # (Start-ChatOverlayRaise), looked for again each tick a while if not
     # there yet; in front, an end that says its window was not brought
@@ -3449,7 +3623,7 @@ function Update-ChatOverlayOpen {
             # only while the line is still the open's, or none: another said
             # meanwhile keeps its words
             if ($look -eq 'behind' -and $r.Code -eq 0 -and (-not $H.OpenSay -or $H.OpenSay.Kind -eq 'done')) {
-                Set-ChatOverlayOpenSay $H (Get-ChatOverlayOpenSay $r.Title 'behind')
+                Set-ChatOverlayOpenSay $H (Get-ChatOverlayOpenSay $r.Title 'behind') ([string]$H.OpenKey)
             }
         }
         if ($H.OpenSay -and $H.OpenSay.Until -and (Get-Date) -ge $H.OpenSay.Until) { Set-ChatOverlayOpenSay $H $null }
@@ -3463,7 +3637,9 @@ function Update-ChatOverlayOpen {
         # meanwhile keeps its words
         if ($H.OpenSay -and $H.OpenSay.Kind -eq 'busy') {
             $H.OpenSay.Text = $busy.Text
-            if ($H.OpenLine) { $H.OpenLine.Text = $busy.Text }
+            # its marker's tag, and the card up on it or on the chat
+            if ($H.OpenLine) { $H.OpenLine.Tag.text = $busy.Text }
+            if ($H.CardKey -and $H.CardKey -in 'notice:said', [string]$H.OpenSay.About) { Update-ChatOverlayCard $H }
         }
         if ($H.ChipHint -and $H.ChipHint.Text -ne 'sure?') { Set-ChatOverlayChipHint $H "opening $($secs)s" }
         return
@@ -3489,7 +3665,7 @@ function Update-ChatOverlayOpen {
     $H.OpenSessionId = $null
     Set-ChatOverlayChipHint $H ''
     Hide-ChatOverlayChip $H
-    Set-ChatOverlayOpenSay $H $line
+    Set-ChatOverlayOpenSay $H $line ([string]$H.OpenKey)
 }
 
 function Select-ChatOverlayActiveUsage {
@@ -3812,7 +3988,8 @@ function New-ChatOverlayTile {
     over the ghosts of every segment (New-ChatOverlaySegClock). A chat that
     finished a turn while you were elsewhere, since you last opened it from
     the overlay (unread), has a dot in the accent colour on the tile's top
-    right corner, ringed in the panel's own colour. 36 units tall, 21
+    right corner, ringed in the panel's own colour. Not -Compact, its
+    right end keeps its delete (New-ChatOverlayTileBin). 36 units tall, 21
     -Compact. Returns the tile, tagged tile, and its clock.
     #>
     param($Row, [switch]$Compact)
@@ -3833,7 +4010,7 @@ function New-ChatOverlayTile {
     $in = [System.Windows.Controls.StackPanel]::new()
     $in.Orientation = [System.Windows.Controls.Orientation]::Horizontal
     $in.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
-    $in.Margin = if ($Compact) { [System.Windows.Thickness]::new(6.5, 0, 7.5, 0) } else { [System.Windows.Thickness]::new(8.5, 0, 9.5, 0) }
+    $in.Margin = if ($Compact) { [System.Windows.Thickness]::new(6.5, 0, 7.5, 0) } else { [System.Windows.Thickness]::new(8.5, 0, $script:ChatOverlayCardGap, 0) }
     # a chat's own rows only: a job or a cut-off chat runs nowhere yet
     $where = [string](Get-ChatField $Row 'where')
     $mark = if ([string](Get-ChatField $Row 'kind') -ne 'session') { 'none' } elseif ($where -in 'vscode', 'terminal', 'run') { $where } else { 'window' }
@@ -3844,6 +4021,7 @@ function New-ChatOverlayTile {
     $clock.El.Margin = [System.Windows.Thickness]::new($(if ($Compact) { 5 } else { 7 }), 0, 0, 0)
     $clock.El.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
     [void]$in.Children.Add($clock.El)
+    if (-not $Compact) { [void]$in.Children.Add((New-ChatOverlayTileBin $Row)) }
     [void]$g.Children.Add($in)
     if (Get-ChatField $Row 'unread') {
         $new = [System.Windows.Shapes.Ellipse]::new()
@@ -3860,6 +4038,24 @@ function New-ChatOverlayTile {
         [void]$g.Children.Add($new)
     }
     return @{ El = $g; Clock = $clock }
+}
+
+function New-ChatOverlayTileBin {
+    # A panel row's delete, drawn on its tile's right end all the time, the
+    # chat's own (Get-ChatOverlayChipActions) - faint where it cannot delete
+    # - its room kept, empty, on a row with none, so every tile is one width
+    # (Get-ChatOverlayPanelWidth). The chip's delete comes up exactly over
+    # it (Get-ChatOverlayChipLayout), -Gap in from the tile's end, to be
+    # lit and clicked. Tagged bin.
+    param($Row)
+    $d = @(Get-ChatOverlayChipActions $Row | Where-Object { [string]$_.Id -eq 'delete' }) | Select-Object -First 1
+    $b = New-ChatOverlayActionIcon $(if ($d) { $d } else { [pscustomobject]@{ Id = 'delete'; Label = 'delete' } })
+    $b.Tag = 'bin'
+    $b.ToolTip = $null
+    $b.Margin = [System.Windows.Thickness]::new(6, 0, 0, 0)
+    $b.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
+    if (-not $d) { $b.Visibility = [System.Windows.Visibility]::Hidden }
+    return $b
 }
 
 function Get-ChatOverlayRowWords {
@@ -4135,8 +4331,8 @@ function Add-ChatOverlayTileRow {
     hover card (New-ChatOverlayCardContent), which a rest on the row brings
     up; the tile is its open, the chip ringing it (Set-ChatOverlayChipName),
     and the chip has its delete too. A Recent line (kind recent) has no
-    clock: a faint dot and how long ago, in a box of its own the chip rings
-    the same. Either is tagged tile. -Clocks: the list the tile's clock
+    clock: a faint dot, how long ago and its delete, in a box of its own
+    the chip rings the same. Either is tagged tile. -Clocks: the list the tile's clock
     goes in, with what it counts (Get-ChatOverlayRowClock), for every tick
     to move (Update-ChatOverlayRowClocks).
     #>
@@ -4158,9 +4354,10 @@ function Add-ChatOverlayTileRow {
         $ago = New-ChatOverlayText ([string]$Row.stateText) 'faint' 11
         $ago.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
         [void]$in.Children.Add($ago)
+        [void]$in.Children.Add((New-ChatOverlayTileBin $Row))
         $el = [System.Windows.Controls.Border]::new()
         $el.CornerRadius = [System.Windows.CornerRadius]::new(6)
-        $el.Padding = [System.Windows.Thickness]::new(6, 2, 8, 2)
+        $el.Padding = [System.Windows.Thickness]::new(6, 2, $script:ChatOverlayCardGap, 2)
         $el.Child = $in
         $wrap.Margin = [System.Windows.Thickness]::new(0, 1, 0, 1)
     }
@@ -4299,9 +4496,8 @@ function Set-ChatOverlayTickAligned {
 }
 
 function New-ChatOverlayDotLine {
-    # A first line as the banners (Add-ChatOverlayAsk, Add-ChatOverlayReload)
-    # and the folded panel (Add-ChatOverlayCompact) draw it: a dot in -Dot's
-    # colour, by the first line, then -Text in -TextColor and -Right after
+    # A first line as the folded panel (Add-ChatOverlayCompact) draws it: a
+    # dot in -Dot's colour, by the first line, then -Text in -TextColor and -Right after
     # it in -RightColor, smaller - wrapped, as the panel is no wider than a
     # tile (Get-ChatOverlayPanelWidth). The text is tagged text.
     param([string]$Dot, [string]$Right, [string]$RightColor, [string]$Text, [string]$TextColor)
@@ -4328,33 +4524,133 @@ function New-ChatOverlayDotLine {
     return $line
 }
 
+# A notice's marker (Add-ChatOverlayNotice): a short tile, 20 units tall and
+# 34 wide, with a 2-unit margin above and below it - what the foot's markers
+# take of the panel's height (Get-ChatOverlayFootRoom)
+$script:ChatOverlayMarkWidth = 34
+$script:ChatOverlayMarkHeight = 20
+$script:ChatOverlayMarkMargin = 2
+
+function Get-ChatOverlayNoticeModel {
+    # A marker's card (New-ChatOverlayCardContent): Word, Tone and Text as
+    # its row's tag carries them - a notice's, the reset ask's, a reload's
+    # (Add-ChatOverlayNotice) - or $null for any other row. Pure.
+    param($Row)
+    if (-not $Row -or [string](Get-ChatField $Row 'kind') -notin 'notice', 'ask', 'reload') { return $null }
+    return [pscustomobject]@{ Word = [string](Get-ChatField $Row 'word'); Tone = [string](Get-ChatField $Row 'tone'); Text = [string](Get-ChatField $Row 'text') }
+}
+
+function Get-ChatOverlayNoteNotice {
+    <#
+    One of the header's notes (Get-ChatOverlayNotes) as its marker's tag:
+    key notice:<id>, kind notice, its tone, its text, and the word its card
+    leads with - memory, a leak (-Index, which one), usage, the watcher,
+    the next queued prompt, the collector's error. Pure.
+    #>
+    param($Note, [int]$Index = 0)
+    $text = [string](Get-ChatField $Note 'text')
+    $tone = [string](Get-ChatField $Note 'tone')
+    $kind = [string](Get-ChatField $Note 'kind')
+    $id, $word = if ($kind -eq 'memory') { 'memory', 'MEMORY' }
+    elseif ($kind -eq 'leak') { "leak:$Index", 'LEAK' }
+    elseif ($text -like 'usage:*') { 'usage', 'USAGE' }
+    elseif ($text -like '*watcher stopped*') { 'watcher', 'WATCHER' }
+    elseif ($text -like 'next queued prompt:*') { 'next', 'NEXT' }
+    elseif ($tone -eq 'error') { 'error', 'ERROR' }
+    else { "note:$Index", 'NOTE' }
+    return [pscustomobject]@{ key = "notice:$id"; kind = 'notice'; provider = ''; sessionId = ''; cwd = ''; tone = $tone; word = $word; text = $text }
+}
+
+function New-ChatOverlayNoticeGlyph {
+    # A marker's glyph, in -Brush, on a 12 x 12 canvas: a triangle with !
+    # for a warning, a ring with a cross for an error, a ring with i for
+    # what is only said (dim), an open padlock for the unlocked panel.
+    # Tagged with which, for the tests.
+    param([string]$Tone, $Brush)
+    $which = if ($Tone -eq 'error') { 'error' } elseif ($Tone -in 'dim', 'faint') { 'info' } elseif ($Tone -eq 'unlocked') { 'unlocked' } else { 'warn' }
+    $d = switch ($which) {
+        'error' { 'M6,1 A5,5 0 1 1 5.99,1 Z M4.2,4.2 L7.8,7.8 M7.8,4.2 L4.2,7.8' }
+        'info' { 'M6,1 A5,5 0 1 1 5.99,1 Z M6,5.4 V8.6 M6,3.5 V3.6' }
+        'unlocked' { 'M2,5.5 H10 V10.8 H2 Z M3.8,5.5 V3.4 A2.2,2.2 0 0 1 8.2,3.4' }
+        default { 'M6,1.2 L11.2,10.6 H0.8 Z M6,4.6 V7.1 M6,8.8 V8.9' }
+    }
+    $cv = [System.Windows.Controls.Canvas]::new()
+    $cv.Width = 12
+    $cv.Height = 12
+    $cv.Tag = $which
+    $p = [System.Windows.Shapes.Path]::new()
+    $p.Data = [System.Windows.Media.Geometry]::Parse($d)
+    $p.Stroke = $Brush
+    $p.StrokeThickness = 1.3
+    $p.StrokeStartLineCap = [System.Windows.Media.PenLineCap]::Round
+    $p.StrokeEndLineCap = [System.Windows.Media.PenLineCap]::Round
+    $p.StrokeLineJoin = [System.Windows.Media.PenLineJoin]::Round
+    [void]$cv.Children.Add($p)
+    return $cv
+}
+
+function Add-ChatOverlayNotice {
+    <#
+    A notice on the panel - a header note (Get-ChatOverlayNoteNotice), a
+    banner (Add-ChatOverlayAsk, Add-ChatOverlayReload), the chip's said
+    line (Add-ChatOverlayOpenSay), the unlocked hint - as a marker: a short
+    tile in its tone's colour, washed in as a tile that needs you is
+    (Get-ChatOverlayTileWash) unless it only says (dim), holding its glyph
+    (New-ChatOverlayNoticeGlyph) and no words. Its words are on its hover
+    card (Get-ChatOverlayNoticeModel), which a rest on it brings up, as on
+    a usage gauge. -Notice is its tag - key, kind, tone, word, text - for
+    Get-ChatOverlayRowRects; no row count takes it for a row
+    (Test-ChatOverlayOpenRowElement). Returns the marker's row.
+    #>
+    param($Panel, $Notice)
+    $tone = [string]$Notice.tone
+    $c = Get-ChatOverlayBrush $tone
+    $wrap = [System.Windows.Controls.DockPanel]::new()
+    $wrap.LastChildFill = $false
+    $m = $script:ChatOverlayMarkMargin
+    $wrap.Margin = [System.Windows.Thickness]::new(0, $m, 0, $m)
+    $wrap.Tag = $Notice
+    $box = [System.Windows.Controls.Border]::new()
+    $box.Width = $script:ChatOverlayMarkWidth
+    $box.Height = $script:ChatOverlayMarkHeight
+    $box.CornerRadius = [System.Windows.CornerRadius]::new(5)
+    $box.BorderBrush = $c
+    $box.BorderThickness = [System.Windows.Thickness]::new(1.5)
+    $a = if ($tone -in 'dim', 'faint') { 0 } else { $script:ChatOverlayColors.washNeed }
+    $hex = [string]$script:ChatOverlayColors[$tone]
+    if ($a -and $hex.Length -ge 7) { $box.Background = Get-ChatOverlayBrush ('#{0:X2}{1}' -f [int][Math]::Round(255 * [double]$a), $hex.Substring($hex.Length - 6)) }
+    $box.Child = New-ChatOverlayNoticeGlyph $tone $c
+    $box.Tag = 'mark'
+    $box.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
+    [System.Windows.Controls.DockPanel]::SetDock($box, [System.Windows.Controls.Dock]::Left)
+    [void]$wrap.Children.Add($box)
+    [void]$Panel.Children.Add($wrap)
+    return $wrap
+}
+
 function Add-ChatOverlayAsk {
     <#
     The banner saying the limit is over and how many chats it cut off can
     continue (the snapshot's header.ask), last in the header - in place of
-    the ask's note, which the Windows panel skips. Drawn as a row's first
-    line: a dot in the cut-off colour, the words, and "continue?" at the
-    right. Tagged like a row, kind ask, so the chip rests on it with the
-    two answers (Get-ChatOverlayChipActions); the tag carries the keys the
-    answer acts on - what the user saw. No row count takes it for a row.
+    the ask's note, which the Windows panel skips. A marker in the cut-off
+    colour (Add-ChatOverlayNotice); its card says it - "limit over at
+    13:00", "VS Code restarted", or both (Format-ChatqAskHead), how many
+    can continue, and their titles. Tagged like a row, kind ask, so the
+    chip rests on it with the two answers (Get-ChatOverlayChipActions),
+    their words outside the panel; the tag carries the keys the answer acts
+    on - what the user saw. No row count takes it for a row.
     #>
     param($H, $Panel, $Ask)
     $n = [int](Get-ChatField $Ask 'count')
     $keys = @(@(Get-ChatField $Ask 'keys') | Where-Object { $_ })
     $titles = @(@(Get-ChatField $Ask 'titles') | Where-Object { $_ })
     $left = @(@(Get-ChatField $Ask 'left') | Where-Object { $_ })
-    $wrap = [System.Windows.Controls.StackPanel]::new()
-    $wrap.Margin = [System.Windows.Thickness]::new(0, 3, 0, 1)
-    $wrap.Tag = [pscustomobject]@{ key = 'ask'; kind = 'ask'; provider = ''; sessionId = ''; cwd = ''; count = $n; keys = $keys; titles = $titles
-        restart = [int](Get-ChatField $Ask 'restart')
-    }
-    # "limit over at 13:00", "VS Code restarted", or both (Format-ChatqAskHead)
-    $line = New-ChatOverlayDotLine 'cutoff' 'continue?' 'faint' "$(Format-ChatqAskHead $Ask) $($script:ChatqDot) $(Format-ChatqAskCount $Ask) can continue" 'warn'
-    $line.Tag = 'line'
-    [void]$wrap.Children.Add($line)
     $tip = @($titles) + @($left)
+    $text = (@("$(Format-ChatqAskHead $Ask) $($script:ChatqDot) $(Format-ChatqAskCount $Ask) can continue") + $tip) -join "`n"
+    $wrap = Add-ChatOverlayNotice $Panel ([pscustomobject]@{ key = 'ask'; kind = 'ask'; provider = ''; sessionId = ''; cwd = ''; count = $n; keys = $keys; titles = $titles
+            restart = [int](Get-ChatField $Ask 'restart'); tone = 'cutoff'; word = 'CONTINUE?'; text = $text
+        })
     if ($tip.Count) { $wrap.ToolTip = $tip -join "`n" }
-    [void]$Panel.Children.Add($wrap)
 }
 
 function Add-ChatOverlayReload {
@@ -4363,7 +4659,8 @@ function Add-ChatOverlayReload {
     header.reload, Read-ChatReloadPending) - in place of its note, which the
     Windows panel skips. Its notice there slides into the notification
     centre in seconds; this stays until it is answered, there or here.
-    Drawn as the ask's is: a dot, the words, "reload?" at the right, tagged
+    A marker as the ask's is, in the warning's colour, its card saying
+    "<window> needs a reload - <why>" and the notice's own words; tagged
     kind reload so the chip rests on it with reload and later
     (Get-ChatOverlayChipActions). The tag carries the window's host pid and
     the ask's id, which the answer names (Write-ChatReloadAnswer).
@@ -4372,17 +4669,36 @@ function Add-ChatOverlayReload {
     $hostPid = [int](Get-ChatField $Reload 'pid')
     $id = [string](Get-ChatField $Reload 'id')
     $state = [string](Get-ChatField $Reload 'state')
-    $wrap = [System.Windows.Controls.StackPanel]::new()
-    $wrap.Margin = [System.Windows.Thickness]::new(0, 3, 0, 1)
-    $wrap.Tag = [pscustomobject]@{ key = "reload:$hostPid"; kind = 'reload'; provider = ''; sessionId = ''; cwd = ''
-        pid = $hostPid; id = $id; state = $state; window = [string](Get-ChatField $Reload 'window') }
-    $line = New-ChatOverlayDotLine 'warn' 'reload?' 'faint' (Format-ChatOverlayReloadText $Reload) 'warn'
-    $line.Tag = 'line'
-    [void]$wrap.Children.Add($line)
     # the notice's own words, the working chats' names among them
     $tip = [string](Get-ChatField $Reload 'text')
+    $text = (@(Format-ChatOverlayReloadText $Reload) + @($tip | Where-Object { $_ })) -join "`n"
+    $wrap = Add-ChatOverlayNotice $Panel ([pscustomobject]@{ key = "reload:$hostPid"; kind = 'reload'; provider = ''; sessionId = ''; cwd = ''
+            pid = $hostPid; id = $id; state = $state; window = [string](Get-ChatField $Reload 'window'); tone = 'warn'; word = 'RELOAD?'; text = $text })
     if ($tip) { $wrap.ToolTip = $tip }
-    [void]$Panel.Children.Add($wrap)
+}
+
+function Add-ChatOverlayHeadNotices {
+    # The header's markers, after the usage gauges: each note
+    # (Get-ChatOverlayNoteNotice) - the ask's and a reload's skipped, which
+    # are banners here - then the ask's banner and each reload's. The
+    # panel's and the folded one's (Update-ChatOverlayView). Returns
+    # whether any was drawn.
+    param($H, $Panel, $Snap)
+    $any = $false
+    # each kind counted apart, so a leak's key holds while memory comes and goes
+    $seen = @{}
+    foreach ($n in @($Snap.header.notes)) {
+        $k = [string](Get-ChatField $n 'kind')
+        if (-not $n -or $k -in 'ask', 'reload') { continue }
+        $i = [int]$seen[$k]
+        $seen[$k] = $i + 1
+        [void](Add-ChatOverlayNotice $Panel (Get-ChatOverlayNoteNotice $n $i))
+        $any = $true
+    }
+    $ask = Get-ChatField $Snap.header 'ask'
+    if ($ask) { Add-ChatOverlayAsk $H $Panel $ask; $any = $true }
+    foreach ($rl in @(@(Get-ChatField $Snap.header 'reload') | Where-Object { $_ })) { Add-ChatOverlayReload $H $Panel $rl; $any = $true }
+    return $any
 }
 
 function Update-ChatOverlayView {
@@ -4396,7 +4712,9 @@ function Update-ChatOverlayView {
     each row is its tile alone (Add-ChatOverlayTileRow). Rows stop at maxRows, or sooner where the
     screen's foot does (Update-ChatOverlayMaxHeight); a line says how
     many more there are. The recent chats not open go under that
-    (Add-ChatOverlayRecent).
+    (Add-ChatOverlayRecent). Every notice is a marker with its words on its
+    card (Add-ChatOverlayNotice): the notes and banners in the header, the
+    chip's said line and the unlocked hint at the foot.
     #>
     param($H, $Snap)
     $H.Snap = $Snap
@@ -4413,7 +4731,7 @@ function Update-ChatOverlayView {
     # than an hour counts in minutes - about one redraw a minute in a trial,
     # 24 ms each - and ages set in place would have to keep the chip's row
     # and the console's in step.
-    $key ="$($H.Ctx.ViewSig)|$($H.Locked)|$($H.Collapsed)|$($H.Ctx.Config.maxRows)|$($H.Ctx.Config.recent)|$($H.Win.MaxHeight)|$(if ($H.OpenSay) { "$($H.OpenSay.Kind)/$($H.OpenSay.Until)" })"
+    $key ="$($H.Ctx.ViewSig)|$($H.Locked)|$($H.Collapsed)|$($H.Ctx.Config.maxRows)|$($H.Ctx.Config.recent)|$($H.Win.MaxHeight)|$(if ($H.OpenSay) { "$($H.OpenSay.Kind)/$($H.OpenSay.Tone)/$($H.OpenSay.Until)" })"
     if ($key -eq $H.ViewKey) { Update-ChatOverlayClock $H; return }
     $H.ViewKey = $key
     $cfg = $H.Ctx.Config
@@ -4423,26 +4741,24 @@ function Update-ChatOverlayView {
     $H.RowClocks = [System.Collections.Generic.List[object]]::new()
     $usage = @(Select-ChatOverlayActiveUsage $Snap)
     if ($H.Collapsed) {
+        # its markers too, so a warning is still a rest away
+        # (Update-ChatOverlayChip)
         Add-ChatOverlayCompact $P $Snap $usage
-        Sync-ChatOverlayChipRow $H
+        $line = $P.Children.Count
+        [void](Add-ChatOverlayHeadNotices $H $P $Snap)
+        Add-ChatOverlayOpenSay $H $P
         Add-ChatOverlayUnlockedHint $H $P
+        # as many as fit under the cap: one past it would be cut off out of
+        # the pointer's reach
+        while ($P.Children.Count -gt $line -and -not (Test-ChatOverlayFits $H)) { $P.Children.RemoveAt($P.Children.Count - 1) }
+        Sync-ChatOverlayChipRow $H
         return
     }
     foreach ($u in $usage) { Add-ChatOverlayGauge $P $u -Letter:($usage.Count -gt 1) }
-    foreach ($n in @($Snap.header.notes)) {
-        # the ask's note and a reload's are banners here, drawn below
-        if (-not $n -or [string](Get-ChatField $n 'kind') -in 'ask', 'reload') { continue }
-        $t = New-ChatOverlayText ([string]$n.text) $(if ($n.tone -eq 'dim') { 'faint' } else { [string]$n.tone }) 11
-        $t.TextWrapping = [System.Windows.TextWrapping]::Wrap
-        $t.Margin = [System.Windows.Thickness]::new(0, 2, 0, 0)
-        [void]$P.Children.Add($t)
-    }
-    $ask = Get-ChatField $Snap.header 'ask'
-    if ($ask) { Add-ChatOverlayAsk $H $P $ask }
-    $reloads = @(@(Get-ChatField $Snap.header 'reload') | Where-Object { $_ })
-    foreach ($rl in $reloads) { Add-ChatOverlayReload $H $P $rl }
+    # every note and banner a marker, its words on its card
+    $marks = Add-ChatOverlayHeadNotices $H $P $Snap
     $rows = @($Snap.rows)
-    if ($usage.Count -or @($Snap.header.notes).Count -or $ask -or $reloads.Count) {
+    if ($usage.Count -or $marks) {
         $sep = [System.Windows.Controls.Border]::new()
         $sep.Height = 1
         $sep.Background = Get-ChatOverlayBrush 'edge'
@@ -4483,9 +4799,11 @@ function Update-ChatOverlayView {
     # before the pass splits the list at the new count
     $recent = @(@(Get-ChatField $Snap 'recent') + @(Get-ChatField $Snap 'recentMore') | Where-Object { $_ } | Select-Object -First ([Math]::Max(0, [int]$cfg.recent)))
     Add-ChatOverlayRecent $H $P $recent
+    # the foot's markers, their room kept under the rows and Recent lines
+    # (Get-ChatOverlayFootRoom)
     Add-ChatOverlayOpenSay $H $P
-    Sync-ChatOverlayChipRow $H
     Add-ChatOverlayUnlockedHint $H $P
+    Sync-ChatOverlayChipRow $H
 }
 
 function Sync-ChatOverlayChipRow {
@@ -4497,43 +4815,52 @@ function Sync-ChatOverlayChipRow {
     if ($still) { $H.ChipRow = $still } else { Hide-ChatOverlayChip $H }
 }
 
+function Get-ChatOverlaySayWord {
+    # the word a said line's card leads with (Add-ChatOverlayOpenSay), by
+    # its Kind and Tone: an open under way or done, one that failed, a
+    # delete done or not, a reload's answer. Pure.
+    param($Say)
+    $warn = [string]$Say.Tone -eq 'warn'
+    switch ([string]$Say.Kind) {
+        'busy' { return 'OPENING' }
+        'late' { return 'NO ANSWER' }
+        'nostart' { return 'NOT OPENED' }
+        'delete' { return $(if ($warn) { 'NOT DELETED' } else { 'DELETED' }) }
+        'reload' { return 'RELOAD' }
+    }
+    # done: an exit code not 0 says why it did not open, in warn
+    return $(if ($warn) { 'NOT OPENED' } else { 'OPENED' })
+}
+
 function Add-ChatOverlayOpenSay {
     <#
-    The chip's open, delete or reload, said on a line at the foot of the
-    panel, under every row - its seconds moved in place while an open runs
-    (Update-ChatOverlayOpen). A line above the rows pushed them down as it
-    came and went, and the click a second try needed then fell on another
-    chat. Its room is kept whether it is there or not
-    (Get-ChatOverlayFootRoom), so its coming cuts no row either. The row's
-    own state is left as it is: the chip's own words count the open's
-    seconds there, and the chip keeps clear of the state's width.
+    The chip's open, delete or reload, said as a marker at the foot of the
+    panel, under every row (Add-ChatOverlayNotice) - key notice:said, its
+    words on its card, their seconds moved in place while an open runs
+    (Update-ChatOverlayOpen); the card of the chat it is about says it too
+    (Update-ChatOverlayCard). A marker above the rows pushed them down as
+    it came and went, and the click a second try needed then fell on
+    another chat. Its room is kept whether it is there or not
+    (Get-ChatOverlayFootRoom), so none is cut as it comes. The row's own state is left as it is: the
+    chip's own words count the open's seconds there.
     #>
     param($H, $Panel)
     $H.OpenLine = $null
     $say = $H.OpenSay
     if (-not $say) { return }
-    $H.OpenLine = New-ChatOverlayText ([string]$say.Text) ([string]$say.Tone) 11 -Trim
-    $H.OpenLine.Margin = [System.Windows.Thickness]::new(0, 4, 0, 0)
-    # a string, so no count of rows takes it for one
-    $H.OpenLine.Tag = 'said'
-    [void]$Panel.Children.Add($H.OpenLine)
+    $H.OpenLine = Add-ChatOverlayNotice $Panel ([pscustomobject]@{ key = 'notice:said'; kind = 'notice'; provider = ''; sessionId = ''; cwd = ''
+            tone = [string]$say.Tone; word = (Get-ChatOverlaySayWord $say); text = [string]$say.Text; about = [string]$say.About })
 }
 
 function Get-ChatOverlayFootRoom {
-    # what the rows leave under them, in WPF units: the chip's said line
-    # (Add-ChatOverlayOpenSay) - kept there or not, so a row cut to make room
-    # as it came would be no better than one pushed down - a faint line as
-    # drawn (Get-ChatOverlayLineHeight); and, unlocked, the hint, as tall as
-    # it wraps to across the panel; each with its 4-unit margin
+    # what the rows leave under them, in WPF units: the foot's markers as
+    # they will be drawn - the chip's said one (Add-ChatOverlayOpenSay)
+    # always, a row cut to make room as it came being no better than one
+    # pushed down, and, unlocked, the hint's - each its height and margins
+    # (Add-ChatOverlayNotice)
     param($H)
-    $room = (Get-ChatOverlayLineHeight $H) + 4
-    if ($H.Locked) { return $room }
-    $hint = New-ChatOverlayUnlockedHint $H
-    if ($H.Win) { $hint.FontFamily = $H.Win.FontFamily }
-    $f = $H.Frame
-    $wide = if ($f) { [Math]::Max(1.0, $H.Win.Width - $f.Padding.Left - $f.Padding.Right - $f.BorderThickness.Left - $f.BorderThickness.Right) } else { [double]::PositiveInfinity }
-    $hint.Measure([System.Windows.Size]::new($wide, [double]::PositiveInfinity))
-    return $room + $hint.DesiredSize.Height
+    $n = 1 + [int](-not $H.Locked)
+    return $n * ($script:ChatOverlayMarkHeight + 2 * $script:ChatOverlayMarkMargin)
 }
 
 function Add-ChatOverlayRecent {
@@ -4544,7 +4871,8 @@ function Add-ChatOverlayRecent {
     and how long ago (Add-ChatOverlayTileRow), its project and title on its
     hover card. Each is a row the open chip takes, as an open one is, to
     open it as a tab. Only as many as fit under the panel's MaxHeight, room
-    left for the unlocked hint; none, and the header goes too.
+    left for the foot's markers (Get-ChatOverlayFootRoom); none, and the
+    header goes too.
     #>
     param($H, $Panel, [object[]]$Recent)
     $items = @($Recent | Where-Object { $_ })
@@ -4576,8 +4904,8 @@ function Test-ChatOverlayFits {
 }
 
 function Get-ChatOverlayLineHeight {
-    # How tall one of the panel's faint lines draws - the "+N more" line,
-    # and the unlocked hint without its margin - in WPF units: measured in
+    # How tall one of the panel's faint lines draws - the "+N more" line -
+    # in WPF units: measured in
     # the panel's font, once a process, where a guess of 18 kept a few
     # units more than the line takes and left them at the screen's foot.
     param($H)
@@ -4596,7 +4924,7 @@ function Limit-ChatOverlayRows {
     <#
     The rows just drawn - the stack's last children - cut from the end
     until the panel fits its MaxHeight, with room under them for the "+N
-    more" line, the chip's said line and, unlocked, the hint. -More: rows were left out already,
+    more" line and the foot's markers (Get-ChatOverlayFootRoom). -More: rows were left out already,
     so that line comes whatever. Returns how many rows are left, one at
     least: a screen too short for even that clips it instead.
     #>
@@ -4613,20 +4941,18 @@ function Limit-ChatOverlayRows {
 }
 
 function New-ChatOverlayUnlockedHint {
-    # the unlocked panel's hint, wrapped to the panel's width, with its
-    # 4-unit margin above
+    # the unlocked panel's hint, as its marker's tag (Add-ChatOverlayNotice):
+    # an open padlock in the unlocked colour, its words on its card
     param($H)
     $keyName = if ($H.Hotkey) { $H.HotkeyText } else { 'the tray menu' }
-    $hint = New-ChatOverlayText "unlocked - drag to move $($script:ChatqDot) $keyName locks it" 'unlocked' 11
-    $hint.TextWrapping = [System.Windows.TextWrapping]::Wrap
-    $hint.Margin = [System.Windows.Thickness]::new(0, 4, 0, 0)
-    return $hint
+    return [pscustomobject]@{ key = 'notice:unlocked'; kind = 'notice'; provider = ''; sessionId = ''; cwd = ''
+        tone = 'unlocked'; word = 'UNLOCKED'; text = "unlocked - drag to move $($script:ChatqDot) $keyName locks it" }
 }
 
 function Add-ChatOverlayUnlockedHint {
     param($H, $Panel)
     if ($H.Locked) { return }
-    [void]$Panel.Children.Add((New-ChatOverlayUnlockedHint $H))
+    [void](Add-ChatOverlayNotice $Panel (New-ChatOverlayUnlockedHint $H))
 }
 
 function Add-ChatOverlayCompact {
@@ -4643,7 +4969,8 @@ function Add-ChatOverlayCompact {
     $cut = if ($c -and $c.PSObject.Properties['cutOff']) { [int]$c.cutOff } else { 0 }
     $can = [int](Get-ChatField (Get-ChatField $Snap.header 'ask') 'count')
     if ($need) { $bits += "$need waiting" }
-    # a VS Code window asking to reload: its banner is not drawn collapsed
+    # a VS Code window asking to reload: counted too, by its marker
+    # (Add-ChatOverlayHeadNotices)
     $rl = @(@(Get-ChatField $Snap.header 'reload') | Where-Object { $_ }).Count
     if ($rl) { $bits += "$rl reload$(if ($rl -ne 1) { 's' }) asked" }
     # finished a turn while you were elsewhere, since you last opened it
@@ -5326,7 +5653,7 @@ function Invoke-ChatOverlayAskAnswer {
 }
 
 function Get-ChatOverlayReloadSay {
-    # the panel's line for a reload chip's answer, as a delete's is
+    # the panel's said marker for a reload chip's answer, as a delete's is
     # (Get-ChatOverlayDeleteSay). Pure.
     param([string]$Window, [string]$Answer)
     $w = if ($Window) { $Window } else { 'the VS Code window' }
@@ -5929,7 +6256,7 @@ function New-ChatOverlayHostState {
         # open runs in (Invoke-ChatOverlayOpen)
         ChipWin = $null; ChipHwnd = [IntPtr]::Zero; ChipKey = $null; ChipRow = $null; ChipRect = $null; ChipLine = $null; ChipAt = $null
         ChipUnder = $null; ChipUnderAt = $null; ChipOverAt = $null; ChipLastPos = $null; ChipSpent = $null
-        ChipArmed = $false; ChipShownTick = $null; ChipPressed = $false; OpenProc = $null; OpenAt = $null; OpenSid = $null; OpenSessionId = $null; OpenTitle = $null; OpenSay = $null; OpenLine = $null
+        ChipArmed = $false; ChipShownTick = $null; ChipPressed = $false; OpenProc = $null; OpenAt = $null; OpenSid = $null; OpenSessionId = $null; OpenTitle = $null; OpenKey = $null; OpenSay = $null; OpenLine = $null
         # the open's folder, the window in front at its click, and the look
         # for its VS Code window once it ends (Start-ChatOverlayRaise)
         OpenCwd = $null; OpenFront = [int64]0; Raise = $null

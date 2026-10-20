@@ -3112,7 +3112,7 @@ Update-ChatOverlayView `$H `$snapR
 `$rects = @(Get-ChatOverlayRowRects `$H)
 `$recentOk = `$head.Count -eq 1 -and `$head[0].Text -eq 'Recent' -and `$hi -gt `$kids.IndexOf(@(`$kids | Where-Object { `$_.Tag -and `$_.Tag -isnot [string] -and `$_.Tag.key -eq 's:u2' })[0]) -and
     `$rw.Count -eq 3 -and -not @(`$rw | Where-Object { `$kids.IndexOf(`$_) -lt `$hi -or (@(`$_.Children | ForEach-Object { `$_.Tag }) -join ',') -ne 'tile' -or `$_.Margin.Top -ne 1 -or
-            (@(@(`$_.Children)[0].Child.Children | ForEach-Object { `$_.GetType().Name }) -join ',') -ne 'Ellipse,TextBlock' -or @(@(`$_.Children)[0].Child.Children)[1].Text -ne `$_.Tag.stateText }).Count -and
+            (@(@(`$_.Children)[0].Child.Children | ForEach-Object { `$_.GetType().Name }) -join ',') -ne 'Ellipse,TextBlock,Border' -or @(@(`$_.Children)[0].Child.Children)[2].Tag -ne 'bin' -or @(@(`$_.Children)[0].Child.Children)[1].Text -ne `$_.Tag.stateText }).Count -and
     (Get-ChatOverlayDrawnRows `$H) -eq 2 -and @(`$rects | Where-Object { `$_.Key -like 'recent:*' -and (Test-ChatOverlayRowOpenable `$_.Row) }).Count -eq 3
 `$dotOf = {
     param(`$k)
@@ -3280,7 +3280,7 @@ Stop-ChatOverlaySizeDrag `$null
 "@
 $recentOut = Invoke-Sta 'recent-test' $wpfRecent
 $rz2 = "$recentOut" -split '\|'
-Check 'Recent under the open rows: a faint header, a line each - a dot and how long ago - the open chip takes, none counted as a row' ($rz2[0] -eq 'True') "$recentOut"
+Check 'Recent under the open rows: a faint header, a line each - a dot, how long ago and its bin - the open chip takes, none counted as a row' ($rz2[0] -eq 'True') "$recentOut"
 Check 'a row that finished a turn unseen has the accent dot on its tile''s top right corner; the others none' ($rz2[1] -eq 'True') "$recentOut"
 Check 'collapsed: no Recent, and the one line says "1 new"' ($rz2[2] -eq 'True') "$recentOut"
 Check 'the chip on a recent line keeps it through a redraw, and goes when it does' ($rz2[3] -eq 'True') "$recentOut"

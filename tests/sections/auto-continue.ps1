@@ -804,9 +804,10 @@ Check 'the chips a row gets: don''t continue on armed and due, continue where no
 $dontTip = @(Get-ChatOverlayChipActions (& $rowOf 'armed'))[0].Tip
 Check 'don''t continue''s tooltip carries what the row says in full, and the spec''s words' ($dontTip -like 'L. Don''t send "continue" to this chat after this reset. The next time the limit cuts it off, it is continued again - chatq ''T'' -AutoContinue never stops that.') $dontTip
 $scrA = [pscustomobject]@{ X = 0; Y = 0; Width = 1920; Height = 1040 }
-# the panel no wider than a tile: the icons and the auto chips hang outside
-# it on the side the card takes, a gap off it, the words past the icons, and
-# the ring stays over the tile; how far they reach is kept for the card
+# the icons on the tile's right end, a gap in, centred on the row - on the
+# row's where there is no tile; the auto chips, wider than the panel, hang
+# outside it on the side the card takes, a gap off it; the ring stays over
+# the tile; how far the words reach is kept for the card
 $pnA = @(1700, 150, 150, 400)
 $rwA = @(1700, 200, 150, 36)
 $cpA = Get-ChatOverlayChipLayout $rwA $rwA @(40, 18) @(170, 18) $scrA @(, @(1704, 200, 142, 36)) $pnA 5
@@ -814,10 +815,10 @@ $cpB = Get-ChatOverlayChipLayout $rwA $rwA $null @(170, 18) $scrA @() $pnA 5
 $pnR = @(20, 150, 150, 400)
 $rwR = @(20, 200, 150, 36)
 $cpR = Get-ChatOverlayChipLayout $rwR $rwR @(40, 18) @(170, 18) $scrA @() $pnR 5
-Check 'the chip''s icons and words outside the panel on the card''s side, a gap off it, the words past the icons, the ring over the tile' (
-    $cpA.Left -and ($cpA.X + $cpA.IconsAt[0]) -eq 1655 -and ($cpA.X + $cpA.WordsAt[0]) -eq 1480 -and ($cpA.X + $cpA.NameAt[0]) -eq 1704 -and ($cpA.Y + $cpA.NameAt[1]) -eq 200 -and
-    ($cpA.Y + $cpA.IconsAt[1]) -eq 209 -and $cpA.Out -eq 220 -and ($cpB.X + $cpB.WordsAt[0]) -eq 1525 -and $cpB.Out -eq 175 -and
-    -not $cpR.Left -and ($cpR.X + $cpR.IconsAt[0]) -eq 175 -and ($cpR.X + $cpR.WordsAt[0]) -eq 220 -and $cpR.Out -eq 220) (
+Check 'the chip''s icons on the tile''s right end, a gap in; its words outside the panel on the card''s side, a gap off it; the ring over the tile' (
+    $cpA.Left -and ($cpA.X + $cpA.IconsAt[0]) -eq 1801 -and ($cpA.X + $cpA.WordsAt[0]) -eq 1525 -and ($cpA.X + $cpA.NameAt[0]) -eq 1704 -and ($cpA.Y + $cpA.NameAt[1]) -eq 200 -and
+    ($cpA.Y + $cpA.IconsAt[1]) -eq 209 -and $cpA.Out -eq 175 -and ($cpB.X + $cpB.WordsAt[0]) -eq 1525 -and $cpB.Out -eq 175 -and
+    -not $cpR.Left -and ($cpR.X + $cpR.IconsAt[0]) -eq 125 -and ($cpR.X + $cpR.WordsAt[0]) -eq 175 -and $cpR.Out -eq 175) (
     "a $($cpA.X)+$($cpA.IconsAt -join ',')/$($cpA.WordsAt -join ',')/$($cpA.NameAt -join ',') out $($cpA.Out) b $($cpB.X) out $($cpB.Out) r $($cpR.X)+$($cpR.IconsAt -join ',')/$($cpR.WordsAt -join ',') out $($cpR.Out)")
 Check 'the card''s side: the one with more of the screen, the left on a tie' (
     (Test-ChatOverlayCardLeft @(885, 0, 150, 10) $scrA) -and -not (Test-ChatOverlayCardLeft @(884, 0, 150, 10) $scrA) -and (Test-ChatOverlayCardLeft @(1700, 0, 150, 10) $scrA))
@@ -991,9 +992,9 @@ Set-ChatOverlayControlsPlacement `$H
 `$boxH = `$H.Settings.DesiredSize.Height
 `$top = `$t.Side -eq 'below' -and `$t.Y -gt `$p[1] -and `$t.Y -lt (`$p[1] + `$p[3]) -and (`$t.Y + `$t.Height) -le 1020 -and `$boxH -gt 0 -and `$boxH -le 28 * 6
 Show-ChatOverlayControls `$H `$false
-# the chip window over an auto row: the bin just outside the panel, on
-# the card's side - the left, with the room there - don't continue past
-# it on the row's line, the ring over the tile
+# the chip window over an auto row: the bin on the tile, don't continue
+# just outside the panel on the card's side - the left, with the room
+# there - on the row's line, the ring over the tile
 `$sid = '11111111-1111-4111-8111-111111111111'
 `$ar = [pscustomobject]@{ key = "c:`$sid"; kind = 'cutoff'; provider = 'claude'; status = 'cutoff'; chat = 'cutoff'; rank = 0.5; project = 'p'; title = 'an auto chat'; prompt = `$null
     stateText = '#12 auto 13:01'; job = `$null; sessionId = `$sid; cwd = 'C:\p'; where = ''; unread = `$false
@@ -1008,14 +1009,14 @@ Show-ChatOverlayChip `$H `$rects[0] ([System.Drawing.Point]::new(-9000, -9000))
 `$scr = { param(`$el) `$a = `$el.PointToScreen([System.Windows.Point]::new(0, 0)); `$b = `$el.PointToScreen([System.Windows.Point]::new(`$el.ActualWidth, `$el.ActualHeight))
     @([int][Math]::Round(`$a.X), [int][Math]::Round(`$a.Y), [int][Math]::Round(`$b.X - `$a.X), [int][Math]::Round(`$b.Y - `$a.Y)) }
 `$near = { param(`$p, `$q) `$p -and `$q -and -not @(0..3 | Where-Object { [Math]::Abs(`$p[`$_] - `$q[`$_]) -gt 1 }).Count }
-# the chip's bin just left of the panel, within 12 pixels; its ring over the row's
+# the chip's bin on the row's tile, inside it; its ring over the row's
 # tile - the row's only child - as big as it, no ground but one to take
 # the click
 `$drawnTile = { @(@(`$H.Stack.Children | Where-Object { `$_.Tag -and `$_.Tag -isnot [string] })[0].Children)[0] }
 `$chipIcons = { @(`$H.ChipIcons.Children | Where-Object { `$_.Tag -is [string] }) }
-`$over = { `$c = & `$chipIcons; `$dt = & `$drawnTile; `$cn = @(`$H.ChipNameBox.Children); `$pn = [ChatOverlayNative]::GetRect(`$H.Hwnd); `$ci = & `$scr `$c[0]
-    `$gapL = `$pn[0] - (`$ci[0] + `$ci[2])
-    `$c.Count -eq 1 -and `$c[0].Tag -eq 'delete' -and `$gapL -ge 0 -and `$gapL -le 12 -and
+`$over = { `$c = & `$chipIcons; `$dt = & `$drawnTile; `$cn = @(`$H.ChipNameBox.Children); `$tr = & `$scr `$dt; `$ci = & `$scr `$c[0]
+    `$inTile = `$ci[0] -ge `$tr[0] -and (`$ci[0] + `$ci[2]) -le (`$tr[0] + `$tr[2]) -and `$ci[1] -ge `$tr[1] -and (`$ci[1] + `$ci[3]) -le (`$tr[1] + `$tr[3])
+    `$c.Count -eq 1 -and `$c[0].Tag -eq 'delete' -and `$inTile -and
     `$cn.Count -eq 1 -and `$cn[0].Tag -eq 'open' -and `$cn[0].Child.Tag -eq 'ring' -and `$cn[0].Background.Color.A -eq 1 -and `$dt.Tag -eq 'tile' -and
     (& `$near (& `$scr `$dt) (& `$scr `$cn[0].Child)) -and [Math]::Abs(`$cn[0].Child.Width - `$dt.ActualWidth) -le 0.5 -and [Math]::Abs(`$cn[0].Child.Height - `$dt.ActualHeight) -le 0.5 }
 `$kids = @(@(`$H.ChipWords.Children) + @(`$H.ChipNameBox.Children | Select-Object -Last 1) + (& `$chipIcons))
@@ -1088,7 +1089,7 @@ Show-ChatOverlayChip `$H `$rc[0] ([System.Drawing.Point]::new(-9000, -9000))
 `$overB = (& `$over); `$overBSay = & `$overSay
 `$two = `$two -and (`$rc[0].Rect -join ',') -eq (`$rects[0].Rect -join ',') -and (`$cc -join ',') -eq (`$cr -join ',') -and `$overB
 `$H.Ctx.Config.prompts = `$true
-# a plain row: its ring and delete, the bin just outside the panel
+# a plain row: its ring and delete, the bin on the tile
 `$pr = [pscustomobject]@{ key = "s:`$sid"; kind = 'session'; provider = 'claude'; status = 'idle'; rank = 3; project = 'p'; title = 'plain'; prompt = `$null; stateText = 'idle 1m'; job = `$null; sessionId = `$sid; cwd = 'C:\p'; where = 'vscode' }
 `$H.Ctx.ViewSig = 'plain'
 Update-ChatOverlayView `$H ([pscustomobject]@{ header = [pscustomobject]@{ usage = @(); notes = @() }; rows = @(`$pr) })
@@ -1117,9 +1118,9 @@ if (`$null -ne `$stateWas) { [IO.File]::WriteAllText(`$script:ChatqAutoPath, `$s
     Check 'the tray''s item is checked as config.json has it, and toggles on and ask through Invoke-ChatOverlayVerb' ($aw[2] -eq 'True') "$acOut"
     Check 'the tray''s toggle is held while the console runs a loop of its own' ($aw[3] -eq 'True') "$acOut"
     Check 'six rows fit: with the panel at the screen''s top, the settings box goes under the bar, over the rows, on the screen' ($aw[4] -eq 'True') "$acOut"
-    Check 'the chip window over an auto row: don''t continue, the state in the tooltip, on the row''s line past the bin, the bin just outside the panel on the card''s side, and a ring over the tile, as big as it, with no ground - the same with prompts off; lit, its border the accent''s, and pressed; back to clear' ($aw[5] -eq 'True') "$acOut"
+    Check 'the chip window over an auto row: don''t continue, the state in the tooltip, outside the panel on the card''s side, on the row''s line, the bin on the tile, and a ring over the tile, as big as it, with no ground - the same with prompts off; lit, its border the accent''s, and pressed; back to clear' ($aw[5] -eq 'True') "$acOut"
     Check 'a press on one chip released on the other does nothing; on the same chip it acts - the ring too; an unarmed chip takes no click' ($aw[6] -eq 'True' -and $aw[7] -eq 'True' -and $aw[8] -eq 'True') "$acOut"
-    Check 'a plain row''s chip: its ring and delete alone, the bin just outside the panel' ($aw[9] -eq 'True') "$acOut"
+    Check 'a plain row''s chip: its ring and delete alone, the bin on the tile' ($aw[9] -eq 'True') "$acOut"
     Check 'collapsed, the one line counts the cut-off chats auto-continue will continue' ($aw[10] -eq 'True') "$acOut"
     Check 'Continue chosen in the settings box: on, and the notice said once' ($aw[11] -eq 'True') "$acOut"
     Check 'every tile is as wide whatever its mark' ($aw[12] -eq 'True') "$acOut"

@@ -553,6 +553,16 @@ if (-not `$H.CardWin) { New-ChatOverlayCardWindow `$H }
 `$usageOk = `$gz.Tag.kind -eq 'usage' -and `$ug -is [System.Windows.Controls.DockPanel] -and @(`$ug.Children | Where-Object { `$_ -is [System.Windows.Controls.Grid] }).Count -eq 0 -and
     (`$ut -join '|') -eq "Claude|22:22|5h 42% resets `$(& `$hm `$r5) `$dot week 50%" -and
     `$H.Clocks.Count -eq 1 -and `$resetRun.Count -eq 1 -and [object]::ReferenceEquals(`$H.Clocks[0].Block, `$resetRun[0])
+# hung under its gauge: its body a tail's height down, the tail up from its top
+`$usageOk = `$usageOk -and `$H.CardShape.Below -and `$H.CardShape.Body.Margin.Top -eq `$script:ChatOverlayCardTail
+Set-ChatOverlayCardShape `$H `$false 50 100
+`$bd = `$H.CardShape.Path.Data.Bounds
+`$usageOk = `$usageOk -and `$H.CardShape.TipY -eq 50 -and [Math]::Abs(`$bd.Top - 0.5) -lt 0.01 -and [Math]::Abs(`$bd.Bottom - 99.5) -lt 0.01
+# over it near the screen's foot: the tail down from its foot
+`$H.CardShape.Above = `$true
+Set-ChatOverlayCardShape `$H `$false 50 100
+`$pd = `$H.CardShape.Path.Data
+`$usageOk = `$usageOk -and `$pd.FillContains([System.Windows.Point]::new(50, 98)) -and -not `$pd.FillContains([System.Windows.Point]::new(20, 98)) -and `$pd.FillContains([System.Windows.Point]::new(20, 2))
 `$H.Clocks[0].At = & `$ms (Get-Date).AddMinutes(-1)
 Update-ChatOverlayClock `$H
 `$ut2 = (@(& `$inlinesOf `$ug) | ForEach-Object { `$_.Text }) -join ''
@@ -572,10 +582,12 @@ Update-ChatOverlayClock `$H
     `$pc.Count -eq 2 -and -not @(`$pc | Where-Object { `$_.Foreground -ne (Get-ChatOverlayBrush 'critical') }).Count -and
     `$rl.Count -eq 1 -and `$rl[0].Text -eq " resets `$(& `$hm ([DateTimeOffset]::FromUnixTimeMilliseconds(`$wkl.resetsAt).LocalDateTime))" -and `$rl[0].Foreground -eq (Get-ChatOverlayBrush 'critical')
 Hide-ChatOverlayCard `$H
-# the banner: last in the header, after the notes and in place of the ask's own
+# the banner: last in the header, after the notes and in place of the ask's
+# own - each a marker, no words on the panel, its words on its card
 `$askAt = (Get-Date).AddMinutes(-20)
 `$ask = [pscustomobject]@{ count = 3; resetsAt = (& `$ms `$askAt); keys = @('a5_1', 'a5_2', 'a5_3'); titles = @('T one', 'T two', 'T three'); left = @('T four - open in a terminal; its own claude continues it') }
-`$notes = @([pscustomobject]@{ text = 'next queued prompt: 17:10'; tone = 'dim' }, [pscustomobject]@{ text = 'limit over at 12:00 - 3 chats it cut off can continue'; tone = 'warn'; kind = 'ask' })
+`$notes = @([pscustomobject]@{ text = 'memory low: 96% used, 3.5 GB left'; tone = 'warn'; kind = 'memory' }, [pscustomobject]@{ text = 'next queued prompt: 17:10'; tone = 'dim' },
+    [pscustomobject]@{ text = 'limit over at 12:00 - 3 chats it cut off can continue'; tone = 'warn'; kind = 'ask' })
 `$rows = @(1..2 | ForEach-Object { [pscustomobject]@{ key = "s:`$_"; kind = 'session'; provider = 'claude'; status = 'idle'; rank = 3; project = 'p'; title = "chat `$_"; prompt = 'x'; stateText = 'idle 1m'; job = `$null } })
 `$snapA = [pscustomobject]@{ header = [pscustomobject]@{ usage = `$use; notes = `$notes; ask = `$ask }; counts = [pscustomobject]@{ idle = 2; cutOff = 3 }; rows = `$rows }
 & `$draw `$snapA 'a1'
@@ -583,29 +595,57 @@ Hide-ChatOverlayCard `$H
 `$ban = @(`$kids | Where-Object { `$_.Tag -and `$_.Tag -isnot [string] -and `$_.Tag.key -eq 'ask' })
 `$bi = if (`$ban.Count) { `$kids.IndexOf(`$ban[0]) } else { -1 }
 `$bl = if (`$ban.Count) { `$ban[0].Children[0] } else { `$null }
-`$btexts = @(`$bl.Children | Where-Object { `$_ -is [System.Windows.Controls.TextBlock] } | ForEach-Object { (@(`$_.Inlines) | ForEach-Object { `$_.Text }) -join '' })
+# every TextBlock under an element: a marker has none
+`$textsIn = { param(`$el) `$out = @(); `$q = [System.Collections.Generic.Queue[object]]::new(); `$q.Enqueue(`$el)
+    while (`$q.Count) { `$x = `$q.Dequeue(); if (`$x -is [System.Windows.Controls.TextBlock]) { `$out += `$x.Text }
+        foreach (`$c in [System.Windows.LogicalTreeHelper]::GetChildren(`$x)) { if (`$c -is [System.Windows.DependencyObject]) { `$q.Enqueue(`$c) } } }
+    `$out }
+`$btexts = @(& `$textsIn `$H.Stack)
 `$rects = @(Get-ChatOverlayRowRects `$H)
-`$bannerOk = `$ban.Count -eq 1 -and `$ban[0].Tag.kind -eq 'ask' -and (@(`$ban[0].Tag.keys) -join ',') -eq 'a5_1,a5_2,a5_3' -and `$bl.Tag -eq 'line' -and
-    (`$btexts -contains ('limit over at ' + (& `$hm `$askAt) + ' ' + `$dot + ' 3 chats it cut off can continue continue?')) -and
-    `$bi -gt 0 -and `$kids[`$bi + 1] -is [System.Windows.Controls.Border] -and `$kids[`$bi - 1].Text -eq 'next queued prompt: 17:10' -and
-    -not @(`$kids | Where-Object { `$_ -is [System.Windows.Controls.TextBlock] -and `$_.Text -like 'limit over*' }).Count -and
+`$cardTexts = { @(`$H.CardShape.Body.Child.Children | Where-Object { `$_ -is [System.Windows.Controls.TextBlock] } | ForEach-Object { `$_.Text }) -join '/' }
+# the next prompt's note: a marker whose card says it, beside the panel
+`$nx = @(`$rects | Where-Object { `$_.Key -eq 'notice:next' })[0]
+Show-ChatOverlayChip `$H `$nx ([System.Drawing.Point]::new(-9000, -9000))
+`$nxCard = & `$cardTexts
+`$nxOk = `$H.CardKey -eq 'notice:next' -and `$H.CardWin.IsVisible -and -not `$H.ChipWin.IsVisible -and -not `$H.CardShape.Below -and `$nxCard -eq 'NEXT/next queued prompt: 17:10'
+Hide-ChatOverlayChip `$H
+`$bannerOk = `$ban.Count -eq 1 -and `$ban[0].Tag.kind -eq 'ask' -and (@(`$ban[0].Tag.keys) -join ',') -eq 'a5_1,a5_2,a5_3' -and `$bl.Tag -eq 'mark' -and `$bl.Child.Tag -eq 'warn' -and
+    `$ban[0].Tag.word -eq 'CONTINUE?' -and `$ban[0].Tag.tone -eq 'cutoff' -and
+    `$bi -gt 1 -and `$kids[`$bi + 1] -is [System.Windows.Controls.Border] -and `$kids[`$bi - 1].Tag.key -eq 'notice:next' -and `$kids[`$bi - 1].Tag.kind -eq 'notice' -and
+    `$kids[`$bi - 2].Tag.key -eq 'notice:memory' -and `$kids[`$bi - 2].Children[0].Child.Tag -eq 'warn' -and `$kids[`$bi - 1].Children[0].Child.Tag -eq 'info' -and
+    -not @(`$btexts | Where-Object { `$_ -like 'limit over*' -or `$_ -like 'next queued*' -or `$_ -like 'memory low*' }).Count -and `$nxOk -and
     (Get-ChatOverlayDrawnRows `$H) -eq 2 -and @(`$rects | Where-Object { `$_.Key -eq 'ask' }).Count -eq 1 -and
     "`$(`$ban[0].ToolTip)" -eq "T one``nT two``nT three``nT four - open in a terminal; its own claude continues it"
-`$bannerSay = "banner `$(`$ban.Count) at `$bi texts [`$(`$btexts -join '/')] drawn `$(Get-ChatOverlayDrawnRows `$H) rects `$(@(`$rects | ForEach-Object { `$_.Key }) -join ',')"
-# collapsed: the one line counts them apart, and the gauge under it
+`$bannerSay = "banner `$(`$ban.Count) at `$bi texts [`$(`$btexts -join '/')] next [`$nxCard] drawn `$(Get-ChatOverlayDrawnRows `$H) rects `$(@(`$rects | ForEach-Object { `$_.Key }) -join ',')"
+# collapsed: the one line counts them apart, the gauge under it, then the
+# markers - memory's card a rest away, as a gauge's is
 Set-ChatOverlayCollapsed `$H `$true
+`$H.Win.UpdateLayout()
 `$one = @(`$H.Stack.Children[0].Children | Where-Object { `$_ -is [System.Windows.Controls.TextBlock] } | ForEach-Object { `$_.Text }) -join '/'
-`$fold2 = `$H.Stack.Children.Count -eq 2 -and `$H.Stack.Children[1].Tag.kind -eq 'usage'
+`$fk = @(`$H.Stack.Children | Select-Object -Skip 1 | ForEach-Object { `$_.Tag.key })
+`$fm = @(Get-ChatOverlayRowRects `$H | Where-Object { `$_.Key -eq 'notice:memory' })[0]
+`$fAt = [System.Drawing.Point]::new(`$fm.Rect[0] + 5, `$fm.Rect[1] + 5)
+`$ft0 = Get-Date
+Update-ChatOverlayChip `$H `$fAt `$false `$ft0 `$true
+Update-ChatOverlayChip `$H `$fAt `$false `$ft0.AddMilliseconds(450) `$true
+`$fCard = & `$cardTexts
+`$fold2 = (`$fk -join ',') -eq 'usage:claude,notice:memory,notice:next,ask' -and `$H.CardKey -eq 'notice:memory' -and `$H.CardWin.IsVisible -and `$fCard -eq 'MEMORY/memory low: 96% used, 3.5 GB left'
+Hide-ChatOverlayChip `$H
 Set-ChatOverlayCollapsed `$H `$false
 `$foldOk = `$one -eq ('3 can continue ' + `$dot + ' 2 idle') -and `$fold2
-# the chip on the banner: its two answers; on a Claude row: open and delete
+`$foldSay = "[`$(`$fk -join ',')] card [`$fCard]"
+# the chip on the banner: its two answers, and its card beside the panel,
+# past them, with its words; on a Claude row: open and delete
 `$e = @(`$rects | Where-Object { `$_.Key -eq 'ask' })[0]
 Show-ChatOverlayChip `$H `$e
 `$cc = `$H.ChipWin.Content
 `$cw = @(`$H.ChipWords.Children)
+`$askCard = & `$cardTexts
+`$askCardOk = `$H.CardKey -eq 'ask' -and `$H.CardWin.IsVisible -and -not `$H.CardShape.Below -and
+    `$askCard -eq ('CONTINUE?/limit over at ' + (& `$hm `$askAt) + ' ' + `$dot + ' 3 chats it cut off can continue/T one/T two/T three/T four - open in a terminal; its own claude continues it')
 `$chipAsk = `$cc -is [System.Windows.Controls.Grid] -and (@(`$cw | ForEach-Object { `$_.Tag }) -join ',') -eq 'ask-go,ask-leave' -and
     (@(`$cw | ForEach-Object { `$_.Child.Text }) -join ',') -eq 'continue 3,leave them' -and `$null -eq `$H.ChipHint -and -not `$H.ChipIcons.Children.Count -and
-    "`$(`$cw[0].ToolTip)" -like 'Queue "Continue from where you left off." for each of the 3 chats the limit cut off, to go one at a time: T one, T two, T three' -and @(`$H.ChipActions).Count -eq 2
+    "`$(`$cw[0].ToolTip)" -like 'Queue "Continue from where you left off." for each of the 3 chats the limit cut off, to go one at a time: T one, T two, T three' -and @(`$H.ChipActions).Count -eq 2 -and `$askCardOk
 Hide-ChatOverlayChip `$H
 `$xRow = [pscustomobject]@{ key = 's:x'; kind = 'session'; provider = 'claude'; sessionId = '$idCard'; cwd = '$projA' }
 `$H.ChipActions = @(Get-ChatOverlayChipActions `$xRow)
@@ -767,16 +807,16 @@ Invoke-ChatOverlayAskAnswer `$H 'leave' @('a5a5ffff-0000-4000-8000-00000000ffff_
 Invoke-ChatOverlayVerb 'stop'
 [IO.File]::WriteAllText(`$script:ChatqConfigPath, `$cfgWas)
 '{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}|{9}|{10}|{11}|{12}|{13}' -f `$usageOk, `$weekOk, `$bannerOk, `$foldOk, `$chipAsk, `$chipOpen, `$setOk, `$balloonOk, `$newsOk, `$conOk, `$answerOk,
-    (`$script:RaErr -join ' / '), ("card [`$(`$ut -join ',')] fills `$(`$fills.Count) pc `$(`$pc.Count) `$bannerSay fold [`$one] `$setSay news [`$newsSay] con [`$conAsk] [`$conNone] [`$conStale] `$answerSay" -replace '\|', '/'), `$trayOk
+    (`$script:RaErr -join ' / '), ("card [`$(`$ut -join ',')] fills `$(`$fills.Count) pc `$(`$pc.Count) `$bannerSay fold [`$one] `$foldSay ask card [`$askCard] `$setSay news [`$newsSay] con [`$conAsk] [`$conNone] [`$conStale] `$answerSay" -replace '\|', '/'), `$trayOk
 "@
 $raOut = Invoke-Sta 'reset-ask-test' $raWpf
 $ra = "$raOut" -split '\|'
 $raSay = if ($ra.Count -ge 13) { "$($ra[11]) | $($ra[12])" } else { "$raOut" }
-Check 'the usage gauge''s card: one line, numbers alone, no bar - its name, each window''s percent, the 5h one''s reset time, gone once it has passed, and when the figure is from' ($ra[0] -eq 'True') $raSay
+Check 'the usage gauge''s card: one line, numbers alone, no bar - its name, each window''s percent, the 5h one''s reset time, gone once it has passed, and when the figure is from - hung under the gauge, its tail on top' ($ra[0] -eq 'True') $raSay
 Check 'windows at their limit: the gauge''s bars, and on the card the percents and the latest reset of a window at its limit, in the limit''s colour' ($ra.Count -gt 1 -and $ra[1] -eq 'True') $raSay
-Check 'the banner: last in the header after the notes, in place of the ask''s note - tagged for the chip, its titles and those left as its tooltip, no row counted' ($ra.Count -gt 2 -and $ra[2] -eq 'True') $raSay
-Check 'collapsed: "N can continue" counted apart, and the gauge under the line' ($ra.Count -gt 3 -and $ra[3] -eq 'True') $raSay
-Check 'the chip on the banner: continue N and leave them, each its own tip' ($ra.Count -gt 4 -and $ra[4] -eq 'True') $raSay
+Check 'the banner: last in the header after the notes, in place of the ask''s note - each a marker with no words on the panel, a note''s card saying it beside the panel; tagged for the chip, its titles and those left as its tooltip, no row counted' ($ra.Count -gt 2 -and $ra[2] -eq 'True') $raSay
+Check 'collapsed: "N can continue" counted apart, the gauge under the line, then the markers - a rest on memory''s brings its card' ($ra.Count -gt 3 -and $ra[3] -eq 'True') $raSay
+Check 'the chip on the banner: continue N and leave them, each its own tip; its card has its words and titles' ($ra.Count -gt 4 -and $ra[4] -eq 'True') $raSay
 Check 'the chip on a Claude row: delete as an icon, room beside it to say things; delete''s first click turns the bin red and says sure?, a reset takes both back; greyed on a chat at work; the console''s bin, its only icon, red through a rebuild of its list; the console''s project and title a hand with the open''s tooltip, a click there opening the chat and picking nothing'($ra.Count -gt 5 -and $ra[5] -eq 'True') $raSay
 Check 'the settings box''s fifth row: Cut off, Ask or Leave, the one in force filled; Leave saves off at config.json''s top level, and a fresh look follows' ($ra.Count -gt 6 -and $ra[6] -eq 'True') $raSay
 Check 'balloons go through Show-ChatOverlayBalloon: cut to 250, what a click means kept' ($ra.Count -gt 7 -and $ra[7] -eq 'True') $raSay

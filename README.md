@@ -587,9 +587,10 @@ and one prompt offers all of them:
   three. A click on it opens [the console](#the-console) with the chats
   listed; it never answers by itself, since a toast is often clicked just
   to be rid of it;
-- **a banner** at the foot of the panel's header,
-  `limit over at 13:00 · 3 chats it cut off can continue`. Rest the
-  pointer on it for its chip: **continue 3** or **leave them**;
+- **a marker** at the foot of the panel's header, a short orange tile
+  with a warning triangle; rest the pointer on it and its card says
+  `limit over at 13:00 · 3 chats it cut off can continue` and names them,
+  and its chip offers **continue 3** or **leave them**;
 - **the tray's menu**, at its top: **Continue 3 cut-off chats** and
   **Leave them**;
 - **the console's Cut off header**, with **Leave them** beside
@@ -1800,11 +1801,26 @@ Windows no wider than a chat's tile, about 150 units:
   out) - under its name, and the same in full in the chip's tooltip; in the
   console and `charlie -Print` on its row. Every tile is as wide, whatever its mark or
   clock.
-- **The ask, once the limit is over:** a banner at the foot of the header,
-  `limit over at 13:00 · 3 chats it cut off can continue`, with a dot in
-  the cut-off orange. Rest on it for its chip - **continue 3** or **leave
-  them** - which comes and arms as the open chip does; its tooltip lists
-  the chats, and those left to a terminal. Which chats, and what an
+- **Warnings as markers, their words on a card.** On Windows nothing on
+  the panel is a line of words but `+N more`, `Recent` and `no chats
+  open`: every notice is a short tile of its own, about a Recent line
+  tall, in its colour, holding a glyph alone - a warning triangle for a
+  warning, a ring with a cross for an error, a ring with `i` for what is
+  only said, an open padlock while the panel is unlocked. Rest the pointer
+  on it and its card comes up beside the panel, as a chat's does, with a
+  word in its colour - **MEMORY**, **LEAK**, **WATCHER**, **NEXT**,
+  **ERROR**, **CONTINUE?**, **RELOAD?**, **OPENING**, **UNLOCKED** - and
+  the words in full, kept up as they change. The notes and the two asks
+  sit in the header, under the usage gauges; what the chip said and the
+  unlocked hint at the foot, under every row. Folded to one line, the
+  header's markers are drawn under it, a rest away still. `charlie
+  -Print` and the macOS panel keep their lines of words.
+- **The ask, once the limit is over:** a marker at the foot of the header,
+  in the cut-off orange, its card saying `limit over at 13:00 · 3 chats
+  it cut off can continue` and naming the chats, and those left to a
+  terminal. Rest on it for its chip - **continue 3** or **leave them** -
+  which comes and arms as the open chip does, its words just outside the
+  panel, the card past them. Which chats, and what an
   answer writes: [When the limit is over](#when-the-limit-is-over).
 - **The queue.** A queued prompt rides on its chat's row (`#3 sends 13:01` on its card), or
   has a purple row of its own when that chat is not open, its tile's border
@@ -1880,8 +1896,8 @@ bring it back during it, until the next one.
 runs out of memory dies, and takes every chat it ran with it
 ([When a reload cut chats off](#when-a-reload-cut-chats-off)). So once
 95% of what Windows can hand out - memory and page file together, its
-commit limit - is in use, the panel's first note says so in amber,
-naming the programs that hold the most:
+commit limit - is in use, the panel's first marker, an amber warning
+triangle, says so on its card, naming the programs that hold the most:
 `memory low: 96% used, 3.5 GB left - most: Code 9.8 GB, claude 3.1 GB`.
 The tray says it once in a balloon, and not again within 15 minutes;
 `overlay.log` gets a line as it goes low and as it comes back. It stays
@@ -1895,7 +1911,7 @@ it is too late to close it. Once a minute it reads each process's
 memory, and a process grown 2 GB or more since its figure 10 minutes
 back is said - `WINWORD grew 6.1 GB in 10 min, now 15.8 GB (pid 33188) -
 it may be leaking` - in `overlay.log`, in a tray balloon, and in an
-amber note while it keeps growing. Each program once in 30 minutes. A
+amber marker while it keeps growing. Each program once in 30 minutes. A
 process each, not a program's sum, so more VS Code windows, chats or
 compilers are not a leak; one not running 10 minutes back is not
 counted. `overlay.leakGB` sets the amount; 0 turns it off.
@@ -1950,7 +1966,7 @@ The buttons, left to right, ending in minimize, maximize and × as on any
 window's caption:
 - **collapse** (a chevron): folds the panel to one line - how many chats wait,
   work or sit idle, wrapped to the panel's width - with the usage gauges
-  under it, and back;
+  and the header's markers under it, and back;
 - **refresh** (a circular arrow): asks Claude, Codex and Copilot for usage
   now. It turns while it asks, and Claude's gauge's card - the gauge drawn
   while a Claude chat is open - reads `asking...`, then `checked 22:22:01`
@@ -1994,21 +2010,23 @@ chip comes up over it, in a window of its own like the buttons, taking
 no focus, in neither Alt+Tab nor the taskbar: a ring lights round the
 tile in the accent's colour, its tooltip saying what a click does - open
 the chat, or **watch** its run while a queued prompt runs in it - and
-**delete**, a small bin, comes just outside the panel beside the row, on
-the side the card takes - the card goes out past it - lit under the
-pointer. A pointer sweeping
+**delete**, the small bin always drawn at the tile's right end - faint
+where it can't delete - lit under the pointer. Press a tile and move it a few pixels to drag the panel, as
+from the bar; let go without moving and it opens. A pointer sweeping
 across brings up nothing, and it shows once per visit to a row. Where it
 came up under the pointer, a click in its first 300 ms does not count - it
 was on its way to what is under the panel before the chip could be seen -
 and **click again** shows beside the bin; one after that counts, as does
 any once the pointer has been off it. From the click on, the chip counts `opening 3s` beside the
 bin, and a
-line at the foot of the panel, under every row, says
+marker at the foot of the panel, under every row, says on its card - and
+the chat's own card says too -
 `opening '<title>' in VS Code - 3s`, then `opened '<title>'` for 5 s, or
-why not in amber for 20 s - held, a terminal's, no `code`, a crash of the
-open's own PowerShell (its exit code), no answer in 60 s. That line's room
-is kept free whether it shows or not, so no row moves or is cut as it
-comes and goes - a second click lands where the first did. The tray says
+why not, in amber, for 20 s - held, a terminal's, no `code`, a crash of the
+open's own PowerShell (its exit code), no answer in 60 s. Under every
+row, no row moves as it comes and goes - a second click lands where the
+first did; at the screen's foot its coming takes a Recent line, or the
+last row, as any row past the room would. The tray says
 the same for all but a plain open. Clicked, it:
 - asks the window that has the chat to open it in an editor tab of its
   own, or to bring forward the tab that already shows it
@@ -2059,25 +2077,28 @@ auto-continue off or asking, its card keeps the plain `cut off - resets
 13:00` words, and **continue** is still there. A chat a terminal's
 `claude` holds gets no **continue**, in any mode: Claude Code's own wait
 continues it there, and a continue queued too would be a second writer.
-They sit past the bin, outside the panel on the card's side, never over
-the tile. Their tooltip says the
+They sit just outside the panel on the card's side, never over the
+tile, and the card goes out past them. Their tooltip says the
 card's words in full. A click
 counts only when it goes down and up on the same chip - the banner's two
 answers too - and neither takes a chat's unread dot away. The tray says
 what was done.
 
 **What a chat is doing, from its row.** On Windows, as the chip comes up
-on a row, a card comes up beside the panel: level with the row, on the
-side of the panel with more room, and on the screen. It goes as the chip
+on a row, a card comes up just beside the panel: level with the row, on
+the side of the panel with more room, and on the screen. A usage gauge's
+card hangs under the gauge instead, or sits over it where the screen's
+foot leaves no room. It goes as the chip
 does, 300 ms after the pointer leaves the row. A queued prompt's own row
-gets one too; a banner never does, and none comes while the settings box
-is open, the panel is folded to one line or being dragged, or the
-console is up. Like the chip it takes no focus and is in neither Alt+Tab
+gets one too, and so does a marker; none comes while the settings box
+is open, the panel is being dragged, or the console is up, and folded to
+one line only a gauge's or a marker's does. Like the chip it takes no focus and is in neither Alt+Tab
 nor the taskbar, and the mouse goes through it: it is read, never
 clicked. It has the panel's look and opacity, and is shaped as a speech
 bubble with its tail at the row's middle. It says:
 - whose it is, the row being its tile alone: the chat's project, bold in
-  the project colour, and its title, two lines at most; under them, dim,
+  the project colour, on a line of its own, and under it its title, two
+  lines at most; under them, dim,
   what the row's words say that the line below does not - a queued
   prompt's place, say - then a rule;
 - what the chat does now, under a word in its state's colour: **NOW**
@@ -2144,7 +2165,7 @@ What you pick in the settings box is kept in `config.json`, like a setting made 
 `charlie`; a collapsed panel stays collapsed across restarts.
 
 **Ctrl+Alt+Shift+O** or the tray icon's menu unlocks the whole panel to drag,
-not just its bar: it gets a pink edge (blue in the light look), and it locks itself again two
+not just its bar and its tiles: it gets a pink edge (blue in the light look) and an open padlock marker at its foot, whose card says how to lock it, and it locks itself again two
 minutes after the pointer leaves. The tray icon is Charlie, with a dot at her bottom right in the
 colour of the most urgent chat, ringed in crimson in the dark look; its tooltip, starting `Charlie:`, counts
 the chats - those the overlay asks about as `2 can
@@ -2740,16 +2761,16 @@ warning did not name that is working by then is asked about first.
 **A reload asked for shows on the overlay too.** VS Code's notice slides
 into the notification centre after a few seconds, easy to miss. So while
 any of chatq's reload questions is unanswered in a window, the overlay
-(Windows) has a banner under its usage: *projA needs a reload - "Old
-chat" deleted - the chat list still shows it*, **reload?** at its right,
-the notice's own words in its tooltip. Rest on it and the chip offers
+(Windows) has a marker under its usage, its card saying **RELOAD?** and
+*projA needs a reload - "Old chat" deleted - the chat list still shows
+it*, then the notice's own words, which its tooltip has too. Rest on it and the chip offers
 **reload** - **reload anyway** where the notice's button is that - which
 is the notice's button, clicked, with the same checks; and **later**,
 which takes it off the overlay and leaves the notice to answer in VS
 Code. The window reads the answer within 2 s. VS Code cannot take a
 notice down, so one answered from the overlay stays up; its button still
 does what it says. Answered in VS Code, the
-banner goes at the next look. Collapsed, the panel counts it (`1 reload
+marker goes at the next look. Collapsed, the panel counts it (`1 reload
 asked`), and so does the tray's tooltip; `charlie -Print` and the
 macOS panel show it as a line, with no chip. The window lists its
 questions in `data/reload-pending/<its extension host's pid>.json` and

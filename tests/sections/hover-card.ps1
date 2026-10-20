@@ -360,13 +360,49 @@ Check 'the card beside the panel on the side with more room - the left on a tie 
     (@($pl1, $pl2, $pl3, $pl4, $pl5) | ForEach-Object { "$($_.X),$($_.Y),$($_.Left)" }) -join ' ')
 $pl6 = Get-ChatOverlayCardPlacement @(1500, 200, 380, 300) @(1510, 260, 360, 40) @(330, 280) $hcScr 8 100
 $pl7 = Get-ChatOverlayCardPlacement @(20, 200, 380, 300) @(30, 260, 360, 40) @(330, 280) $hcScr 8 100
-Check 'the card goes past the chip''s icons and words beside the panel, on either side' ($pl6.X -eq 1062 -and $pl6.Left -and $pl7.X -eq 508 -and -not $pl7.Left) "$($pl6.X) $($pl7.X)"
-Check 'a card for a chat - open, cut off, Recent - a queued prompt and a usage gauge; none for a banner; a gauge no chip' (
+Check 'the card goes past the chip''s words beside the panel, on either side' ($pl6.X -eq 1062 -and $pl6.Left -and $pl7.X -eq 508 -and -not $pl7.Left) "$($pl6.X) $($pl7.X)"
+# a usage gauge's card: under its row, centred on it, kept on the screen,
+# the tail where the row's middle falls
+$pb1 = Get-ChatOverlayCardPlacement @(1700, 150, 150, 400) @(1704, 180, 142, 12) @(337, 60) $hcScr 5 100 -Below
+$pb2 = Get-ChatOverlayCardPlacement @(20, 150, 150, 400) @(24, 180, 142, 12) @(337, 60) $hcScr 5 -Below
+$pb3 = Get-ChatOverlayCardPlacement @(800, 900, 150, 140) @(804, 1030, 142, 12) @(337, 60) $hcScr 5 -Below
+Check 'a usage gauge''s card under its gauge, centred on it and on the screen, the chip''s words no matter, its tail under the gauge''s middle; over it with no room under it' (
+    $pb1.Below -and -not $pb1.Above -and $pb1.X -eq 1583 -and $pb1.Y -eq 197 -and $pb1.TipX -eq 192 -and $pb2.X -eq 0 -and $pb2.TipX -eq 95 -and
+    $pb3.Above -and $pb3.X -eq 706 -and $pb3.Y -eq 965 -and $pb3.TipX -eq 169) ((@($pb1, $pb2, $pb3) | ForEach-Object { "$($_.X),$($_.Y),$($_.TipX)" }) -join ' ')
+Check 'a press on a tile drags the panel once it moves more than 4 px either way, else it stays a click' (
+    -not (Test-ChatOverlayTileDragStarts 0 0) -and -not (Test-ChatOverlayTileDragStarts 4 -4) -and
+    (Test-ChatOverlayTileDragStarts 5 0) -and (Test-ChatOverlayTileDragStarts 0 -5) -and -not (Test-ChatOverlayTileDragStarts 9 0 10)) ''
+$nw = Get-ChatOverlayChipLayout @(0, 200, 300, 20) @(0, 200, 300, 20) @(95, 20) @(0, 0) ([pscustomobject]@{ X = 0; Y = 0; Width = 1920; Height = 1040 }) @(, @(12, 202, 43, 16)) @(0, 200, 300, 20) 5
+Check 'a Recent row''s tile narrower than the chip''s icons, by the screen''s left edge: the window held on it, each part where it goes - the icons'' room cut there, the ring still on the tile' (
+    $nw.X -eq 0 -and "$($nw.IconsAt)" -eq '-45 0' -and "$($nw.NameAt)" -eq '12 2') "$($nw.X) $($nw.IconsAt) $($nw.NameAt)"
+Check 'a card for a chat - open, cut off, Recent - a queued prompt, a usage gauge and a marker - a notice''s or a banner''s; a gauge and a notice no chip' (
     (Test-ChatOverlayCardRow ([pscustomobject]@{ kind = 'usage' })) -and -not @(Get-ChatOverlayChipActions ([pscustomobject]@{ kind = 'usage'; provider = 'Claude' })).Count -and
     (Test-ChatOverlayCardRow ([pscustomobject]@{ kind = 'session' })) -and (Test-ChatOverlayCardRow ([pscustomobject]@{ kind = 'cutoff' })) -and
     (Test-ChatOverlayCardRow ([pscustomobject]@{ kind = 'recent' })) -and (Test-ChatOverlayCardRow ([pscustomobject]@{ kind = 'job' })) -and
-    -not (Test-ChatOverlayCardRow ([pscustomobject]@{ kind = 'ask' })) -and -not (Test-ChatOverlayCardRow ([pscustomobject]@{ kind = 'reload' })) -and
+    (Test-ChatOverlayCardRow ([pscustomobject]@{ kind = 'ask' })) -and (Test-ChatOverlayCardRow ([pscustomobject]@{ kind = 'reload' })) -and
+    (Test-ChatOverlayCardRow ([pscustomobject]@{ kind = 'notice' })) -and -not @(Get-ChatOverlayChipActions ([pscustomobject]@{ kind = 'notice'; key = 'notice:memory' })).Count -and
     -not (Test-ChatOverlayCardRow ([pscustomobject]@{ key = 'x' })) -and -not (Test-ChatOverlayCardRow $null))
+# each note a marker of its own: its key, its word, its text whole for its card
+$nnM = Get-ChatOverlayNoteNotice ([pscustomobject]@{ text = 'memory low: 96% used'; tone = 'warn'; kind = 'memory' })
+$nnL = Get-ChatOverlayNoteNotice ([pscustomobject]@{ text = 'Code grows 2 GB in 10 min'; tone = 'warn'; kind = 'leak' }) 1
+$nnW = Get-ChatOverlayNoteNotice ([pscustomobject]@{ text = 'prompts queued, watcher stopped - chatqrun starts it'; tone = 'warn' })
+$nnE = Get-ChatOverlayNoteNotice ([pscustomobject]@{ text = 'boom - data/logs/overlay.log'; tone = 'error' })
+$nnMod = Get-ChatOverlayNoticeModel $nnE
+Check 'a note as its marker''s tag: notice:<id>, kind notice, its word and its text whole; its card''s model from the tag; none for a chat' (
+    $nnM.key -eq 'notice:memory' -and $nnM.kind -eq 'notice' -and $nnM.word -eq 'MEMORY' -and $nnM.text -eq 'memory low: 96% used' -and
+    $nnL.key -eq 'notice:leak:1' -and $nnW.key -eq 'notice:watcher' -and $nnW.word -eq 'WATCHER' -and $nnE.key -eq 'notice:error' -and
+    $nnMod.Word -eq 'ERROR' -and $nnMod.Tone -eq 'error' -and $nnMod.Text -eq 'boom - data/logs/overlay.log' -and
+    $null -eq (Get-ChatOverlayNoticeModel ([pscustomobject]@{ kind = 'session'; key = 's:1' }))) "$($nnM.key) $($nnL.key) $($nnW.key) $($nnE.key) $($nnMod.Word)"
+Check 'the said marker''s word: OPENING while an open runs, OPENED, NOT OPENED on a failing code, DELETED or NOT DELETED, RELOAD' (
+    (Get-ChatOverlaySayWord (Get-ChatOverlayOpenSay 'a' 'busy')) -eq 'OPENING' -and (Get-ChatOverlaySayWord (Get-ChatOverlayOpenSay 'a' 'done' 0)) -eq 'OPENED' -and
+    (Get-ChatOverlaySayWord (Get-ChatOverlayOpenSay 'a' 'done' 50)) -eq 'NOT OPENED' -and
+    (Get-ChatOverlaySayWord (Get-ChatOverlayDeleteSay $true 'gone')) -eq 'DELETED' -and (Get-ChatOverlaySayWord (Get-ChatOverlayDeleteSay $false '')) -eq 'NOT DELETED' -and
+    (Get-ChatOverlaySayWord (Get-ChatOverlayReloadSay 'w' 'reload')) -eq 'RELOAD') ''
+$frNone = Get-ChatOverlayFootRoom @{ Locked = $true; OpenSay = $null }
+$frSaid = Get-ChatOverlayFootRoom @{ Locked = $true; OpenSay = @{ Kind = 'busy' } }
+$frBoth = Get-ChatOverlayFootRoom @{ Locked = $false; OpenSay = @{ Kind = 'busy' } }
+Check 'the foot keeps the said marker''s room, there or not, and the unlocked one''s while unlocked - a marker''s height and margins each' (
+    $frNone -eq 24 -and $frSaid -eq 24 -and $frBoth -eq 48) "$frNone $frSaid $frBoth"
 
 # the card itself, built and shown off every screen, in the STA process WPF
 # needs: its own transcript, which the test adds to
@@ -447,7 +483,7 @@ Update-ChatOverlayChip `$H `$on `$false `$t0.AddMilliseconds(450) `$true
 `$jobW = & `$words
 # whose first - its state's words not said again under it, the state line says them
 `$jobTags = @(& `$tagsOf)
-`$jobSays = `$jobW -like 'hc  A queued prompt/QUEUED/queued, sends at 17:00/YOU * */do the thing in full' -and `$jobTags -contains 'who' -and `$jobTags -notcontains 'words'
+`$jobSays = `$jobW -like 'hc/A queued prompt/QUEUED/queued, sends at 17:00/YOU * */do the thing in full' -and `$jobTags -contains 'who' -and `$jobTags -notcontains 'words'
 # the pointer leaves: the card kept 300 ms, then gone
 `$off = [System.Drawing.Point]::new(-9000, -9000)
 Update-ChatOverlayChip `$H `$on `$false `$t0.AddMilliseconds(600) `$true
@@ -461,7 +497,7 @@ Show-ChatOverlayChip `$H `$rects[0] `$off
 `$sessW = & `$words
 # whose, and under it what its state says past the tile
 `$sessTags = @(& `$tagsOf)
-`$says = `$sessTags -contains 'who' -and `$sessTags -contains 'words' -and `$sessW -like 'hc  Card title/busy/NOW/*:*/*Bash  git status --short/EARLIER/getDiagnostics/Edit  src/overlay-data.ps1/Grep  Show-ChatOverlayChip/YOU * */make the card/CLAUDE * */Reading the panel first.'
+`$says = `$sessTags -contains 'who' -and `$sessTags -contains 'words' -and `$sessW -like 'hc/Card title/busy/NOW/*:*/*Bash  git status --short/EARLIER/getDiagnostics/Edit  src/overlay-data.ps1/Grep  Show-ChatOverlayChip/YOU * */make the card/CLAUDE * */Reading the panel first.'
 `$clock = `$H.CardClock -and `$H.CardClock.Text.Text -match '^\d+:\d\d$'
 # the panel's opacity: the card's as it comes up - set by either slider -
 # and as the box's slider moves
@@ -510,7 +546,7 @@ Invoke-ChatOverlayTick
 `$n3 = `$script:ChatOverlayCardReads
 `${function:Invoke-ChatOverlayCycle} = `$cyFn
 `$reW = & `$words
-`$reread = `$H.CardWin.IsVisible -and `$n2 -eq `$n1 -and `$n3 -eq `$n1 + 1 -and `$reW -like 'hc  Card title/busy/NOW/working/EARLIER/Bash  git status --short/*/CLAUDE * */Clean tree.' -and -not `$H.CardClock
+`$reread = `$H.CardWin.IsVisible -and `$n2 -eq `$n1 -and `$n3 -eq `$n1 + 1 -and `$reW -like 'hc/Card title/busy/NOW/working/EARLIER/Bash  git status --short/*/CLAUDE * */Clean tree.' -and -not `$H.CardClock
 # none while the settings box is open; a redraw without its row, or the
 # panel hidden, takes it away
 Set-ChatOverlaySettingsOpen `$H `$true
@@ -553,7 +589,8 @@ Show-ChatOverlayChip `$H `$rects[0] `$off
 `$tailF = (& `$tipIn `$rects[0].Rect)
 `$tailSeen += ' / ' + (& `$tailAt)
 `$tail = `$tailL -and `$tailR -and `$tailF
-# the banner's row: its chip, and no card - a card is for a chat
+# the banner's marker: its chip, and its card beside the panel - its words
+# are there alone
 [ChatOverlayNative]::MoveTo(`$H.Hwnd, -2594, 197)
 `$ask = [pscustomobject]@{ count = 3; resetsAt = [int64]$(HcMs 20); keys = @('hc_1', 'hc_2', 'hc_3'); titles = @('T one', 'T two', 'T three'); left = @() }
 `$H.Ctx.ViewSig = 'd'
@@ -561,7 +598,7 @@ Update-ChatOverlayView `$H ([pscustomobject]@{ header = [pscustomobject]@{ usage
 `$H.Win.UpdateLayout()
 `$ae = @(Get-ChatOverlayRowRects `$H | Where-Object { `$_.Key -eq 'ask' })[0]
 Show-ChatOverlayChip `$H `$ae `$off
-`$askNone = `$ae -and `$H.ChipWin.IsVisible -and -not `$H.CardWin.IsVisible -and -not `$H.CardKey
+`$askCard = `$ae -and `$H.ChipWin.IsVisible -and `$H.CardWin.IsVisible -and `$H.CardKey -eq 'ask' -and -not `$H.CardShape.Below
 # none folded to the one line, mid-drag, out of a full screen's way, or in
 # the console's mode
 `$sessE = { @(Get-ChatOverlayRowRects `$H | Where-Object { `$_.Key -eq 's:$hcSid' })[0] }
@@ -609,7 +646,7 @@ Show-ChatOverlayChip `$H (& `$sessE) `$off
 `$light = `$H.CardWin.IsVisible -and `$fc.R -gt 200 -and [Math]::Abs(`$p4[0] - (& `$pm `$fc.B)) -le 2 -and [Math]::Abs(`$p4[1] - (& `$pm `$fc.G)) -le 2 -and
     [Math]::Abs(`$p4[2] - (& `$pm `$fc.R)) -le 2 -and [Math]::Abs(`$p4[3] - `$fc.A) -le 2
 '{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}|{9}|{10}|{11}|{12}|{13}|{14}|{15}|{16}|{17}|{18}|{19}|{20}|{21}|{22}|{23}|{24}|{25}|{26}|{27}' -f `$early, `$cardOnly, `$cx, `$beside, `$jobSays, `$kept, `$gone, `$both, `$says, `$clock, `$drawn, `$reread, `$setHid, `$setNone, `$back, `$redrawn, `$hid, `$right,
-    `$ticked, `$askNone, `$fold, `$drag, `$full, `$con, `$light, `$opacity, `$tail, "`$foot tail `$tailL/`$tailR/`$tailF `$tailSeen opacity `$opShown card `$(`$cr -join ',') rows `$(`$rects.Count) colors `$(`$colors.Count) reads `$n1/`$n2/`$n3 clock `$ck px `$(`$p4 -join ',') frame `$(`$fc) words `$(& `$esc `$jobW) // `$(& `$esc `$sessW) // `$(& `$esc `$reW)"
+    `$ticked, `$askCard, `$fold, `$drag, `$full, `$con, `$light, `$opacity, `$tail, "`$foot tail `$tailL/`$tailR/`$tailF `$tailSeen opacity `$opShown card `$(`$cr -join ',') rows `$(`$rects.Count) colors `$(`$colors.Count) reads `$n1/`$n2/`$n3 clock `$ck px `$(`$p4 -join ',') frame `$(`$fc) words `$(& `$esc `$jobW) // `$(& `$esc `$sessW) // `$(& `$esc `$reW)"
 "@
 $cardOut = Invoke-Sta 'card-test' $cardWpf
 Remove-Item -LiteralPath $hcPf2 -Force -EA SilentlyContinue
@@ -628,7 +665,7 @@ Check 'no card while the settings box is open; a redraw without its row, or the 
     $cw[12] -eq 'True' -and $cw[13] -eq 'True' -and $cw[14] -eq 'True' -and $cw[15] -eq 'True' -and $cw[16] -eq 'True') "$cardOut"
 Check 'no room on the panel''s left: the card on its right; a row near the screen''s foot: the card held on the screen' (
     $cw[17] -eq 'True' -and $cw.Count -ge 28 -and $cw[27] -like 'True *') "$cardOut"
-Check 'a banner''s row: its chip, never a card; none folded to the one line, mid-drag, out of a full screen''s way, or in the console' (
+Check 'a banner''s marker: its chip, and its card beside the panel; no chat''s card folded to the one line, mid-drag, out of a full screen''s way, or in the console' (
     $cw[19] -eq 'True' -and $cw[20] -eq 'True' -and $cw[21] -eq 'True' -and $cw[22] -eq 'True' -and $cw[23] -eq 'True') "$cardOut"
 Check 'in the light look, the card on the panel''s light ground' ($cw[24] -eq 'True') "$cardOut"
 Check 'the card at the panel''s opacity: as it comes up, whichever slider set it, and as the slider moves' ($cw[25] -eq 'True') "$cardOut"

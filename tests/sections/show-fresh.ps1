@@ -829,12 +829,12 @@ Check 'a row under the pointer: its last pixel in, the next out' ((Find-ChatOver
 $scrS = [pscustomobject]@{ X = 0; Y = 0; Width = 1920; Height = 1040 }
 $cp1 = Get-ChatOverlayChipLayout @(1700, 200, 150, 20) @(1700, 200, 150, 20) @(40, 18) $null $scrS @() @(1700, 150, 150, 400) 5
 $cp2 = Get-ChatOverlayChipLayout @(1700, 1030, 150, 20) @(1700, 1030, 150, 20) @(40, 18) $null $scrS @() @(1700, 900, 150, 140) 5
-Check 'the chip''s icons just outside the panel, a gap off it, centred on their row, and kept on the screen' ($cp1.X -eq 1655 -and $cp1.Y -eq 201 -and $cp2.X -eq 1655 -and $cp2.Y -eq 1022 -and
+Check 'the chip''s icons on their row''s right end, a gap in, centred on it - past the screen''s foot cut there, not moved' ($cp1.X -eq 1805 -and $cp1.Y -eq 201 -and $cp2.X -eq 1805 -and $cp2.Y -eq 1031 -and
     ($cp1.IconsAt -join ',') -eq '0,0' -and $null -eq $cp1.WordsAt) "$($cp1.X),$($cp1.Y) $($cp2.X),$($cp2.Y) $($cp1.IconsAt -join ',')"
 # a full row's: the icons centred on the row, the words on the title's line
-# past them, the window round both
+# outside the panel, the window round both
 $cp3 = Get-ChatOverlayChipLayout @(1700, 200, 150, 36) @(1700, 218, 150, 16) @(117, 15) @(90, 18) $scrS @() @(1700, 150, 150, 400) 5
-Check 'the chip''s words and icons placed apart in one window round both' ($cp3.X -eq 1483 -and $cp3.Y -eq 210 -and ($cp3.IconsAt -join ',') -eq '95,0' -and ($cp3.WordsAt -join ',') -eq '0,7' -and $cp3.Out -eq 217 -and
+Check 'the chip''s words and icons placed apart in one window round both' ($cp3.X -eq 1605 -and $cp3.Y -eq 210 -and ($cp3.IconsAt -join ',') -eq '123,0' -and ($cp3.WordsAt -join ',') -eq '0,7' -and $cp3.Out -eq 95 -and
     $null -eq (Get-ChatOverlayChipLayout @(0, 0, 1, 1) @(0, 0, 1, 1) $null @(0, 0) $scrS)) "$($cp3.X),$($cp3.Y) $($cp3.IconsAt -join ',') $($cp3.WordsAt -join ',')"
 Check 'only a Claude chat with an id and a folder gets one' ((Test-ChatOverlayRowOpenable (& $rowS 'C:\p')) -and
     -not (Test-ChatOverlayRowOpenable ([pscustomobject]@{ provider = 'codex'; sessionId = $idS; cwd = 'C:\p' })) -and
@@ -914,9 +914,8 @@ Show-ChatOverlayChip `$H `$rects[0] `$away
 `$cr = [ChatOverlayNative]::GetRect(`$H.ChipHwnd)
 `$ln = `$rects[0].Line
 `$rr = `$rects[0].Rect
-# its bin out past the panel's left, the side with the room; its ring
-# over the tile, never past the row's right end
-`$flush = `$cr[0] -lt `$rr[0] -and (`$cr[0] + `$cr[2]) -le (`$rr[0] + `$rr[2] + 1)
+# its bin on the tile and its ring over it: within its row, never past it
+`$flush = `$cr[0] -ge (`$rr[0] - 1) -and (`$cr[0] + `$cr[2]) -le (`$rr[0] + `$rr[2] + 1)
 `$shown = `$H.ChipWin.IsVisible -and `$H.ChipKey -eq `$rows[0].key -and `$H.ChipArmed
 `$H.Ctx.ViewSig = 'b'
 Update-ChatOverlayView `$H ([pscustomobject]@{ header = `$none; rows = @(`$rows[1]) })
@@ -924,17 +923,19 @@ Update-ChatOverlayView `$H ([pscustomobject]@{ header = `$none; rows = @(`$rows[
 `$rects = @(Get-ChatOverlayRowRects `$H)
 Show-ChatOverlayChip `$H `$rects[0] `$away
 `$again = `$H.ChipWin.IsVisible
-# an open under way, and then how it went: a line under the rows, nothing
-# drawn above them to push them down, the rows' own tiles left as they are;
-# a delete said meanwhile is not overwritten by the open's seconds
+# an open under way, and then how it went: a marker under the rows, no
+# words on the panel - they are on its card - nothing drawn above them to
+# push them down, the rows' own tiles left as they are; a delete said
+# meanwhile is not overwritten by the open's seconds
 `$H.OpenSay = Get-ChatOverlayOpenSay 'two' 'busy' -Seconds 3
 `$H.Ctx.ViewSig = 'c'
 Update-ChatOverlayView `$H ([pscustomobject]@{ header = `$none; rows = `$rows })
 `$kids = @(`$H.Stack.Children)
 # each its tile alone (Add-ChatOverlayTileRow)
 `$inRow = `$kids.Count -eq 3 -and `$kids[0].Tag.key -eq `$rows[0].key -and `$kids[1].Tag.key -eq `$rows[1].key -and
-    (@(`$kids[1].Children | ForEach-Object { `$_.Tag }) -join ',') -eq 'tile' -and `$kids[2].Tag -eq 'said' -and
-    `$kids[2].Text -eq "opening 'two' in VS Code - 3s" -and `$H.OpenLine -eq `$kids[2]
+    (@(`$kids[1].Children | ForEach-Object { `$_.Tag }) -join ',') -eq 'tile' -and `$kids[2].Tag.key -eq 'notice:said' -and `$kids[2].Tag.kind -eq 'notice' -and
+    `$kids[2].Tag.text -eq "opening 'two' in VS Code - 3s" -and `$kids[2].Tag.word -eq 'OPENING' -and `$H.OpenLine -eq `$kids[2] -and
+    `$kids[2].Children[0].Tag -eq 'mark' -and `$kids[2].Children[0].Child -isnot [System.Windows.Controls.TextBlock]
 `$H.OpenSay = Get-ChatOverlayOpenSay 'two' 'done' 0
 `$H.Ctx.ViewSig = 'd'
 Update-ChatOverlayView `$H ([pscustomobject]@{ header = `$none; rows = `$rows })
@@ -943,7 +944,7 @@ Update-ChatOverlayView `$H ([pscustomobject]@{ header = `$none; rows = `$rows })
 `$H.OpenAt = (Get-Date).AddSeconds(-4)
 `$H.OpenTitle = 'two'
 Update-ChatOverlayOpen `$H
-`$foot = `$kids.Count -eq 3 -and `$kids[0].Tag.key -eq `$rows[0].key -and `$kids[2].Tag -eq 'said' -and `$kids[2].Text -eq "opened 'two'"
+`$foot = `$kids.Count -eq 3 -and `$kids[0].Tag.key -eq `$rows[0].key -and `$kids[2].Tag.key -eq 'notice:said' -and `$kids[2].Tag.text -eq "opened 'two'"
 `$H.OpenProc = `$null
 `$H.OpenSay = `$null
 # nor does this process, the overlay's own kind, bring a real window to the
@@ -982,9 +983,9 @@ $ch = "$chipOut" -split '\|'
 $chx = if ($ch.Count -ge 2 -and $ch[1] -match '^\d+$') { [int64]$ch[1] } else { 0 }
 Check 'each drawn row carries its row, for the chip to find' ($ch[0] -eq '2') "$chipOut"
 Check 'the chip takes clicks but never focus, and is in neither Alt+Tab nor the taskbar' ((($chx -band 0x8080080) -eq 0x8080080) -and -not ($chx -band 0x20) -and -not ($chx -band 0x40000)) ('0x{0:X} {1}' -f $chx, "$chipOut")
-Check 'it reaches out past the panel''s left, the side with the room, and no further right than its row; armed when the pointer is elsewhere' ($ch[2] -eq 'True' -and $ch[3] -eq 'True') "$chipOut"
+Check 'it stays within its row, the bin on the tile; armed when the pointer is elsewhere' ($ch[2] -eq 'True' -and $ch[3] -eq 'True') "$chipOut"
 Check 'a redraw without its row takes it away; hiding the panel takes it too' ($ch[4] -eq 'True' -and $ch[5] -eq 'True' -and $ch[6] -eq 'True') "$chipOut"
-Check 'an open under way, and how it went, on a line under the rows - none pushed down, their tiles left; a say other than the open''s keeps its words as the open ticks' ($ch[7] -eq 'True' -and $ch[8] -eq 'True') "$chipOut"
+Check 'an open under way, and how it went, a marker under the rows, its words on its card - none pushed down, their tiles left; a say other than the open''s keeps its words as the open ticks' ($ch[7] -eq 'True' -and $ch[8] -eq 'True') "$chipOut"
 Check 'the overlay''s own kind of process, in a test run, brings no real window to the front: CHATQ_NOFRONT inherited, the calls'' type never compiled, an open''s end refused' (
     $ch.Count -ge 10 -and $ch[9] -eq 'True/True/True/True') "$chipOut"
 

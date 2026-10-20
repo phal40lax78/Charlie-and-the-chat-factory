@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.10.19 — The bin on the tile
+
+- **Delete is on the tile, always.** Every chat's tile, and a Recent
+  line's box, is wider by a bin drawn at its right end - faint where it
+  can't delete - and the panel with them; the chip's bin comes up over
+  it, lit, and what it says - `sure?`, `opening`, `click again` - beside
+  it, where all of it hung out past the panel's side. The card comes up just beside
+  the panel, no longer out past the bin; a cut-off's **continue** and
+  the auto chips still hang outside, and the card still goes past them.
+- **Grab the panel by any tile.** Press a chat's tile and move it a few
+  pixels: the panel follows, as from the bar, and nothing opens when you
+  let go. A press that doesn't move still opens the chat.
+- **A card's project and title are two lines.** The project, bold in its
+  colour, on a line of its own, the title under it, still two lines at
+  most, where the two ran on together.
+- **A usage gauge's card hangs under it,** its tail up at the gauge's
+  middle, centred on it and kept on the screen, rather than out to one
+  side - over it, its tail down, where the screen's foot leaves no room.
+- **Warnings on a card, not the panel.** Memory low, a program growing, a
+  stopped watcher, the next queued prompt, an error, the limit's ask, a
+  window's reload, what the chip's open or delete said and the unlocked
+  hint are each a short tile in their colour with a glyph alone - a
+  warning triangle, a ring with a cross or an `i`, an open padlock - and
+  their words on the card a rest on it brings up, beside the panel as a
+  chat's is. The ask's and the reload's chips keep their answers. An
+  open's words show on its chat's card too. Folded, the markers are drawn
+  under the line, as many as fit, so a memory warning is still a rest
+  away. The foot still keeps the said marker's room, so no row is cut as
+  it comes. `charlie -Print` and the macOS panel keep their lines.
+- **chatqd's watcher tests hold on macOS.** They looked for Windows line
+  ends and `USERPROFILE` where chatqd, as the SPEC says, writes the OS's
+  own and starts in `HOME`; chatqd itself is unchanged. 0.10.18's tag
+  never published: these failed on macOS behind 0.10.17's.
+
 ## 0.10.18 — The usage card in numbers
 
 - **A usage gauge's card is one line of numbers again,** as the usage
