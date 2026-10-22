@@ -122,32 +122,98 @@ function Get-ChatOverlayLaunch {
     return [pscustomobject]@{ Exe = (Get-Process -Id $PID).Path; Args = @('-NoProfile', '-NonInteractive', '-EncodedCommand', $enc); Command = $cmd }
 }
 
+function Get-ChatOverlayPanelVersion {
+    # the version the script on disk says - a restart onto new code is that
+    # code's - else this process's own
+    $ver = Get-ChatqLoaderVersion $script:ChatqScriptPath
+    if (-not $ver) { $ver = $script:ChatVersion }
+    return [string]$ver
+}
+
+# Deferred: DEFERRED.md "Signing chatq-overlay.exe"
+# Deferred: DEFERRED.md "The panel exe for install.ps1 and git users"
 function Get-ChatOverlayPanelExe {
     <#
-    The native panel's exe when config.json asks for it (overlay.panel
-    native, charlie -Panel native): chatq-overlay.exe staged beside the
-    script under bin/<version>/x86_64-pc-windows-msvc/, as chatqd is
-    (Get-ChatqNativePath) - the version the script on disk says, so a
-    restart onto new code starts the new code's panel. '' for the WPF
-    panel: ps asked for, off Windows, or native with none staged, which
-    says in overlay.log where it looked - unless -Quiet.
+    The native panel's exe when config.json asks for it - overlay.panel
+    native, the default since 0.11.1, or charlie -Panel native:
+    chatq-overlay.exe staged beside the script under
+    bin/<version>/x86_64-pc-windows-msvc/, as the VSIX puts it there and
+    as chatqd is looked for (Get-ChatqNativePath) - the version the script
+    on disk says, so a restart onto new code starts the new code's panel.
+    '' for the WPF panel: ps asked for, off Windows, the panel's fuse blown
+    for this version (Get-ChatOverlayPanelFuse), or none staged - a zip or
+    git install, which has no bin/. A missing exe is said in overlay.log,
+    where it looked, only where config.json names native itself
+    (panelChosen) and not -Quiet: the default's miss is every zip and git
+    user's, at every start.
     #>
     param($Config = (Get-ChatOverlayConfig), [switch]$Quiet)
     if (-not $script:ChatqIsWindows -or $Config.panel -ne 'native' -or -not $script:ChatRoot) { return '' }
-    $ver = Get-ChatqLoaderVersion $script:ChatqScriptPath
-    if (-not $ver) { $ver = $script:ChatVersion }
-    $exe = [System.IO.Path]::Combine([string]$script:ChatRoot, 'bin', [string]$ver, 'x86_64-pc-windows-msvc', 'chatq-overlay.exe')
+    $ver = Get-ChatOverlayPanelVersion
+    $fuse = Get-ChatOverlayPanelFuse $ver
+    if ($fuse) {
+        if (-not $Quiet) { Write-ChatOverlayLog "the native panel's fuse is blown for $ver ($($fuse.why)) - the WPF one until the next version or charlie -Panel native" }
+        return ''
+    }
+    $exe = [System.IO.Path]::Combine([string]$script:ChatRoot, 'bin', $ver, 'x86_64-pc-windows-msvc', 'chatq-overlay.exe')
     if ([System.IO.File]::Exists($exe)) { return $exe }
-    if (-not $Quiet) { Write-ChatOverlayLog "the native panel asked for, but $exe is not there - the WPF one instead" -Always }
+    $chosen = $Config.PSObject.Properties['panelChosen'] -and $Config.panelChosen
+    if (-not $Quiet -and $chosen) { Write-ChatOverlayLog "the native panel asked for, but $exe is not there - the WPF one instead" -Always }
     return ''
+}
+
+function Get-ChatOverlayPanelFuse {
+    <#
+    data/native/panel-fuse.json, where it names -Version: the native panel
+    failed under that version - its exe would not start, or it exited 3
+    times in 10 minutes (Start-ChatOverlayHeadlessHost) - so the WPF panel
+    stands in until a new version or charlie -Panel native. Another
+    version's record counts for nothing, as chatqd's fuse.json
+    (Get-ChatqNativeFuse). $null when not blown.
+    #>
+    param([string]$Version = (Get-ChatOverlayPanelVersion))
+    $f = Read-ChatqJson (Get-ChatqNativeFile 'panel-fuse.json')
+    if ($f -and [string]$f.version -ceq $Version) { return $f }
+    return $null
+}
+
+function Set-ChatOverlayPanelFuse {
+    # the fuse blown for -Version, -Why kept; told: whether the WPF host
+    # that stands in has said so yet (Show-ChatOverlayPanelFuseNotice)
+    param([string]$Why, [string]$Version = (Get-ChatOverlayPanelVersion))
+    try { Save-ChatqJson (Get-ChatqNativeFile 'panel-fuse.json') ([ordered]@{ version = $Version; at = Get-ChatqStamp; why = $Why; told = $false }) }
+    catch { Write-ChatOverlayLog "panel fuse: $($_.Exception.Message)" }
+}
+
+function Clear-ChatOverlayPanelFuse {
+    # charlie -Panel native: the native panel tried again
+    Remove-Item -LiteralPath (Get-ChatqNativeFile 'panel-fuse.json') -Force -EA SilentlyContinue
+}
+
+function Show-ChatOverlayPanelFuseNotice {
+    # Once a trip, from the WPF host that stands in for the native panel:
+    # the tray's balloon says why and how to try it again. The switch to
+    # native by default says nothing; only a trip is said.
+    param($H)
+    try {
+        $f = Get-ChatOverlayPanelFuse
+        if (-not $f -or $f.told) { return }
+        Set-ChatqProp $f 'told' $true
+        Save-ChatqJson (Get-ChatqNativeFile 'panel-fuse.json') $f
+        Show-ChatOverlayBalloon $H "The native panel stopped ($($f.why)), so this is the WPF one until the next version. charlie -Panel native tries it again." -Ms 10000
+    }
+    catch { Write-ChatOverlayLog "panel fuse notice: $($_.Exception.Message)" }
 }
 
 function Start-ChatOverlayProcess {
     # just the launch; charlie decides whether one is needed. -UiExe: the
     # headless host's, which starts itself again so (Get-ChatOverlayLaunch);
-    # none given, the panel config.json asks for (Get-ChatOverlayPanelExe)
-    param([string]$Open = '', [string]$UiExe = '')
-    if (-not $UiExe) { $UiExe = Get-ChatOverlayPanelExe }
+    # none given, the panel config.json asks for (Get-ChatOverlayPanelExe).
+    # -Wpf: the WPF panel whatever config.json asks for, with no look for an
+    # exe - the headless host's fall back once the panel's fuse blows
+    param([string]$Open = '', [string]$UiExe = '', [switch]$Wpf)
+    if ($Wpf) { $UiExe = '' }
+    elseif (-not $UiExe) { $UiExe = Get-ChatOverlayPanelExe }
     if ($script:ChatOverlaySpawn) { return (& $script:ChatOverlaySpawn $Open $UiExe) }   # tests: no real process
     if (-not $script:ChatqIsWindows -and -not $script:ChatIsMac) { return $false }
     $path = $script:ChatqScriptPath
@@ -278,7 +344,7 @@ function charlie {
     .PARAMETER CodexUsage
     off: Codex's line only from what Codex wrote on its last run, and codex app-server is never started for it.
     .PARAMETER Panel
-    Windows' panel: ps (the default), the WPF one, or native - chatq-overlay.exe, drawn in a process of its own, once it is staged under bin/<version>/x86_64-pc-windows-msvc/ beside the script; the WPF one until it is. A running overlay starts again on the one chosen.
+    Windows' panel: native (the default) - chatq-overlay.exe, drawn in a process of its own, which the VS Code extension puts under bin/<version>/x86_64-pc-windows-msvc/ beside the script - or ps, the WPF one. Native falls back to the WPF one where no exe is there (a zip or git install) or where it failed under this version; -Panel native tries it again. A running overlay starts again on the one chosen.
     .EXAMPLE
     charlie
     .EXAMPLE
@@ -343,7 +409,14 @@ function charlie {
     if ($CodexUsage) { $set.codexUsage = ($CodexUsage -eq 'on') }
     # the panel's engine: a running overlay is restarted onto a new one, as
     # a reload keeps the one it has
-    if ($Panel) { $panelWas = (Get-ChatOverlayConfig).panel; $set.panel = $Panel.ToLowerInvariant() }
+    # - and native asked for by name tries a panel whose fuse blew again,
+    # as a change of panel: the running overlay is the WPF one meanwhile
+    $fuseWas = $false
+    if ($Panel) {
+        $panelWas = (Get-ChatOverlayConfig).panel
+        $set.panel = $Panel.ToLowerInvariant()
+        if ($set.panel -eq 'native' -and (Get-ChatOverlayPanelFuse)) { $fuseWas = $true; Clear-ChatOverlayPanelFuse }
+    }
     # compact is prompts off: the name from when full rows showed the prompt
     # everywhere - on macOS and in -Print they still do; the Windows panel's
     # row is its tile alone whichever (Add-ChatOverlayTileRow)
@@ -402,6 +475,7 @@ function charlie {
         $noExe = $false
         if ($set.ContainsKey('panel')) {
             Write-Host "  panel: $(if ($set.panel -eq 'native') { 'native, chatq-overlay.exe' } else { 'ps, the WPF one' })$(if (-not $script:ChatqIsWindows) { ' - for Windows' })" -ForegroundColor Green
+            if ($fuseWas) { Write-Host '  the native panel''s fuse is cleared - it is tried again' -ForegroundColor Green }
             $noExe = $set.panel -eq 'native' -and -not (Get-ChatOverlayPanelExe -Quiet)
             if ($noExe -and $script:ChatqIsWindows) {
                 Write-Host "  no chatq-overlay.exe under bin\$(Get-ChatqLoaderVersion $script:ChatqScriptPath)\x86_64-pc-windows-msvc beside the script - the WPF panel until one is there" -ForegroundColor Yellow
@@ -410,7 +484,7 @@ function charlie {
         # a panel switch restarts the overlay onto the other panel - but not
         # native with none staged (or off Windows): the restart would come
         # back as the WPF panel it already is, so that one is only a reload
-        if ($alive) { Send-ChatOverlayCommand $(if ($set.ContainsKey('panel') -and $set.panel -ne $panelWas -and -not $noExe) { 'restart' } else { 'reload' }) }
+        if ($alive) { Send-ChatOverlayCommand $(if ($set.ContainsKey('panel') -and ($set.panel -ne $panelWas -or $fuseWas) -and -not $noExe) { 'restart' } else { 'reload' }) }
     }
     $verbs = @()
     if ($Unlock) { $verbs += 'unlock' }

@@ -922,6 +922,13 @@ $ecCo = { param($k, $v) (Get-ChatOverlayConfig ([pscustomobject]@{ overlay = [ps
 Check 'config: the leak warning at 2 GB and the memory restart at 300 MB unless chosen, held to 0..64 and 0..4096; a part of a GB kept' (
     $ecC0.leakGB -eq 2 -and $ecC0.restartMB -eq 300 -and (& $ecCo 'leakGB' 100) -eq 64 -and (& $ecCo 'leakGB' -1) -eq 0 -and (& $ecCo 'leakGB' 0.5) -eq 0.5 -and
     (& $ecCo 'restartMB' 99999) -eq 4096 -and (& $ecCo 'restartMB' -5) -eq 0 -and (& $ecCo 'restartMB' 0) -eq 0) "$($ecC0.leakGB) $($ecC0.restartMB)"
+$ecPn = { param($v) Get-ChatOverlayConfig ([pscustomobject]@{ overlay = [pscustomobject]@{ panel = $v } }) }
+$ecPs = & $ecPn 'PS'
+$ecPj = & $ecPn 'rust'
+$ecPv = & $ecPn 'native'
+Check 'config: the native panel unless chosen, never chosen; ps chosen stays ps, any case; a panel it does not know native, not chosen' (
+    $ecC0.panel -eq 'native' -and $ecC0.panelChosen -eq $false -and $ecPs.panel -eq 'ps' -and $ecPs.panelChosen -eq $true -and
+    $ecPj.panel -eq 'native' -and $ecPj.panelChosen -eq $false -and $ecPv.panel -eq 'native' -and $ecPv.panelChosen -eq $true) "$($ecC0.panel) $($ecC0.panelChosen) / $($ecPs.panel) $($ecPs.panelChosen) / $($ecPj.panel) $($ecPj.panelChosen) / $($ecPv.panelChosen)"
 $null = Set-ChatqAutoContinueCrash -Value $true
 $ecSetOn = (Get-ChatqConfig).autoContinueCrash -eq $true -and (Get-ChatqAutoContinueCrash)
 $null = Set-ChatqAutoContinueCrash -Value $false

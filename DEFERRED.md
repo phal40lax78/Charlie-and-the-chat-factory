@@ -3043,3 +3043,79 @@ memory gate; the collector's port, and its parity, is M9 itself.
 **Revisit when:** When M9 starts. **To close:** the projected figure
 (TESTING.md S58, 15.1 to 15.5 MB) measured again with the real
 collector, against the 191 MB a day native/SPEC.md 8 counts on.
+
+## Signing chatq-overlay.exe
+
+**Scope:** The native panel's exe ships unsigned in the VSIX (0.11.1):
+no Authenticode signature, no timestamp, and the release's zip of it
+is vouched for by `SHA256SUMS` alone. Where it is staged
+([stageBin](extension/build.js)), copied ([copyBin](extension/setup.js)),
+looked for ([Get-ChatOverlayPanelExe](src/overlay.ps1)) and attached to
+the release ([publish.yml](.github/workflows/publish.yml)).
+
+**Why deferred:** signing needs a code-signing certificate account that
+only the user can open: SignPath Foundation's free certificate for open
+source, which needs the project approved, or Azure Trusted Signing,
+about $10 a month plus identity validation. Unsigned, the exe can still
+run: the extension starts it rather than a download, and an antivirus or
+AppLocker that blocks it blows the panel's fuse, so the WPF panel draws
+(native/SPEC.md 4.8). The larger risk is the package itself: an
+antivirus that flags the exe inside the VSIX can fail the whole
+extension install, scripts included, which the fuse cannot catch.
+
+**Revisit when:** When the user opens one of those accounts. **To
+close:** a signing step in publish.yml between the artifact's download
+and the package, timestamped, then `Get-AuthenticodeSignature` Valid
+checked in test.yml's package step; chatqd's exe the same once it ships.
+
+## The panel exe for install.ps1 and git users
+
+**Scope:** Only the VSIX carries `chatq-overlay.exe`. A zip install
+([install.ps1](install.ps1)), `chatinstall` and a git checkout have no
+`bin/`, so their panel is the WPF one, quietly
+([Get-ChatOverlayPanelExe](src/overlay.ps1) says nothing for the
+default's miss). A developer's build put at
+`bin/<version>/x86_64-pc-windows-msvc/` by hand is used.
+
+**Why deferred:** install.ps1 would have to fetch a release asset,
+check it against `SHA256SUMS` and, once signed, its signature - the
+plan of native/SPEC.md 4.7 - and the zip users are few; the WPF panel
+they keep is the one every version so far has drawn.
+
+**Revisit when:** When chatqd ships through install.ps1 (SPEC 4.7), which
+builds that fetch, or when signing lands. **To close:** install.ps1 and
+`chatinstall` stage the overlay's asset as SPEC 4.7 says for chatqd's.
+
+## Platform-specific VSIXes
+
+**Scope:** One VSIX for every platform (0.11.1), carrying the Windows
+x64 panel exe, some megabytes a Mac or Linux user downloads and never
+copies ([copyBin](extension/setup.js) skips it off Windows). No
+`vsce package --target`, no arm64 Windows build
+([stageBin](extension/build.js)).
+
+**Why deferred:** one exe, for one platform, is not worth a package per
+target, each published apart and each a way for a version to go out
+missing a platform. native/SPEC.md 8 question 5.
+
+**Revisit when:** When a Mac binary ships too (chatqd's, or a Mac
+panel), or a Windows on ARM build. **To close:** `--target win32-x64`,
+`darwin-arm64` and the rest in publish.yml, each with its own payload.
+
+## A panel that hangs without exiting
+
+**Scope:** The panel's fuse ([Start-ChatOverlayHeadlessHost](src/overlay-host.ps1))
+blows for an exe that will not start and for one that exits 3 times in
+10 minutes. A panel that stays running but stops drawing or answering -
+hung, or its window gone - is not caught: the host keeps feeding it
+snapshots, and the panel's own 20 s backstop only covers the host going
+quiet.
+
+**Why deferred:** telling a hung panel from one that is only slow needs
+a heartbeat it writes (`overlay-ui.json`'s `at` is near one) and a limit
+that never trips on a busy PC; no hang has been seen on the M9a runs.
+
+**Revisit when:** When a hung native panel is reported, or the panel's
+`overlay-ui.json` gets a heartbeat for another reason. **To close:** the
+host treats `overlay-ui.json` older than some limit, with the process
+still up, as an exit - ended, and counted towards the fuse.

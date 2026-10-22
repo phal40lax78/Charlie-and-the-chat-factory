@@ -73,10 +73,22 @@ jobs:
       - name: Release build (overlay)
         run: cargo build --release --locked --manifest-path overlay/Cargo.toml --target x86_64-pc-windows-msvc --target-dir target
 
+      # the licence notices that ship beside the exe in the VSIX
+      # (extension/build.js stageBin). Pinned: overlay/about.toml works
+      # around 0.9.2's handling of Slint's licence file.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about@0.9.2
+
+      - name: Licence notices (overlay)
+        run: cargo about generate --locked --manifest-path overlay/Cargo.toml -c overlay/about.toml overlay/about.hbs -o target/x86_64-pc-windows-msvc/release/THIRD-PARTY-NOTICES.html
+
       - uses: actions/upload-artifact@v7
         with:
           name: chatq-overlay-x86_64-pc-windows-msvc
-          path: native/target/x86_64-pc-windows-msvc/release/chatq-overlay.exe
+          path: |
+            native/target/x86_64-pc-windows-msvc/release/chatq-overlay.exe
+            native/target/x86_64-pc-windows-msvc/release/THIRD-PARTY-NOTICES.html
           if-no-files-found: error
 
       - name: Format (overlay)
@@ -207,13 +219,34 @@ jobs:
         if: matrix.host == 'pwsh'
         run: node tests/board-page-check.js
 
+      # the native panel and its notices, which the package carries
+      - uses: actions/download-artifact@v8
+        if: matrix.host == 'pwsh'
+        continue-on-error: true
+        with:
+          name: chatq-overlay-x86_64-pc-windows-msvc
+          path: ${{ runner.temp }}/overlay
+
       # the Marketplace package: build.js fills payload/ and refuses a version
       # that is not the script's, a script that is not ASCII, an SVG in the
-      # listing; vsce then checks the manifest the Marketplace will read
+      # listing, or a missing or wrong chatq-overlay.exe (CHATQ_REQUIRE_BIN);
+      # vsce then checks the manifest the Marketplace will read, and its file
+      # list must hold the exe and its notices where the tool looks
       - name: Extension package
         if: matrix.host == 'pwsh'
         working-directory: extension
-        run: npx --yes @vscode/vsce@3 package --out Charlie-and-the-chat-factory.vsix
+        env:
+          CHATQ_OVERLAY_EXE: ${{ runner.temp }}/overlay/chatq-overlay.exe
+          CHATQ_REQUIRE_BIN: '1'
+        run: |
+          npx --yes @vscode/vsce@3 package --out Charlie-and-the-chat-factory.vsix
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $v = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $files = @(npx --yes @vscode/vsce@3 ls) | ForEach-Object { $_.Trim().Replace('\', '/') }
+          foreach ($f in 'chatq-overlay.exe', 'THIRD-PARTY-NOTICES.html') {
+            $want = "payload/bin/$v/x86_64-pc-windows-msvc/$f"
+            if ($files -notcontains $want) { throw "the package holds no $want" }
+          }
 
       # the macOS overlay's JXA: compiled and its pure part driven under node;
       # only a Mac can run the rest (TESTING.md)

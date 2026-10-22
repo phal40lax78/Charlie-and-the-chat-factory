@@ -723,8 +723,9 @@ function New-ChatOverlayHeadlessState {
         CompactAt = $null; StartedAt = $null; Settled = $null; MemRestart = $null; RestartWhy = $null
         Events = [System.Collections.Generic.List[object]]::new(); EventBase = (ConvertTo-ChatOverlayMs $now); EventN = 0
         # the panel's process, its starts, and the first one's time, in
-        # epoch ms (Start-ChatOverlayUi -Since)
-        Child = $null; Starts = [System.Collections.Generic.List[datetime]]::new(); UiSince = 0; UnderWay = $false; Snap = $null
+        # epoch ms (Start-ChatOverlayUi -Since); UiFail: why a start threw,
+        # which blows the panel's fuse (Set-ChatOverlayPanelFuse)
+        Child = $null; Starts = [System.Collections.Generic.List[datetime]]::new(); UiSince = 0; UnderWay = $false; Snap = $null; UiFail = $null
         # the console's window, once asked for (Open-ChatOverlayHeadlessConsole),
         # and the timer its waits run on; a close by hand's end (CloseAt); a
         # verb to take as the first pass's (Open) - the next start's too, if
@@ -733,6 +734,7 @@ function New-ChatOverlayHeadlessState {
     }
 }
 
+# Deferred: DEFERRED.md "A panel that hangs without exiting"
 function Start-ChatOverlayHeadlessHost {
     <#
     The overlay with its panel in a process of its own: this PowerShell
@@ -746,7 +748,9 @@ function Start-ChatOverlayHeadlessHost {
     and a memory or code restart taken once nothing is under way there. A
     panel that exits unasked is started again: 3 starts in 10 minutes at
     most, the first and 2 restarts, and its exit after the third ends the
-    host ('panel'). A wake every 250 ms between passes looks for a verb,
+    host ('panel'), as does an exe that will not start at all: either
+    blows the panel's fuse for this version (Set-ChatOverlayPanelFuse) and
+    starts the WPF panel in its place. A wake every 250 ms between passes looks for a verb,
     so a click is acted on at once, and one acted on starts the next pass
     at once too, for the panel to draw its outcome. A panel started again
     acts on the commands the last one had not said it had done
@@ -816,8 +820,13 @@ function Start-ChatOverlayHeadlessHost {
         $why = @(@($ctx.Verbs) | Where-Object { $_ -in 'stop', 'restart', 'close' })[0]
         if (-not $why) {
             $H.UiSince = ConvertTo-ChatOverlayMs (Get-Date)
-            $H.Child = Start-ChatOverlayUi $UiExe $H.UiSince
+            # an exe that will not start - blocked by antivirus or
+            # AppLocker, or not an exe at all - blows the panel's fuse
+            try { $H.Child = Start-ChatOverlayUi $UiExe $H.UiSince }
+            catch { $H.UiFail = $_.Exception.Message; $why = 'panel' }
             $H.Starts.Add((Get-Date))
+        }
+        if (-not $why) {
             # the console's thread run between passes while it is open
             $why = Invoke-ChatOverlayCollectLoop $ctx -IntervalMs $IntervalMs -MaxCycles $MaxCycles -WakeMs 250 -Wait {
                 param($until)
@@ -934,7 +943,8 @@ function Start-ChatOverlayHeadlessHost {
                     $recent = @($H.Starts | Where-Object { $_ -gt $now.AddMinutes(-10) })
                     if ($recent.Count -ge 3) { Write-ChatOverlayLog 'the panel keeps exiting - stopping' -Always; return 'panel' }
                     Write-ChatOverlayLog "the panel exited ($($H.Child.ExitCode)) - starting it again" -Always
-                    $H.Child = Start-ChatOverlayUi $UiExe $H.UiSince
+                    try { $H.Child = Start-ChatOverlayUi $UiExe $H.UiSince }
+                    catch { $H.UiFail = $_.Exception.Message; return 'panel' }
                     $H.Starts.Add($now)
                 }
                 if ($H.CompactAt -and $now -ge $H.CompactAt) {
@@ -968,6 +978,16 @@ function Start-ChatOverlayHeadlessHost {
         try { $lock.Dispose() } catch {}
         Remove-Item -LiteralPath $script:ChatOverlayPidPath -Force -EA SilentlyContinue
         Write-ChatOverlayLog "overlay $PID stopped ($why)$(if ($H.RestartWhy -eq 'memory') { ' - a memory restart, to give back what this run held' })"
+    }
+    # The panel's fuse: an exe that would not start, or a panel that exited
+    # 3 times in 10 minutes, is kept against this version, said, and the
+    # WPF panel started in its place, with no look for an exe - the WPF
+    # host says it once, in its tray (Show-ChatOverlayPanelFuseNotice).
+    if ($why -eq 'panel') {
+        $fw = if ($H.UiFail) { "it would not start: $($H.UiFail)" } else { 'it exited 3 times in 10 minutes' }
+        Set-ChatOverlayPanelFuse $fw
+        Write-ChatOverlayLog "the native panel's fuse is blown ($fw) - the WPF panel until the next version or charlie -Panel native" -Always
+        [void](Start-ChatOverlayProcess -Open $H.Open -Wpf)
     }
     # the panel config.json asks for now - the WPF one, after charlie -Panel
     # ps - and the console asked for, if the first pass ended the host before

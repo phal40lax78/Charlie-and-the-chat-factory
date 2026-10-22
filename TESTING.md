@@ -282,7 +282,10 @@ permit section takes the bridge's pwsh leg from a `pwsh` on the PATH alone.
   4 points of that machine's 31.6 GB at its peak, about 1.3 GB: start one
   under 90%.
 
-What it covers (at 0.11.0, 1950 checks in `run-tests.ps1` under 5.1
+What it covers (at 0.11.1, 1958 checks in `run-tests.ps1` under 5.1
+and 1959 under pwsh 7, 491 in `extension-check.js`, 261, 138 and 39,
+211 in `cargo test`, and 86 in `cargo test` of the overlay; at 0.11.0,
+1950 checks in `run-tests.ps1` under 5.1
 and 1951 under pwsh 7, 479 in `extension-check.js`, 261, 138 and 39,
 211 in `cargo test`, and 86 in `cargo test` of the overlay; at 0.10.21, 1911 checks in `run-tests.ps1` under 5.1
 and 1912 under pwsh 7, 479 in `extension-check.js`, 261, 138 and 39,
@@ -2931,6 +2934,53 @@ live overlay, read-only.
      chatqd connect (a firewall?)`, the PowerShell watcher logs
      `carrying on` and listens, and a reply from the phone lands; the
      next chatqd started, once that watcher has left, tries again.
+- **S60, the VSIX with the native panel, in a sandbox profile**
+  (CHANGELOG, 0.11.1; native/SPEC.md 4.7) - not yet run. Nothing of the
+  real VS Code, its extensions, `$PROFILE` or the running overlay is
+  touched; everything lives in one sandbox folder `S` of a work clone.
+  1. **Package.** In the clone: `cargo build --release --locked
+     --manifest-path native/overlay/Cargo.toml --config
+     native/.cargo/config.toml --target x86_64-pc-windows-msvc
+     --target-dir <short dir>`, then `cargo about generate --locked
+     --manifest-path native/overlay/Cargo.toml -c
+     native/overlay/about.toml native/overlay/about.hbs -o <exe's
+     folder>/THIRD-PARTY-NOTICES.html`; with `CHATQ_OVERLAY_EXE` naming
+     the exe and `CHATQ_REQUIRE_BIN=1`, `npx @vscode/vsce@3 package` in
+     `extension/`. `chatq-overlay.exe --version` says the loader's
+     version.
+  2. **First install.** `S/data/config.json` written first with
+     `overlay.hotkey` and `overlay.consoleHotkey` `none`, so the sandbox
+     overlay takes no key from yours. `code --user-data-dir S/ud
+     --extensions-dir S/ext --install-extension <vsix>`, then that
+     profile opened with `chatManager.folder` set to `S`: `S/bin/<v>/
+     x86_64-pc-windows-msvc/` holds the exe and the notices, written
+     before `S/src/` and the loader - shown by a call trace of the
+     setup's writes (Process Monitor, or `_put` logged in a copy of the
+     installed setup.js), not by mtimes: `CopyFileW` keeps the source's
+     mtimes, so a file's mtime says when it was built, not when it
+     landed; the overlay starts native
+     (`overlay.log`, the headless host on the exe); nothing said about
+     the switch.
+  3. **Update over a running panel.** A second VSIX, the clone bumped
+     to a test version: the reload copies the new `bin/<v2>` first,
+     restarts the overlay onto it, and skips `bin/<v>` while its exe
+     runs (`setup: kept bin\<v>, in use: ...chatq-overlay.exe`): the
+     folder untouched under its own name, never a `bin/<v>.prune` -
+     Windows would allow that rename, only the delete fails, so the
+     check is the exe's open for writing, before any rename
+     ([exeInUse](extension/setup.js)); the next update removes it.
+  3a. **From 0.11.0.** The 0.11.0 VSIX installed with its WPF overlay
+     running, then the 0.11.1 VSIX over it: the restart is expected to
+     draw the WPF panel (the old code in memory defaults to `ps`).
+     Record when native takes over - the 0.11.1 host's memory or code
+     restart, `charlie -Stop` and start, or a reboot.
+  4. **The fuse.** The staged exe replaced by a text file: one `fuse is
+     blown (it would not start: …)` line, the WPF panel, its tray's
+     balloon once, `S/data/native/panel-fuse.json`; `charlie -Panel
+     native` with the real exe back clears it and the native panel
+     returns.
+  5. **Choices kept.** `charlie -Panel ps`, then the update of step 3:
+     the WPF panel stays. A Mac or Linux leg is Tier 2.
 
 ### Permissions from the phone (S35)
 
@@ -3143,6 +3193,54 @@ The panel's pictures are goldens: `cargo test` renders each scene with
 Slint's software renderer and compares it with its PNG in
 `native/overlay/goldens` ([scene](native/overlay/src/scene.rs)); they hold
 this PC's fonts.
+
+### The panel in the VSIX, its default and its fuse (Tier 0)
+
+What 0.11.1 adds, checked with no real VS Code and no real panel:
+
+- **`extension-check.js`, `bin:`** - [copyBin](extension/setup.js) puts
+  the exe and its notices before `src/` and the loader (the `_put` seam
+  records what is there at each put); an exe that cannot be written
+  (`_put` throwing `EBUSY` for it) is logged and returned, while the
+  notices, `src/` and the loader still land and nothing throws;
+  [pruneBin](extension/setup.js) removes other versions' folders; skips
+  whole, with no rename at all, one whose exe will not open for writing
+  (`_openForWrite` throwing `EBUSY`, as Windows does while the exe runs,
+  [exeInUse](extension/setup.js)) and says so; keeps one whose rename is
+  refused (`_renameDir` throwing `EPERM`); renames back one whose delete
+  fails (`_rmDir` throwing); finishes a `.prune` left half-done and
+  leaves names that are not a version. On Windows the same for real: a
+  copy of `ping.exe` running as `bin/0.6.0/.../chatq-overlay.exe` keeps
+  `bin/0.6.0` under its own name - Windows lets that folder be renamed,
+  so only the check before any rename keeps it. With `pruneBin` put back
+  to its rename-first form (2026-10-22), both checks fail: `0.6.0`
+  renamed to `0.6.0.prune`. Off Windows (`platform` `darwin`, `linux`)
+  no exe is copied and nothing pruned.
+- **`extension-check.js`, `build:`** - [stageBin](extension/build.js)
+  with a fake PE and a stub `--version`: staged with its notices where
+  the tool looks; with `CHATQ_REQUIRE_BIN=1` no exe named, none there,
+  or no notices fail; locally, no exe warns and packs none, no notices
+  warns and stages the exe alone; a text file, an ARM64 PE, a cut-off
+  header and another version's exe fail even locally. And
+  `.vscodeignore` keeps `payload/`.
+- **The self-test** - `host-work.ps1`: `overlay.panel` absent reads
+  `native`, not chosen; `ps` in any case stays `ps`, chosen; anything
+  else `native`, not chosen. `overlay-host.ps1`: a panel that exits 3
+  times blows the fuse for the loader's version, says it, and starts the
+  WPF host with no exe (`|` through `ChatOverlaySpawn`); a start that
+  throws does the same at once; the WPF host's tray says it once; a
+  fuse for another version counts for nothing; with the fuse blown
+  [Get-ChatOverlayPanelExe](src/overlay.ps1) gives '' though the exe is
+  there; the default's miss is not logged, a chosen native's is.
+  `overlay.ps1`: `charlie -Panel native` with the fuse blown clears it,
+  says so and restarts a running overlay; again, with none, a reload.
+- **CI** - test.yml's package step packs the exe CI built, with
+  `CHATQ_REQUIRE_BIN=1`, and `vsce ls` must list
+  `payload/bin/<version>/x86_64-pc-windows-msvc/chatq-overlay.exe` and
+  `THIRD-PARTY-NOTICES.html`. The notices are made by
+  `cargo about generate` in the `native-windows` leg; run by hand
+  (cargo-about 0.9.2) on 2026-10-22, all nine Slint crates listed under
+  Royalty-free 2.0 with its text.
 
 ### The overlay in Slint, the M9 spike (S58)
 

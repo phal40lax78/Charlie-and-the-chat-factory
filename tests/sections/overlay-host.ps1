@@ -6,7 +6,9 @@ Section 'overlay host: the headless host and its panel''s news'
 $hsWas = @{ Usage = $script:ChatOverlayUsageSeam; Spawn = $script:ChatqSpawn; Ui = $script:ChatOverlayUiSpawnSeam; SignIn = $script:ChatqSignInSeam; OvSpawn = $script:ChatOverlaySpawn
     LiveFn = ${function:Get-ChatqLiveSessions}; RmFn = ${function:Remove-ChatSessionById}; AnsFn = ${function:Write-ChatReloadAnswer} }
 $hsFiles = @{}
-foreach ($p in $script:ChatOverlayStatePath, $script:ChatOverlayEventsPath, $script:ChatOverlayUiPath, $script:ChatOverlayPath, $script:ChatOverlayCardPath) { $hsFiles[$p] = Read-TestFile $p }
+$hsFuseFile = Get-ChatqNativeFile 'panel-fuse.json'
+foreach ($p in $script:ChatOverlayStatePath, $script:ChatOverlayEventsPath, $script:ChatOverlayUiPath, $script:ChatOverlayPath, $script:ChatOverlayCardPath, $hsFuseFile) { $hsFiles[$p] = Read-TestFile $p }
+Clear-ChatOverlayPanelFuse
 $script:ChatOverlayUsageSeam = { @{ Ok = $true; Status = 200; Windows = @([pscustomobject]@{ Label = '5h'; Percent = 10; ResetsAt = (Get-Date).AddHours(3); Severity = 'normal' }) } }
 $script:ChatqSpawn = { $true }
 $script:ChatqSignInSeam = { [int64]1700000000000 }
@@ -216,20 +218,58 @@ try {
         ${function:Get-ChatOverlayConfig} = $hsKeep.Cfg
     }
 
-    # a panel that keeps exiting is started again twice, then the host gives up;
-    # a restart its panel sends starts the same headless launch
+    # a panel that keeps exiting is started again twice, then the host gives
+    # up: the panel's fuse blown for this version, said, and the WPF panel
+    # started in its place, no exe looked for; a restart its panel sends
+    # starts the same headless launch
     $script:HsStarts = 0
     $script:HsSinces = [System.Collections.Generic.List[int64]]::new()
+    $script:HsSpawnArgs = [System.Collections.Generic.List[string]]::new()
+    $script:ChatOverlaySpawn = { param($Open, $UiExe) $script:HsRestarts++; $script:HsSpawnArgs.Add("$Open|$UiExe"); $true }
+    $hsFuseLog = { param($Why) @([System.IO.File]::ReadAllLines((Join-Path $script:ChatqLogDir 'overlay.log'), $utf8) | Where-Object { $_.EndsWith("the native panel's fuse is blown ($Why) - the WPF panel until the next version or charlie -Panel native") }).Count }
+    $hsFuseLog0 = & $hsFuseLog 'it exited 3 times in 10 minutes'
     $script:ChatOverlayUiSpawnSeam = { param($Exe, $Data, $Since) $script:HsStarts++; $script:HsSinces.Add($Since); & $hsChild $true }
     $hsWhy2 = Start-ChatOverlayHeadlessHost -UiExe 'C:\ui\chatq-overlay.exe' -IntervalMs 10 -MaxCycles 10
+    $hsFuse2 = Get-ChatOverlayPanelFuse
+    $hsWpf2 = $script:HsSpawnArgs -join ';'
+    $hsFuseLog2 = (& $hsFuseLog 'it exited 3 times in 10 minutes') - $hsFuseLog0
+    Clear-ChatOverlayPanelFuse
     $script:ChatOverlayUiSpawnSeam = { param($Exe, $Data) Send-ChatOverlayCommand 'restart'; & $hsChild $false }
     $hsWhy3 = Start-ChatOverlayHeadlessHost -UiExe 'C:\ui\chatq-overlay.exe' -IntervalMs 10 -MaxCycles 3
     $hsLaunch = Get-ChatOverlayLaunch -UiExe 'C:\ui\chatq-overlay.exe'
-    Check 'a panel that keeps exiting: started 3 times in all, then the host stops; a restart from the panel relaunches headless' (
-        $hsWhy2 -eq 'panel' -and $script:HsStarts -eq 3 -and $hsWhy3 -eq 'restart' -and $script:HsRestarts -eq 1 -and
-        $hsLaunch.Command -like "*Start-ChatOverlayHeadlessHost -UiExe 'C:\ui\chatq-overlay.exe'*") "$hsWhy2 $($script:HsStarts) / $hsWhy3 $($script:HsRestarts)"
+    Check 'a panel that keeps exiting: started 3 times in all, then the host stops and starts the WPF panel; a restart from the panel relaunches headless' (
+        $hsWhy2 -eq 'panel' -and $script:HsStarts -eq 3 -and $hsWpf2 -eq '|' -and $hsWhy3 -eq 'restart' -and $script:HsRestarts -eq 2 -and
+        $hsLaunch.Command -like "*Start-ChatOverlayHeadlessHost -UiExe 'C:\ui\chatq-overlay.exe'*") "$hsWhy2 $($script:HsStarts) '$hsWpf2' / $hsWhy3 $($script:HsRestarts)"
+    Check 'and the panel''s fuse is blown for this version, why kept, not yet told, said in overlay.log' (
+        $hsFuse2 -and [string]$hsFuse2.version -ceq (Get-ChatOverlayPanelVersion) -and $hsFuse2.why -eq 'it exited 3 times in 10 minutes' -and
+        $hsFuse2.told -eq $false -and $hsFuseLog2 -eq 1) "$(ConvertTo-Json $hsFuse2 -Compress) / said $hsFuseLog2"
     Check 'and each panel started again is given the first one''s --since, so acts on the commands the last had not done' (
         $script:HsSinces.Count -eq 3 -and $script:HsSinces[0] -gt 1700000000000 -and @($script:HsSinces | Select-Object -Unique).Count -eq 1) ($script:HsSinces -join ',')
+
+    # an exe that will not start at all - blocked by antivirus or AppLocker -
+    # blows the fuse at its first start, and the WPF panel stands in
+    $script:HsSpawnArgs = [System.Collections.Generic.List[string]]::new()
+    $script:ChatOverlayUiSpawnSeam = { param($Exe, $Data) throw 'This program is blocked by group policy' }
+    $hsFuseLogT0 = & $hsFuseLog 'it would not start: This program is blocked by group policy'
+    $hsWhyT = Start-ChatOverlayHeadlessHost -UiExe 'C:\ui\chatq-overlay.exe' -IntervalMs 10 -MaxCycles 3
+    $hsFuseT = Get-ChatOverlayPanelFuse
+    $hsFuseLogT = (& $hsFuseLog 'it would not start: This program is blocked by group policy') - $hsFuseLogT0
+    Check 'an exe that will not start: the fuse blown at once, why kept and said, the WPF panel started with no exe' (
+        $hsWhyT -eq 'panel' -and $hsFuseT.why -eq 'it would not start: This program is blocked by group policy' -and $hsFuseLogT -eq 1 -and
+        ($script:HsSpawnArgs -join ';') -eq '|' -and -not (Test-Path -LiteralPath $script:ChatOverlayPidPath)) "$hsWhyT / $(ConvertTo-Json $hsFuseT -Compress) / said $hsFuseLogT / $($script:HsSpawnArgs -join ';')"
+    # the WPF host that stands in says so once, in its tray
+    $hsFn = New-ChatOverlayHeadlessState
+    $hsFn.Ctx = New-ChatOverlayContext
+    Show-ChatOverlayPanelFuseNotice $hsFn
+    Show-ChatOverlayPanelFuseNotice $hsFn
+    $hsFnE = @($hsFn.Events | Where-Object { $_.kind -eq 'balloon' -and $_.text -like 'The native panel stopped (it would not start: *' })
+    Check 'the fuse said once by the host standing in: why, and charlie -Panel native to try again; told kept' (
+        $hsFnE.Count -eq 1 -and $hsFnE[0].text -like '*charlie -Panel native tries it again.' -and (Get-ChatOverlayPanelFuse).told -eq $true) "$(ConvertTo-Json $hsFnE -Compress)"
+    # another version's fuse counts for nothing: a new version tries native
+    Check 'a fuse kept for another version counts for nothing - an update tries the native panel again' (
+        (Get-ChatOverlayPanelFuse) -and -not (Get-ChatOverlayPanelFuse -Version '0.0.1')) ''
+    Clear-ChatOverlayPanelFuse
+    $script:ChatOverlaySpawn = { $script:HsRestarts++; $true }
 
     # A restart starts the panel config.json asks for now: native keeps the
     # host's exe, ps the WPF one (charlie -Panel). One the first pass takes,
@@ -266,16 +306,26 @@ try {
     $hsVer = Get-ChatqLoaderVersion $script:ChatqScriptPath
     if (-not $hsVer) { $hsVer = $script:ChatVersion }
     $hsPxExe = [System.IO.Path]::Combine($hsPx, 'bin', $hsVer, 'x86_64-pc-windows-msvc', 'chatq-overlay.exe')
-    $hsNat = [pscustomobject]@{ panel = 'native' }
+    $hsNat = [pscustomobject]@{ panel = 'native'; panelChosen = $true }
+    $hsDef = [pscustomobject]@{ panel = 'native'; panelChosen = $false }
     $script:HsSpawnArgs = [System.Collections.Generic.List[string]]::new()
     try {
         $script:ChatRoot = $hsPx
+        $hsPxDef = Get-ChatOverlayPanelExe -Config $hsDef
         $hsPxNone = Get-ChatOverlayPanelExe -Config $hsNat
         $hsPxQuiet = Get-ChatOverlayPanelExe -Config $hsNat -Quiet
         New-Item -ItemType Directory -Force -Path ([System.IO.Path]::GetDirectoryName($hsPxExe)) | Out-Null
         [System.IO.File]::WriteAllBytes($hsPxExe, [byte[]]@())
         $hsPxGot = Get-ChatOverlayPanelExe -Config $hsNat
+        $hsPxDefGot = Get-ChatOverlayPanelExe -Config $hsDef
         $hsPxPs = Get-ChatOverlayPanelExe -Config ([pscustomobject]@{ panel = 'ps' })
+        # the fuse blown for this version: the WPF one, the exe there or not;
+        # for another version, the exe
+        Set-ChatOverlayPanelFuse 'test' $hsVer
+        $hsPxFused = Get-ChatOverlayPanelExe -Config $hsNat
+        Set-ChatOverlayPanelFuse 'test' '0.0.1'
+        $hsPxOther = Get-ChatOverlayPanelExe -Config $hsNat
+        Clear-ChatOverlayPanelFuse
         $script:ChatOverlaySpawn = { param($Open, $UiExe) $script:HsSpawnArgs.Add("$Open|$UiExe"); $true }
         ${function:Get-ChatOverlayConfig} = { param($Cfg) $c = & $script:HsKeepCfg $Cfg; $c.panel = 'native'; $c }
         [void](Start-ChatOverlayProcess -Open console)
@@ -287,9 +337,13 @@ try {
         Remove-Item -LiteralPath $hsPx -Recurse -Force -EA SilentlyContinue
     }
     $hsPxLog = @([System.IO.File]::ReadAllLines((Join-Path $script:ChatqLogDir 'overlay.log'), $utf8) | Where-Object { $_.EndsWith("the native panel asked for, but $hsPxExe is not there - the WPF one instead") }).Count
-    Check 'the native panel''s exe: bin/<version>/x86_64-pc-windows-msvc beside the script; none staged, the WPF one, said once; ps, the WPF one; a launch given it' (
+    Check 'the native panel''s exe: bin/<version>/x86_64-pc-windows-msvc beside the script; none staged, the WPF one, said once where native was asked for; ps, the WPF one; a launch given it' (
         $hsPxNone -eq '' -and $hsPxQuiet -eq '' -and $hsPxGot -eq $hsPxExe -and $hsPxPs -eq '' -and $hsPxLog -eq 1 -and
         ($script:HsSpawnArgs -join ';') -eq "console|$hsPxExe") "'$hsPxNone' '$hsPxGot' '$hsPxPs' / said $hsPxLog / $($script:HsSpawnArgs -join ';')"
+    Check 'native by default, never chosen: the exe when staged; none staged, the WPF one, quietly - every zip and git install''s start' (
+        $hsPxDef -eq '' -and $hsPxDefGot -eq $hsPxExe -and $hsPxLog -eq 1) "'$hsPxDef' '$hsPxDefGot' / said $hsPxLog"
+    Check 'the panel''s fuse blown for this version: the WPF one, though the exe is there; blown for another, the exe' (
+        $hsPxFused -eq '' -and $hsPxOther -eq $hsPxExe) "'$hsPxFused' '$hsPxOther'"
 
     # a verb's words: only the ones its verb takes, one space apart; a line
     # whose words do not fit is dropped whole

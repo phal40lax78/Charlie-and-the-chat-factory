@@ -6287,6 +6287,8 @@ function Start-ChatOverlayHost {
         Update-ChatOverlayAsk $H
         # once, with the switch on: what auto-continue does, and where it is changed
         Show-ChatOverlayAutoNotice $H
+        # standing in for a native panel whose fuse just blew: said once
+        Show-ChatOverlayPanelFuseNotice $H
         Register-ChatOverlayHotkey $H
         Register-ChatConsoleHotkey $H
         Register-ChatOverlayUiCatch ([System.Windows.Threading.Dispatcher]::CurrentDispatcher)

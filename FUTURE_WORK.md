@@ -9,10 +9,21 @@ left as it is - are in [DEFERRED.md](DEFERRED.md).
 What the Slint panel ([App](native/overlay/src/app.rs)) and its host still
 do differently:
 
-- **Shipping.** No build of the panel ships: release.yml packs
-  `chatq-overlay-<version>-x86_64-pc-windows-msvc.zip`, but nothing
-  fetches it yet, so 0.11.0's panel is a developer's build put under
-  `bin/` by hand.
+- **Shipping.** Since 0.11.1 the VSIX carries the panel's exe and it is
+  the default; what is left is known and deferred - signing, the zip and
+  git installs, platform VSIXes and a hung panel (DEFERRED.md "Signing
+  chatq-overlay.exe", "The panel exe for install.ps1 and git users",
+  "Platform-specific VSIXes", "A panel that hangs without exiting").
+  Still to find out: the VSIX's first install on a clean profile and the
+  update over a running native panel (TESTING.md S60, not yet run), and
+  whether an antivirus here flags the unsigned exe in the field - the
+  fuse turns a block into the WPF panel, but how often it trips is not
+  known until `overlay.log`s say. The fuse records the loader-on-disk
+  version ([Set-ChatOverlayPanelFuse](src/overlay.ps1)), not the
+  version of the exe that failed: if an update lands while the panel
+  is between an exit and its restart, the new version can be blamed
+  without its exe ever running. Closing it: record the exe's own
+  `--version`.
 
 - **Host.** A panel that dies after carrying out a command but before
   its next `overlay-ui.json` says it is done (`done`,

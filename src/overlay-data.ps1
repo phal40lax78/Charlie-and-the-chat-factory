@@ -103,7 +103,7 @@ function Get-ChatOverlayConfig {
     $clamp = { param($v, $lo, $hi) [Math]::Max($lo, [Math]::Min($hi, $v)) }
     $theme = ([string](& $get 'theme' 'dark')).ToLowerInvariant()
     $view = ([string](& $get 'usageView' 'lines')).ToLowerInvariant()
-    $panel = ([string](& $get 'panel' 'ps')).ToLowerInvariant()
+    $panel = ([string](& $get 'panel' '')).ToLowerInvariant()
     [pscustomobject]@{
         width        = [int](& $clamp ([int](& $get 'width' 380)) 260 800)
         maxRows      = [int](& $clamp ([int](& $get 'maxRows' 8)) 1 30)
@@ -155,10 +155,15 @@ function Get-ChatOverlayConfig {
         # the overlay's own private MB after a compaction at which it starts
         # again, given back; 0 is never (Update-ChatOverlayRestartDue)
         restartMB    = [int](& $clamp ([int](& $get 'restartMB' 300)) 0 4096)
-        # the Windows panel: ps, the WPF one, or native - chatq-overlay.exe
-        # beside a headless host, where one is staged for this version
-        # (Get-ChatOverlayPanelExe)
-        panel        = $(if ($panel -in 'ps', 'native') { $panel } else { 'ps' })
+        # the Windows panel: native (the default since 0.11.1) -
+        # chatq-overlay.exe beside a headless host, where one is staged for
+        # this version and its fuse holds (Get-ChatOverlayPanelExe) - or ps,
+        # the WPF one, which only charlie -Panel ps writes. Anything else
+        # reads as the default.
+        panel        = $(if ($panel -in 'ps', 'native') { $panel } else { 'native' })
+        # whether config.json names the panel itself: a missing exe is said
+        # in overlay.log only for a native asked for by name
+        panelChosen  = [bool]($panel -in 'ps', 'native')
     }
 }
 

@@ -1,8 +1,10 @@
 name: publish
 
 # A v* tag publishes that version to the VS Code Marketplace and attaches the
-# VSIX to a GitHub release. It signs in as an Entra app through GitHub's own
-# OIDC token - no PAT: Azure DevOps retires global PATs on 2026-12-01.
+# VSIX - the native panel's exe inside it - to a GitHub release, with the
+# panel zipped on its own and SHA256SUMS. It signs in as an Entra app
+# through GitHub's own OIDC token - no PAT: Azure DevOps retires global
+# PATs on 2026-12-01.
 #
 # Run by hand, it publishes nothing: it signs in, prints the app's Visual
 # Studio profile id - what the publisher's manage page takes as a member -
@@ -58,8 +60,21 @@ jobs:
           [IO.File]::WriteAllText((Join-Path $env:RUNNER_TEMP 'notes.md'), $m.Groups[2].Value.Trim())
           "RELEASE_TITLE=$env:TAG - $($m.Groups[1].Value.Trim())" >> $env:GITHUB_ENV
 
+      # the native panel test.yml built in this run, with its licence
+      # notices; the package carries both (extension/build.js stageBin).
+      # Deferred: DEFERRED.md "Signing chatq-overlay.exe"
+      - uses: actions/download-artifact@v8
+        if: github.event_name == 'push'
+        with:
+          name: chatq-overlay-x86_64-pc-windows-msvc
+          path: ${{ runner.temp }}/overlay
+
+      # a tag's package must hold the exe; a run by hand packs what it has
       - name: Package
         working-directory: extension
+        env:
+          CHATQ_OVERLAY_EXE: ${{ runner.temp }}/overlay/chatq-overlay.exe
+          CHATQ_REQUIRE_BIN: ${{ github.event_name == 'push' && '1' || '' }}
         run: npx --yes @vscode/vsce@3 package
 
       - uses: azure/login@v3
@@ -81,8 +96,19 @@ jobs:
         working-directory: extension
         run: npx --yes @vscode/vsce@3 publish --azure-credential --packagePath (Get-Item *.vsix).FullName
 
+      # the VSIX, and the panel on its own - the exe and its notices zipped -
+      # with the SHA256SUMS of both
       - name: GitHub release
         if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create $env:TAG (Get-Item extension/*.vsix).FullName --title $env:RELEASE_TITLE --notes-file (Join-Path $env:RUNNER_TEMP 'notes.md')
+        run: |
+          $v = $env:TAG.Substring(1)
+          $out = Join-Path $env:RUNNER_TEMP 'out'
+          New-Item -ItemType Directory $out | Out-Null
+          $vsix = Get-Item extension/*.vsix
+          Copy-Item $vsix.FullName $out
+          Compress-Archive -Path (Join-Path $env:RUNNER_TEMP 'overlay/*') -DestinationPath (Join-Path $out "chatq-overlay-$v-x86_64-pc-windows-msvc.zip")
+          $sums = Get-ChildItem $out -File | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)" }
+          [IO.File]::WriteAllText((Join-Path $out 'SHA256SUMS'), ($sums -join "`n") + "`n")
+          gh release create $env:TAG (Get-ChildItem $out -File).FullName --title $env:RELEASE_TITLE --notes-file (Join-Path $env:RUNNER_TEMP 'notes.md')

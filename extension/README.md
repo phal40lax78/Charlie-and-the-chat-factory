@@ -9,6 +9,8 @@ VS Code closed, and your phone says how they went. Find or delete any
 Claude Code, Codex or Copilot chat from PowerShell; this extension installs
 those commands and keeps them up to date.
 
+<a href="https://slint.dev"><img src="https://raw.githubusercontent.com/slint-ui/slint/master/logo/MadeWithSlint-logo-whitebg.png" alt="Made with Slint" height="20"></a>
+
 ![The overlay: every open chat a tile alone, its seven-segment clock in its state's colour saying how long it has worked, waited or sat idle, and the usage of what is open live at the top as a thin gauge](https://raw.githubusercontent.com/phal40lax78/Charlie-and-the-chat-factory/main/docs/demo-overlay.png)
 
 - **Find any chat by part of its title** and Tab-complete it: `chatfind`, `chatrm`, `chatq`.
@@ -16,6 +18,7 @@ those commands and keeps them up to date.
 - **Queue prompts while the usage limit is hit.** At the reset each chat is resumed in turn, sent its prompt, and run to the end - with VS Code closed, too.
 - **Tells you how it went:** a desktop toast, your phone through Join or ntfy, or a command of your own.
 - **Shows every running chat at a glance:** `charlie` keeps a small panel above every app, started with VS Code on Windows. Click a chat there to open it as a tab.
+- **The panel is native on Windows:** this extension carries `chatq-overlay.exe`, the panel drawn in Rust and [Slint](https://slint.dev), with its licence notices beside it. `charlie -Panel ps` keeps the PowerShell (WPF) panel instead, and a native panel that will not start, or keeps exiting, is replaced by the WPF one until the next version. The exe is not code-signed yet.
 - **Open chat...** in the command palette lists this window's Claude chats, newest first, with what runs each - open, working, a terminal, or a queued prompt - and opens the one you pick in a tab. A chat working elsewhere, in a terminal, or taking a queued prompt is never opened a second time - for a queued prompt, its live view opens instead. On Windows it tells which window holds a chat, and a chat in another window is handed to that window, which brings its tab forward. A chat Claude Code's own list hides after a `claude -p` run is listed again first, or offered in a terminal where it cannot be - never opened as a blank chat.
 - **The queue in the status bar:** `chatq 3 queued · 16:05` - how many prompts wait and when the next one sends, as the board says it; a click opens the board.
 - **A queued run takes the chat's tab's place.** A prompt going into a chat open idle in a tab here closes that tab - Claude Code ends its process itself - and opens the run's **live view** there; when the run ends, the view turns back into the chat, loaded from disk and up to date. The tab in front of you is never taken: the prompt waits until you leave it, or until you click **Hand over now**. A tab that cannot be told apart is left, and you are told its view is stale until the run ends.
@@ -33,8 +36,9 @@ those commands and keeps them up to date.
 ## What it does on first start
 
 1. It puts the PowerShell scripts in `~/Tools/Charlie-and-the-chat-factory`
-   (`chatManager.folder` moves it). Everything the tool writes goes in `data/`
-   there - nothing in AppData.
+   (`chatManager.folder` moves it) - on Windows the native panel's exe too,
+   under `bin/`, where an update removes the old version's. Everything the
+   tool writes goes in `data/` there - nothing in AppData.
 2. It asks once before adding one line to your PowerShell profile, which loads
    the commands in every new terminal. The profile is backed up first.
    **Never** is remembered; **Chat Manager: Install terminal commands** asks

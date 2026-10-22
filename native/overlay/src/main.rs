@@ -7,6 +7,7 @@
 //                      in overlay-ui.json, ends when stdin closes (app.rs)
 //   --since MS         (panel) the host's commands from before MS, the
 //                      Unix ms it started its first panel at, are not its own
+//   --version          prints `chatq-overlay <version>` and ends
 //   --floor           one empty, fully transparent window: the memory floor
 //   --probe            a speech bubble with Hangul, Chinese, Georgia, symbols
 //                      and a clock, plus an automatic per-pixel alpha check
@@ -204,6 +205,13 @@ fn parse_args() -> Args {
 }
 
 fn main() {
+    // `chatq-overlay --version`: one line, `chatq-overlay <version>`, and
+    // nothing else run - what extension/build.js checks before it stages
+    // the exe in the VSIX
+    if std::env::args().nth(1).as_deref() == Some("--version") {
+        println!("chatq-overlay {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
     let args = parse_args();
     let mode = if args.data.is_some() {
         "ui"

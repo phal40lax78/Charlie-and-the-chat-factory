@@ -2260,22 +2260,36 @@ by hand, `charlie -Stop` and start it again. `-Width`, `-Rows`,
 from that line, as `-Opacity` does; one out of range in the file is held
 to the range.
 
-**The panel in Rust, if you want it.** On Windows the panel is the WPF
-one unless `charlie -Panel native` (`"panel": "native"` under `overlay`)
-asks for `chatq-overlay.exe`, the same panel drawn in Rust and Slint
-([native/SPEC.md](native/SPEC.md) 8), in a process of its own beside
-the hidden PowerShell, which still collects the chats, carries out what
-you click and draws the console. As with chatqd, no build of it ships
-yet - it is a developer's build for now: put one at
-`bin/<version>/x86_64-pc-windows-msvc/chatq-overlay.exe` beside
-`data/`, the version being the script's. With none there the overlay
-draws the WPF panel, says so once in `data/logs/overlay.log`, and
-`charlie -Panel native` says so too - and an overlay already running
-only reloads, as it would come back as the WPF panel anyway. Otherwise
-a running overlay starts again on the panel chosen; `charlie -Panel ps`
-goes back. After an update to a version with no build there, the
-overlay's restart onto the new code draws the WPF panel, as a fresh
-start would, never the old version's build.
+**The panel in Rust.** On Windows the panel is `chatq-overlay.exe`,
+the same panel drawn in Rust and Slint ([native/SPEC.md](native/SPEC.md)
+8), in a process of its own beside the hidden PowerShell, which still
+collects the chats, carries out what you click and draws the console.
+It is the default since 0.11.1; `charlie -Panel ps` (`"panel": "ps"`
+under `overlay`) keeps the WPF panel, and an update leaves that choice
+alone. The VS Code extension carries the exe, with its licence notices,
+and puts both at `bin/<version>/x86_64-pc-windows-msvc/` beside
+`data/`, the version being the script's - removing other versions'
+folders there at the next update, keeping any an exe still runs from. A zip or git install has no
+exe yet (DEFERRED.md), so it draws the WPF panel, quietly; a developer's
+build put at that path is used. Where `config.json` names native itself,
+a missing exe is said once in `data/logs/overlay.log`, and
+`charlie -Panel native` says so too - an overlay already running only
+reloads, as it would come back as the WPF panel anyway. Otherwise a
+running overlay starts again on the panel chosen. After an update, an
+overlay already running 0.11.0 or older restarts as the WPF panel, as
+its old code in memory still defaults to `ps`; the native panel arrives
+at the next fresh start (`charlie -Stop` and start, a reboot) or at the
+0.11.1 host's own restart. From 0.11.1 on, the restart onto new code
+draws the new version's panel, never the old version's build.
+
+**A native panel that fails is replaced by the WPF one.** An exe that
+will not start - an antivirus or AppLocker blocking it, the exe being
+unsigned (DEFERRED.md) - or a panel that exits 3 times in 10 minutes
+blows the panel's fuse, `data/native/panel-fuse.json`, for this version:
+the WPF panel starts in its place, `data/logs/overlay.log` says why,
+and the tray says so once. The next version tries native again;
+`charlie -Panel native` clears the fuse now and restarts a running
+overlay onto it.
 
 One setting the overlay reads sits at the top of `data/config.json`, not
 under `overlay`, like `liveIdle`: `autoContinue`, `"ask"` (the default),
@@ -2316,7 +2330,7 @@ charlie -Recent 10            # ten chats not open under the rest; 0 for none
 | `liveUsage` | `true`, `false` on macOS | `charlie -LiveUsage off` |
 | `copilotUsage` | `true` | `charlie -CopilotUsage off`: no Copilot line, and `gh` never run for it |
 | `codexUsage` | `true` | `charlie -CodexUsage off`: Codex's line only from its rollouts, and `codex app-server` never started for it |
-| `panel` | `ps` | Windows: `native` for `chatq-overlay.exe` once it is staged ([the panel in Rust](#the-overlay)), the WPF panel until then; anything else reads as `ps`. `charlie -Panel native` |
+| `panel` | `native` | Windows: `chatq-overlay.exe` where it is staged ([the panel in Rust](#the-overlay)), the WPF panel where it is not or its fuse is blown; `ps` for the WPF panel always; anything else reads as `native`. `charlie -Panel ps` |
 | `usageSeconds` | 300 | how often usage is asked while a chat works - Codex's while Codex works (three times that while idle, and for Copilot); 60 at least |
 | `memoryWarn` | 95 | 0–99; the percent of Windows' commit limit in use at which the panel and the tray say memory runs short ([it says so](#the-overlay)); 0 for never |
 | `leakGB` | 2 | 0–64, parts of a GB too; how much one process grows in 10 minutes before the panel and the tray say it keeps growing, memory low or not ([it says so](#the-overlay)); 0 for never |
@@ -3146,8 +3160,9 @@ Claude settings first; it stops until you have.
 
 - Windows PowerShell 5.1 or PowerShell 7. macOS and Linux need PowerShell 7, and
   are untested so far.
-- The overlay's panel runs in Windows PowerShell, which every Windows has, even
-  when started from PowerShell 7: WPF needs it.
+- The overlay's WPF panel runs in Windows PowerShell, which every Windows has,
+  even when started from PowerShell 7: WPF needs it. The native panel,
+  `chatq-overlay.exe`, needs Windows 10 or 11 on x64.
 - Claude Code 2.1.259 or later for the queue (`--permission-prompts none`).
 
 ## Sponsorship

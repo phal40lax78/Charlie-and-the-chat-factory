@@ -4616,6 +4616,110 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     su._profileStep = realStep;
     su._inGitCheckout = realGit;
 
+    // the native panel's exe in the package (payload/bin, build.js
+    // stageBin): copied first, best-effort, Windows only; other versions'
+    // bin folders pruned after
+    const TGT = 'x86_64-pc-windows-msvc';
+    const mkBinPayload = (at, v) => {
+        mkPayload(at, v);
+        const b = path.join(at, 'payload', 'bin', v, TGT);
+        fs.mkdirSync(b, { recursive: true });
+        fs.writeFileSync(path.join(b, 'chatq-overlay.exe'), 'exe ' + v);
+        fs.writeFileSync(path.join(b, 'THIRD-PARTY-NOTICES.html'), 'notices ' + v);
+        return path.join(at, 'payload');
+    };
+    const binPay = mkBinPayload(path.join(sbx, 'extbin'), '0.7.1');
+    const realPut = su._put, realRenameDir = su._renameDir;
+    const binLog = [];
+    const blog = (m) => binLog.push(m);
+    const exeAt = (f, v) => path.join(f, 'bin', v, TGT, 'chatq-overlay.exe');
+    const bt1 = path.join(sbx, 'bt1');
+    const putSeen = [];
+    su._put = (a, b) => { putSeen.push(path.basename(b) + ':' + fs.existsSync(path.join(bt1, 'src')) + ':' + fs.existsSync(path.join(bt1, su.LOADER))); realPut(a, b); };
+    su._copyPayload(binPay, bt1, blog, 'win32');
+    su._put = realPut;
+    check('bin: the exe and its notices are put before src/ and the loader, and land where the tool looks',
+        putSeen.length === 2 && putSeen.every(s => s.endsWith(':false:false')) && fs.readFileSync(exeAt(bt1, '0.7.1'), 'latin1') === 'exe 0.7.1' &&
+        fs.existsSync(path.join(bt1, 'bin', '0.7.1', TGT, 'THIRD-PARTY-NOTICES.html')) && fs.existsSync(path.join(bt1, su.LOADER)) &&
+        fs.existsSync(path.join(bt1, 'src', 'core.ps1')), putSeen.join());
+    // the same version's exe running: Windows refuses the rename over it
+    const bt2 = path.join(sbx, 'bt2');
+    binLog.length = 0;
+    su._put = (a, b) => { if (/chatq-overlay\.exe$/.test(b)) throw new Error('EBUSY: resource busy or locked'); realPut(a, b); };
+    let bt2Threw = false, bt2Failed = null;
+    try { su._copyPayload(binPay, bt2, blog, 'win32'); bt2Failed = su._copyBin(binPay, bt2, blog, 'win32'); } catch (e) { bt2Threw = true; }
+    su._put = realPut;
+    check('bin: an exe that cannot be written is logged and left - the notices, src/ and the loader still land, and nothing throws',
+        !bt2Threw && !fs.existsSync(exeAt(bt2, '0.7.1')) && fs.existsSync(path.join(bt2, 'bin', '0.7.1', TGT, 'THIRD-PARTY-NOTICES.html')) &&
+        fs.readFileSync(path.join(bt2, su.LOADER), 'latin1').includes("'0.7.1'") && fs.existsSync(path.join(bt2, 'src', 'core.ps1')) &&
+        binLog.some(m => /could not put bin\\0\.7\.1\\x86_64-pc-windows-msvc\\chatq-overlay\.exe/.test(m)) &&
+        bt2Failed && bt2Failed.length === 1 && /chatq-overlay\.exe$/.test(bt2Failed[0]) &&
+        !fs.readdirSync(path.join(bt2, 'bin', '0.7.1', TGT)).some(n => n.endsWith('.new')), binLog.join(' | '));
+    // prune: an old version, one whose exe runs (its open for writing
+    // refused, as Windows does - and Windows would let the folder be
+    // renamed, so no rename may touch it), one whose rename is refused, one
+    // whose delete fails after its rename, a prune left half-done, a build
+    // of your own
+    const realOpenForWrite = su._openForWrite, realRmDir = su._rmDir;
+    const bt3 = path.join(sbx, 'bt3');
+    for (const n of ['0.7.0', '0.6.0', '0.4.0', '0.3.0', '0.5.0.prune', 'mine', '0.7']) {
+        fs.mkdirSync(path.join(bt3, 'bin', n, TGT), { recursive: true });
+        fs.writeFileSync(path.join(bt3, 'bin', n, TGT, 'chatq-overlay.exe'), n);
+    }
+    binLog.length = 0;
+    const bt3Opened = [], bt3Renamed = [];
+    let bt3Threw = false;
+    su._openForWrite = (p) => {
+        bt3Opened.push(path.relative(path.join(bt3, 'bin'), p));
+        if (p.includes(path.sep + '0.6.0' + path.sep)) { const e = new Error('EBUSY: resource busy or locked, open'); e.code = 'EBUSY'; throw e; }
+        realOpenForWrite(p);
+    };
+    su._renameDir = (a, b) => { bt3Renamed.push(path.basename(a) + '>' + path.basename(b)); if (path.basename(a) === '0.3.0') throw new Error('EPERM: operation not permitted'); realRenameDir(a, b); };
+    su._rmDir = (p) => { if (path.basename(p) === '0.4.0.prune') throw new Error('EBUSY: resource busy or locked, rmdir'); realRmDir(p); };
+    try { su._copyPayload(binPay, bt3, blog, 'win32'); } catch (e) { bt3Threw = true; }
+    su._renameDir = realRenameDir; su._openForWrite = realOpenForWrite; su._rmDir = realRmDir;
+    const bt3Has = fs.readdirSync(path.join(bt3, 'bin')).sort().join();
+    check('bin: other versions\' folders pruned; one whose exe runs kept whole and never renamed, and said; a refused rename kept; a failed delete put back; a half-done prune finished; names not a version left',
+        !bt3Threw && bt3Has === '0.3.0,0.4.0,0.6.0,0.7,0.7.1,mine' &&
+        fs.existsSync(exeAt(bt3, '0.6.0')) && fs.existsSync(exeAt(bt3, '0.4.0')) && fs.existsSync(exeAt(bt3, '0.7.1')) &&
+        bt3Opened.includes(path.join('0.6.0', TGT, 'chatq-overlay.exe')) && !bt3Renamed.some(r => r.includes('0.6.0')) &&
+        bt3Renamed.includes('0.4.0>0.4.0.prune') && bt3Renamed.includes('0.4.0.prune>0.4.0') &&
+        binLog.some(m => /kept bin\\0\.6\.0, in use: .*chatq-overlay\.exe/.test(m)) && binLog.some(m => /kept bin\\0\.3\.0, in use/.test(m)) &&
+        binLog.some(m => /kept bin\\0\.4\.0, in use: .*, put back/.test(m)) &&
+        binLog.some(m => /removed bin\\0\.7\.0/.test(m)) && binLog.some(m => /removed bin\\0\.5\.0\.prune/.test(m)),
+        bt3Has + ' | ' + bt3Renamed.join() + ' | ' + binLog.join(' | '));
+    // and for real on Windows: an exe running from an old version's folder
+    // - a copy of ping.exe, which waits - keeps that folder, by its own
+    // name; this process's child only, killed after
+    if (process.platform === 'win32') {
+        const bt5 = path.join(sbx, 'bt5');
+        const held = path.join(bt5, 'bin', '0.6.0', TGT, 'chatq-overlay.exe');
+        fs.mkdirSync(path.dirname(held), { recursive: true });
+        fs.copyFileSync(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'ping.exe'), held);
+        const child = require('child_process').spawn(held, ['-n', '30', '127.0.0.1'], { stdio: 'ignore', windowsHide: true });
+        const nap = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+        let bt5Busy = false;
+        for (let i = 0; i < 50 && !bt5Busy; i++) {
+            try { su._openForWrite(held); nap(100); } catch (e) { bt5Busy = true; }
+        }
+        binLog.length = 0;
+        su._copyPayload(binPay, bt5, blog, 'win32');
+        const bt5Has = fs.readdirSync(path.join(bt5, 'bin')).sort().join();
+        child.kill();
+        // gone before the sandbox is removed
+        for (let i = 0; i < 50; i++) { try { su._openForWrite(held); break; } catch (e) { nap(100); } }
+        check('bin: a folder whose exe really runs is kept under its own name, not renamed aside',
+            bt5Busy && bt5Has === '0.6.0,0.7.1' && fs.existsSync(held) && binLog.some(m => /kept bin\\0\.6\.0, in use/.test(m)),
+            bt5Busy + ' | ' + bt5Has + ' | ' + binLog.join(' | '));
+    }
+    const bt4 = path.join(sbx, 'bt4');
+    fs.mkdirSync(path.join(bt4, 'bin', '0.6.0'), { recursive: true });
+    su._copyPayload(binPay, bt4, blog, 'darwin');
+    su._copyPayload(binPay, bt4, blog, 'linux');
+    check('bin: off Windows no exe is copied and nothing in bin/ is pruned; the scripts still land',
+        !fs.existsSync(path.join(bt4, 'bin', '0.7.1')) && fs.existsSync(path.join(bt4, 'bin', '0.6.0')) &&
+        fs.existsSync(path.join(bt4, su.LOADER)) && su._copyBin(binPay, bt4, blog, 'darwin').length === 0);
+
     // the profile step itself, with PowerShell stood in for: hosts A and B,
     // what each answers, and every command recorded
     const ps = { A: { line: true, policy: 'RemoteSigned' }, B: { line: false, policy: 'RemoteSigned' } };
@@ -4704,6 +4808,61 @@ check('an old chatManagerReload setting is read where the new one is unset, and 
     const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'extension', 'package.json'), 'utf8'));
     check('build: the extension\'s version is the script\'s', pkg.version === su._readVersion(realLoader), pkg.version + ' / ' + su._readVersion(realLoader));
     check('build: the listing README shows no SVG', bj._svgImages(fs.readFileSync(path.join(__dirname, '..', 'extension', 'README.md'), 'utf8')).length === 0);
+    // stageBin: the native panel into payload/bin, from CHATQ_OVERLAY_EXE
+    const peOf = (machine) => {
+        const b = Buffer.alloc(0x80);
+        b.write('MZ', 0, 'latin1');
+        b.writeUInt32LE(0x40, 0x3c);
+        b.write('PE\0\0', 0x40, 'latin1');
+        b.writeUInt16LE(machine, 0x44);
+        return b;
+    };
+    check('build: an x64 Windows exe is told from an ARM64 one, a text file and a cut-off header',
+        bj._isWinX64Exe(peOf(0x8664)) && !bj._isWinX64Exe(peOf(0xaa64)) && !bj._isWinX64Exe(Buffer.from('not an exe at all, only text, long enough to read 0x3c....')) &&
+        !bj._isWinX64Exe(peOf(0x8664).subarray(0, 0x42)));
+    const stg = path.join(sbx, 'stage');
+    fs.mkdirSync(stg, { recursive: true });
+    const stgExe = path.join(stg, 'chatq-overlay.exe');
+    fs.writeFileSync(stgExe, peOf(0x8664));
+    fs.writeFileSync(path.join(stg, 'THIRD-PARTY-NOTICES.html'), '<html>notices</html>');
+    const stgWarn = [];
+    const stgRan = [];
+    const stgO = (said) => ({ warn: (m) => stgWarn.push(m), run: (e) => { stgRan.push(e); return said; } });
+    const stage = (name, env, said) => {
+        const p = path.join(sbx, 'stage-' + name, 'payload');
+        let r, err = null;
+        try { r = bj._stageBin(p, '0.7.1', env, stgO(said === undefined ? 'chatq-overlay 0.7.1' : said)); } catch (e) { err = e.message; }
+        return { p, r, err };
+    };
+    const sb1 = stage('ok', { CHATQ_OVERLAY_EXE: stgExe, CHATQ_REQUIRE_BIN: '1' });
+    check('build: the exe named is staged, with its notices, in payload/bin/<version>/x86_64-pc-windows-msvc - its --version asked',
+        !sb1.err && sb1.r === path.join(sb1.p, 'bin', '0.7.1', TGT) && fs.existsSync(path.join(sb1.r, 'chatq-overlay.exe')) &&
+        fs.existsSync(path.join(sb1.r, 'THIRD-PARTY-NOTICES.html')) && stgRan.join() === stgExe && stgWarn.length === 0, sb1.err || stgWarn.join(' | '));
+    stgWarn.length = 0;
+    const sb2 = stage('none', { CHATQ_REQUIRE_BIN: '1' });
+    const sb3 = stage('gone', { CHATQ_OVERLAY_EXE: path.join(stg, 'nope.exe'), CHATQ_REQUIRE_BIN: '1' });
+    check('build: with CHATQ_REQUIRE_BIN=1, no exe named or none there fails the build',
+        /CHATQ_REQUIRE_BIN/.test(sb2.err || '') && /not there/.test(sb3.err || '') && !fs.existsSync(path.join(sb2.p, 'bin')), sb2.err + ' / ' + sb3.err);
+    const sb4 = stage('local', {});
+    check('build: a local build with no exe warns and packs none', !sb4.err && sb4.r === null && stgWarn.length === 1 && /WPF/.test(stgWarn[0]) &&
+        !fs.existsSync(path.join(sb4.p, 'bin')), sb4.err + ' / ' + stgWarn.join(' | '));
+    const txt = path.join(stg, 'text.exe');
+    fs.writeFileSync(txt, 'echo not an exe');
+    const sb5 = stage('text', { CHATQ_OVERLAY_EXE: txt });
+    const sb6 = stage('older', { CHATQ_OVERLAY_EXE: stgExe }, 'chatq-overlay 0.7.0');
+    check('build: a file that is not an x64 exe, or an exe of another version, fails it even locally',
+        /not an x64 Windows exe/.test(sb5.err || '') && /not chatq-overlay 0\.7\.1/.test(sb6.err || '') &&
+        !fs.existsSync(path.join(sb5.p, 'bin')) && !fs.existsSync(path.join(sb6.p, 'bin')), sb5.err + ' / ' + sb6.err);
+    const bare = path.join(sbx, 'stage-bare');
+    fs.mkdirSync(bare, { recursive: true });
+    fs.writeFileSync(path.join(bare, 'chatq-overlay.exe'), peOf(0x8664));
+    stgWarn.length = 0;
+    const sb7 = stage('bare-ci', { CHATQ_OVERLAY_EXE: path.join(bare, 'chatq-overlay.exe'), CHATQ_REQUIRE_BIN: '1' });
+    const sb8 = stage('bare-local', { CHATQ_OVERLAY_EXE: path.join(bare, 'chatq-overlay.exe') });
+    check('build: no licence notices beside the exe fail CI\'s build; a local one warns and stages the exe alone',
+        /THIRD-PARTY-NOTICES/.test(sb7.err || '') && !sb8.err && fs.existsSync(path.join(sb8.r, 'chatq-overlay.exe')) &&
+        !fs.existsSync(path.join(sb8.r, 'THIRD-PARTY-NOTICES.html')) && stgWarn.length === 1 && /cargo about/.test(stgWarn[0]), sb7.err + ' / ' + stgWarn.join(' | '));
+    check('package: .vscodeignore keeps payload/, the exe inside it', !fs.readFileSync(path.join(__dirname, '..', 'extension', '.vscodeignore'), 'utf8').split(/\r?\n/).map(s => s.trim()).some(p => /^(payload|payload\/\*\*|\*\*\/\*\.exe|\*\.exe|\*\*\/\*\.html|\*\.html)$/.test(p)));
     // the watch panel: its half in watch.js, which the package must carry -
     // vsce packs every file .vscodeignore does not name - and what VS Code
     // reads of package.json to offer it and bring it back after a reload

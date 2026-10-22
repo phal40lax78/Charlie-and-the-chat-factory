@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.11.1 — The Rust panel ships
+
+- **The VS Code extension carries the native panel.** Its package holds
+  `chatq-overlay.exe` - built and checked by CI from the tagged source -
+  with its licence notices, `THIRD-PARTY-NOTICES.html`, beside it. On
+  Windows, setup puts both in
+  `bin/<version>/x86_64-pc-windows-msvc/` beside the script, before the
+  scripts, so the new loader finds its panel there. A file it
+  cannot write - held by an antivirus, or the exe running - is logged
+  and left, and the scripts still land. Other versions' `bin/<x.y.z>`
+  folders are removed after; one in use stays until the next update.
+  A Mac or Linux copies no exe.
+- **The native panel is the default.** Without `"panel"` in
+  `data/config.json`, the overlay draws the Rust panel where its exe is
+  there, and the WPF panel where it is not - every zip and git install,
+  which have no `bin/`, quietly. `charlie -Panel ps` keeps the WPF panel
+  for good; an update leaves that choice alone.
+- **A native panel that fails falls back to WPF.** An exe that will not
+  start - blocked by an antivirus or AppLocker - or a panel that exits 3
+  times in 10 minutes blows the panel's fuse for this version
+  (`data/native/panel-fuse.json`): the WPF panel starts in its place,
+  `data/logs/overlay.log` says why, and its tray says so once. The next
+  version tries native again, as does `charlie -Panel native`, which
+  clears the fuse and restarts a running overlay onto it.
+- **The exe is unsigned,** so an antivirus may look twice at it; signing
+  waits on a code-signing certificate account (DEFERRED.md). One that
+  blocks it blows the fuse above, and the WPF panel draws.
+- **`chatq-overlay --version`** prints its version, which is now the
+  script's: the build fails if they differ, and so does the extension's
+  package when the exe in it is another version's.
+- **Releases attach the panel on its own:** the exe and its notices
+  zipped, with `SHA256SUMS`, beside the VSIX.
+
 ## 0.11.0 — The overlay in Rust, if you want it
 
 - **`charlie -Panel native` draws the panel in Rust.** On Windows,

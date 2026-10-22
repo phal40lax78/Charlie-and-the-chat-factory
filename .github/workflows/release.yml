@@ -35,7 +35,7 @@ jobs:
           test -n "$v"
           mkdir out
           (cd dist/chatqd-x86_64-pc-windows-msvc && zip -X "../../out/chatqd-$v-x86_64-pc-windows-msvc.zip" chatqd.exe)
-          (cd dist/chatq-overlay-x86_64-pc-windows-msvc && zip -X "../../out/chatq-overlay-$v-x86_64-pc-windows-msvc.zip" chatq-overlay.exe)
+          (cd dist/chatq-overlay-x86_64-pc-windows-msvc && zip -X "../../out/chatq-overlay-$v-x86_64-pc-windows-msvc.zip" chatq-overlay.exe THIRD-PARTY-NOTICES.html)
           cp dist/chatqd-universal-apple-darwin/chatqd-universal-apple-darwin.tar.gz "out/chatqd-$v-universal-apple-darwin.tar.gz"
           tar -tvzf "out/chatqd-$v-universal-apple-darwin.tar.gz" | grep -q '^-rwxr-xr-x .* chatqd$'
           (cd out && sha256sum -- * > SHA256SUMS && cat SHA256SUMS)

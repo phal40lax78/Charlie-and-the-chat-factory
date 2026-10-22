@@ -1009,11 +1009,12 @@ Check '-Compact on is compact rows, -ChipDelay kept, both said; out of range ref
     $cmDefault -and -not $cm1.prompts -and $cm1.chipDelayMs -eq 250 -and ($cmSaid -join '|') -like '*compact rows: on*' -and ($cmSaid -join '|') -like '*open chip: after a 250 ms rest*' -and
     -not $cm2.prompts -and $cm2.chipDelayMs -eq 250 -and $cmdsC -match ' reload\n' -and $cm3.prompts -and $cm3.chipDelayMs -eq 600) "$($cm1.prompts) $($cm1.chipDelayMs) / $($cm2.prompts) $($cm2.chipDelayMs) / $($cm3.prompts) $($cm3.chipDelayMs) / $($cmSaid -join '|')"
 Set-ChatOverlayConfig @{ prompts = $true; chipDelayMs = 400 }
-# the panel's engine: the WPF one unless -Panel native, kept and said; native
+# the panel's engine: native unless -Panel ps, kept and said; native
 # with no chatq-overlay.exe staged says the WPF one stays; a running overlay
 # is restarted onto a new one, and only told to reload when it is the same -
 # or native with none staged, which would come back as the WPF one it is
 $pnDefault = (Get-ChatOverlayConfig).panel
+$pnChosen0 = (Get-ChatOverlayConfig).panelChosen
 $cmdsN = Get-OvToldCommands { charlie -Panel native }
 Set-ChatOverlayConfig @{ panel = 'ps' }
 $pnSaid = @(charlie -Panel native 6>&1 | ForEach-Object { "$_" })
@@ -1023,12 +1024,41 @@ $cmdsP2 = Get-OvToldCommands { charlie -Panel ps }
 Set-ChatOverlayConfig @{ panel = 'rust' }
 $pnJunk = (Get-ChatOverlayConfig).panel
 Set-ChatOverlayConfig @{ panel = 'ps' }
-Check '-Panel native kept and said, none staged said too; a running overlay restarted onto another panel, told to reload for the same or for native with none staged; ps unless set, a panel it does not know ps' (
-    $pnDefault -eq 'ps' -and $pn1 -eq 'native' -and ($pnSaid -join '|') -like '*panel: native, chatq-overlay.exe*' -and
+Check '-Panel native kept and said, none staged said too; a running overlay restarted onto another panel, told to reload for the same or for native with none staged; native unless set, a panel it does not know native, ps set kept ps' (
+    $pnDefault -eq 'native' -and $pnChosen0 -eq $false -and $pn1 -eq 'native' -and ($pnSaid -join '|') -like '*panel: native, chatq-overlay.exe*' -and
     ($pnSaid -join '|') -like '*no chatq-overlay.exe under bin\*\x86_64-pc-windows-msvc beside the script - the WPF panel until one is there*' -and
     $cmdsP -match ' restart\n' -and $cmdsP -notmatch ' reload\n' -and $cmdsP2 -match ' reload\n' -and $cmdsP2 -notmatch ' restart\n' -and
     $cmdsN -match ' reload\n' -and $cmdsN -notmatch ' restart\n' -and
-    $pnJunk -eq 'ps' -and (Get-ChatOverlayConfig).panel -eq 'ps') "$pnDefault $pn1 $pnJunk / $($pnSaid -join '|') / $($cmdsN -replace "`n", ' | ') / $($cmdsP -replace "`n", ' | ') / $($cmdsP2 -replace "`n", ' | ')"
+    $pnJunk -eq 'native' -and (Get-ChatOverlayConfig).panel -eq 'ps' -and (Get-ChatOverlayConfig).panelChosen) "$pnDefault $pn1 $pnJunk / $($pnSaid -join '|') / $($cmdsN -replace "`n", ' | ') / $($cmdsP -replace "`n", ' | ') / $($cmdsP2 -replace "`n", ' | ')"
+# -Panel native with the panel's fuse blown: the fuse cleared, said, and a
+# running overlay restarted onto the native panel though native was set
+# already; again, with no fuse, only told to reload. An exe staged in a
+# folder of the test's own.
+$pnKeep = @{ Root = $script:ChatRoot; Fuse = Read-TestFile (Get-ChatqNativeFile 'panel-fuse.json') }
+$pnRoot = Join-Path $script:ChatqData 'panel-fuse-root'
+try {
+    $script:ChatRoot = $pnRoot
+    $pnExe = [System.IO.Path]::Combine($pnRoot, 'bin', (Get-ChatOverlayPanelVersion), 'x86_64-pc-windows-msvc', 'chatq-overlay.exe')
+    New-Item -ItemType Directory -Force -Path ([System.IO.Path]::GetDirectoryName($pnExe)) | Out-Null
+    [System.IO.File]::WriteAllBytes($pnExe, [byte[]]@())
+    Set-ChatOverlayConfig @{ panel = 'native' }
+    Set-ChatOverlayPanelFuse 'test'
+    $pnBlown = [bool](Get-ChatOverlayPanelFuse)
+    $pnFuseSaid = @(charlie -Panel native 6>&1 | ForEach-Object { "$_" })
+    Set-ChatOverlayPanelFuse 'test'
+    $cmdsF = Get-OvToldCommands { charlie -Panel native }
+    $pnCleared = -not (Get-ChatOverlayPanelFuse)
+    $cmdsF2 = Get-OvToldCommands { charlie -Panel native }
+}
+finally {
+    $script:ChatRoot = $pnKeep.Root
+    Restore-TestFile (Get-ChatqNativeFile 'panel-fuse.json') $pnKeep.Fuse
+    Remove-Item -LiteralPath $pnRoot -Recurse -Force -EA SilentlyContinue
+    Set-ChatOverlayConfig @{ panel = 'ps' }
+}
+Check '-Panel native with the fuse blown: cleared and said; a running overlay restarted onto the native panel; again, no fuse, only a reload' (
+    $pnBlown -and $pnCleared -and ($pnFuseSaid -join '|') -like '*the native panel''s fuse is cleared - it is tried again*' -and
+    $cmdsF -match ' restart\n' -and $cmdsF -notmatch ' reload\n' -and $cmdsF2 -match ' reload\n' -and $cmdsF2 -notmatch ' restart\n') "$pnBlown $pnCleared / $($pnFuseSaid -join '|') / $($cmdsF -replace "`n", ' | ') / $($cmdsF2 -replace "`n", ' | ')"
 $script:ChatOverlaySpawn = { $true }
 
 # the pure parts

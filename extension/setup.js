@@ -1,5 +1,6 @@
 // The terminal half. This package carries the PowerShell scripts - payload/,
-// which build.js fills - and puts them in the tool folder, where data/ lives:
+// which build.js fills - and, on Windows, the native panel's exe
+// (copyBin), and puts them in the tool folder, where data/ lives:
 // never into a git checkout, never over a copy it cannot read the version of
 // or a newer one, never into a folder of someone else's, one window at a
 // time. Then it asks, once, before adding the line that loads them to a
@@ -193,13 +194,109 @@ function put(from, to) {
     }
 }
 
-// Every part first, then the loader, as install.ps1 does: stopped half-way,
-// the old loader still loads whole, or names the part it cannot find.
-function copyPayload(payload, folder) {
+// a folder under bin/ that is a version - x.y.z - or one a prune got part
+// way through (pruneBin)
+const VERSION_DIR = /^\d+\.\d+\.\d+(\.prune)?$/;
+
+// The native panel's exe and its licence notices - payload/bin/<version>/
+// x86_64-pc-windows-msvc/, which build.js stages - into the tool folder's
+// bin/, before the scripts: the loader, last, is what moves a launch onto
+// the new version's folder (Get-ChatOverlayPanelExe), and by then the exe
+// is there. Windows only: the exe is Windows', and a Mac or Linux has no
+// use for it. Each file best-effort: one that cannot be written - held by
+// an antivirus, or the same version's exe running - is logged and left,
+// and the scripts still land; a panel with no exe is the WPF one. The
+// files that failed, by their path under bin/.
+// Deferred: DEFERRED.md "Signing chatq-overlay.exe"
+function copyBin(payload, folder, log, platform) {
+    const from = path.join(payload, 'bin');
+    if (platform !== 'win32' || !fs.existsSync(from)) return [];
+    const failed = [];
+    const walk = (rel) => {
+        for (const e of fs.readdirSync(path.join(from, rel), { withFileTypes: true })) {
+            const r = path.join(rel, e.name);
+            if (e.isDirectory()) { walk(r); continue; }
+            try {
+                fs.mkdirSync(path.join(folder, 'bin', rel), { recursive: true });
+                module.exports._put(path.join(from, r), path.join(folder, 'bin', r));
+            } catch (err) {
+                failed.push(r);
+                log('setup: could not put bin\\' + r + ' - left as it was: ' + (err && err.message));
+            }
+        }
+    };
+    try { walk(''); } catch (err) { failed.push(''); log('setup: could not read the package\'s bin: ' + (err && err.message)); }
+    return failed;
+}
+
+// The first exe under dir that cannot be opened for writing - Windows
+// refuses that (EBUSY, a sharing violation) while the exe runs, its image
+// mapped - by its path under dir; '' when none is. One that cannot be read
+// for any other reason counts as in use too: kept is the safe side.
+function exeInUse(dir) {
+    const walk = (rel) => {
+        for (const e of fs.readdirSync(path.join(dir, rel), { withFileTypes: true })) {
+            const r = path.join(rel, e.name);
+            if (e.isDirectory()) { const u = walk(r); if (u) return u; continue; }
+            if (!/\.exe$/i.test(e.name)) continue;
+            try { module.exports._openForWrite(path.join(dir, r)); }
+            catch (err) { if (!err || err.code !== 'ENOENT') return r + ' (' + (err && err.message) + ')'; }
+        }
+        return '';
+    };
+    return walk('');
+}
+
+// Other versions' bin/<x.y.z> folders, once the new loader is in. One with
+// an exe running (exeInUse) is skipped whole, never renamed: Windows lets a
+// folder holding a running exe be renamed - only the delete fails - so a
+// rename would pull the path from under a running panel or chatqd, and its
+// host's next start of it would fail. It stays for the next update to take.
+// The rest are renamed aside, then deleted; one renamed whose delete still
+// fails is renamed back. Only names that are a version, never keep's;
+// anything else in bin/ - a build of your own - stays. Best-effort
+// throughout: nothing here throws.
+function pruneBin(folder, keep, log) {
+    const bin = path.join(folder, 'bin');
+    let names;
+    try { names = fs.readdirSync(bin); } catch (e) { return; }
+    for (const n of names) {
+        if (!VERSION_DIR.test(n) || n === keep) continue;
+        const was = path.join(bin, n);
+        const aside = n.endsWith('.prune') ? was : was + '.prune';
+        let busy;
+        try { busy = exeInUse(was); } catch (e) { busy = '(' + (e && e.message) + ')'; }
+        if (busy) { log('setup: kept bin\\' + n + ', in use: ' + busy); continue; }
+        try { if (aside !== was) module.exports._renameDir(was, aside); }
+        catch (e) { log('setup: kept bin\\' + n + ', in use: ' + (e && e.message)); continue; }
+        try {
+            module.exports._rmDir(aside);
+            log('setup: removed bin\\' + n);
+        } catch (e) {
+            let back = '';
+            if (aside !== was) {
+                try { module.exports._renameDir(aside, was); back = ', put back'; }
+                catch (e2) { back = ', left as bin\\' + path.basename(aside) + ': ' + (e2 && e2.message); }
+            }
+            log('setup: kept bin\\' + n + ', in use: ' + (e && e.message) + back);
+        }
+    }
+}
+
+// The panel's exe first (copyBin), then every part, then the loader, as
+// install.ps1 does: stopped half-way, the old loader still loads whole, or
+// names the part it cannot find. Then other versions' bin/ folders go.
+// platform: process.platform, unless the tests say otherwise.
+function copyPayload(payload, folder, log, platform) {
+    log = log || (() => { });
+    platform = platform || process.platform;
+    copyBin(payload, folder, log, platform);
     const from = path.join(payload, 'src'), to = path.join(folder, 'src');
     fs.mkdirSync(to, { recursive: true });
     for (const n of fs.readdirSync(from).filter(n => /\.ps1$/i.test(n)).sort()) put(path.join(from, n), path.join(to, n));
     put(path.join(payload, LOADER), path.join(folder, LOADER));
+    const bundled = readVersionFile(path.join(payload, LOADER));
+    if (platform === 'win32' && bundled) pruneBin(folder, bundled, log);
 }
 
 // Windows PowerShell on Windows, where it is; PowerShell 7 wherever it is on
@@ -403,7 +500,7 @@ function copyUnderLock(o) {
         const hasLoader = fs.existsSync(loader);
         const now = decide({ bundled, loader: hasLoader, onDisk: hasLoader ? readVersionFile(loader) : null, git, foreign: false });
         if (now !== action) { log('setup: done meanwhile'); return 'done'; }
-        copyPayload(payload, folder);
+        copyPayload(payload, folder, log);
         log('setup: copied ' + bundled + ' into ' + folder);
         return 'copied';
     } catch (e) { return fail(e); } finally { releaseLock(lock); }
@@ -475,9 +572,12 @@ module.exports = {
     setUp, OLD_ID, LOADER, texts, psQuote, windowsPowerShell, lastSaid, readJson,
     _readVersion: readVersion, _compareVersions: compareVersions, _decide: decide, _needsProbe: needsProbe,
     _shouldAsk: shouldAsk, _takeLock: takeLock, _releaseLock: releaseLock, _readState: readState, _writeState: writeState,
-    _copyPayload: copyPayload, _psArgs: psArgs, _lastBool: lastBool, _blocksProfile: blocksProfile,
+    _copyPayload: copyPayload, _copyBin: copyBin, _pruneBin: pruneBin, _psArgs: psArgs, _lastBool: lastBool, _blocksProfile: blocksProfile,
     _inGitCheckout: inGitCheckout, _isForeign: isForeign,
-    // replaced by the tests, which start no PowerShell
+    // replaced by the tests, which start no PowerShell - and stand in for
+    // an exe Windows holds, which no file of node's own can be
+    _put: put, _renameDir: (a, b) => fs.renameSync(a, b),
+    _openForWrite: (p) => fs.closeSync(fs.openSync(p, 'r+')), _rmDir: (p) => fs.rmSync(p, { recursive: true, force: true }),
     _hosts: hosts, _runPs: runPs, _policyOf: policyOf, _allowScripts: allowScripts, _profileStep: profileStep,
     _saidForeign: false
 };
