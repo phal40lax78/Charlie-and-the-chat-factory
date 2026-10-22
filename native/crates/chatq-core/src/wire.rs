@@ -236,10 +236,11 @@ fn is_ntfy_id(s: &str) -> bool {
 
 /// What [Test-ChatqReplyMessage](src/phone.ps1) reads of
 /// [Get-ChatqReplyConfig](src/phone.ps1)'s answer, and whether
-/// [Get-ChatqPairKey](src/phone.ps1) opened the pairing's key.
+/// [Get-ChatqPairKey](src/phone.ps1) opened the pairing's key. Built by
+/// [ReplyConfig::triage](crate::replyconfig::ReplyConfig::triage).
 pub struct TriageConfig {
-    /// `Topic`: every Handled tag starts with it
-    pub topic: String,
+    /// `Topic`: every Handled tag starts with it. Zeroed on drop
+    pub topic: Zeroizing<String>,
     /// `Master`, the phone's key D as read, whatever its length; only 32
     /// bytes is paired. Zeroed on drop.
     pub master: Option<Zeroizing<Vec<u8>>>,
@@ -249,6 +250,19 @@ pub struct TriageConfig {
     /// [Get-ChatqPairKey](src/phone.ps1) gave the pairing's private key, a
     /// text that is not empty
     pub pair_key: bool,
+}
+
+/// The topic and the phone's key left out.
+impl std::fmt::Debug for TriageConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use crate::replyconfig::redacted;
+        f.debug_struct("TriageConfig")
+            .field("topic", &redacted(!self.topic.is_empty()))
+            .field("master", &redacted(self.master.is_some()))
+            .field("pair_id", &self.pair_id)
+            .field("pair_key", &self.pair_key)
+            .finish()
+    }
 }
 
 /// What a message is once it passed triage: which step goes on with it.
@@ -673,7 +687,7 @@ mod tests {
 
     fn paired() -> TriageConfig {
         TriageConfig {
-            topic: "t".into(),
+            topic: Zeroizing::new("t".into()),
             master: Some(Zeroizing::new(d1())),
             pair_id: None,
             pair_key: false,

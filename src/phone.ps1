@@ -1565,11 +1565,13 @@ function Invoke-ChatqReplyPoll {
     is for a poll inside a run, where every push it answers with gets one
     short try. A message whose record could not be saved ends the poll
     there: nothing after it moves polling on, so it comes back next time.
+    -Text is the body chatqd fetched (native/SPEC.md 3.7), taken where the
+    fetch's would be, so the rest runs as it would on a fetch of its own.
     Returns how many messages were acted on, an [int] and nothing else: the
     watcher redraws the board only when that is not 0. Never throws - a
     phone reply is not worth a watcher.
     #>
-    param([switch]$Force, [int]$TimeoutSec = 8, [int]$MinSeconds = 15, [int]$MaxMessages = 10, [switch]$Quick)
+    param([switch]$Force, [int]$TimeoutSec = 8, [int]$MinSeconds = 15, [int]$MaxMessages = 10, [switch]$Quick, [string]$Text)
     Set-StrictMode -Off
     try {
         # the cheap checks first: this is asked every few seconds
@@ -1582,7 +1584,7 @@ function Invoke-ChatqReplyPoll {
         $st = Get-ChatqReplyState
         $since = if ($st.lastId) { $st.lastId } elseif ($st.since) { [string]$st.since } else { [string]([DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 60) }
         $url = "$($rc.Server)/$($rc.Topic)/json?poll=1&since=$([Uri]::EscapeDataString($since))"
-        $feed = Get-ChatqReplyFeed $url $TimeoutSec
+        $feed = if ($PSBoundParameters.ContainsKey('Text')) { [pscustomobject]@{ Text = $Text; Error = $null } } else { Get-ChatqReplyFeed $url $TimeoutSec }
         if ($feed.Error) {
             # a laptop offline for an hour would otherwise log 240 lines
             if (-not $script:ChatqReplyErrAt -or ((Get-Date) - $script:ChatqReplyErrAt).TotalMinutes -ge 10) {

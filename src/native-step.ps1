@@ -53,7 +53,12 @@ if (& $stepHas 'alive') {
     $script:ChatqAliveSeam = if ($stepAlive) { { param($Entry) $true } } else { { param($Entry) $false } }
     $script:ChatqAskAliveSeam = if ($stepAlive) { { param($Req) $true } } else { { param($Req) $false } }
 }
-if (& $stepHas 'ntfyBase') { $script:ChatqReplyServer = [string]$stepSeams.ntfyBase }
+# ntfyBase only for a loopback host, as chatqd takes it (native/SPEC.md 6.5),
+# so no test points a step's fetch at the network
+if (& $stepHas 'ntfyBase') {
+    $stepBase = $null
+    if ([Uri]::TryCreate([string]$stepSeams.ntfyBase, 'Absolute', [ref]$stepBase) -and $stepBase.IsLoopback) { $script:ChatqReplyServer = [string]$stepSeams.ntfyBase }
+}
 if (& $stepHas 'handoverOff') { $script:ChatHandoverOff = [bool]$stepSeams.handoverOff }
 
 # The parent test: chatqd is alive while a process has its pid and its start

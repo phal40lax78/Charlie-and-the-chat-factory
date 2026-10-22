@@ -1059,7 +1059,8 @@ pub fn use_state<T>(
 /// above 0, else 12. Text that 5.1 and 7 read as numbers their own ways
 /// ("0x10", "1kb", "1e400") is [Error::PsOnly].
 pub fn reply_hours(cfg: &Value) -> Result<f64, Error> {
-    let rp = get(Some(cfg), "reply");
+    // `$rp = if (...) { $Cfg.reply }`: a list of one is its item
+    let rp = crate::gates::unroll(get(Some(cfg), "reply"));
     if !truthy(rp) {
         return Ok(12.0);
     }

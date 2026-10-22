@@ -6,6 +6,7 @@
 #![windows_subsystem = "windows"]
 #![deny(unsafe_op_in_unsafe_fn)]
 
+mod http;
 mod seams;
 mod sys;
 mod vector;

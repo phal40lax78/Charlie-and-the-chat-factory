@@ -40,8 +40,8 @@ without it.
 chatqd's own `cargo test` holds its loop to the PowerShell one with no
 build. [timers_replay.rs](native/crates/chatqd/src/watch/timers_replay.rs)
 runs `timers.json`'s cases through the real loop on a stand-in host,
-under both flavours - a case whose reply window opens up to its handoff,
-the rest of it M3's - and answers the reply window per call for the
+under both flavours - a case whose reply window opens replayed whole,
+listening and its poll a stub - and answers the reply window per call for the
 respawn after `queue empty`. On the same stand-in host, a `block`,
 `held` or `ask-landed` step that fails counts as tried and is not run
 again the next pass; a pick that fails logs its line, fails its job only
@@ -58,7 +58,9 @@ tests hold it and [jobs::files_with_id](native/crates/chatq-core/src/jobs.rs)
 to Find-ChatqJob `-Exact`). `tests/watch.rs` runs the built chatqd in
 throwaway roots against a stub `native-step.ps1` under a real
 PowerShell, which keeps each step's In and Out: a pick, a pick that does
-not answer, a handoff with `W`, and `stop` and `-Now` on a real wait,
+not answer, an open reply window listened to against a loopback fake
+ntfy, a panic's handoff, a refused connect's handoff (the
+`connectForbidden` seam), and `stop` and `-Now` on a real wait,
 each through steps, and the stub's own reading of chatqd's start
 (`startOff`) within 1 s of the `-WatcherStart` it was given.
 
@@ -260,7 +262,10 @@ permit section takes the bridge's pwsh leg from a `pwsh` on the PATH alone.
   4 points of that machine's 31.6 GB at its peak, about 1.3 GB: start one
   under 90%.
 
-What it covers (at 0.10.20, 1891 checks in `run-tests.ps1` under 5.1
+What it covers (at 0.10.21, 1911 checks in `run-tests.ps1` under 5.1
+and 1912 under pwsh 7, 479 in `extension-check.js`, 261, 138 and 39,
+and 211 in `cargo test` - chatq-core's 133 unit tests, its 21 vector
+runners and `rx_sync.rs`, and chatqd's 56; at 0.10.20, 1891 checks in `run-tests.ps1` under 5.1
 and 1892 under pwsh 7, 479 in `extension-check.js`, 261, 138 and 39,
 and 178 in `cargo test`; at 0.10.19, 1887 checks in `run-tests.ps1` under 5.1,
 479 in `extension-check.js`, 261, 138 and 39, and 178 in `cargo test`; at 0.10.16, 1895 checks in `run-tests.ps1` under 5.1
@@ -320,7 +325,7 @@ pwsh 7, 279, 250, 78 and 35):
 | codex app-server client | `tests/sections/codex-appserver.ps1`, [Invoke-ChatqCodexRpc](src/codex-appserver.ps1) against the fake's app-server mode (`FAKE_APPSERVER`), no real codex: a rate-limit read whole, with exactly `initialize`, `initialized` and the read sent; `initialize` naming chatq and asking for the experimental API only with `-Experimental`; notifications passed by, and a request of the server's own - with the very id the read went out with - refused (-32601) and never taken for the reply; started on the given `CODEX_HOME` with `OPENAI_API_KEY` emptied, and gone once the replies are in; `thread/list` sent with `useStateDbOnly` true whether false or nothing was passed ([Get-ChatqCodexRpcParams](src/codex-appserver.ps1), a hashtable or an object, every other method's params left alone); several requests in one start, each reply to its own, one answered with an error `$null` and the rest standing; a method the server does not know said in its words; a refused `initialize` ending it there; a request that hangs timed out with the server and its parent gone, in well under 20 s; stdin held open until every reply is in - the fake reads stdin beside its work and exits the moment it ends, dropping a request still held by `FAKE_SLEEP`, as 0.159.2 does (S-A4), so a 2 s reply is taken by [Invoke-ChatqCodexRpc](src/codex-appserver.ps1) and lost to a session whose stdin is closed once the request is out; a home that is not there said, nothing started and no folder made; a codex that will not start, and one that ends before it answers, no data and never a throw |
 | codex usage, asked live | `tests/sections/codex-appserver.ps1`, against the fake's app-server mode and `tests/fixtures/usage/codex-ratelimits.json` (the real 0.159.2 answer of S-A4, account id scrubbed): [ConvertFrom-ChatqCodexRateLimitsReply](src/queue.ps1) reading a free plan's one 43200-minute window as `month` / `monthly`, its plan, `ordinaryUsageAllowed` and no credits; windows with no length named by place (primary 5h, secondary week), the per-limit `codex` bucket standing in for an empty `rateLimits`, credits read, no window no answer; a rollout's 43200-minute window `month` too; the overlay's fetch ([Start-ChatqCodexUsageFetch](src/overlay-data.ps1) / [Complete-ChatqCodexUsageFetch](src/overlay-data.ps1)) returning nothing on a pass that waits for nothing, then the month and plan, exactly `initialize`, `initialized` and the read sent, the server gone, and the same answer after; an error said and not quiet, a home that is not there quiet; a codex older than the floor never started - said by [Invoke-ChatqCodexRpc](src/codex-appserver.ps1), quiet to the overlay - and one upgraded in place since, its old version still cached, read again by `--version` and started; `-CodexUsage off` with an ask out ([Update-ChatOverlayUsage](src/overlay-data.ps1)) dropping the ask and ending its server; the probe ([Get-ChatqCodexLiveLimit](src/queue.ps1) inside [Invoke-ChatqProbe](src/queue.ps1)): a full 5 h window ahead limited until its reset with `NoTurn` and no `exec` run, a limit the server says is reached limited with no reset, room left and credits past a full window both left to the `exec` turn |
 | jobs | queueing records cwd and mode; the prompt file is named after the chat; done / limited / needs-input / skipped `-Continue`, judged by the chat's last turn with no mode or model read ([Invoke-ChatqJob](src/watcher.ps1)) / busy chat deferred / idle live chat run, with a reload request for that window; 529 mid-run; an interrupted run failed and not resent; `chatqrm -Force` with no watcher |
-| native watcher launch | `tests/sections/native.ps1`, after `watcher.ps1`: [Get-ChatqWatcherEngine](src/watcher.ps1) on every case of `native/vectors/launch.json`, which [launch::decide](native/crates/chatq-core/src/launch.rs) runs too (`cargo test`, `crates/chatq-core/tests/launch_vectors.rs`) - one table for both launchers; with no chatqd the launch is the PowerShell one it was, no config, JSON or loader read and nothing written; the native launch's arguments and its culture block; each strike - a launch never acked, a crash, a failed preflight, a start that throws - makes that same launch the PowerShell watcher's; a process older than the scripts on disk decides for the loader's version on disk ([Get-ChatqLoaderVersion](src/watcher.ps1)) - its `bin/` folder, its strikes, its preflight - and with no loader to read starts the PowerShell watcher; a relative `CHATQ_CHATQD` is the binary in the process's folder, as chatqd resolves it, not the one at PowerShell's location; the third in a day blows the fuse, one `failed` alert through the real [Send-ChatqAlert](src/alerts.ps1), and none where no binary is there to run; with a build of `native/Cargo.toml`'s version at `native/target/release/chatqd.exe` (else skipped, said in yellow: none, or one a version bump left behind): preflight through the real exe (pass, exit 2, will not start), a real native launch in a throwaway root that acks and leaves, and its respawn finding PowerShell's `verified.json` pass and starting the arguments PowerShell did; with that build, the checks no vector file can hold, asked of the real chatqd (`tests/vectors/live.ps1`): a secret PowerShell protected with DPAPI, and this PC's own zone around its DST changes; and with that build, the twin run (native/SPEC.md 6.5) - each case a fixture of its own beside a copy of the tool, run once under the PowerShell watcher in a child and once under chatqd, compared with stamps, clock times, pids and the root masked: **the twin run, through pick** - a Claude job and a Codex job done and a run failed, the logs line for line, the job files, `state.json`, `queue.md`, nothing captured, and every sample of a running job's `runnerPid`, `state.json` and `watcher.pid` the watcher's own; **`-Now` mid-wait** ends the wait, clears the job's `deferUntil`, says woken and seen, and the job runs, alike under both; **a pick step killed mid-run** - chatqd logs `helper step exited -1` and fails the job as [Complete-ChatqJob](src/watcher.ps1) and the loop's failed alert do on a twin of the file the step left: the file, its `jobs.log` line and its alert alike; **a pick that opens the reply window** - chatqd hands over `W` and its caches in `handoff.json`, its PowerShell watcher is recorded, and that watcher, started on the files, carries on from them, the phone's answer sent mid-pick lands, and both files go; and **the twin run toasts, pushes and starts nothing** outside its captures. The two chatqd-only cases are chatqd's alone because the PowerShell watcher has no counterpart (SPEC 8, "M2 contract notes") |
+| native watcher launch | `tests/sections/native.ps1`, after `watcher.ps1`: [Get-ChatqWatcherEngine](src/watcher.ps1) on every case of `native/vectors/launch.json`, which [launch::decide](native/crates/chatq-core/src/launch.rs) runs too (`cargo test`, `crates/chatq-core/tests/launch_vectors.rs`) - one table for both launchers; with no chatqd the launch is the PowerShell one it was, no config, JSON or loader read and nothing written; the native launch's arguments and its culture block; each strike - a launch never acked, a crash, a failed preflight, a start that throws - makes that same launch the PowerShell watcher's; a process older than the scripts on disk decides for the loader's version on disk ([Get-ChatqLoaderVersion](src/watcher.ps1)) - its `bin/` folder, its strikes, its preflight - and with no loader to read starts the PowerShell watcher; a relative `CHATQ_CHATQD` is the binary in the process's folder, as chatqd resolves it, not the one at PowerShell's location; the third in a day blows the fuse, one `failed` alert through the real [Send-ChatqAlert](src/alerts.ps1), and none where no binary is there to run; with a build of `native/Cargo.toml`'s version at `native/target/release/chatqd.exe` (else skipped, said in yellow: none, or one a version bump left behind): preflight through the real exe (pass, exit 2, will not start), a real native launch in a throwaway root that acks and leaves, and its respawn finding PowerShell's `verified.json` pass and starting the arguments PowerShell did; with that build, the checks no vector file can hold, asked of the real chatqd (`tests/vectors/live.ps1`): a secret PowerShell protected with DPAPI, and this PC's own zone around its DST changes; and with that build, the twin run (native/SPEC.md 6.5) - each case a fixture of its own beside a copy of the tool, run once under the PowerShell watcher in a child and once under chatqd, compared with stamps, clock times, pids and the root masked: **the twin run, through pick** - a Claude job and a Codex job done and a run failed, the logs line for line, the job files, `state.json`, `queue.md`, nothing captured, and every sample of a running job's `runnerPid`, `state.json` and `watcher.pid` the watcher's own; **`-Now` mid-wait** ends the wait, clears the job's `deferUntil`, says woken and seen, and the job runs, alike under both; **a pick step killed mid-run** - chatqd logs `helper step exited -1` and fails the job as [Complete-ChatqJob](src/watcher.ps1) and the loop's failed alert do on a twin of the file the step left: the file, its `jobs.log` line and its alert alike; **a pick that opens the reply window** - chatqd listens on, the phone's answer sent mid-pick lands through its own `ask-landed` step, and nothing is handed over (no `handoff.json`, no PowerShell watcher started); **the twin run, listening** - one batch of junk and three refusals (expired, too old, used 20 times) from a loopback fake ntfy, alike under the PS watcher and chatqd in `watcher.log`, `replies.log`, `state.json`, `queue.md` and the Join pushes, chatqd fetching and stepping and the PS watcher only reading its seam; a pairing pending with the window open listened to by both, and with it shut by neither; **a step's `ntfyBase`** taken only for a loopback host, as chatqd takes it; and **the twin run toasts, pushes and starts nothing** outside its captures. The two chatqd-only cases are chatqd's alone because the PowerShell watcher has no counterpart (SPEC 8, "M2 contract notes") |
 | native contract vectors | `tests/sections/native.ps1`, last: `tests/vectors.ps1`, in a process of its own so its clock, zone and culture stand-ins end with it, makes every `native/vectors/*.json` again from the PowerShell functions it pins and compares it with the file, one check per file - the same files `cargo test`'s `*_vectors.rs` runners hold chatq-core to (native/SPEC.md 6.1); among them what people type into `config.json` - comments, trailing commas, quotes, bare names - as each PowerShell reads it (`json-compat.json`'s `config` cases), and the reply and auto-continue gates on such a config, which pwsh 7 reads and 5.1 takes for empty (`gates.json`) |
 | native helper steps | `tests/sections/native-step.ps1`, after `native.ps1` (native/SPEC.md 3.6): **a pick that throws** - the same `#<seq> error:` line, the job failed and its failed alert while `ChatqAlertJob` names it, through the loop or [Invoke-ChatqPick](src/watcher.ps1); **the pid seams** - the job's and the run-state's `runnerPid`, `state.json`'s `pid` and `startedAt`, and the `permit.log` and `ask.log` tags name them, and unset, `$PID` again ([Get-ChatqRunnerPid](src/queue.ps1)); [Repair-ChatqInterrupted](src/watcher.ps1) skips a job whose `runnerPid` is the seam's, and repairs it once the seam is gone; **a step whose parent is gone** ends itself at the next check of a run, and one whose parent lives runs it to the end ([Invoke-ChatqProcess](src/queue.ps1)); **the audit** - every `$script:` variable, `$W` key and `$PID` a step's ops reach is in exactly one class: native W, shared, carry, recomputed, seam or constant, and chatqd's identity or the step's own; **the carry** - the audit's carry rows are what `carry.clixml` holds, and each, with `$W.CutCache`, comes back its own type all the way down; **`w` through JSON and back** ([ConvertTo-ChatqStepW](src/watcher.ps1), [ConvertFrom-ChatqStepW](src/watcher.ps1)) - each entry's type, the answers in order and a scalar `Answers` as itself, keys by case, dates Kind Local, a stamp-shaped string text; **a helper step run as chatqd runs one** - the `stray` op on a copy of the tool, exit 0, Out ok with `removed` 0 and a `w` that decodes - and an In naming an op not known answered `bad step input`, nothing run; **each op through [Invoke-ChatqNativeStep](src/watcher.ps1)** - `w` in and out in the schema, the same but for what the op changed, the result its row names, a pick of a job removed or done doing nothing, and `job-write` ending a queued job as chatqd's pick failure, never a done one; **held, soon and the failed alert as real steps** under the harness's seams - each ok, its toast and its Join push captured, nothing sent; **a step whose loader throws** exits 3 and writes no Out; **parent death** - a step whose parent's start is off ends before its op, and one whose parent exits mid-pick ends at the next check with no Out, the job running behind a dead `runnerPid`, the CLI left running, and a repair says interrupted; **a handoff from chatqd** - [Restore-ChatqWatchState](src/watcher.ps1) takes `handoff.json`'s watch state and caches and the carry whole, each value its type again, then both files go; one not its own, of another `v`, not JSON or half good is ignored whole for `state.json`'s restore as before, and no file, or a cold start, is as before |
 | job core | a job `chatq` makes has the fields it always had, in their order, plus `sendNow` and `effortAtQueue`; a row by its id, exact and in any case, never fuzzy; `New-ChatqJob` says why and leaves nothing behind for an empty prompt, a Copilot chat, a continue with files, a chat whose transcript is gone, a file gone before it was copied; first, send now, a model, a not-before time, a staged file moved in and a pasted image; two jobs for one chat inside a second get ids of their own, and a job is found by its whole id even when the other's id starts with it (a prefix match found both and returned neither, and the watcher spun on the first); the first one put first sorts ahead; files go only to a job still waiting; `Remove-ChatqJob` takes the prompt and files; a job's number held from the moment its slot is taken - a job made while a slot has no `.json` yet, as a `chatq` editor tab still open, gets the next number, a prompt file and an id of its own (it had taken the same number, and written over the tab's file), the folder that held the id gone once the `.json` is saved with no file in it, and a slot given up gives its number back; `data/job-numbers.lock` held by another process for longer than its 3 s, and the job is made all the same; two processes making 12 jobs each for one chat at once - no number, id or prompt file taken twice, none lost; a run's log read as entries, a tail read reading fewer, and read while a run holds it open to write (`File.ReadLines` threw there); `Stop-ChatqJobRun` leaves a job that already ended as it ended; `Request-ChatqWatcher` never waits - the wake to a running watcher, a start when none runs, 'waiting' then 'failed' after 10 s, one that was running when poked and has gone since started again once; the console's Remove on a console with no window, timed by the clicks' own times: a click asks, 150 ms on is a double-click and no answer, `Update-ChatConsoleAsks` at 5.1 s puts it back, a click at 7 s asks again and one at 8.5 s removes; `Get-ChatConsoleRemoveStep` over -1, 150, 399, 400, 5000, 7000, 7001 and `Get-ChatConsoleSince` across the tick count's wrap; `Remove-ChatqJob` refuses a job running on disk though the caller's copy says queued, and logs no removal; `Set-ChatqJobRunAs` changes a waiting Claude job's mode and model, `''` giving the chat's own back, and refuses one already sent and a model holding a space |
@@ -2828,6 +2833,10 @@ live overlay, read-only.
      opens the window: `chatqd.log` shows the handoff, the PowerShell
      watcher logs `carrying on` and listens, and does not probe a lane
      or send a heads-up chatqd had just done.
+
+  From 0.10.21 the window no longer hands over (M3: chatqd listens
+  itself), so step 6 cannot be run as written: what replaces it is
+  S59. Steps 1-5 stand as they are.
 - **S58, the overlay in Slint, by hand** (native/SPEC.md 8, "The M9
   spike"): run 2026-10-20, recorded under
   [The overlay in Slint, the M9 spike (S58)](#the-overlay-in-slint-the-m9-spike-s58).
@@ -2851,6 +2860,47 @@ live overlay, read-only.
      The gate set its value (`gate::slide`), never by a pointer.
   6. **Beside WPF.** The tiles, clock, gauge and card text against the
      live panel by eye: the same wraps and elisions.
+- **S59, the native watcher listens on this PC** (native/SPEC.md, M3;
+  CHANGELOG, 0.10.21) - step 1 run 2026-10-22, recorded under
+  [The native watcher listens, the hour (S59)](#the-native-watcher-listens-the-hour-s59);
+  steps 2-8 not yet run. The twin run and `tests/watch.rs`
+  listen only to a loopback fake ntfy in throwaway roots; ntfy.sh, a
+  real phone and this PC's memory while listening are only seen here.
+  1. **An hour first** (the M3 plan's step 5b): `tests/m3/run-5b.ps1`
+     in a work clone with a release chatqd built and no
+     `data/config.json`, from a normal console - the release chatqd in
+     a throwaway root in the script's own `data/`, a random topic and
+     key, a junk post every 10 minutes. Its summary: private MB 60 s after the 10th poll (the
+     gate, native/SPEC.md 3.3: 8 MB, stretch 6, at most 12), the mean
+     and maximum, every junk post refused as `format`, no step but
+     `board`, no false `no ack`, the topic in no log. On this PC the
+     firewall blocks outbound connections by default, so the exe needs
+     an outbound allow rule for the hour, removed after; without one
+     chatqd hands the window to the PowerShell watcher (the spawn seam
+     records it) and the hour measures nothing.
+  2. **A day.** A build of 0.10.21 staged as S55's step 1 says, and
+     `chatnotify -Listen always`: chatqd's private bytes hourly, the day's
+     maximum and median beside the gate figure; `watcher.log` says
+     `listening for phone replies all the time` and no `handing over`
+     is in `chatqd.log`. On this PC that needs an outbound allow rule
+     for the staged `chatqd.exe` (step 8 is the day without one).
+  3. **From the phone.** A board request, a requeue and an ask answer:
+     each acted on through one `reply` step (`step <n> reply exited`).
+  4. **Junk.** About 20 plain posts to the topic: `replies.log` logs
+     them throttled, once per stage per 5 minutes with `(and N more`,
+     and no step starts for them.
+  5. **Pairing.** Pair again from the setup window (this rewrites
+     `reply.key`): the phone's pairing lands through a `reply` step.
+  6. **Listening checklist.** S44's listening items on the phone.
+  7. **`no ack`.** `chatqd.log` over the day holds no false `no ack`
+     (DEFERRED.md, "Two launches of a native watcher at once").
+  8. **The firewall.** With no allow rule for the staged `chatqd.exe`:
+     `watcher.log` says `the firewall blocks chatqd, so the PowerShell
+     watcher listens for phone replies instead …`, `chatqd.log` says
+     `handing over to the PowerShell watcher: Windows does not let
+     chatqd connect (a firewall?)`, the PowerShell watcher logs
+     `carrying on` and listens, and a reply from the phone lands; the
+     next chatqd started, once that watcher has left, tries again.
 
 ### Permissions from the phone (S35)
 
@@ -3211,6 +3261,33 @@ spike, its log `data/spike.log` beside the exe:
 - **The scale** changed by the user in Settings, 100% to 125%, 150% and
   back.
 
+### The native watcher listens, the hour (S59)
+
+**S59 step 1, run 2026-10-22 06:58-07:58** on this PC by the main
+session: [tests/m3/run-5b.ps1](tests/m3/run-5b.ps1) with a release
+chatqd built from the 0.10.21 code before its firewall handoff (a
+change that only adds the refused-connect path), in a
+work clone with no `data/config.json`, listening on ntfy.sh to a
+throwaway topic with a junk post every 10 minutes. One question, for
+native/SPEC.md 3.3's M3 row: does chatqd listening stay at or under
+8 MB private 60 s after its 10th poll?
+- **The gate:** 2.58 MB private, against 8 (stretch 6). Go.
+- **Over the hour:** 60 minute samples, 2.77 MB on average and 3.49 at
+  most, the highs single-minute spikes over a baseline of 2.6 to 2.8 MB
+  that held from start to end.
+- **Junk:** 6 posts, all 6 refused.
+- **Polls:** 0 failed; 0 false `no ack` in `chatqd.log`; the topic in no
+  log.
+- **The stop:** clean, exit 0, `last.json` `stopped`.
+- **The firewall:** this PC's Windows Firewall blocks outbound
+  connections by default (`DefaultOutboundAction` `Block`) and lets
+  PowerShell out: a new `chatqd.exe` got WSAEACCES (10013) on every
+  connect, read then as `poll failed: the connection failed`. The hour
+  ran with a temporary outbound allow rule for that one exe, removed
+  after. From this finding chatqd hands such a window to the PowerShell
+  watcher (CHANGELOG, 0.10.21; native/SPEC.md 8, "Deliberate
+  differences"), S59 step 8 on the day.
+
 ## Tier 2: other hardware
 
 ### Still to check on other hardware
@@ -3265,6 +3342,10 @@ spike, its log `data/spike.log` beside the exe:
   notification's click, "taken" for a second instance's chord, Hangul
   and simplified Chinese drawn - and its memory after an hour, by the
   same gate. The spike's Win32 module has no Mac counterpart yet.
+- **S59 on a Mac** (CHANGELOG, 0.10.21; DEFERRED.md, "M3 on macOS"),
+  after S57 has run there: chatqd listening under `pwsh`, through the
+  system proxy as macOS gives it once chatqd reads it, and S44's
+  listening checklist. Only linted here: no Mac.
 - **macOS and Linux** are untested; the Unix branches are written but have never
   run.
 

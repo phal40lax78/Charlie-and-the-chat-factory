@@ -193,7 +193,7 @@ Remove-Item -LiteralPath $nsKid, "$nsKidOut.alive", "$nsKidOut.dead" -Force -EA 
 # before a step carries it wrong. The carry rows are what carry.clixml holds.
 # Deferred: DEFERRED.md "The parent-name audit"
 $nsAuEntries = 'Repair-ChatqInterrupted', 'Invoke-ChatqPick', 'Update-ChatqBlock', 'Invoke-ChatqWatchAutoScan', 'Clear-ChatqStrayFiles', 'Send-ChatqUsageSoon',
-'Send-ChatqHeldSummary', 'Test-ChatqAskLanded', 'Send-ChatqAlert', 'Save-ChatqJob', 'Invoke-ChatqNativeStep'
+'Send-ChatqHeldSummary', 'Test-ChatqAskLanded', 'Send-ChatqAlert', 'Save-ChatqJob', 'Invoke-ChatqReplyPoll', 'Write-ChatqBoard', 'Invoke-ChatqNativeStep'
 $nsAuW = @{
     native = 'blocked', 'lastAllowed', 'probeFails', 'scannedAt', 'outage', 'authAlerted', 'current', 'next', 'handoff', 'listening', 'startedAt'
     carry  = 'CutCache'
@@ -603,10 +603,17 @@ $nsOpCases = @(
     @{ Op = 'job-write'; Name = 'job-write, removed'; Args = [ordered]@{ jobId = $nsOpGone.id; set = [ordered]@{ deferUntil = $null } }; Calls = ''; Result = 'saved=False'; Quiet = $true }
     @{ Op = 'job-write'; Name = 'job-write, complete'; Args = (& $nsOpEndArgs $nsOpEnd.id); Calls = ''; Result = 'saved=True' }
     @{ Op = 'job-write'; Name = 'job-write, complete, done'; Args = (& $nsOpEndArgs $nsOpDone.id); Calls = ''; Result = 'saved=False'; Quiet = $true }
+    # chatqd's batch as -Text, or the step's own fetch; -Force either way
+    @{ Op = 'reply'; Args = [ordered]@{ text = "{`"id`":`"m1`"}`n{`"id`":`"m2`"}"; maxMessages = 10; quick = $false; timeoutSec = 8 }
+        Calls = "reply True|True|{`"id`":`"m1`"}`n{`"id`":`"m2`"}|10|False|8"; Result = 'acted=2' }
+    @{ Op = 'reply'; Name = 'reply, fetch'; Args = [ordered]@{ fetch = $true; maxMessages = 10; quick = $false; timeoutSec = 8 }; Calls = 'reply True|False||10|False|8'; Result = 'acted=2' }
+    # counts left out: the poll's own defaults (the stand-in's, copied), not 0
+    @{ Op = 'reply'; Name = 'reply, no counts given'; Args = [ordered]@{ fetch = $true }; Calls = 'reply True|False||10|False|8'; Result = 'acted=2' }
+    @{ Op = 'board'; Args = [ordered]@{}; Calls = 'board'; Result = '' }
 )
 $nsFnWas = @{}
 foreach ($k in 'Repair-ChatqInterrupted', 'Confirm-ChatqAllowed', 'Invoke-ChatqJob', 'Update-ChatqBlock', 'Invoke-ChatqWatchAutoScan', 'Clear-ChatqStrayFiles', 'Send-ChatqUsageSoon',
-    'Send-ChatqHeldSummary', 'Test-ChatqAskLanded', 'Send-ChatqAlert') { $nsFnWas[$k] = (Get-Item "function:$k").ScriptBlock }
+    'Send-ChatqHeldSummary', 'Test-ChatqAskLanded', 'Send-ChatqAlert', 'Invoke-ChatqReplyPoll', 'Write-ChatqBoard') { $nsFnWas[$k] = (Get-Item "function:$k").ScriptBlock }
 $script:nsCalls = [System.Collections.Generic.List[string]]::new()
 $nsOpBad = @()
 $nsLogLen = { @(foreach ($n in 'watcher.log', 'jobs.log') { $p = Join-Path $script:ChatqLogDir $n; if (Test-Path -LiteralPath $p) { (Get-Item -LiteralPath $p).Length } else { 0 } }) -join ',' }
@@ -624,6 +631,11 @@ try {
         param([string]$Kind, [string]$Text, [int]$Priority, [switch]$Loud, $Job, [switch]$Quick, [switch]$NoReply, [string]$UsageKind)
         $script:nsCalls.Add("alert $Kind|$Text|$Priority|$Loud|$($Job.id)|$Quick|$NoReply|$UsageKind|$script:ChatqAlertJob"); $true
     }
+    Set-Item function:Invoke-ChatqReplyPoll {
+        param([switch]$Force, [int]$TimeoutSec = 8, [int]$MinSeconds = 15, [int]$MaxMessages = 10, [switch]$Quick, [string]$Text)
+        $script:nsCalls.Add("reply $Force|$($PSBoundParameters.ContainsKey('Text'))|$Text|$MaxMessages|$Quick|$TimeoutSec"); 2
+    }
+    Set-Item function:Write-ChatqBoard { $script:nsCalls.Add('board') }
     foreach ($c in $nsOpCases) {
         $name = if ($c.Name) { $c.Name } else { $c.Op }
         $script:nsCalls.Clear()

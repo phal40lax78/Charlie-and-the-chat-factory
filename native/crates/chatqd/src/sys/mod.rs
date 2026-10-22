@@ -7,7 +7,9 @@ mod os;
 #[path = "win.rs"]
 mod os;
 
-pub use os::{Awake, alive, is_chatqd, launch, own_start_ticks, peek_message, spawn_waited};
+pub use os::{
+    Awake, alive, is_chatqd, launch, own_start_ticks, peek_message, spawn_waited, system_proxy,
+};
 
 /// The process's own environment, set before any thread exists (SPEC 4.1).
 pub fn set_env(name: &str, value: Option<&str>) {

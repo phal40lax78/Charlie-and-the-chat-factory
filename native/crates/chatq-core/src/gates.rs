@@ -49,7 +49,7 @@ fn date_in(v: Option<&Value>, fl: Flavour, zone: Zone) -> Option<Instant> {
 /// A value as PowerShell passes it on out of a function, a scriptblock or an
 /// `if`: a list is unrolled, so a list of one is its element and an empty
 /// list is $null. [Read-ChatqJson](src/queue.ps1) does it to a whole file.
-fn unroll(v: Option<&Value>) -> Option<&Value> {
+pub(crate) fn unroll(v: Option<&Value>) -> Option<&Value> {
     match v {
         Some(Value::Array(a)) if a.len() <= 1 => a.first(),
         v => v,
@@ -213,9 +213,25 @@ pub fn held_summary_due_in(
     now: Instant,
     zone: Zone,
 ) -> bool {
+    held_summary_due_quiet(p, cfg, tried_at, now_sys, now, now, zone)
+}
+
+/// [held_summary_due_in] with quiet hours judged at `quiet_at`, where
+/// [Get-ChatqNow](src/phone-extras.ps1) would be: the `clock` seam's time
+/// (SPEC 6.5), while the retry wait goes by the real clock, as
+/// [Send-ChatqHeldSummary](src/phone-extras.ps1)'s `Get-Date` does.
+pub fn held_summary_due_quiet(
+    p: &Paths,
+    cfg: &Value,
+    tried_at: Option<Instant>,
+    now_sys: SystemTime,
+    now: Instant,
+    quiet_at: Instant,
+    zone: Zone,
+) -> bool {
     held_waiting(p, now_sys)
         && !tried_at.is_some_and(|t| now - t < TimeDelta::minutes(HELD_RETRY_MINUTES))
-        && !quiet_hours(cfg).is_some_and(|q| quiet_now(q, now, zone))
+        && !quiet_hours(cfg).is_some_and(|q| quiet_now(q, quiet_at, zone))
 }
 
 /// [Get-ChatqAutoContinue](src/queue.ps1): only the word "on" is on.

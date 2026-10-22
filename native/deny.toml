@@ -12,6 +12,10 @@ targets = ["x86_64-pc-windows-msvc", "aarch64-apple-darwin", "x86_64-apple-darwi
 allow = ["MIT", "Apache-2.0", "BSD-3-Clause", "Unicode-3.0", "Zlib"]
 # chatq-core and chatqd themselves (publish = false) carry none
 private = { ignore = true }
+# Mozilla's root list as data, pulled in by ureq's native-tls feature and
+# never read: http.rs sets the platform roots (SChannel's own store). An
+# exception for this one crate, so no other crate gets the licence.
+exceptions = [{ crate = "webpki-root-certs", allow = ["CDLA-Permissive-2.0"] }]
 
 [bans]
 wildcards = "deny"

@@ -1,9 +1,15 @@
 //! Windows: CreateProcessW, SetThreadExecutionState, the process probes.
 
 use super::Kind;
+use crate::http::{loopback, url_host};
 use std::io;
 use std::time::Duration;
-use windows::Win32::Foundation::{CloseHandle, FILETIME, HANDLE, WAIT_OBJECT_0};
+use windows::Win32::Foundation::{
+    CloseHandle, FILETIME, GlobalFree, HANDLE, HGLOBAL, WAIT_OBJECT_0,
+};
+use windows::Win32::Networking::WinHttp::{
+    WINHTTP_CURRENT_USER_IE_PROXY_CONFIG, WinHttpGetIEProxyConfigForCurrentUser,
+};
 use windows::Win32::System::Power::{ES_CONTINUOUS, ES_SYSTEM_REQUIRED, SetThreadExecutionState};
 use windows::Win32::System::Threading::{
     CREATE_NEW_CONSOLE, CREATE_SUSPENDED, CreateProcessW, GetCurrentProcess, GetExitCodeProcess,
@@ -205,6 +211,166 @@ impl Waited {
 impl Drop for Waited {
     fn drop(&mut self) {
         close(self.0);
+    }
+}
+
+/// Takes a WinHTTP-allocated string: its text, and the string GlobalFree'd.
+fn take_wstr(p: PWSTR) -> Option<String> {
+    if p.is_null() {
+        return None;
+    }
+    // SAFETY: p is a NUL-terminated string WinHTTP GlobalAlloc'd for its
+    // caller, read once and freed once here.
+    let s = unsafe { p.to_string() }.ok();
+    // SAFETY: as above; p is not used after this.
+    let _ = unsafe { GlobalFree(Some(HGLOBAL(p.0.cast()))) };
+    s.filter(|s| !s.trim().is_empty())
+}
+
+/// The system proxy for `url` as .NET's default `WebRequest` proxy finds it:
+/// the user's IE settings, then auto-detect (WPAD) or the PAC script they
+/// name, then the manual proxy and its bypass list. Only a proxy's first
+/// entry is used; DIRECT, a failure or nothing set is None. The answer is
+/// `http://host:port`. `url` is the origin alone, `scheme://authority/`
+/// ([crate::http::get]), so no path or topic reaches a PAC script.
+pub fn system_proxy(url: &str) -> Option<String> {
+    // .NET's WebProxy.IsBypassed: a loopback host never goes through a
+    // proxy, found by WPAD, a PAC or by hand
+    let host = url_host(url);
+    if loopback(host) {
+        return None;
+    }
+    let mut ie = WINHTTP_CURRENT_USER_IE_PROXY_CONFIG::default();
+    // SAFETY: ie is a valid out pointer; its strings are taken below.
+    let have = unsafe { WinHttpGetIEProxyConfigForCurrentUser(&mut ie) }.is_ok();
+    let (auto_detect, pac, manual, bypass) = if have {
+        (
+            ie.fAutoDetect.as_bool(),
+            take_wstr(ie.lpszAutoConfigUrl),
+            take_wstr(ie.lpszProxy),
+            take_wstr(ie.lpszProxyBypass),
+        )
+    } else {
+        (true, None, None, None)
+    };
+    // nothing found there: the manual settings, as .NET falls back
+    if (auto_detect || pac.is_some())
+        && let Some(found) = auto_proxy(url, auto_detect, pac.as_deref())
+    {
+        return found;
+    }
+    let manual = manual?;
+    if bypassed(host, bypass.as_deref().unwrap_or("")) {
+        return None;
+    }
+    pick_proxy(&manual, url.starts_with("https:")).map(|p| with_scheme(&p))
+}
+
+/// WPAD or the named PAC script through WinHttpGetProxyForUrl: Some(None)
+/// for DIRECT, Some(Some(proxy)) for its first proxy, None when it found
+/// nothing.
+fn auto_proxy(url: &str, detect: bool, pac: Option<&str>) -> Option<Option<String>> {
+    use windows::Win32::Networking::WinHttp::*;
+    // SAFETY: plain arguments; the session is closed below.
+    let session = unsafe {
+        WinHttpOpen(
+            PCWSTR::null(),
+            WINHTTP_ACCESS_TYPE_NO_PROXY,
+            PCWSTR::null(),
+            PCWSTR::null(),
+            0,
+        )
+    };
+    if session.is_null() {
+        return None;
+    }
+    // The PAC download's resolve, connect, send and receive: 7 s at most
+    // together, inside the poll's 8 s. The DHCP and DNS discovery of WPAD
+    // itself is not bound by these.
+    // SAFETY: session is the open handle from WinHttpOpen.
+    let _ = unsafe { WinHttpSetTimeouts(session, 1000, 2000, 2000, 2000) };
+    let url_w = HSTRING::from(url);
+    let pac_w = pac.map(HSTRING::from);
+    let mut opts = WINHTTP_AUTOPROXY_OPTIONS {
+        fAutoLogonIfChallenged: true.into(),
+        ..Default::default()
+    };
+    if detect {
+        opts.dwFlags |= WINHTTP_AUTOPROXY_AUTO_DETECT;
+        opts.dwAutoDetectFlags = WINHTTP_AUTO_DETECT_TYPE_DHCP | WINHTTP_AUTO_DETECT_TYPE_DNS_A;
+    }
+    if let Some(p) = &pac_w {
+        opts.dwFlags |= WINHTTP_AUTOPROXY_CONFIG_URL;
+        opts.lpszAutoConfigUrl = PCWSTR(p.as_ptr());
+    }
+    let mut info = WINHTTP_PROXY_INFO::default();
+    // SAFETY: session is open; url_w, pac_w and opts outlive the call; info's
+    // strings are taken below.
+    let ok = unsafe { WinHttpGetProxyForUrl(session, &url_w, &mut opts, &mut info) }.is_ok();
+    // SAFETY: session came from WinHttpOpen and is closed once.
+    let _ = unsafe { WinHttpCloseHandle(session) };
+    if !ok {
+        return None;
+    }
+    let proxy = take_wstr(info.lpszProxy);
+    let _ = take_wstr(info.lpszProxyBypass);
+    if info.dwAccessType != WINHTTP_ACCESS_TYPE_NAMED_PROXY {
+        return Some(None);
+    }
+    Some(
+        proxy
+            .and_then(|p| pick_proxy(&p, url.starts_with("https:")))
+            .map(|p| with_scheme(&p)),
+    )
+}
+
+/// The first usable entry of a WinHTTP proxy list (`;` or space apart):
+/// `https=` for an https URL, else a bare `host:port`.
+fn pick_proxy(list: &str, https: bool) -> Option<String> {
+    let entries = || {
+        list.split([';', ' ', '\t'])
+            .map(str::trim)
+            .filter(|e| !e.is_empty())
+    };
+    let want = if https { "https=" } else { "http=" };
+    entries()
+        .find_map(|e| e.strip_prefix(want).map(str::to_string))
+        .or_else(|| entries().find(|e| !e.contains('=')).map(str::to_string))
+        .filter(|p| !p.eq_ignore_ascii_case("DIRECT"))
+}
+
+fn with_scheme(p: &str) -> String {
+    if p.contains("://") {
+        p.to_string()
+    } else {
+        format!("http://{p}")
+    }
+}
+
+/// The IE bypass list: `<local>` for a dotless host, else `*` wildcards,
+/// case-blind.
+fn bypassed(host: &str, list: &str) -> bool {
+    list.split([';', ' ', '\t'])
+        .map(str::trim)
+        .filter(|e| !e.is_empty())
+        .any(|e| {
+            if e.eq_ignore_ascii_case("<local>") {
+                !host.contains('.')
+            } else {
+                wildcard(&e.to_ascii_lowercase(), &host.to_ascii_lowercase())
+            }
+        })
+}
+
+fn wildcard(pat: &str, s: &str) -> bool {
+    match pat.split_once('*') {
+        None => pat == s,
+        Some((head, rest)) => {
+            s.starts_with(head) && {
+                let s = &s[head.len()..];
+                (0..=s.len()).any(|i| s.is_char_boundary(i) && wildcard(rest, &s[i..]))
+            }
+        }
     }
 }
 

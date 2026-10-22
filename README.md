@@ -875,8 +875,16 @@ started in the PowerShell watcher's place, and runs the queue itself: it
 waits, wakes and writes the board on its own, and starts a short-lived
 PowerShell for each piece of work - a run, a limit scan, an alert - that
 does that one thing and exits. While the phone's reply window is open it
-hands over to a PowerShell watcher, which listens, with what it knows in
-`data/native/handoff.json`. A build that fails three times in a day is set
+listens itself: it reads the reply topic, logs and passes over what is
+not a reply, and starts a PowerShell only for a batch that holds one. It
+hands over to a PowerShell watcher, with what it knows in
+`data/native/handoff.json`, only if it panics, or if a firewall lets
+PowerShell out but not `chatqd.exe` (Windows Firewall with outbound
+connections blocked by default): then `watcher.log` says `the firewall
+blocks chatqd, so the PowerShell watcher listens for phone replies
+instead`, replies work as before, and the next chatqd to start tries
+again. An outbound allow rule for `chatqd.exe` lets it listen itself and
+saves that watcher's memory. A build that fails three times in a day is set
 aside for that version, with one `failed` alert, until
 `data/native/fuse.json` is deleted. `"watcher": "ps"` in
 `data/config.json` keeps the PowerShell watcher; `CHATQ_ENGINE` set to

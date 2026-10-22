@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.10.21 — The native watcher listens
+
+- **An open reply window is listened to natively - for a developer, for
+  now.** Where a build is there (see 0.10.15), chatqd no longer hands the
+  phone's reply window to a PowerShell watcher: it reads the reply topic
+  itself, at the same 6/15/20 s, logs what is not a reply as the
+  PowerShell watcher does, saves where polling got to, logs `listening
+  for phone replies …` and `replies closed`, and writes the board while
+  it listens (native/SPEC.md 7, M3). That saves the watcher's PowerShell
+  process for as long as it only listens: on the day measured, about 166
+  MB private while it ran, 98 averaged over the day (native/SPEC.md 8,
+  "Memory, measured"). Listening for an hour on ntfy.sh, chatqd itself
+  held 2.58 MB private 60 s after its 10th poll, 2.77 on average and 3.49
+  at most, against its 8 MB limit (TESTING.md S59; a build from just
+  before the firewall handoff below).
+- **A reply still goes to PowerShell, a step at a time.** A batch that
+  holds a message that checks out - a reply, a board request, a pairing -
+  goes whole to one `reply` step, which acts on it as the PowerShell
+  watcher would; chatqd never moves `lastId` past it itself. A step that
+  fails holds the next one back a minute, doubling to 10, with one line in
+  `watcher.log` at most every 10 minutes; the batch is fetched again.
+- **chatqd hands over when it panics, or when a firewall stops it.** The
+  handoff in `data/native/handoff.json` is left for those two. A firewall
+  that blocks outbound programs by default, with a rule that lets
+  PowerShell out, refuses a new `chatqd.exe` at once: then chatqd says so in `watcher.log` - `the firewall blocks chatqd, so
+  the PowerShell watcher listens for phone replies instead …` - and hands
+  the open window to a PowerShell watcher, as 0.10.20 did, so phone
+  replies keep working with nothing to set up. The next chatqd to start
+  tries again; letting `chatqd.exe` out through the firewall saves that
+  watcher's memory.
+- **No Authorization header on the poll,** as the PowerShell watcher
+  sends none; the system proxy as Windows gives it, the environment's
+  proxy variables unread (native/SPEC.md 8).
+- **`reply.hours` read as PowerShell reads it, list or not.** The native
+  watcher's reading of `reply.hours` in `data/config.json` - how long an
+  alert can be answered, and so what `data/replies.json` keeps when it is
+  saved - now takes a `reply` written as a one-item list as its item, as
+  PowerShell does; it fell back to 12 hours there, where PowerShell kept
+  the hours you set.
+
 ## 0.10.20 — A reload ask is a quiet note
 
 - **A reload ask is a quiet note at the panel's foot, gone in 30 s.**

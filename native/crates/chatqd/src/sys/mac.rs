@@ -139,3 +139,9 @@ pub fn own_start_ticks() -> io::Result<i64> {
     }
     Ok(UNIX_TICKS + info.pbi_start_tvsec as i64 * 10_000_000 + info.pbi_start_tvusec as i64 * 10)
 }
+
+/// The system proxy: not read on macOS yet, so the poll goes direct.
+// Deferred: DEFERRED.md "M3 on macOS"
+pub fn system_proxy(_url: &str) -> Option<String> {
+    None
+}

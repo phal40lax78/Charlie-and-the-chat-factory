@@ -154,6 +154,11 @@ impl Root {
     /// A run whose steps go to the stub under a real PowerShell, answering
     /// as `plan` says; None, with a note, where there is no PowerShell.
     fn stepping(&self, plan: Value) -> Option<Command> {
+        self.stepping_with(plan, json!({"spawn": true, "capture": self.capture()}))
+    }
+
+    /// [Root::stepping] with seams `s`.
+    fn stepping_with(&self, plan: Value, s: Value) -> Option<Command> {
         let Some(ps) = real_ps() else {
             eprintln!("no PowerShell here: the case runs no step and checks nothing");
             return None;
@@ -162,7 +167,6 @@ impl Root {
         fs::create_dir_all(src.parent().unwrap()).unwrap();
         fs::write(&src, STUB).unwrap();
         fs::write(self.dir.join("stub.json"), plan.to_string()).unwrap();
-        let s = json!({"spawn": true, "capture": self.capture()});
         Some(self.cmd_ps(&s, &ps))
     }
 
@@ -515,53 +519,137 @@ fn a_pick_that_does_not_answer_fails_its_job() {
     assert!(r.spawns().is_empty());
 }
 
+/// A fake ntfy on loopback, answering every poll with `body`; the request
+/// lines it saw.
+fn fake_ntfy(body: String) -> (String, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+    use std::io::{Read, Write};
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", l.local_addr().unwrap());
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let log = seen.clone();
+    std::thread::spawn(move || {
+        for mut c in l.incoming().flatten() {
+            let (mut head, mut b) = (Vec::new(), [0u8; 1]);
+            while !head.ends_with(b"\r\n\r\n") && c.read(&mut b).is_ok_and(|n| n == 1) {
+                head.push(b[0]);
+            }
+            let head = String::from_utf8_lossy(&head).into_owned();
+            log.lock()
+                .unwrap()
+                .push(head.lines().next().unwrap_or("").to_string());
+            let r = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = c.write_all(r.as_bytes());
+        }
+    });
+    (base, seen)
+}
+
+/// chatqd's own lines, in order, with its steps a stub. The same window
+/// against the PS watcher, line for line, is the harness's twin run
+/// (tests/sections/native.ps1, "the twin run, listening").
 #[test]
-fn an_open_reply_window_hands_over_with_w() {
-    let r = root("handoff");
-    let soon = stamp_utc(chrono::Utc::now() + chrono::Duration::minutes(30));
-    let cfg = json!({"reply": {"on": true, "topic": "t", "key": "k"}});
+fn an_open_reply_window_is_listened_to_natively() {
+    const TOPIC: &str = "chatqtest-sekrit-topic";
+    let r = root("listening");
+    let message = json!({"id": "aaa1", "event": "message", "topic": TOPIC, "message": "hello"});
+    let (base, seen) = fake_ntfy(message.to_string());
+    let s = json!({"spawn": true, "capture": r.capture(), "ntfyBase": base});
+    let Some(mut c) = r.stepping_with(json!({}), s) else {
+        return;
+    };
+    // no server named: the ntfyBase seam stands in for ntfy.sh
+    let cfg = json!({"reply": {"on": true,
+        "topic": {"value": TOPIC, "protected": false},
+        "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}}});
     fs::write(r.p.config(), cfg.to_string()).unwrap();
+    let soon = stamp_utc(chrono::Utc::now() + chrono::Duration::minutes(30));
     fs::write(r.p.replies(), json!({"openUntil": soon}).to_string()).unwrap();
-    fs::write(r.p.wake(), "now\r\n").unwrap();
-    assert_eq!(r.run(&mut r.cmd()), 0);
+    let mut w = r.start(&mut c);
+    r.until(60, || {
+        r.lines()
+            .iter()
+            .any(|l| l.starts_with("listening for phone replies until "))
+    });
+    fs::write(r.p.stop(), "").unwrap();
+    assert_eq!(w.exit_within(30), 0);
     let lines = r.lines();
-    assert_eq!(lines.len(), 2, "started and stopped only: {lines:?}");
-    assert_eq!(
-        fs::read_to_string(r.p.wake()).unwrap(),
-        "now\r\n",
-        "left for the PS watcher"
+    assert_eq!(lines.len(), 5, "{lines:?}");
+    assert!(
+        lines[1].starts_with("phone: reply aaa1 refused - format: "),
+        "{lines:?}"
     );
+    assert!(lines[2].starts_with("listening for phone replies until "));
+    assert_eq!(lines[3], "stop requested");
+    assert!(lines[4].ends_with(" stopped"));
+    assert_eq!(r.json(&r.p.replies())["lastId"], "aaa1");
+    let polls = seen.lock().unwrap().clone();
+    assert_eq!(polls.len(), 1, "one poll, then the wait");
+    assert!(polls[0].starts_with(&format!("GET /{TOPIC}/json?poll=1&since=")));
+    let ops = r.ops();
+    assert!(ops.iter().any(|o| o == "board"), "{ops:?}");
+    assert!(!ops.iter().any(|o| o == "reply"), "no candidate: {ops:?}");
+    assert_eq!(r.json(&r.p.state())["handoff"], false);
+    assert_eq!(r.json(&r.p.last())["state"], "stopped");
+    assert!(!r.p.handoff().exists());
+    assert!(r.spawns().is_empty(), "no handoff");
+    let d = r.log("chatqd.log");
+    assert!(
+        d.contains("seam ntfyBase: the default reply server is "),
+        "{d}"
+    );
+    for e in fs::read_dir(r.p.log_dir()).unwrap().flatten() {
+        let text = fs::read_to_string(e.path()).unwrap();
+        assert!(!text.contains(TOPIC), "the topic in {:?}", e.file_name());
+    }
+}
+
+/// A firewall that blocks programs by default refuses chatqd its connect
+/// (WSAEACCES, the `connectForbidden` seam here): the window goes to the PS
+/// watcher with W, as up to 0.10.20, and no step runs. The PS watcher
+/// carrying on is the harness's (tests/sections/native.ps1).
+#[test]
+fn a_connect_the_system_refuses_hands_the_window_over() {
+    const TOPIC: &str = "chatqtest-sekrit-topic";
+    let r = root("forbidden");
+    let cfg = json!({"reply": {"on": true,
+        "topic": {"value": TOPIC, "protected": false},
+        "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}}});
+    fs::write(r.p.config(), cfg.to_string()).unwrap();
+    let soon = stamp_utc(chrono::Utc::now() + chrono::Duration::minutes(30));
+    fs::write(r.p.replies(), json!({"openUntil": soon}).to_string()).unwrap();
+    let s = json!({"spawn": true, "capture": r.capture(), "connectForbidden": true});
+    assert_eq!(r.run(&mut r.cmd_with(&s)), 0);
+    let lines = r.lines();
+    assert_eq!(lines.len(), 3, "{lines:?}");
+    assert!(lines[1].starts_with("the firewall blocks chatqd, so the PowerShell watcher listens"));
     let st = r.json(&r.p.state());
     assert_eq!(st["handoff"], true);
     assert_eq!(r.json(&r.p.last())["state"], "handed-over");
-    assert!(
-        r.log("chatqd.log")
-            .contains("handing over to the PowerShell watcher: the phone reply window is open")
-    );
     let h = r.json(&r.p.handoff());
-    assert_eq!(h["v"], 1);
-    assert_eq!(h["watcherPid"], st["pid"]);
     assert_eq!(h["w"]["handoff"], true);
-    assert!(h["w"]["caches"]["ChatqAskSent"].is_array());
-    let s = r.spawns();
-    assert_eq!(s.len(), 1);
-    assert_eq!(s[0]["engine"], "ps");
-    assert_eq!(s[0]["exe"], PS);
-    let cmd = s[0]["command"].as_str().unwrap();
-    let script = r.p.loader().to_string_lossy().into_owned();
+    let d = r.log("chatqd.log");
+    let why = if cfg!(windows) {
+        "Windows"
+    } else {
+        "the system"
+    };
     assert!(
-        cmd.starts_with(&format!("$env:CHATQ_WATCHER='1'; try {{ . '{script}' }}")),
-        "{cmd}"
+        d.contains(&format!(
+            "handing over to the PowerShell watcher: {why} does not let chatqd connect (a firewall?)"
+        )),
+        "{d}"
     );
-    assert!(cmd.ends_with("; Invoke-ChatqWatchLoop"));
-    let line = format!(
-        "\"{PS}\" -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {}",
-        encode_command(cmd)
-    );
-    assert_eq!(s[0]["cmdline"], line);
-    // spawn::home's variable
-    let home = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
-    assert_eq!(s[0]["cwd"], std::env::var(home).unwrap_or_default());
+    let s = r.spawns();
+    assert_eq!(s.len(), 1, "{s:?}");
+    assert_eq!(s[0]["engine"], "ps");
+    assert!(!d.contains("step 1 "), "no step: {d}");
+    for e in fs::read_dir(r.p.log_dir()).unwrap().flatten() {
+        let text = fs::read_to_string(e.path()).unwrap();
+        assert!(!text.contains(TOPIC), "the topic in {:?}", e.file_name());
+    }
 }
 
 #[test]
@@ -586,9 +674,30 @@ fn a_panic_strikes_runs_the_finally_and_hands_over() {
         "a panic hands W over too (SPEC 4.4)"
     );
     assert!(r.lines().last().unwrap().ends_with(" stopped"));
+    let h = r.json(&r.p.handoff());
+    assert_eq!(h["v"], 1);
+    assert_eq!(h["watcherPid"], last["pid"]);
+    assert_eq!(h["w"]["handoff"], true);
+    assert!(h["w"]["caches"]["ChatqAskSent"].is_array());
     let s = r.spawns();
     assert_eq!(s.len(), 1, "{s:?}");
     assert_eq!(s[0]["engine"], "ps");
+    assert_eq!(s[0]["exe"], PS);
+    let cmd = s[0]["command"].as_str().unwrap();
+    let script = r.p.loader().to_string_lossy().into_owned();
+    assert!(
+        cmd.starts_with(&format!("$env:CHATQ_WATCHER='1'; try {{ . '{script}' }}")),
+        "{cmd}"
+    );
+    assert!(cmd.ends_with("; Invoke-ChatqWatchLoop"));
+    let line = format!(
+        "\"{PS}\" -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {}",
+        encode_command(cmd)
+    );
+    assert_eq!(s[0]["cmdline"], line);
+    // spawn::home's variable
+    let home = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+    assert_eq!(s[0]["cwd"], std::env::var(home).unwrap_or_default());
 }
 
 #[test]

@@ -3,6 +3,7 @@
 mod awake;
 #[path = "loop.rs"]
 mod looping;
+mod reply;
 mod spawn;
 mod step;
 mod wait;

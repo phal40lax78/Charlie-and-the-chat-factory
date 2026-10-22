@@ -3,13 +3,14 @@
 //! its answers. The fake records what PowerShell's stubs recorded, at the
 //! same points: `repair` where the repair is weighed, `held summary`,
 //! `auto` and `stray` where their gates are asked, `soon` at the soon gate,
-//! `block <lane>` and `run #<seq>` at their steps, the keep-awake, state,
-//! board and wait calls, and each watcher.log line. So the answer is the
-//! one chatq-core/tests/timers_vectors.rs gives.
+//! `poll <MinSeconds>` at the reply poll, `block <lane>` and `run #<seq>` at
+//! their steps, the keep-awake, state, board and wait calls (a `board`
+//! step's too), and each watcher.log line. So the answer is the one
+//! chatq-core/tests/timers_vectors.rs gives.
 //!
-//! A case with `openPasses` hands off at its first open pass (M2 listens
-//! through the PS watcher): its passes before that one are checked, and the
-//! handoff. M3 replays the rest.
+//! A case with `openPasses` is replayed whole, the poll a stub as the PS
+//! case has it: this proves the loop's wiring of the poll, not the poll
+//! (watch/reply.rs's tests do).
 //!
 //! The same fake also holds the loop to what no vector pins: the respawn
 //! after `queue empty`, a failed step's recorded attempt, the pick-failure
@@ -58,6 +59,9 @@ struct Fake {
     held: bool,
     /// passes with the reply window open
     open: Vec<i64>,
+    /// passes whose poll acted on something, and the poll's cadence
+    polled: Vec<i64>,
+    poll_seconds: u32,
     /// the respawn case: the window opens from this call on, whatever the pass
     open_from_call: Option<usize>,
     calls: usize,
@@ -90,6 +94,8 @@ impl Fake {
             now: start,
             held: false,
             open: Vec::new(),
+            polled: Vec::new(),
+            poll_seconds: 20,
             open_from_call: None,
             calls: 0,
             strays: 0,
@@ -122,6 +128,10 @@ impl Fake {
         let mut h = Fake::new(fl, start, script);
         h.held = input["held"].as_bool().unwrap_or(false);
         h.open = seconds(input, "openPasses");
+        h.polled = seconds(input, "polledPasses");
+        if let Some(s) = input.get("pollSeconds").and_then(Value::as_u64) {
+            h.poll_seconds = u32::try_from(s).expect("a cadence");
+        }
         h.strays = list(input, "strayFiles").len();
         h.soon_at = input
             .get("soonSeconds")
@@ -256,6 +266,22 @@ impl Host for Fake {
         // as PowerShell prints a bool
         self.rec(format!("reply open: {}", if o { "True" } else { "False" }));
         o
+    }
+    fn poll_seconds(&mut self) -> u32 {
+        self.poll_seconds
+    }
+    /// The stub's record, and 1 on a pass that acted
+    fn poll(&mut self, _w: &mut WatchState, min_seconds: u32) -> u32 {
+        self.rec(format!("poll {min_seconds}"));
+        u32::from(self.polled.contains(&(self.pass as i64)))
+    }
+    /// What Get-ChatqReplyListenText gives the PS case: no window time
+    fn listen_text(&mut self) -> String {
+        "until".into()
+    }
+    /// Write-ChatqBoard's stub, as the board is
+    fn board_step(&mut self, _w: &mut WatchState) {
+        self.rec("board");
     }
     fn repair_due(&mut self) -> bool {
         self.rec("repair");
@@ -422,44 +448,23 @@ fn finish(h: &mut Fake, w: &WatchState, exit: &Exit) -> bool {
 #[test]
 fn timers() {
     let mut r = common::Report::new("timers");
-    let (mut replayed, mut handed) = (0, 0);
+    let (mut replayed, mut open) = (0, 0);
     for case in common::load("timers") {
         for fl in case.flavours() {
             let mut h = Fake::of_case(&case.input, fl);
             let mut w = w_of_case(&case.input, h.start);
             let exit = run(&mut h, &mut w);
-            let want = case.expect(fl);
-            let Some(first) = h.open.iter().min().copied() else {
-                let respawn = finish(&mut h, &w, &exit);
-                if matches!(exit, Exit::Handoff(_) | Exit::Restart) || respawn {
-                    r.fail(&case, fl, "the loop did not end as it does in PS");
-                    continue;
-                }
-                r.check(&case, fl, &h.answer());
-                replayed += 1;
+            let respawn = finish(&mut h, &w, &exit);
+            if matches!(exit, Exit::Handoff(_) | Exit::Restart) || respawn || w.handoff {
+                r.fail(&case, fl, "the loop did not end as it does in PS");
                 continue;
-            };
-            // the passes before the first open one as PS ran them, then a
-            // handoff before that pass does anything
-            let mut passes: Vec<Value> =
-                want["passes"].as_array().unwrap()[..first as usize].to_vec();
-            passes.last_mut().unwrap()["fired"] = json!([]);
-            let expect = json!({"before": want["before"], "passes": passes, "after": []});
-            let why = match &exit {
-                Exit::Handoff(why) => why.as_str(),
-                _ => "",
-            };
-            if why != "the phone reply window is open" || !w.handoff {
-                r.fail(&case, fl, "no handoff at the first open pass");
-            } else if !common::same(&expect, &h.answer()) {
-                r.fail(&case, fl, format!("want {expect}\n    got  {}", h.answer()));
-            } else {
-                r.pass();
-                handed += 1;
             }
+            r.check(&case, fl, &h.answer());
+            replayed += 1;
+            open += usize::from(!h.open.is_empty());
         }
     }
-    eprintln!("timers: {replayed} replayed, {handed} handed off at their first open pass");
+    eprintln!("timers: {replayed} replayed, {open} of them with the reply window open");
     r.finish();
 }
 

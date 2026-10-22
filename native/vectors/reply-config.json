@@ -1,0 +1,1746 @@
+{
+  "about": "The reply block as the poll reads it: Get-ChatqReplyConfig (src/phone.ps1) of data/config.json at the clock - on, wanted, paired, topic and key as opened, master in hex, server, pairId, pairUntil, hours - and Get-ChatqPairKey (src/phone.ps1) of its answer as pairKey. A secret is {value, protected: false}, a protected text that is no DPAPI blob (it never opens), or {seal: <text>}, which each side seals by DPAPI for this user before it writes config.json: the vector holds no blob. A file is read as the tool reads it, so a zoneless stamp is UTC to 5.1 and the zone's wall clock to pwsh 7.",
+  "cases": [
+    {
+      "name": "no reply block",
+      "input": {"zone": "UTC", "utcOffsetMinutes": 0, "now": "2026-10-15T09:00:00.0000000Z", "config": {}},
+      "expect": {
+        "on": false,
+        "wanted": false,
+        "paired": false,
+        "topic": null,
+        "key": null,
+        "master": null,
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "on, a topic and a paired key",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        }
+      },
+      "expect": {
+        "on": true,
+        "wanted": true,
+        "paired": true,
+        "topic": "topic-one",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "switched off",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": false,
+            "topic": {"value": "topic-one", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        }
+      },
+      "expect": {
+        "on": false,
+        "wanted": false,
+        "paired": true,
+        "topic": "topic-one",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "no on",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "topic": {"value": "topic-one", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        }
+      },
+      "expect": {
+        "on": false,
+        "wanted": false,
+        "paired": true,
+        "topic": "topic-one",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "on as the string true",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": "true",
+            "topic": {"value": "topic-one", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        }
+      },
+      "expect": {
+        "on": true,
+        "wanted": true,
+        "paired": true,
+        "topic": "topic-one",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "on as the number 1",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": 1,
+            "topic": {"value": "topic-one", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        }
+      },
+      "expect": {
+        "on": true,
+        "wanted": true,
+        "paired": true,
+        "topic": "topic-one",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "on as yes",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": "yes",
+            "topic": {"value": "topic-one", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        }
+      },
+      "expect": {
+        "on": false,
+        "wanted": false,
+        "paired": true,
+        "topic": "topic-one",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "a reply block as a string",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"reply": "on"}
+      },
+      "expect": {
+        "on": false,
+        "wanted": false,
+        "paired": false,
+        "topic": null,
+        "key": null,
+        "master": null,
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "a reply block as a list of one",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": [
+            {
+              "on": true,
+              "topic": {"value": "topic-one", "protected": false},
+              "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false},
+              "hours": 3
+            }
+          ]
+        }
+      },
+      "expect": {
+        "on": true,
+        "wanted": true,
+        "paired": true,
+        "topic": "topic-one",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 3,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "REPLY and its fields in capitals",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "REPLY": {
+            "ON": true,
+            "TOPIC": {"value": "topic-one", "protected": false},
+            "KEY": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false},
+            "SERVER": "https://up.example/"
+          }
+        }
+      },
+      "expect": {
+        "on": true,
+        "wanted": true,
+        "paired": true,
+        "topic": "topic-one",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "server": "https://up.example",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "a topic and key sealed by DPAPI",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"seal": "topic-sealed"},
+            "key": {"seal": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"}
+          }
+        }
+      },
+      "expect": {
+        "on": true,
+        "wanted": true,
+        "paired": true,
+        "topic": "topic-sealed",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "a key that will not open",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "key": {"value": "414243", "protected": true}
+          }
+        }
+      },
+      "expect": {
+        "on": false,
+        "wanted": true,
+        "paired": false,
+        "topic": "topic-one",
+        "key": null,
+        "master": null,
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "a key that will not open, no DPAPI blob at all",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "key": {"value": "zz", "protected": true}
+          }
+        }
+      },
+      "expect": {
+        "on": false,
+        "wanted": true,
+        "paired": false,
+        "topic": "topic-one",
+        "key": null,
+        "master": null,
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "a key that will not open, a pairing waiting",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "key": {"value": "414243", "protected": true},
+            "pairing": {
+              "id": "pairidabcd",
+              "expires": "2026-10-15T09:05:00.0000000Z",
+              "key": {"seal": "{\"Modulus\":\"AQAB\"}"}
+            }
+          }
+        }
+      },
+      "expect": {
+        "on": true,
+        "wanted": true,
+        "paired": false,
+        "topic": "topic-one",
+        "key": null,
+        "master": null,
+        "server": "https://ntfy.sh",
+        "pairId": "pairidabcd",
+        "pairUntil": "2026-10-15T09:05:00.0000000Z",
+        "hours": 12,
+        "pairKey": "{\"Modulus\":\"AQAB\"}"
+      }
+    },
+    {
+      "name": "a topic that will not open",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "414243", "protected": true},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        }
+      },
+      "expect": {
+        "on": false,
+        "wanted": true,
+        "paired": true,
+        "topic": null,
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "a topic sealed, a key that will not open",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"seal": "topic-sealed"},
+            "key": {"value": "414243", "protected": true}
+          }
+        }
+      },
+      "expect": {
+        "on": false,
+        "wanted": true,
+        "paired": false,
+        "topic": "topic-sealed",
+        "key": null,
+        "master": null,
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "no topic",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        }
+      },
+      "expect": {
+        "on": false,
+        "wanted": true,
+        "paired": true,
+        "topic": null,
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "a topic as a plain string",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": "topic-one",
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        }
+      },
+      "expect": {
+        "on": false,
+        "wanted": true,
+        "paired": true,
+        "topic": null,
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "an empty topic",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        }
+      },
+      "expect": {
+        "on": false,
+        "wanted": true,
+        "paired": true,
+        "topic": null,
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "a topic marked protected by the string false",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": "false"},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        }
+      },
+      "expect": {
+        "on": false,
+        "wanted": true,
+        "paired": true,
+        "topic": null,
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "no key",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {"reply": {"on": true, "topic": {"value": "topic-one", "protected": false}}}
+      },
+      "expect": {
+        "on": false,
+        "wanted": true,
+        "paired": false,
+        "topic": "topic-one",
+        "key": null,
+        "master": null,
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "a key as a plain string",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+          }
+        }
+      },
+      "expect": {
+        "on": false,
+        "wanted": true,
+        "paired": false,
+        "topic": "topic-one",
+        "key": null,
+        "master": null,
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "a key of 31 bytes",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh", "protected": false}
+          }
+        }
+      },
+      "expect": {
+        "on": false,
+        "wanted": true,
+        "paired": false,
+        "topic": "topic-one",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e",
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "a key of 33 bytes",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8A", "protected": false}
+          }
+        }
+      },
+      "expect": {
+        "on": false,
+        "wanted": true,
+        "paired": false,
+        "topic": "topic-one",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8A",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f00",
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "a key of 4n+1 characters",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8AA", "protected": false}
+          }
+        }
+      },
+      "expect": {
+        "on": false,
+        "wanted": true,
+        "paired": false,
+        "topic": "topic-one",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8AA",
+        "master": null,
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "a key whose last bits are not zero",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh9", "protected": false}
+          }
+        }
+      },
+      "expect": {
+        "on": true,
+        "wanted": true,
+        "paired": true,
+        "topic": "topic-one",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh9",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "a key in plain base64",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "key": {"value": "+AECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false}
+          }
+        }
+      },
+      "expect": {
+        "on": false,
+        "wanted": true,
+        "paired": false,
+        "topic": "topic-one",
+        "key": "+AECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "master": null,
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "a key padded with =",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=", "protected": false}
+          }
+        }
+      },
+      "expect": {
+        "on": false,
+        "wanted": true,
+        "paired": false,
+        "topic": "topic-one",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+        "master": null,
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "a key ending in a newline",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\n", "protected": false}
+          }
+        }
+      },
+      "expect": {
+        "on": false,
+        "wanted": true,
+        "paired": false,
+        "topic": "topic-one",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\n",
+        "master": null,
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "a server of its own",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false},
+            "server": "https://ntfy.example:8443"
+          }
+        }
+      },
+      "expect": {
+        "on": true,
+        "wanted": true,
+        "paired": true,
+        "topic": "topic-one",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "server": "https://ntfy.example:8443",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "a server with final slashes",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false},
+            "server": "https://ntfy.example/x///"
+          }
+        }
+      },
+      "expect": {
+        "on": true,
+        "wanted": true,
+        "paired": true,
+        "topic": "topic-one",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "server": "https://ntfy.example/x",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "a server of one slash",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false},
+            "server": "/"
+          }
+        }
+      },
+      "expect": {
+        "on": true,
+        "wanted": true,
+        "paired": true,
+        "topic": "topic-one",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "server": "",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "an empty server",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false},
+            "server": ""
+          }
+        }
+      },
+      "expect": {
+        "on": true,
+        "wanted": true,
+        "paired": true,
+        "topic": "topic-one",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "a server of null",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false},
+            "server": null
+          }
+        }
+      },
+      "expect": {
+        "on": true,
+        "wanted": true,
+        "paired": true,
+        "topic": "topic-one",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "a server as a list of one",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false},
+            "server": ["https://ntfy.example/"]
+          }
+        }
+      },
+      "expect": {
+        "on": true,
+        "wanted": true,
+        "paired": true,
+        "topic": "topic-one",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "server": "https://ntfy.example",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "hours 3",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false},
+            "hours": 3
+          }
+        }
+      },
+      "expect": {
+        "on": true,
+        "wanted": true,
+        "paired": true,
+        "topic": "topic-one",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 3,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "hours 1.5 as a string",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false},
+            "hours": "1.5"
+          }
+        }
+      },
+      "expect": {
+        "on": true,
+        "wanted": true,
+        "paired": true,
+        "topic": "topic-one",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 1.5,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "hours 0 is 12",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false},
+            "hours": 0
+          }
+        }
+      },
+      "expect": {
+        "on": true,
+        "wanted": true,
+        "paired": true,
+        "topic": "topic-one",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "hours -2 is 12",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false},
+            "hours": -2
+          }
+        }
+      },
+      "expect": {
+        "on": true,
+        "wanted": true,
+        "paired": true,
+        "topic": "topic-one",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "hours abc is 12",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false},
+            "hours": "abc"
+          }
+        }
+      },
+      "expect": {
+        "on": true,
+        "wanted": true,
+        "paired": true,
+        "topic": "topic-one",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "hours true is 1",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false},
+            "hours": true
+          }
+        }
+      },
+      "expect": {
+        "on": true,
+        "wanted": true,
+        "paired": true,
+        "topic": "topic-one",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 1,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "no key, a pairing waiting, its key sealed",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "pairing": {
+              "id": "pairidabcd",
+              "expires": "2026-10-15T09:05:00.0000000Z",
+              "key": {"seal": "{\"Modulus\":\"AQAB\"}"}
+            }
+          }
+        }
+      },
+      "expect": {
+        "on": true,
+        "wanted": true,
+        "paired": false,
+        "topic": "topic-one",
+        "key": null,
+        "master": null,
+        "server": "https://ntfy.sh",
+        "pairId": "pairidabcd",
+        "pairUntil": "2026-10-15T09:05:00.0000000Z",
+        "hours": 12,
+        "pairKey": "{\"Modulus\":\"AQAB\"}"
+      }
+    },
+    {
+      "name": "paired, and a pairing waiting",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "key": {"value": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "protected": false},
+            "pairing": {
+              "id": "pairidabcd",
+              "expires": "2026-10-15T09:05:00.0000000Z",
+              "key": {"value": "pair-key-json", "protected": false}
+            }
+          }
+        }
+      },
+      "expect": {
+        "on": true,
+        "wanted": true,
+        "paired": true,
+        "topic": "topic-one",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "server": "https://ntfy.sh",
+        "pairId": "pairidabcd",
+        "pairUntil": "2026-10-15T09:05:00.0000000Z",
+        "hours": 12,
+        "pairKey": "pair-key-json"
+      }
+    },
+    {
+      "name": "no key, the pairing expired",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "pairing": {
+              "id": "pairidabcd",
+              "expires": "2026-10-15T08:55:00.0000000Z",
+              "key": {"value": "pair-key-json", "protected": false}
+            }
+          }
+        }
+      },
+      "expect": {
+        "on": false,
+        "wanted": true,
+        "paired": false,
+        "topic": "topic-one",
+        "key": null,
+        "master": null,
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "no key, the pairing expiring now",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "pairing": {
+              "id": "pairidabcd",
+              "expires": "2026-10-15T09:00:00.0000000Z",
+              "key": {"value": "pair-key-json", "protected": false}
+            }
+          }
+        }
+      },
+      "expect": {
+        "on": false,
+        "wanted": true,
+        "paired": false,
+        "topic": "topic-one",
+        "key": null,
+        "master": null,
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "no key, a pairing with no id",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "pairing": {
+              "expires": "2026-10-15T09:05:00.0000000Z",
+              "key": {"value": "pair-key-json", "protected": false}
+            }
+          }
+        }
+      },
+      "expect": {
+        "on": false,
+        "wanted": true,
+        "paired": false,
+        "topic": "topic-one",
+        "key": null,
+        "master": null,
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "no key, a pairing with an empty id",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "pairing": {
+              "id": "",
+              "expires": "2026-10-15T09:05:00.0000000Z",
+              "key": {"value": "pair-key-json", "protected": false}
+            }
+          }
+        }
+      },
+      "expect": {
+        "on": false,
+        "wanted": true,
+        "paired": false,
+        "topic": "topic-one",
+        "key": null,
+        "master": null,
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "no key, a pairing with no expiry",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "pairing": {"id": "pairidabcd", "key": {"value": "pair-key-json", "protected": false}}
+          }
+        }
+      },
+      "expect": {
+        "on": false,
+        "wanted": true,
+        "paired": false,
+        "topic": "topic-one",
+        "key": null,
+        "master": null,
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "no key, an expiry that is no date",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "pairing": {
+              "id": "pairidabcd",
+              "expires": "soon",
+              "key": {"value": "pair-key-json", "protected": false}
+            }
+          }
+        }
+      },
+      "expect": {
+        "on": false,
+        "wanted": true,
+        "paired": false,
+        "topic": "topic-one",
+        "key": null,
+        "master": null,
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "no key, a pairing id as a number",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "pairing": {
+              "id": 7,
+              "expires": "2026-10-15T09:05:00.0000000Z",
+              "key": {"value": "pair-key-json", "protected": false}
+            }
+          }
+        }
+      },
+      "expect": {
+        "on": true,
+        "wanted": true,
+        "paired": false,
+        "topic": "topic-one",
+        "key": null,
+        "master": null,
+        "server": "https://ntfy.sh",
+        "pairId": "7",
+        "pairUntil": "2026-10-15T09:05:00.0000000Z",
+        "hours": 12,
+        "pairKey": "pair-key-json"
+      }
+    },
+    {
+      "name": "no key, ID and KEY in capitals",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "pairing": {
+              "ID": "PairIdAbcd",
+              "EXPIRES": "2026-10-15T09:05:00.0000000Z",
+              "KEY": {"value": "pair-key-json", "protected": false}
+            }
+          }
+        }
+      },
+      "expect": {
+        "on": true,
+        "wanted": true,
+        "paired": false,
+        "topic": "topic-one",
+        "key": null,
+        "master": null,
+        "server": "https://ntfy.sh",
+        "pairId": "PairIdAbcd",
+        "pairUntil": "2026-10-15T09:05:00.0000000Z",
+        "hours": 12,
+        "pairKey": "pair-key-json"
+      }
+    },
+    {
+      "name": "no key, a pairing whose key will not open",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "pairing": {
+              "id": "pairidabcd",
+              "expires": "2026-10-15T09:05:00.0000000Z",
+              "key": {"value": "414243", "protected": true}
+            }
+          }
+        }
+      },
+      "expect": {
+        "on": true,
+        "wanted": true,
+        "paired": false,
+        "topic": "topic-one",
+        "key": null,
+        "master": null,
+        "server": "https://ntfy.sh",
+        "pairId": "pairidabcd",
+        "pairUntil": "2026-10-15T09:05:00.0000000Z",
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "no key, a pairing with no key",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "pairing": {"id": "pairidabcd", "expires": "2026-10-15T09:05:00.0000000Z"}
+          }
+        }
+      },
+      "expect": {
+        "on": true,
+        "wanted": true,
+        "paired": false,
+        "topic": "topic-one",
+        "key": null,
+        "master": null,
+        "server": "https://ntfy.sh",
+        "pairId": "pairidabcd",
+        "pairUntil": "2026-10-15T09:05:00.0000000Z",
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "no key, a pairing key as a plain string",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "pairing": {"id": "pairidabcd", "expires": "2026-10-15T09:05:00.0000000Z", "key": "pair-key-json"}
+          }
+        }
+      },
+      "expect": {
+        "on": true,
+        "wanted": true,
+        "paired": false,
+        "topic": "topic-one",
+        "key": null,
+        "master": null,
+        "server": "https://ntfy.sh",
+        "pairId": "pairidabcd",
+        "pairUntil": "2026-10-15T09:05:00.0000000Z",
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "no key, a pairing as a string",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {"on": true, "topic": {"value": "topic-one", "protected": false}, "pairing": "pairidabcd"}
+        }
+      },
+      "expect": {
+        "on": false,
+        "wanted": true,
+        "paired": false,
+        "topic": "topic-one",
+        "key": null,
+        "master": null,
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    },
+    {
+      "name": "no key, a pairing waiting, switched off",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": false,
+            "topic": {"value": "topic-one", "protected": false},
+            "pairing": {
+              "id": "pairidabcd",
+              "expires": "2026-10-15T09:05:00.0000000Z",
+              "key": {"seal": "{\"Modulus\":\"AQAB\"}"}
+            }
+          }
+        }
+      },
+      "expect": {
+        "on": false,
+        "wanted": false,
+        "paired": false,
+        "topic": "topic-one",
+        "key": null,
+        "master": null,
+        "server": "https://ntfy.sh",
+        "pairId": "pairidabcd",
+        "pairUntil": "2026-10-15T09:05:00.0000000Z",
+        "hours": 12,
+        "pairKey": "{\"Modulus\":\"AQAB\"}"
+      }
+    },
+    {
+      "name": "no key, a pairing waiting, no topic",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "pairing": {
+              "id": "pairidabcd",
+              "expires": "2026-10-15T09:05:00.0000000Z",
+              "key": {"seal": "{\"Modulus\":\"AQAB\"}"}
+            }
+          }
+        }
+      },
+      "expect": {
+        "on": false,
+        "wanted": true,
+        "paired": false,
+        "topic": null,
+        "key": null,
+        "master": null,
+        "server": "https://ntfy.sh",
+        "pairId": "pairidabcd",
+        "pairUntil": "2026-10-15T09:05:00.0000000Z",
+        "hours": 12,
+        "pairKey": "{\"Modulus\":\"AQAB\"}"
+      }
+    },
+    {
+      "name": "no key, a zoneless pairing expiry east of UTC",
+      "input": {
+        "zone": "India Standard Time",
+        "utcOffsetMinutes": 330,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "config": {
+          "reply": {
+            "on": true,
+            "topic": {"value": "topic-one", "protected": false},
+            "pairing": {
+              "id": "pairidabcd",
+              "expires": "2026-10-15T14:00:00",
+              "key": {"value": "pair-key-json", "protected": false}
+            }
+          }
+        }
+      },
+      "expectByEdition": {
+        "Desktop": {
+          "on": true,
+          "wanted": true,
+          "paired": false,
+          "topic": "topic-one",
+          "key": null,
+          "master": null,
+          "server": "https://ntfy.sh",
+          "pairId": "pairidabcd",
+          "pairUntil": "2026-10-15T14:00:00.0000000Z",
+          "hours": 12,
+          "pairKey": "pair-key-json"
+        },
+        "Core": {
+          "on": false,
+          "wanted": true,
+          "paired": false,
+          "topic": "topic-one",
+          "key": null,
+          "master": null,
+          "server": "https://ntfy.sh",
+          "pairId": null,
+          "pairUntil": null,
+          "hours": 12,
+          "pairKey": null
+        }
+      }
+    },
+    {
+      "name": "config.json with a comment and trailing commas",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "configText": "{\n  // the phone\n  \"reply\": {\"on\": true, \"topic\": {\"value\": \"topic-one\", \"protected\": false}, \"key\": {\"value\": \"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\", \"protected\": false},},\n}"
+      },
+      "expectByEdition": {
+        "Desktop": {
+          "on": false,
+          "wanted": false,
+          "paired": false,
+          "topic": null,
+          "key": null,
+          "master": null,
+          "server": "https://ntfy.sh",
+          "pairId": null,
+          "pairUntil": null,
+          "hours": 12,
+          "pairKey": null
+        },
+        "Core": {
+          "on": true,
+          "wanted": true,
+          "paired": true,
+          "topic": "topic-one",
+          "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+          "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+          "server": "https://ntfy.sh",
+          "pairId": null,
+          "pairUntil": null,
+          "hours": 12,
+          "pairKey": null
+        }
+      }
+    },
+    {
+      "name": "config.json a list of one",
+      "input": {
+        "zone": "UTC",
+        "utcOffsetMinutes": 0,
+        "now": "2026-10-15T09:00:00.0000000Z",
+        "configText": "[{\"reply\": {\"on\": true, \"topic\": {\"value\": \"topic-one\", \"protected\": false}, \"key\": {\"value\": \"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\", \"protected\": false}}}]"
+      },
+      "expect": {
+        "on": true,
+        "wanted": true,
+        "paired": true,
+        "topic": "topic-one",
+        "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "master": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "server": "https://ntfy.sh",
+        "pairId": null,
+        "pairUntil": null,
+        "hours": 12,
+        "pairKey": null
+      }
+    }
+  ]
+}

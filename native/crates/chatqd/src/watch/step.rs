@@ -54,6 +54,7 @@ fn result_fields(op: &str) -> &'static [&'static str] {
         "soon" => &["soonAt"],
         "held" | "alert" => &["sent"],
         "job-write" => &["saved"],
+        "reply" => &["acted"],
         _ => &[],
     }
 }

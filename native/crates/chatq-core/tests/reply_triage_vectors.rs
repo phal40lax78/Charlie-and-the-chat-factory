@@ -19,7 +19,7 @@ use zeroize::Zeroizing;
 /// A case's rc as Get-ChatqReplyConfig and Get-ChatqPairKey read it back.
 fn config(rc: &Value) -> TriageConfig {
     TriageConfig {
-        topic: rc["topic"].as_str().unwrap_or("").to_string(),
+        topic: Zeroizing::new(rc["topic"].as_str().unwrap_or("").to_string()),
         master: rc["master"].as_str().map(|m| Zeroizing::new(hex(m))),
         pair_id: rc["pairId"].as_str().map(str::to_string),
         pair_key: rc["pairKey"].as_bool() == Some(true),

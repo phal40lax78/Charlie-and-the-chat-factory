@@ -423,7 +423,32 @@ else {
     $nvSeamText = $nvStepText.Substring($nvSeamAt, $nvStepText.IndexOf('# The parent test') - $nvSeamAt)
     $nvWatchPs1 = "param([string]`$Seams)`r`ntry { . (Join-Path `$PSScriptRoot 'Charlie-and-the-chat-factory.ps1') } catch { exit 3 }`r`n" +
     "Remove-Item -LiteralPath 'env:PSExecutionPolicyPreference' -EA SilentlyContinue`r`n$nvSeamText" +
-    "# the harness's fake ntfy: a reply topic nothing is posted to`r`n`$script:ChatqReplyPollSeam = { param(`$Url) '' }`r`nInvoke-ChatqWatchLoop`r`n"
+    "# the harness's fake ntfy: the seams file's nvFeed, the batch chatqd's fake`r`n# ntfy answers with; else a reply topic nothing is posted to`r`n" +
+    "`$nvFeed = if (& `$stepHas 'nvFeed') { [string]`$stepSeams.nvFeed } else { '' }`r`n" +
+    "`$script:ChatqReplyPollSeam = { param(`$Url) `$nvFeed }.GetNewClosure()`r`nInvoke-ChatqWatchLoop`r`n"
+    # the seams' ntfyBase taken only for a loopback host, as chatqd's
+    # seams.rs takes it: the seam text above, run once per seams file in a
+    # child, says which reply server it left
+    $nvNbDir = Join-Path $sb 'native\ntfy-base'
+    $null = New-Item -ItemType Directory -Path $nvNbDir -Force
+    $nvNbCases = [ordered]@{ 'http://127.0.0.1:8080' = $true; 'http://localhost:1' = $true; 'http://[::1]:2' = $true
+        'https://ntfy.sh' = $false; 'http://127.0.0.1.example:80' = $false; 'http://10.0.0.1' = $false; 'not a url' = $false
+    }
+    $nvNbN = 0
+    $nvNbFiles = @(foreach ($u in $nvNbCases.Keys) { $f = Join-Path $nvNbDir "$(($nvNbN++)).json"; Write-NvJson $f ([ordered]@{ ntfyBase = $u }); $f })
+    [IO.File]::WriteAllText((Join-Path $nvNbDir 'nb.ps1'), "param([string]`$Files)`r`nfunction Test-NvBase([string]`$Seams) {`r`n`$script:ChatqReplyServer = '<default>'`r`n$nvSeamText`r`n`$script:ChatqReplyServer`r`n}`r`n" +
+        "foreach (`$f in (`$Files -split '\|')) { [Console]::Out.WriteLine((Test-NvBase `$f)) }`r`n", $utf8)
+    $nvNbOut = @(& {
+        # 5.1 makes a native command's stderr line an error, which Stop throws
+        $ErrorActionPreference = 'Continue'
+        @(& $nvPs -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $nvNbDir 'nb.ps1') -Files ($nvNbFiles -join '|') 2>&1 | ForEach-Object { "$_" })
+    })
+    $nvNbBad = @(for ($i = 0; $i -lt $nvNbCases.Count; $i++) {
+            $u = @($nvNbCases.Keys)[$i]
+            $want = if ($nvNbCases[$u]) { $u } else { '<default>' }
+            if ($nvNbOut[$i] -cne $want) { "$u -> '$($nvNbOut[$i])'" }
+        })
+    Check 'a step''s ntfyBase seam is taken only for a loopback host, as chatqd takes it' (-not $nvNbBad -and $nvNbOut.Count -eq $nvNbCases.Count) (($nvNbBad + $nvNbOut) -join ' | ')
     $nvCfg = [ordered]@{ toast = $false; handover = $false }
     $nvToastsAt = $script:Toasts.Count
     $nvNtfysAt = $script:Ntfys.Count
@@ -685,19 +710,21 @@ else {
     Check 'a pick step killed mid-run: chatqd logs helper step exited -1, fails the job as Complete-ChatqJob does on a twin of the file the step left - the file, its jobs.log line and its failed alert alike' (
         -not $nvCbad) ($nvCbad -join ' || ')
 
-    # a pick that opens the reply window: chatqd hands over, W and its caches
-    # in handoff.json, and the PS watcher it would start (started here in its
-    # place, the spawn seam having recorded it) carries on from them: the
-    # answer the phone sent mid-pick lands. One engine, as the PS watcher
-    # listens where chatqd hands over until M3. The answer's entry is a
-    # stand-in, put in by the fixture's own native-step.ps1 after the run:
-    # Invoke-ChatqAskReply makes one only on a reply chatqd cannot take yet.
+    # a pick that opens the reply window: chatqd listens on (M3), with the
+    # caches the pick step sent back in its W, and the answer the phone sent
+    # mid-pick lands through chatqd's own ask-landed step; nothing is handed
+    # over. One engine: the PS watcher has listened all along. The answer's
+    # entry is a stand-in, put in by the fixture's own native-step.ps1 after
+    # the run: Invoke-ChatqAskReply makes one only on a reply chatqd cannot
+    # take yet. chatqd's poll goes to a loopback port nothing listens on, by
+    # the ntfyBase seam, never to ntfy.sh.
     $nvD = New-NvJob 'plugin' 'a pick that opens the reply window'
     $nvDcfg = [ordered]@{ toast = $false; handover = $false
         join = [ordered]@{ apiKey = (Protect-ChatqSecret '0123456789abcdef0123456789abcdef'); device = 'group.phone' }
         reply = [ordered]@{ on = $true; topic = (Protect-ChatqSecret 'nvtwintopic'); key = (Protect-ChatqSecret (ConvertTo-ChatqB64Url ([byte[]](1..32)))) }
     }
-    $nvDr = New-NvFixture 'handoff' @($nvD) $nvDcfg
+    $nvDr = New-NvFixture 'listening' @($nvD) $nvDcfg
+    Write-NvJson (Join-Path $nvDr 'seams.json') ([ordered]@{ capture = (Join-Path $nvDr 'capture'); spawn = $true; idleSeconds = 99999; handoverOff = $true; ntfyBase = 'http://127.0.0.1:9' })
     $nvDt = Join-Path $nvDr 'ask-chat.jsonl'
     [IO.File]::WriteAllText($nvDt, '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_nv","content":"B"}]},"toolUseResult":{"answers":{"Which?":"B"}}}' + "`n", $utf8)
     $nvDstep = Join-Path $nvDr 'src\native-step.ps1'
@@ -707,24 +734,7 @@ else {
     "    `$script:ChatqAskSent['nvaskrid22'] = @{ Rid = 'nvaskrid22'; At = (Get-Date); ToolUseId = 'toolu_nv'; Answers = `$a; Transcript = '$nvDt'; SessionId = 's-nv'; Title = 'nv ask chat' }`r`n}`r`n"
     [IO.File]::WriteAllText($nvDstep, [IO.File]::ReadAllText($nvDstep, $utf8).Replace("Invoke-ChatqNativeStep -In `$In -Out `$Out", "$nvDin`Invoke-ChatqNativeStep -In `$In -Out `$Out"), $utf8)
     Send-NvNow $nvDr
-    $nvDp = Start-NvEngine $nvDr 'native'
-    $nvDrun = Wait-NvEngine $nvDp $nvDr $null
     $nvDd = Join-Path $nvDr 'data'
-    $nvDh = Read-ChatqJson (Join-Path $nvDd 'native\handoff.json')
-    $nvDw = if ($nvDh) { try { ConvertFrom-ChatqStepW $nvDh.w } catch { $null } } else { $null }
-    $nvDs = Read-ChatqJson (Join-Path $nvDd 'state.json')
-    $nvDl = Read-ChatqJson (Join-Path $nvDd 'native\last.json')
-    $nvDsp = Read-ChatqJson (Join-Path $nvDr 'capture\spawn-1.json')
-    $nvDcap = @(Get-ChildItem -LiteralPath (Join-Path $nvDr 'capture') -File | ForEach-Object { $_.Name -replace '-\d+\.json$', '' } | Sort-Object -Unique) -join ','
-    $nvDcarry = Test-Path -LiteralPath (Join-Path $nvDd 'native\carry.clixml')
-    $nvDbad = @()
-    if (-not $nvDrun.Exited -or -not $nvDh -or [int]$nvDh.v -ne 1 -or [int]$nvDh.watcherPid -ne $nvDrun.Pid -or $nvDh.w.handoff -ne $true -or -not $nvDw -or
-        -not $nvDw.Caches.ChatqAskSent.ContainsKey('nvaskrid22') -or -not $nvDw.W.lastAllowed.Count) { $nvDbad += "handoff.json: exited $($nvDrun.Exited), $($nvDh | ConvertTo-Json -Compress -Depth 3)" }
-    if ($nvDs.handoff -ne $true -or [int]$nvDs.pid -ne $nvDrun.Pid -or $nvDl.state -cne 'handed-over' -or $nvDsp.engine -cne 'ps' -or
-        $nvDsp.command -notlike "*$(Join-Path $nvDr 'Charlie-and-the-chat-factory.ps1')*Invoke-ChatqWatchLoop" -or $nvDcap -cne 'down,join,spawn' -or
-        (Read-NvShared (Join-Path $nvDd 'logs\chatqd.log')) -notlike '*handing over to the PowerShell watcher: the phone reply window is open*') {
-        $nvDbad += "state handoff $($nvDs.handoff) pid $($nvDs.pid), last $($nvDl.state), spawn $($nvDsp.engine) '$($nvDsp.command)', captured $nvDcap"
-    }
     $nvDreplies = Join-Path $nvDd 'logs\replies.log'
     $nvDstop = {
         if (-not $script:nvCase.Done -and (Test-Path -LiteralPath $nvDreplies) -and (Read-NvShared $nvDreplies) -like '*ask nvaskrid22 nv ask chat: landed*') {
@@ -733,15 +743,203 @@ else {
         }
     }
     $script:nvCase = @{ Done = $false }
-    $nvDpp = Start-NvEngine $nvDr 'ps'
-    $nvDps = Wait-NvEngine $nvDpp $nvDr $nvDstop 150
+    $nvDp = Start-NvEngine $nvDr 'native'
+    $nvDrun = Wait-NvEngine $nvDp $nvDr $nvDstop 150
+    $nvDs = Read-ChatqJson (Join-Path $nvDd 'state.json')
+    $nvDl = Read-ChatqJson (Join-Path $nvDd 'native\last.json')
+    $nvDcap = @(Get-ChildItem -LiteralPath (Join-Path $nvDr 'capture') -File | ForEach-Object { $_.Name -replace '-\d+\.json$', '' } | Sort-Object -Unique) -join ','
     $nvDwl = Read-NvShared (Join-Path $nvDd 'logs\watcher.log')
-    if (-not $nvDps.Exited -or -not $script:nvCase.Done -or $nvDwl -notlike "*watcher $($nvDpp.Id) started*carrying on from the watcher before it*listening for phone replies*stop requested*" -or
-        (Test-Path -LiteralPath (Join-Path $nvDd 'native\handoff.json')) -or (Test-Path -LiteralPath (Join-Path $nvDd 'native\carry.clixml'))) {
-        $nvDbad += "the PS watcher: exited $($nvDps.Exited), landed $($script:nvCase.Done), carry was $nvDcarry | $nvDwl"
+    $nvDbad = @()
+    if (-not $nvDrun.Exited -or -not $script:nvCase.Done -or
+        $nvDwl -notlike "*watcher $($nvDrun.Pid) started*#$($nvD.seq) done*listening for phone replies*ask nvaskrid22 nv ask chat: landed*stop requested*") {
+        $nvDbad += "exited $($nvDrun.Exited), landed $($script:nvCase.Done) | $nvDwl"
     }
-    Check 'a pick that opens the reply window: chatqd hands over W and its caches in handoff.json, its PS watcher recorded; that watcher carries on from them, the phone''s answer sent mid-pick lands, and both files go' (
+    # carry.clixml is not looked at: every step leaves one, kept to chatqd's
+    # next start (SPEC 4.5), handoff or not
+    $nvDho = Test-Path -LiteralPath (Join-Path $nvDd 'native\handoff.json')
+    $nvDover = (Read-NvShared (Join-Path $nvDd 'logs\chatqd.log')) -like '*handing over*'
+    if ($nvDs.handoff -ne $false -or [int]$nvDs.pid -ne $nvDrun.Pid -or $nvDl.state -cne 'stopped' -or $nvDcap -cne 'down,join' -or $nvDho -or $nvDover) {
+        $nvDbad += "state handoff $($nvDs.handoff) pid $($nvDs.pid) (chatqd $($nvDrun.Pid)), last $($nvDl.state), captured $nvDcap, handoff.json $nvDho, handing over $nvDover"
+    }
+    # the steps took the loopback ntfyBase too: the board's down message
+    $nvDdown = @(Get-ChildItem -LiteralPath (Join-Path $nvDr 'capture') -Filter 'down-*.json' -File | ForEach-Object { [string](Read-ChatqJson $_.FullName).url })
+    if (-not $nvDdown.Count -or @($nvDdown | Where-Object { $_ -notlike 'http://127.0.0.1:9/*' }).Count) { $nvDbad += "down to $($nvDdown -join ', ')" }
+    Check 'a pick that opens the reply window: chatqd listens on, the phone''s answer sent mid-pick lands through its own ask-landed step, and nothing is handed over' (
         -not $nvDbad) ($nvDbad -join ' || ')
+
+    # the same pick with chatqd's connect refused, as a firewall that blocks
+    # programs by default refuses it (WSAEACCES; the connectForbidden seam):
+    # chatqd hands the window over as 0.10.20 did, W and its caches in
+    # handoff.json, and the PS watcher it would start (started here in its
+    # place, the spawn seam having recorded it) carries on from them: the
+    # answer the phone sent mid-pick lands. Both engines, one after the other.
+    $nvFr = New-NvFixture 'forbidden' @($nvD) $nvDcfg
+    Write-NvJson (Join-Path $nvFr 'seams.json') ([ordered]@{ capture = (Join-Path $nvFr 'capture'); spawn = $true; idleSeconds = 99999; handoverOff = $true; ntfyBase = 'http://127.0.0.1:9'; connectForbidden = $true })
+    $nvFstep = Join-Path $nvFr 'src\native-step.ps1'
+    [IO.File]::WriteAllText($nvFstep, [IO.File]::ReadAllText($nvFstep, $utf8).Replace("Invoke-ChatqNativeStep -In `$In -Out `$Out", "$nvDin`Invoke-ChatqNativeStep -In `$In -Out `$Out"), $utf8)
+    Send-NvNow $nvFr
+    $nvFd = Join-Path $nvFr 'data'
+    $nvFp = Start-NvEngine $nvFr 'native'
+    $nvFrun = Wait-NvEngine $nvFp $nvFr $null 150
+    $nvFh = Read-ChatqJson (Join-Path $nvFd 'native\handoff.json')
+    $nvFw = if ($nvFh) { try { ConvertFrom-ChatqStepW $nvFh.w } catch { $null } } else { $null }
+    $nvFs = Read-ChatqJson (Join-Path $nvFd 'state.json')
+    $nvFl = Read-ChatqJson (Join-Path $nvFd 'native\last.json')
+    $nvFsp = Read-ChatqJson (Join-Path $nvFr 'capture\spawn-1.json')
+    $nvFcap = @(Get-ChildItem -LiteralPath (Join-Path $nvFr 'capture') -File | ForEach-Object { $_.Name -replace '-\d+\.json$', '' } | Sort-Object -Unique) -join ','
+    $nvFbad = @()
+    if (-not $nvFrun.Exited -or -not $nvFh -or [int]$nvFh.v -ne 1 -or [int]$nvFh.watcherPid -ne $nvFrun.Pid -or $nvFh.w.handoff -ne $true -or -not $nvFw -or
+        -not $nvFw.Caches.ChatqAskSent.ContainsKey('nvaskrid22') -or -not $nvFw.W.lastAllowed.Count) { $nvFbad += "handoff.json: exited $($nvFrun.Exited), $($nvFh | ConvertTo-Json -Compress -Depth 3)" }
+    if ($nvFs.handoff -ne $true -or [int]$nvFs.pid -ne $nvFrun.Pid -or $nvFl.state -cne 'handed-over' -or $nvFsp.engine -cne 'ps' -or
+        $nvFsp.command -notlike "*$(Join-Path $nvFr 'Charlie-and-the-chat-factory.ps1')*Invoke-ChatqWatchLoop" -or $nvFcap -cne 'down,join,spawn' -or
+        (Read-NvShared (Join-Path $nvFd 'logs\chatqd.log')) -notlike '*handing over to the PowerShell watcher: Windows does not let chatqd connect (a firewall?)*') {
+        $nvFbad += "state handoff $($nvFs.handoff) pid $($nvFs.pid), last $($nvFl.state), spawn $($nvFsp.engine) '$($nvFsp.command)', captured $nvFcap"
+    }
+    $nvFreplies = Join-Path $nvFd 'logs\replies.log'
+    $nvFstop = {
+        if (-not $script:nvCase.Done -and (Test-Path -LiteralPath $nvFreplies) -and (Read-NvShared $nvFreplies) -like '*ask nvaskrid22 nv ask chat: landed*') {
+            [IO.File]::WriteAllText((Join-Path $nvFd 'stop'), '', $utf8)
+            $script:nvCase.Done = $true
+        }
+    }
+    $script:nvCase = @{ Done = $false }
+    $nvFpp = Start-NvEngine $nvFr 'ps'
+    $nvFps = Wait-NvEngine $nvFpp $nvFr $nvFstop 150
+    $nvFwl = Read-NvShared (Join-Path $nvFd 'logs\watcher.log')
+    $nvFwant = "*watcher $($nvFrun.Pid) started*#$($nvD.seq) done*the firewall blocks chatqd, so the PowerShell watcher listens for phone replies instead*watcher $($nvFrun.Pid) stopped*" +
+    "watcher $($nvFpp.Id) started*carrying on from the watcher before it*listening for phone replies*stop requested*"
+    if (-not $nvFps.Exited -or -not $script:nvCase.Done -or $nvFwl -notlike $nvFwant -or
+        (Test-Path -LiteralPath (Join-Path $nvFd 'native\handoff.json')) -or (Test-Path -LiteralPath (Join-Path $nvFd 'native\carry.clixml'))) {
+        $nvFbad += "the PS watcher: exited $($nvFps.Exited), landed $($script:nvCase.Done) | $nvFwl"
+    }
+    Check 'a pick that opens the reply window with chatqd''s connect refused (a firewall): chatqd hands over W and its caches in handoff.json as 0.10.20 did, its PS watcher recorded; that watcher carries on from them, the phone''s answer sent mid-pick lands, and both files go' (
+        -not $nvFbad) ($nvFbad -join ' || ')
+
+    # --- the twin run: listening (native/SPEC.md 3.7, 6.5) ---------------------
+    # An open reply window and an empty queue, under each engine: chatqd
+    # fetches the batch from a fake ntfy on loopback (the ntfyBase seam), the
+    # PS watcher is given the same text through its poll seam. Each is
+    # stopped once it says it listens, or ends by itself. Compared as the
+    # twin runs are, replies.log too, and the captures by kind and Join text.
+    function Start-NvFakeNtfy([string]$Body) {
+        $l = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+        $l.Start()
+        $seen = [System.Collections.ArrayList]::Synchronized([System.Collections.ArrayList]::new())
+        $rs = [powershell]::Create()
+        $null = $rs.AddScript({
+                param($L, [string]$Body, $Seen)
+                $b = [Text.Encoding]::UTF8.GetBytes($Body)
+                $h = [Text.Encoding]::ASCII.GetBytes("HTTP/1.1 200 OK`r`nContent-Type: application/x-ndjson`r`nContent-Length: $($b.Length)`r`nConnection: close`r`n`r`n")
+                while ($true) {
+                    try { $c = $L.AcceptTcpClient() } catch { return }
+                    try {
+                        $s = $c.GetStream()
+                        $head = [System.Text.StringBuilder]::new()
+                        while (-not $head.ToString().EndsWith("`r`n`r`n")) { $x = $s.ReadByte(); if ($x -lt 0) { break }; $null = $head.Append([char]$x) }
+                        $null = $Seen.Add(($head.ToString() -split "`r`n")[0])
+                        $s.Write($h, 0, $h.Length); $s.Write($b, 0, $b.Length); $s.Flush()
+                    }
+                    catch { }
+                    finally { $c.Close() }
+                }
+            }).AddArgument($l).AddArgument($Body).AddArgument($seen)
+        $null = $rs.BeginInvoke()
+        [pscustomobject]@{ Base = "http://127.0.0.1:$($l.LocalEndpoint.Port)"; Seen = $seen; Listener = $l; Rs = $rs }
+    }
+    function Invoke-NvListenTwin([string]$Name, $Cfg, $Replies, [string]$Feed) {
+        $f = Start-NvFakeNtfy $Feed
+        $out = [ordered]@{}
+        try {
+            foreach ($e in 'ps', 'native') {
+                $r = New-NvFixture "$Name-$e" @() $Cfg
+                if ($Replies) { Write-NvJson (Join-Path $r 'data\replies.json') $Replies }
+                Write-NvJson (Join-Path $r 'seams.json') ([ordered]@{ capture = (Join-Path $r 'capture'); spawn = $true; idleSeconds = 99999; handoverOff = $true; ntfyBase = $f.Base; nvFeed = $Feed })
+                $script:nvCase = @{ Root = $r; Done = $false }
+                $stopper = {
+                    $c = $script:nvCase
+                    $wl = Join-Path $c.Root 'data\logs\watcher.log'
+                    if (-not $c.Done -and (Test-Path -LiteralPath $wl) -and (Read-NvShared $wl) -like '*listening for phone replies*') {
+                        [IO.File]::WriteAllText((Join-Path $c.Root 'data\stop'), '', $utf8)
+                        $c.Done = $true
+                    }
+                }
+                $p0 = $f.Seen.Count
+                $p = Start-NvEngine $r $e
+                $t = Read-NvRun $r (Wait-NvEngine $p $r $stopper 150)
+                # a refusal's age in seconds moves on between the two runs
+                foreach ($n in @($t.Logs.Keys)) { $t.Logs[$n] = $t.Logs[$n] -replace 'sent \d+ s ago', 'sent <n> s ago' }
+                $joins = @(Get-ChildItem -LiteralPath (Join-Path $r 'capture') -Filter 'join-*.json' -File | Sort-Object { [int]($_.BaseName -replace '\D', '') } |
+                        ForEach-Object { (Get-NvMask ([string](Get-JoinPush (Read-ChatqJson $_.FullName).url).Q['text']) 0 $r) -replace 'sent \d+ s ago', 'sent <n> s ago' })
+                $t | Add-Member -NotePropertyName Polls -NotePropertyValue ($f.Seen.Count - $p0)
+                $t | Add-Member -NotePropertyName Kinds -NotePropertyValue ((@($t.Captures -split ',' | Where-Object { $_ } | ForEach-Object { $_ -replace '-\d+\.json$', '' }) | Sort-Object) -join ',')
+                $t | Add-Member -NotePropertyName Joins -NotePropertyValue ($joins -join ' / ')
+                $out[$e] = $t
+            }
+        }
+        finally { $f.Listener.Stop(); $null = $f.Rs.Stop(); $f.Rs.Dispose() }
+        return $out
+    }
+    function Compare-NvListenTwin($T) {
+        $bad = @(Compare-NvTwin $T | Where-Object { $_ -notlike 'captured: *' })
+        $x = @($T.ps.Logs['replies.log'] -split "`n")
+        $y = @($T.native.Logs['replies.log'] -split "`n")
+        for ($i = 0; $i -lt [Math]::Max($x.Count, $y.Count); $i++) {
+            if ($x[$i] -cne $y[$i]) { $bad += "replies.log line $($i + 1): ps '$($x[$i])', native '$($y[$i])'"; break }
+        }
+        if ($T.ps.Kinds -cne $T.native.Kinds) { $bad += "captured: ps '$($T.ps.Kinds)', native '$($T.native.Kinds)'" }
+        if ($T.ps.Joins -cne $T.native.Joins) { $bad += "Join texts: ps '$($T.ps.Joins)', native '$($T.native.Joins)'" }
+        if ($T.ps.Polls) { $bad += "the PS watcher fetched $($T.ps.Polls) time(s)" }
+        return $bad
+    }
+    $nvLsKey = ConvertTo-ChatqB64Url ([byte[]](1..32))
+    $nvLsTopic = 'nvlistentopic'
+    $nvLsJoin = [ordered]@{ apiKey = (Protect-ChatqSecret '0123456789abcdef0123456789abcdef'); device = 'group.phone' }
+    $nvLsLine = { param([string]$Id, [string]$Message) ([ordered]@{ id = $Id; time = 1; event = 'message'; topic = $nvLsTopic; message = $Message } | ConvertTo-Json -Compress) }
+    $nvLsAt = { param([double]$Hours) (Get-Date).AddHours($Hours).ToUniversalTime().ToString('o') }
+
+    # paired: junk, then a reply to an alert that has expired, one sent 13 h
+    # ago, and one to an alert answered 20 times already - one batch, so one
+    # reply step; each refusal one Join push with no link. An alert id is
+    # ten base32 letters (a-z, 2-7), or the reply is format junk
+    $nvLsCfg = [ordered]@{ toast = $false; handover = $false; join = $nvLsJoin
+        reply = [ordered]@{ on = $true; topic = (Protect-ChatqSecret $nvLsTopic); key = (Protect-ChatqSecret $nvLsKey) }
+    }
+    $nvLsAlerts = [ordered]@{
+        nvexpiredq = [ordered]@{ at = (& $nvLsAt -2); expires = (& $nvLsAt -0.1); event = 'done'; uses = 0 }
+        nvtoooldqq = [ordered]@{ at = (& $nvLsAt -1); expires = (& $nvLsAt 1); event = 'done'; uses = 0 }
+        nvuseduppq = [ordered]@{ at = (& $nvLsAt -1); expires = (& $nvLsAt 1); event = 'done'; uses = 20 }
+    }
+    $nvLsFeed = @(
+        (& $nvLsLine 'nvlsjunk01' 'hello'),
+        (& $nvLsLine 'nvlsexp001' (Protect-ChatqReplyMessage -Key $nvLsKey -Aid 'nvexpiredq' -Act status)),
+        (& $nvLsLine 'nvlsold001' (Protect-ChatqReplyMessage -Key $nvLsKey -Aid 'nvtoooldqq' -Act ping -Ts ([DateTimeOffset]::UtcNow.AddHours(-13).ToUnixTimeMilliseconds()))),
+        (& $nvLsLine 'nvlsused01' (Protect-ChatqReplyMessage -Key $nvLsKey -Aid 'nvuseduppq' -Act prompt -Text 'one more'))
+    ) -join "`n"
+    $nvLs = Invoke-NvListenTwin 'twin-listen' $nvLsCfg ([ordered]@{ openUntil = (& $nvLsAt 0.5); alerts = $nvLsAlerts }) $nvLsFeed
+    $nvLsBad = @(Compare-NvListenTwin $nvLs)
+    $nvLsN = $nvLs.native
+    $nvLsWant = "*watcher <pid> started*phone: reply nvlsjunk01 refused - format: *expired*too old: sent <n> s ago*nvlsused01 refused - used up*listening for phone replies*stop requested*watcher <pid> stopped*"
+    if ($nvLsN.Logs['watcher.log'] -notlike $nvLsWant -or $nvLsN.Polls -lt 1 -or $nvLsN.Logs['chatqd.log'] -notlike '* reply exited 0 after *' -or
+        $nvLsN.Logs['chatqd.log'] -like '*handing over*' -or $nvLsN.Kinds -notlike '*join*') { $nvLsBad += "native: polls $($nvLsN.Polls), captured $($nvLsN.Kinds) | $($nvLsN.Logs['watcher.log'])" }
+    Check 'the twin run, listening: junk and three refusals (expired, too old, used up) in one batch alike under the PS watcher and chatqd - watcher.log, replies.log, state.json, queue.md and the Join pushes; chatqd fetched and stepped, the PS watcher only read its seam' (
+        -not $nvLsBad) ($nvLsBad -join ' || ')
+
+    # a pairing waiting for the phone, nothing paired (PS survey 0 item 3):
+    # with a window open both listen; with none both find the queue empty
+    $nvLpCfg = [ordered]@{ toast = $false; handover = $false
+        reply = [ordered]@{ on = $true; topic = (Protect-ChatqSecret $nvLsTopic)
+            pairing = [ordered]@{ id = 'nvpairing1'; expires = (& $nvLsAt 0.2); key = (Protect-ChatqSecret '{}') }
+        }
+    }
+    $nvLpFeed = & $nvLsLine 'nvlpjunk01' 'hello'
+    $nvLp = Invoke-NvListenTwin 'twin-pairing' $nvLpCfg ([ordered]@{ openUntil = (& $nvLsAt 0.5) }) $nvLpFeed
+    $nvLpBad = @(Compare-NvListenTwin $nvLp)
+    if ($nvLp.native.Logs['watcher.log'] -notlike '*listening for phone replies*stop requested*' -or $nvLp.native.Polls -lt 1) { $nvLpBad += "native: polls $($nvLp.native.Polls) | $($nvLp.native.Logs['watcher.log'])" }
+    $nvLq = Invoke-NvListenTwin 'twin-pairing-shut' $nvLpCfg $null $nvLpFeed
+    $nvLqBad = @(Compare-NvListenTwin $nvLq)
+    if ($nvLq.native.Logs['watcher.log'] -notlike '*queue empty*' -or $nvLq.native.Logs['watcher.log'] -like '*listening*' -or $nvLq.native.Polls) { $nvLqBad += "native: polls $($nvLq.native.Polls) | $($nvLq.native.Logs['watcher.log'])" }
+    Check 'the twin run, a pairing pending: an open window listened to alike by both engines, and with no window both find the queue empty and poll nothing' (
+        -not $nvLpBad -and -not $nvLqBad) (($nvLpBad + $nvLqBad) -join ' || ')
     Check 'the twin run toasts, pushes and starts nothing outside its captures' ($script:Toasts.Count -eq $nvToastsAt -and $script:Ntfys.Count -eq $nvNtfysAt) "toasts $nvToastsAt -> $($script:Toasts.Count), ntfy $nvNtfysAt -> $($script:Ntfys.Count)"
 }
 

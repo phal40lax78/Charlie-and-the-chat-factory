@@ -2299,7 +2299,7 @@ function Invoke-ChatqNativeStep {
     $op = if ($q) { ConvertFrom-ChatqStepText $q.op } else { $null }
     $d = $null
     if ($q -and (Get-ChatqNativeInt $q.v) -eq 1 -and $op -is [string] -and
-        $op -cin 'repair', 'pick', 'block', 'auto', 'stray', 'soon', 'held', 'ask-landed', 'alert', 'job-write') {
+        $op -cin 'repair', 'pick', 'block', 'auto', 'stray', 'soon', 'held', 'ask-landed', 'alert', 'job-write', 'reply', 'board') {
         $d = try { ConvertFrom-ChatqStepW $q.w } catch { $null }
     }
     if (-not $d) { Save-ChatqText $Out ($r | ConvertTo-Json -Depth 12); return }
@@ -2380,6 +2380,23 @@ function Invoke-ChatqNativeStep {
                     $saved = [bool](Complete-ChatqJob $job ([string](ConvertFrom-ChatqStepText $cp.state)) $cp.result ([string](ConvertFrom-ChatqStepText $cp.why)) -Existing)
                 }
                 $res = [ordered]@{ saved = $saved }
+            }
+            'reply' {
+                # chatqd's batch whole, or a fetch of the step's own where
+                # chatqd could not read replies.json; -Force, as chatqd has
+                # asked the window and set ChatqReplyPolledAt just now. An
+                # arg left out keeps Invoke-ChatqReplyPoll's own default
+                # (10 messages, 8 s), never 0
+                $p = @{ Force = $true; Quick = [bool](& $arg 'quick') }
+                $v = & $arg 'maxMessages'; if ($null -ne $v) { $p.MaxMessages = [int]$v }
+                $v = & $arg 'timeoutSec'; if ($null -ne $v) { $p.TimeoutSec = [int]$v }
+                if ($a -and $a.PSObject.Properties['text']) { $p.Text = [string](& $arg 'text') }
+                $res = [ordered]@{ acted = [int](Invoke-ChatqReplyPoll @p) }
+            }
+            'board' {
+                # the board while listening: Get-ChatqBlocks scans transcripts
+                Write-ChatqBoard
+                $res = [ordered]@{}
             }
         }
         $r.ok = $true

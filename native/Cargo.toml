@@ -5,7 +5,7 @@ resolver = "3"
 members = ["crates/chatq-core", "crates/chatqd"]
 
 [workspace.package]
-version = "0.10.20"
+version = "0.10.21"
 edition = "2024"
 publish = false
 
@@ -21,6 +21,10 @@ subtle = "2.6.1"
 zeroize = "1.9.1"
 windows = "0.62.2"
 libc = "0.2"
+# M3's ntfy poll (chatqd/src/http.rs): no rustls, no gzip (SPEC 3.4).
+# ureq's native-tls pulls webpki-root-certs, unused (http.rs sets platform
+# roots); ureq 3.4.2's native-tls-no-default alone compiles no connector
+ureq = { version = "3.4.2", default-features = false, features = ["native-tls"] }
 
 # SPEC 3.3: small and self-contained. Unwind stays, so a panic still runs the
 # hook and the handoff to the PowerShell watcher.

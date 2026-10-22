@@ -555,6 +555,58 @@ $h2 = Invoke-ChatqReplyPoll -Force
 Check 'one save that fails: nothing after it is acted on or moves polling; the next poll takes both, in order' ($h1 -eq 0 -and $lastF -eq 'phfloodping' -and
     $h2 -eq 2 -and $script:PhJoins.Count -eq $n0 + 2 -and (Get-ChatqReplyState).lastId -eq 'phftwo' -and
     (& $phLog) -like '*phfone not acted on - the reply state could not be saved: AV holds replies.json*') "first $h1 (lastId $lastF), then $h2, lastId $((Get-ChatqReplyState).lastId)"
+# chatqd's batch given as -Text runs as the same body fetched (native/SPEC.md
+# 3.7): the same registry and caches, once each way, the logs and the
+# registry compared with only what moves between the two masked - the
+# times (stamps, clock times, the "after <n> s" a reply reached the PC
+# in), and the ids each push draws at random
+$tx = & $phFeedOf @(@('phtxjunk', 'junk'), @('phtxping', (Protect-ChatqReplyMessage -Key $rc.Key -Aid $aT -Act ping)))
+$txState = [System.IO.File]::ReadAllText($script:ChatqReplyPath, $utf8)
+$txSeen = $script:ChatqReplySeen.Clone(); $txHandled = $script:ChatqReplyHandled.Clone()
+$txWl = Join-Path $script:ChatqLogDir 'watcher.log'
+# the registry as text, the alerts a run registered named <aid> (each push
+# gets a random id) and listed by name, its times masked; times kept as
+# text (ConvertFrom-ChatqAskJson), as pwsh 7 would write .1200000Z back as .12Z
+$txAids0 = @(($txState | ConvertFrom-Json).alerts.PSObject.Properties | ForEach-Object { $_.Name })
+$txTimes = { param([string]$T) $T -replace '\d{4}-\d\d-\d\d[T ]\d\d:\d\d:\d\d(\.\d+)?(Z|[+-]\d\d:\d\d)?', '<at>' -replace '\b\d\d?:\d\d(:\d\d)?\b', '<hh:mm>' -replace 'after \d+ s\b', 'after <n> s' }
+$txCanon = {
+    $raw = [System.IO.File]::ReadAllText($script:ChatqReplyPath, $utf8)
+    foreach ($n in @(($raw | ConvertFrom-Json).alerts.PSObject.Properties | ForEach-Object { $_.Name })) { if ($txAids0 -cnotcontains $n) { $raw = $raw.Replace($n, '<aid>') } }
+    $s = ConvertFrom-ChatqAskJson $raw
+    if ($s.alerts) { $a = [ordered]@{}; foreach ($p in @($s.alerts.PSObject.Properties | Sort-Object Name)) { $a[$p.Name] = $p.Value }; $s.alerts = $a }
+    & $txTimes ($s | ConvertTo-Json -Depth 12 -Compress)
+}
+$txRun = {
+    param([bool]$Given)
+    [System.IO.File]::WriteAllText($script:ChatqReplyPath, $txState, $utf8)
+    $script:ChatqReplySeen = $txSeen.Clone(); $script:ChatqReplyHandled = $txHandled.Clone(); $script:ChatqReplyJunkLog = @{}
+    $r0 = (& $phLog).Length; $w0 = if (Test-Path -LiteralPath $txWl) { [System.IO.File]::ReadAllText($txWl, $utf8).Length } else { 0 }
+    $p0 = $script:PhPolls.Count; $j0 = $script:PhJoins.Count
+    $script:PhFeed = if ($Given) { '' } else { $tx }
+    $acted = if ($Given) { Invoke-ChatqReplyPoll -Force -Text $tx } else { Invoke-ChatqReplyPoll -Force }
+    $wtail = ([System.IO.File]::ReadAllText($txWl, $utf8).Substring($w0) -split "`r?`n" | Where-Object { $_ -like '*phone: *' } | ForEach-Object { $_.Substring($_.IndexOf('phone: ')) }) -join "`n"
+    [pscustomobject]@{ Acted = $acted; Polls = $script:PhPolls.Count - $p0; Joins = $script:PhJoins.Count - $j0
+        Log = (& $txTimes (& $phLog).Substring($r0)) + '|' + (& $txTimes $wtail)
+        State = (& $txCanon); LastId = (Get-ChatqReplyState).lastId }
+}
+$txFetched = & $txRun $false
+$txGiven = & $txRun $true
+Check 'a batch given as -Text acts as the same batch fetched: the same logs and registry, one push, no fetch of its own' ($txFetched.Acted -eq 1 -and $txGiven.Acted -eq 1 -and
+    $txFetched.Polls -eq 1 -and $txGiven.Polls -eq 0 -and $txFetched.Joins -eq 1 -and $txGiven.Joins -eq 1 -and $txGiven.LastId -eq 'phtxping' -and
+    $txFetched.Log -ceq $txGiven.Log -and $txFetched.State -ceq $txGiven.State) "fetched $($txFetched.Acted)/$($txFetched.Polls)/$($txFetched.Joins), given $($txGiven.Acted)/$($txGiven.Polls)/$($txGiven.Joins), log same $($txFetched.Log -eq $txGiven.Log), state same $($txFetched.State -eq $txGiven.State)$(if ($txFetched.Log -ne $txGiven.Log) { " | logs $($txFetched.Log) // $($txGiven.Log)" })$(if ($txFetched.State -ne $txGiven.State) { " | states $($txFetched.State) // $($txGiven.State)" })"
+# the same through a reply step, as chatqd sends one (native/SPEC.md 3.6):
+# the step really acts and moves polling; chatqd itself never does
+$txWJWas = $script:nsOpWJ
+$script:nsOpWJ = ConvertTo-NsStepW (New-ChatqWatchState) @{ ChatqReplyHandled = $script:ChatqReplyHandled; ChatqReplySeen = $script:ChatqReplySeen }
+$txStepFeed = & $phFeedOf @(@('phstepjunk', 'junk'), @('phstepping', (Protect-ChatqReplyMessage -Key $rc.Key -Aid $aT -Act ping)))
+$txLast0 = (Get-ChatqReplyState).lastId
+$p0 = $script:PhPolls.Count; $j0 = $script:PhJoins.Count
+try { $txStep = Invoke-NsOp 'reply' ([ordered]@{ text = $txStepFeed; maxMessages = 10; quick = $false; timeoutSec = 8 }) $null }
+finally { $script:nsOpWJ = $txWJWas }
+$txActed = if ($txStep -and $txStep.result) { [int]$txStep.result.acted } else { -1 }
+Check 'a reply step given chatqd''s batch acts on it and moves polling past it, with no fetch of its own' ($txStep.ok -eq $true -and $txActed -gt 0 -and
+    $txLast0 -ne 'phstepping' -and (Get-ChatqReplyState).lastId -eq 'phstepping' -and $script:PhPolls.Count -eq $p0 -and $script:PhJoins.Count -eq $j0 + 1 -and
+    -not (Test-Path -LiteralPath (Get-ChatqNativeFile 'carry.clixml'))) "ok $($txStep.ok), acted $txActed, lastId $txLast0 -> $((Get-ChatqReplyState).lastId), error $($txStep.error)"
 
 # --- refusals: expired, too old, used up - one push each, no link, no window ------
 $st = Get-ChatqReplyState

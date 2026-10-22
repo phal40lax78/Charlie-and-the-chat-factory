@@ -1,14 +1,16 @@
-//! [Invoke-ChatqWatchLoop](src/watcher.ps1) as M2 runs it (SPEC 7 M2): the
-//! control flow, the gates and the board native, each piece of PowerShell
-//! work a helper step (SPEC 3.6), and an open reply window handed over to the
-//! PS watcher, which listens until M3. Every input from outside and every
-//! effect goes through [Host], so a replay can stand in for the files, the
-//! clock and the steps.
+//! [Invoke-ChatqWatchLoop](src/watcher.ps1) as M3 runs it (SPEC 7): the
+//! control flow, the gates, the board and the reply poll native, each piece
+//! of PowerShell work a helper step (SPEC 3.6). An open reply window is
+//! listened to here; only a panic, or the system refusing chatqd its
+//! connect, hands over to the PS watcher. Every input
+//! from outside and every effect goes through [Host], so a replay can stand
+//! in for the files, the clock and the steps.
 
 use super::step::{self, Outcome};
 use super::wait::{mtime, wait_until};
-use super::{Ctx, KeepAwake, save_state};
+use super::{Ctx, KeepAwake, reply, save_state};
 use crate::VERSION;
+use crate::http::Fail;
 use chatq_core::board;
 use chatq_core::config::read_config;
 use chatq_core::fsx::{read_json, save_text, write_ascii_line};
@@ -34,7 +36,8 @@ pub enum Exit {
     Stopped,
     Empty,
     Restart,
-    /// the reply window is open, or a panic: the PS watcher takes over
+    /// a panic, or the system refusing chatqd a poll's connect: the PS
+    /// watcher takes over
     Handoff(String),
 }
 
@@ -81,6 +84,20 @@ pub trait Host {
     ) -> UsageSoon;
     /// [Test-ChatqReplyOpen](src/phone.ps1)
     fn reply_open(&mut self) -> bool;
+    /// [Get-ChatqReplyPollSeconds](src/phone-down.ps1)
+    fn poll_seconds(&mut self) -> u32;
+    /// [Invoke-ChatqReplyPoll](src/phone.ps1) `-MinSeconds <min_seconds>`,
+    /// as [reply::Poller::poll] runs it: how many messages were acted on
+    fn poll(&mut self, w: &mut WatchState, min_seconds: u32) -> u32;
+    /// the system refused a poll its connect ([reply::Poller::forbidden])
+    fn poll_forbidden(&mut self) -> bool {
+        false
+    }
+    /// [Get-ChatqReplyListenText](src/phone-down.ps1)
+    fn listen_text(&mut self) -> String;
+    /// [Write-ChatqBoard](src/alerts.ps1) while only listening: a `board`
+    /// step, as [reply::Poller::board] runs it
+    fn board_step(&mut self, w: &mut WatchState);
     /// [gates::repair_due] on the queue as it is
     fn repair_due(&mut self) -> bool;
     /// [gates::held_summary_due], the summary's last failed try `tried_at`
@@ -116,6 +133,7 @@ pub trait Host {
 pub struct Live<'a> {
     ctx: &'a Ctx,
     awake: KeepAwake,
+    poller: reply::Poller,
 }
 
 impl<'a> Live<'a> {
@@ -123,11 +141,18 @@ impl<'a> Live<'a> {
         Live {
             ctx,
             awake: KeepAwake::default(),
+            poller: reply::Poller::new(&ctx.seams),
         }
     }
 
     fn cfg_now(&self) -> Value {
         read_config(&self.ctx.p.config(), self.ctx.fl)
+    }
+
+    /// data/replies.json as [Read-ChatqBoardState](src/phone-down.ps1)
+    /// reads it, for the poll's cadence and the listening line.
+    fn replies_now(&self) -> Option<Value> {
+        read_json(&self.ctx.p.replies(), self.ctx.fl)
     }
 }
 
@@ -191,13 +216,39 @@ impl Host for Live<'_> {
         let p = &self.ctx.p;
         gates::reply_open(&self.cfg_now(), &p.replies(), Utc::now(), self.ctx.fl)
     }
+    fn poll_seconds(&mut self) -> u32 {
+        let st = self.replies_now();
+        gates::reply_poll_seconds(st.as_ref(), false, Utc::now(), self.ctx.fl, Zone::Local)
+    }
+    fn poll(&mut self, w: &mut WatchState, min_seconds: u32) -> u32 {
+        let ctx = self.ctx;
+        let mut step = |op: &str, w: &WatchState, args: Value| step::run(ctx, op, None, w, args);
+        self.poller.poll(ctx, w, min_seconds, Utc::now(), &mut step)
+    }
+    fn poll_forbidden(&mut self) -> bool {
+        self.poller.forbidden()
+    }
+    fn listen_text(&mut self) -> String {
+        let st = self.replies_now();
+        let (fl, culture) = (self.ctx.fl, &self.ctx.culture);
+        gates::listen_text(st.as_ref(), Utc::now(), fl, Zone::Local, culture)
+    }
+    fn board_step(&mut self, w: &mut WatchState) {
+        let ctx = self.ctx;
+        let mut step = |op: &str, w: &WatchState, args: Value| step::run(ctx, op, None, w, args);
+        self.poller.board(ctx, w, Utc::now(), &mut step);
+    }
     fn repair_due(&mut self) -> bool {
         let p = &self.ctx.p;
         gates::repair_due(&read_jobs(&p.queue_dir(), self.ctx.fl), p)
     }
     fn held_due(&mut self, tried_at: Option<Instant>) -> bool {
         let cfg = self.cfg_now();
-        gates::held_summary_due(&self.ctx.p, &cfg, tried_at, SystemTime::now(), Utc::now())
+        let now = Utc::now();
+        // the clock seam moves quiet hours only, as Get-ChatqNow does
+        let quiet_at = self.ctx.seams.clock.unwrap_or(now);
+        let (p, sys_now) = (&self.ctx.p, SystemTime::now());
+        gates::held_summary_due_quiet(p, &cfg, tried_at, sys_now, now, quiet_at, Zone::Local)
     }
     fn auto_wanted(&mut self) -> bool {
         let state = read_json(&self.ctx.p.auto_state(), self.ctx.fl);
@@ -313,6 +364,10 @@ pub fn run(h: &mut dyn Host, w: &mut WatchState) -> Exit {
     let mut t = Timers::new();
     // the ids a job not found by its own id has been named under
     let mut lost_said: HashSet<String> = HashSet::new();
+    // PowerShell's $replyWasOpen and $listening: the loop's own, so false
+    // after a restore too
+    let mut reply_was_open = false;
+    let mut listening = false;
     loop {
         if h.take_stop() {
             h.wlog("stop requested");
@@ -327,12 +382,6 @@ pub fn run(h: &mut dyn Host, w: &mut WatchState) -> Exit {
             panic!("the panic seam");
         }
         first = false;
-        // listening is M3's: the PS watcher takes over, W and the caches
-        // with it (SPEC 4.4), and a fresh -Now is left for it
-        if h.reply_open() {
-            w.handoff = true;
-            return Exit::Handoff("the phone reply window is open".into());
-        }
         let now = h.now();
         wake(h, w, &mut wake_seen, now);
 
@@ -343,6 +392,27 @@ pub fn run(h: &mut dyn Host, w: &mut WatchState) -> Exit {
                 let at = h.now();
                 w.set_summary_tried_at(at);
             }
+        }
+        // the phone's replies, while an alert that can be answered is out
+        // or listening stands: at most every poll_every, however often the
+        // loop comes round
+        let reply_open = h.reply_open();
+        if reply_was_open && !reply_open {
+            h.wlog("replies closed");
+        }
+        reply_was_open = reply_open;
+        let poll_every = if reply_open {
+            h.poll_seconds()
+        } else {
+            timers::CLOSED_POLL_SECONDS
+        };
+        let polled = if reply_open { h.poll(w, poll_every) } else { 0 };
+        // the system lets PowerShell out but not chatqd (a firewall): the
+        // PS watcher listens, W and the caches with it, as up to 0.10.20;
+        // the next chatqd to start tries again
+        if h.poll_forbidden() {
+            w.handoff = true;
+            return Exit::Handoff(Fail::Forbidden.text());
         }
         // old enough at the step's launch, as the function's own clock reads it
         let at = h.now();
@@ -376,6 +446,32 @@ pub fn run(h: &mut dyn Host, w: &mut WatchState) -> Exit {
             .filter(|j| state_in(j, &["queued"]))
             .cloned()
             .collect();
+        if queued.is_empty() && reply_open {
+            // Nothing to run, only listening: the machine may sleep, and
+            // the board and the state are written on the way in and when a
+            // reply did something, not every poll.
+            if !listening || polled > 0 {
+                h.awake(false);
+                w.current = None;
+                w.next = None;
+                w.listening = true;
+                h.save_state(w);
+                h.board_step(w);
+            }
+            if !listening {
+                listening = true;
+                let text = h.listen_text();
+                h.wlog(&format!("listening for phone replies {text}"));
+            }
+            // after a poll that acted, the next pass's MinSeconds waits
+            if polled == 0 {
+                let at = h.now();
+                h.wait(at + TimeDelta::seconds(i64::from(poll_every)));
+            }
+            continue;
+        }
+        listening = false;
+        w.listening = false;
         if queued.is_empty() {
             // Tidy up first and look once more last thing: a job queued
             // while this one is on its way out gets only a poke.
@@ -449,16 +545,14 @@ pub fn run(h: &mut dyn Host, w: &mut WatchState) -> Exit {
         next_at = soon(h, w, &queued, now, next_at);
         h.awake(timers::keep_awake(now, next_at));
         w.next = Some(stamp_utc(next_at));
-        if t.board_due(now, false, false) {
+        // listening shortens the wait, which must not rewrite the board
+        // any more often than before; both by the clock as it is now
+        let at = h.now();
+        if t.board_due(at, reply_open, polled > 0) {
             h.save_state(w);
             h.board();
         }
-        h.wait(timers::wake_at(
-            next_at,
-            now,
-            false,
-            timers::CLOSED_POLL_SECONDS,
-        ));
+        h.wait(timers::wake_at(next_at, at, reply_open, poll_every));
     }
 }
 

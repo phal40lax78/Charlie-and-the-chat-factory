@@ -9,6 +9,8 @@ publish.workspace = true
 chatq-core.workspace = true
 serde_json.workspace = true
 chrono.workspace = true
+ureq.workspace = true
+zeroize.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows = { workspace = true, features = [
@@ -17,6 +19,7 @@ windows = { workspace = true, features = [
     "Win32_System_Threading",
     "Win32_System_Power",
     "Win32_UI_WindowsAndMessaging",
+    "Win32_Networking_WinHttp",
 ] }
 
 [target.'cfg(unix)'.dependencies]

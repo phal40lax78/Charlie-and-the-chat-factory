@@ -21,6 +21,7 @@ pub mod jsonl;
 pub mod launch;
 pub mod log;
 pub mod paths;
+pub mod replyconfig;
 pub mod replystate;
 pub mod runenv;
 pub mod secret;

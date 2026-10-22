@@ -2837,6 +2837,24 @@ PowerShell wrote, or reply-state.json gains a case with such a stamp.
 **To close:** that shape pinned in reply-state.json under both editions,
 then ported.
 
+## A proxy that asks for credentials
+
+**Scope:** a system proxy that answers the poll's CONNECT with 407 (NTLM,
+Negotiate or Basic) is not authenticated to. chatqd's poll
+([Poller.poll](native/crates/chatqd/src/watch/reply.rs)) fails as
+`poll failed: proxy needs authentication` by the 10-minute rule, and says
+`proxy needs authentication` once per process in `chatqd.log`; the PS
+poll, [Get-ChatqReplyFeed](src/phone.ps1), fails too, under 5.1 and pwsh
+7 alike, so neither engine listens through such a proxy.
+
+**Why deferred:** PowerShell does not get through either, so nothing
+listens today that chatqd would stop; sending the user's Windows
+credentials means SSPI in chatqd, which no user here has asked for.
+
+**Revisit when:** If a user behind an authenticating proxy asks for
+phone replies. **To close:** SSPI Negotiate/NTLM on the CONNECT in
+[http.get](native/crates/chatqd/src/http.rs), with a fake 407 proxy case.
+
 ## A list where chatq writes an object
 
 **Scope:** PowerShell's `.name` on a list gives each item's value (member
@@ -2873,6 +2891,29 @@ from chatqd on a Mac.
 **Revisit when:** When M5 brings native runs to macOS. **To close:** a
 Unix rule for `same_name` (ordinal) and `block` (the order .NET writes),
 with env.json answers made by pwsh on a Mac.
+
+## M3 on macOS
+
+**Scope:** chatqd's listening (native/SPEC.md 7, M3) has run on Windows
+alone. On macOS [sys::system_proxy](native/crates/chatqd/src/sys/mac.rs)
+reads no proxy, so [http.get](native/crates/chatqd/src/http.rs) always
+goes direct, where the PowerShell poll,
+[Get-ChatqReplyFeed](src/phone.ps1) under pwsh, goes through the proxy
+.NET reads from the system's settings; `system-configuration` (SPEC 3.4)
+is not yet a dependency. The poll's TLS there is native-tls over
+Security.framework, never run; the listening branch, the `reply` and
+`board` steps under `pwsh` and S44's listening checklist are built for
+both Apple triples and linted, never run.
+
+**Why deferred:** no Mac here (Tier 2), and no Mac build of chatqd exists
+yet (FUTURE_WORK.md, "A native watcher's launch on a Mac"), so a Mac runs
+the PowerShell watcher and none of this code.
+
+**Revisit when:** When chatqd is first built for a Mac (native/SPEC.md
+M0's Tier 2), before a Mac build ships. **To close:** `system_proxy` read
+through `system-configuration` (`SCDynamicStoreCopyProxies`), its
+exceptions list and PAC taken as on Windows, then TESTING.md's S59 on a
+Mac.
 
 ## The M9 spike on a Mac
 

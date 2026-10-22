@@ -7,6 +7,7 @@
 
 use crate::json::{self, ieq};
 use crate::time::{Flavour, Instant, Zone, parse_stamp_in, stamp_utc};
+use crate::wire::{Handled, JunkEntry, PollCaches};
 use chrono::{DateTime, Utc};
 use serde_json::{Map, Value, json};
 
@@ -106,6 +107,14 @@ fn w_date(v: Option<&Value>) -> Option<Instant> {
     DateTime::parse_from_rfc3339(v?.as_str()?)
         .ok()
         .map(|d| d.with_timezone(&Utc))
+}
+
+/// A `ChatqReplyJunkLog` entry: `@{ At = Get-Date; Count = 0 }`.
+fn junk_entry(e: &Value) -> Option<JunkEntry> {
+    Some(JunkEntry {
+        at: w_date(json::get(Some(e), "At"))?,
+        count: json::get(Some(e), "Count")?.as_u64()?,
+    })
 }
 
 /// An entry object's `_type`, which the decoder builds and chatqd keeps.
@@ -577,6 +586,71 @@ impl WatchState {
             .insert("ChatqSummaryTriedAt".into(), stamp_utc(at).into());
     }
 
+    /// [Invoke-ChatqReplyPoll](src/phone.ps1)'s caches as `w` holds them. A
+    /// `ChatqReplyJunkLog` entry whose `At` or `Count` does not read is left
+    /// out, so its stage is logged afresh.
+    pub fn poll_caches(&self) -> PollCaches {
+        let mut handled = Handled::default();
+        for (tag, _) in self.cache("ChatqReplyHandled").0 {
+            handled.add(&tag);
+        }
+        let junk_log = self
+            .cache("ChatqReplyJunkLog")
+            .0
+            .into_iter()
+            .filter_map(|(stage, e)| Some((stage, junk_entry(&e)?)))
+            .collect();
+        let date = |name: &str| w_date(self.caches.get(name));
+        PollCaches {
+            polled_at: date("ChatqReplyPolledAt"),
+            err_at: date("ChatqReplyErrAt"),
+            bad_id_at: date("ChatqReplyBadIdAt"),
+            saved_at: date("ChatqReplySavedAt"),
+            junk_log,
+            handled,
+        }
+    }
+
+    /// Puts `c` back into `w`, touching only what it changed: a tag `w`
+    /// lacks is added (`$true`, as PowerShell sets it), a junk stage whose
+    /// entry differs is rewritten, and a Date that moved is set. Nothing is
+    /// taken away, as [Invoke-ChatqReplyPoll](src/phone.ps1) takes nothing.
+    pub fn set_poll_caches(&mut self, c: &PollCaches) {
+        let mut handled = self.cache("ChatqReplyHandled");
+        let before = handled.0.len();
+        for tag in c.handled.tags() {
+            if handled.get(tag).is_none() {
+                handled.set(tag, true.into());
+            }
+        }
+        if handled.0.len() != before {
+            self.set_cache("ChatqReplyHandled", &handled);
+        }
+        let mut junk = self.cache("ChatqReplyJunkLog");
+        let mut moved = false;
+        for (stage, e) in &c.junk_log {
+            if junk.get(stage).and_then(junk_entry) != Some(*e) {
+                let v = json!({"_type": "hashtable", "At": stamp_utc(e.at), "Count": e.count});
+                junk.set(stage, v);
+                moved = true;
+            }
+        }
+        if moved {
+            self.set_cache("ChatqReplyJunkLog", &junk);
+        }
+        for (name, at) in [
+            ("ChatqReplyPolledAt", c.polled_at),
+            ("ChatqReplyErrAt", c.err_at),
+            ("ChatqReplyBadIdAt", c.bad_id_at),
+            ("ChatqReplySavedAt", c.saved_at),
+        ] {
+            if w_date(self.caches.get(name)) != at {
+                let v = at.map_or(Value::Null, |t| stamp_utc(t).into());
+                self.caches.insert(name.into(), v);
+            }
+        }
+    }
+
     /// The `-Now` wake's `$W.blocked = @{}; $W.lastAllowed = @{}; $W.outage
     /// = @{}` in [Invoke-ChatqWatchLoop](src/watcher.ps1): the null entries
     /// and the ones chatqd only carries go too.
@@ -801,6 +875,54 @@ mod tests {
         let back = WatchState::from_w(&w).unwrap();
         assert_eq!(back.blocked, s.blocked);
         assert_eq!(back.outage, s.outage);
+    }
+
+    #[test]
+    fn the_poll_caches_cross_as_ps_keeps_them() {
+        let w = full_w();
+        let mut s = WatchState::from_w(&w).unwrap();
+        let at = w_date(Some(&w["startedAt"])).unwrap();
+        let c = s.poll_caches();
+        assert!(c.handled.contains("TAG1"), "case-blind");
+        assert_eq!(c.junk_log["fetch"], JunkEntry { at, count: 3 });
+        assert_eq!((c.polled_at, c.err_at, c.saved_at), (Some(at), None, None));
+        // unchanged, it goes back as it came
+        s.set_poll_caches(&c);
+        same(&s.to_w(), &w);
+        // a tag, a stage and a Date added; nothing taken away
+        let now = w_date(Some(&stamp_utc(Utc::now()).into())).unwrap();
+        let mut c = c;
+        c.handled.add("tag2");
+        c.handled.add("Tag1");
+        c.junk_log
+            .insert("mac".into(), JunkEntry { at: now, count: 0 });
+        c.err_at = Some(now);
+        s.set_poll_caches(&c);
+        let caches = &s.to_w()["caches"];
+        assert_eq!(
+            caches["ChatqReplyHandled"],
+            json!([{"k": "tag1", "v": true}, {"k": "tag2", "v": true}])
+        );
+        assert_eq!(
+            caches["ChatqReplyJunkLog"][1],
+            json!({"k": "mac", "v": {"_type": "hashtable", "At": stamp_utc(now), "Count": 0}})
+        );
+        same(
+            &caches["ChatqReplyJunkLog"][0],
+            &w["caches"]["ChatqReplyJunkLog"][0],
+        );
+        assert_eq!(caches["ChatqReplyErrAt"], json!(stamp_utc(now)));
+        assert_eq!(s.poll_caches(), c);
+        // an entry that does not read is no entry
+        let mut bad = full_w();
+        bad["caches"]["ChatqReplyJunkLog"][0]["v"]["Count"] = json!("3");
+        assert!(
+            WatchState::from_w(&bad)
+                .unwrap()
+                .poll_caches()
+                .junk_log
+                .is_empty()
+        );
     }
 
     #[test]

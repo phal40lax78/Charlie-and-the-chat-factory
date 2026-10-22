@@ -870,7 +870,11 @@ replies off until M3. What it saves on a real night is TESTING.md's S57,
 not yet run. A day measured on 2026-10-19 with nothing queued puts M2
 at nothing - the watcher only listened, for the live alerts' reply
 windows - M3 at about 98 MB private averaged over the day, and M9 at its
-80 MB gate at about 191 (SPEC 8, "Memory, measured"). So since
+80 MB gate at about 191 (SPEC 8, "Memory, measured"). 0.10.21 has M3:
+chatqd listens itself, a PowerShell step only for a batch that holds a
+reply, and hands over on a panic or where Windows refuses its connect;
+listening held 2.58 MB at the hour's gate (TESTING.md S59, step 1),
+steps 2-8 not yet run. So since
 2026-10-20 the order is: the M9 spike, a check of the overlay's window
 behaviours in one Rust window, run on Windows that day (TESTING.md
 S58: 6.8 MB at its gate, a go on Windows), its Mac check still to come
@@ -885,8 +889,8 @@ port of them is not planned. **Why it waits:** each milestone is its
 own release, checked as the SPEC says before the next. **To close:**
 the milestones in order.
 
-M1's vectors do not reach three things a later milestone ports, so that
-milestone's checks have to, and M2 leaves one replay to M3:
+M1's vectors do not reach two things a later milestone ports, so that
+milestone's checks have to:
 - **The tick inside a run** (M5): the heartbeat save, the in-run reply
   poll and the quick ask-landed look are an `$onTick` closure built inside
   [Invoke-ChatqJob](src/watcher.ps1). Only their constants are pinned
@@ -897,16 +901,11 @@ milestone's checks have to, and M2 leaves one replay to M3:
 - **A run's state back in PowerShell** (M5): the stream state chatqd will
   hand the post-run step is rebuilt in PowerShell only in the vector
   generator ([Test-NvStreamStateRebuild](tests/vectors/stream-state.ps1)).
-- **The listening cases of `timers.json`** (M3): chatqd's replay
-  ([timers_replay.rs](native/crates/chatqd/src/watch/timers_replay.rs))
-  runs the five cases with `openPasses` only up to their first open pass,
-  where M2 hands over to the PowerShell watcher. Once chatqd listens,
-  their passes after it must replay too.
-- **Where polling got to** (M3): [wire::poll_batch](native/crates/chatq-core/src/wire.rs)
-  says what to save ([wire::Save](native/crates/chatq-core/src/wire.rs)),
-  but [replystate.rs](native/crates/chatq-core/src/replystate.rs) does not
-  write it yet: `lastId` and `lastPolledAt` under replies.lock, then the
-  junk tags marked handled.
+
+M3 closed the other two: the listening cases of `timers.json` replay
+whole in [timers_replay.rs](native/crates/chatqd/src/watch/timers_replay.rs),
+and [replystate::use_state](native/crates/chatq-core/src/replystate.rs)
+writes where polling got to.
 
 ## The arrows' own binding after a second dot-source
 
