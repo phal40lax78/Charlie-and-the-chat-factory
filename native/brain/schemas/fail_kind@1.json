@@ -1,0 +1,14 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "n", "file", "tool", "attempt"],
+  "properties": {
+    "kind": {
+      "enum": ["none", "tests", "build", "gaveup", "loop", "revert", "timeout", "merge", "lint", "crash", "scope", "permission", "clarify", "missing"]
+    },
+    "n": { "type": ["integer", "null"] },
+    "file": { "type": ["string", "null"] },
+    "tool": { "type": ["string", "null"] },
+    "attempt": { "type": ["integer", "null"] }
+  }
+}

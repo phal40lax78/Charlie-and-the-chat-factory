@@ -1,0 +1,522 @@
+{
+  "events": [
+    {
+      "n": 1,
+      "id": "start",
+      "name": "Chat starts work",
+      "trig": "State becomes working",
+      "mood": "ready",
+      "hold": "4s",
+      "pri": "P3",
+      "cd": "3 min per chat, 10 min global",
+      "freq": "35% chance. Coalesce starts within 30 s",
+      "s": {},
+      "killer": [
+        "{project} started."
+      ],
+      "extra": [
+        {
+          "lb": "COALESCED",
+          "killer": [
+            "{count} chats started."
+          ]
+        }
+      ]
+    },
+    {
+      "n": 2,
+      "id": "m5",
+      "name": "Job hits 5 min",
+      "trig": "Working 5 min or more",
+      "mood": "ready",
+      "hold": "3s",
+      "pri": "P3",
+      "cd": "Once per job",
+      "freq": "30% chance. Skipped if #3 is also due",
+      "s": {
+        "minutes": 5
+      },
+      "killer": [
+        "{project}: {minutes} minutes."
+      ]
+    },
+    {
+      "n": 3,
+      "id": "m20",
+      "name": "Job hits 20 min",
+      "trig": "Working 20 min or more",
+      "mood": "ready",
+      "hold": "3s",
+      "pri": "P3",
+      "cd": "Once per job",
+      "freq": "60% chance",
+      "s": {
+        "minutes": 20
+      },
+      "killer": [
+        "{project}: {minutes} minutes."
+      ]
+    },
+    {
+      "n": 4,
+      "id": "m30",
+      "name": "Job hits 30 min",
+      "trig": "Working 30 min or more",
+      "mood": "sad",
+      "hold": "4s",
+      "pri": "P2",
+      "cd": "Once per job",
+      "freq": "Always. No time lines after this; badge only",
+      "s": {
+        "minutes": 30
+      },
+      "killer": [
+        "{project}: {minutes} minutes."
+      ]
+    },
+    {
+      "n": 5,
+      "id": "wait",
+      "name": "Chat waits on you",
+      "trig": "Waiting state, no prompt",
+      "mood": "ready",
+      "hold": "until handled",
+      "pri": "P1",
+      "cd": "Once per entry",
+      "freq": "One re-nag after 10 min, then badge only",
+      "s": {
+        "minutes": 12
+      },
+      "killer": [
+        "{project} is waiting."
+      ],
+      "extra": [
+        {
+          "lb": "RE-NAG, 10 MIN",
+          "killer": [
+            "{project} is still waiting."
+          ]
+        }
+      ]
+    },
+    {
+      "n": 6,
+      "id": "perm",
+      "name": "Asks permission",
+      "trig": "Permission prompt open",
+      "mood": "ready",
+      "hold": "until handled",
+      "pri": "P1",
+      "cd": "Once per entry",
+      "freq": "As #5",
+      "s": {},
+      "killer": [
+        "{project} needs permission."
+      ]
+    },
+    {
+      "n": 7,
+      "id": "ques",
+      "name": "Asks a question",
+      "trig": "Question prompt open",
+      "mood": "ready",
+      "hold": "until handled",
+      "pri": "P1",
+      "cd": "Once per entry",
+      "freq": "As #5",
+      "s": {},
+      "killer": [
+        "{project} has a question."
+      ]
+    },
+    {
+      "n": 8,
+      "id": "done",
+      "name": "Chat finishes",
+      "trig": "Working becomes done",
+      "mood": "pleased",
+      "hold": "5s",
+      "pri": "P2",
+      "cd": "2 min global",
+      "freq": "Once per chat. Coalesce: {count} chats finished",
+      "s": {
+        "minutes": 18
+      },
+      "killer": [
+        "{project} finished."
+      ],
+      "extra": [
+        {
+          "lb": "COALESCED",
+          "killer": [
+            "{count} chats finished."
+          ]
+        }
+      ]
+    },
+    {
+      "n": 9,
+      "id": "allidle",
+      "name": "All chats idle",
+      "trig": "None working for 5 min",
+      "mood": "idle",
+      "hold": "",
+      "pri": "P4",
+      "cd": "Once per idle stretch",
+      "freq": "Max 3 a day",
+      "s": {},
+      "killer": [
+        "All chats are idle."
+      ]
+    },
+    {
+      "n": 10,
+      "id": "u75",
+      "name": "Usage 75%",
+      "trig": "Provider window at 75% or more",
+      "mood": "ready",
+      "hold": "3s",
+      "pri": "P3",
+      "cd": "Once per window per provider",
+      "freq": "Always, unless capped",
+      "s": {
+        "percent": 76
+      },
+      "killer": [
+        "{provider}: {percent}% used."
+      ]
+    },
+    {
+      "n": 11,
+      "id": "u90",
+      "name": "Usage 90%",
+      "trig": "Provider window at 90% or more",
+      "mood": "sad",
+      "hold": "4s",
+      "pri": "P2",
+      "cd": "Once per window per provider",
+      "freq": "Always",
+      "s": {
+        "percent": 91
+      },
+      "killer": [
+        "{provider}: {percent}% used."
+      ]
+    },
+    {
+      "n": 12,
+      "id": "cut",
+      "name": "Limit hit (cut off)",
+      "trig": "A chat cut off by the limit",
+      "mood": "sad",
+      "hold": "6s",
+      "pri": "P1",
+      "cd": "Once per window per provider",
+      "freq": "Coalesce all cut-off chats into one line",
+      "s": {},
+      "killer": [
+        "{chat} was cut off by {provider}. Resets at {reset_time}."
+      ],
+      "extra": [
+        {
+          "lb": "COALESCED",
+          "killer": [
+            "{count} chats were cut off. Resets at {reset_time}."
+          ]
+        }
+      ]
+    },
+    {
+      "n": 13,
+      "id": "reset",
+      "name": "Limit resets",
+      "trig": "Window rolls over",
+      "mood": "pleased",
+      "hold": "5s",
+      "pri": "P2",
+      "cd": "Once per window",
+      "freq": "Only if #11 or #12 fired in that window",
+      "s": {
+        "percent": 4,
+        "hours": 4
+      },
+      "killer": [
+        "{provider} window has reset."
+      ]
+    },
+    {
+      "n": 14,
+      "id": "queue",
+      "name": "Queued prompt sends",
+      "trig": "Queue item delivered",
+      "mood": "pleased",
+      "hold": "3s",
+      "pri": "P3",
+      "cd": "5 min",
+      "freq": "50% chance",
+      "s": {
+        "count": 2
+      },
+      "killer": [
+        "{project}: queued prompt sent."
+      ]
+    },
+    {
+      "n": 15,
+      "id": "resume",
+      "name": "Auto-continue resumes",
+      "trig": "Cut-off chat resumed",
+      "mood": "pleased",
+      "hold": "5s",
+      "pri": "P2",
+      "cd": "Per resume",
+      "freq": "Coalesce resumes within 60 s",
+      "s": {},
+      "killer": [
+        "{project} resumed."
+      ]
+    },
+    {
+      "n": 16,
+      "id": "reload",
+      "name": "VS Code reload needed",
+      "trig": "Reload flag set",
+      "mood": "sad",
+      "hold": "4s",
+      "pri": "P1",
+      "cd": "Once per flag",
+      "freq": "One re-nag at 30 min, then badge only",
+      "s": {
+        "minutes": 30
+      },
+      "killer": [
+        "Reload needed. {minutes} minutes ago."
+      ]
+    },
+    {
+      "n": 17,
+      "id": "crash",
+      "name": "Crash / stop",
+      "trig": "Chat process died",
+      "mood": "sad",
+      "hold": "8s",
+      "pri": "P1",
+      "cd": "Once per chat",
+      "freq": "Always",
+      "s": {
+        "time": "14:37"
+      },
+      "killer": [
+        "{project} stopped at {time}."
+      ]
+    },
+    {
+      "n": 18,
+      "id": "o529",
+      "name": "529 overloaded",
+      "trig": "Provider returns 529",
+      "mood": "sad",
+      "hold": "4s",
+      "pri": "P2",
+      "cd": "15 min per provider",
+      "freq": "Retries in that window are silent",
+      "s": {},
+      "killer": [
+        "{provider} is overloaded."
+      ]
+    },
+    {
+      "n": 19,
+      "id": "poke",
+      "name": "Hover / click the mascot",
+      "trig": "1.5 s hover dwell, or a click",
+      "mood": "pleased",
+      "hold": "2s",
+      "pri": "P4",
+      "cd": "Hover 10 min, click 60 s",
+      "freq": "3 quick clicks get one escalation line, then 5 min silence",
+      "s": {},
+      "killer": [
+        "{waiting} chats are waiting."
+      ],
+      "extra": [
+        {
+          "lb": "AFTER 3 QUICK CLICKS",
+          "killer": [
+            "{waiting} chats are still waiting."
+          ]
+        }
+      ]
+    },
+    {
+      "n": 20,
+      "id": "drag",
+      "name": "Dragged",
+      "trig": "On drop",
+      "mood": "sad",
+      "hold": "2s, then idle",
+      "pri": "P4",
+      "cd": "10 min",
+      "freq": "Max 4 a day",
+      "s": {},
+      "killer": [
+        "Position saved."
+      ]
+    },
+    {
+      "n": 21,
+      "id": "morning",
+      "name": "First launch of the day",
+      "trig": "First start after 05:00",
+      "mood": "ready",
+      "hold": "4s",
+      "pri": "P3",
+      "cd": "Once per day",
+      "freq": "Always",
+      "s": {
+        "time": "08:55",
+        "percent": 12,
+        "count": 2
+      },
+      "killer": [
+        "Started at {time}."
+      ]
+    },
+    {
+      "n": 22,
+      "id": "late",
+      "name": "Late night",
+      "trig": "First input after 23:30 (configurable)",
+      "mood": "idle",
+      "hold": "dimmed",
+      "pri": "P4",
+      "cd": "Once per night",
+      "freq": "Fires as quiet hours begin, then quiet",
+      "s": {
+        "time": "23:47"
+      },
+      "killer": [
+        "It is {time}."
+      ]
+    },
+    {
+      "n": 23,
+      "id": "del",
+      "name": "Chat deleted",
+      "trig": "Chat removed from tracking",
+      "mood": "sad",
+      "hold": "3s",
+      "pri": "P3",
+      "cd": "5 min",
+      "freq": "Coalesce deletes within 30 s",
+      "s": {},
+      "killer": [
+        "{chat} deleted."
+      ]
+    },
+    {
+      "n": 24,
+      "id": "back",
+      "name": "Long idle, on your return",
+      "trig": "No chats and no input for 2 h",
+      "mood": "idle",
+      "hold": "",
+      "pri": "P4",
+      "cd": "Once per stretch",
+      "freq": "Fires when you return, not into an empty room. Max 2 a day",
+      "s": {
+        "hours": 3
+      },
+      "killer": [
+        "Away for {hours} hours."
+      ]
+    },
+    {
+      "n": "+",
+      "id": "mute",
+      "name": "Mute",
+      "trig": "User mutes the mascot",
+      "mood": "sad",
+      "hold": "2s",
+      "pri": "",
+      "cd": "n/a",
+      "freq": "One line, then silence",
+      "s": {},
+      "killer": [
+        "Muted."
+      ]
+    },
+    {
+      "n": "+",
+      "id": "unmute",
+      "name": "Unmute",
+      "trig": "User unmutes",
+      "mood": "pleased",
+      "hold": "2s",
+      "pri": "",
+      "cd": "n/a",
+      "freq": "One line",
+      "s": {},
+      "killer": [
+        "Unmuted."
+      ]
+    },
+    {
+      "n": "+",
+      "id": "sulk",
+      "name": "Unmute after 3+ mutes today",
+      "trig": "Third unmute in a day",
+      "mood": "sad",
+      "hold": "3s",
+      "pri": "",
+      "cd": "n/a",
+      "freq": "The sulk payoff",
+      "s": {},
+      "killer": [
+        "Unmuted."
+      ]
+    }
+  ],
+  "status": {
+    "mood": "ready",
+    "opening": "Opening {chat}.",
+    "opened": "{chat} opened.",
+    "denied": "{chat} cannot be opened from here.",
+    "deleted": "{chat} deleted.",
+    "answer": "{chat}: answered.",
+    "lock": {
+      "on": "Locked.",
+      "off": "Unlocked.",
+      "drag": "Locked. Unlock to move."
+    },
+    "relocation": "Moved to the top.",
+    "brain": {
+      "drop": {
+        "killer": "Brain unreachable. Using rules."
+      },
+      "back": "Brain: {where}.",
+      "start": "Brain: {where}.",
+      "stop": "Brain: Off.",
+      "latency": "Brain: {where}. {ms} ms."
+    },
+    "usage": {
+      "asking": "Checking usage.",
+      "done": "Usage updated at {time}."
+    },
+    "queue": {
+      "yes": "{count} chats queued.",
+      "no": "Not queued.",
+      "cont": "{chat}: will continue.",
+      "nocont": "{chat}: will not continue."
+    },
+    "reload": {
+      "yes": "{window}: reload requested.",
+      "no": "Reload postponed."
+    },
+    "console": "Console opened.",
+    "crash": {
+      "on": "Auto-restart on.",
+      "off": "Auto-restart off."
+    }
+  }
+}

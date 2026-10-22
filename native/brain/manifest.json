@@ -1,0 +1,97 @@
+{
+  "about": "chatq-brain local backend pins (SPEC.md section 7). Built into the exe by config::BUILTIN_MANIFEST; a data/brain/manifest.json that parses overrides it. server is keyed by config::server_target (<os>-<arch>), plus <target>-vulkan for the GPU opt-in (brain.json local.gpu). Every URL is pinned: llama.cpp release tags, Hugging Face resolve/<commit>. sha256 and bytes are checked on download. args are extra llama-server flags for that model. Unknown keys such as this one, license and tag are ignored by the reader.",
+  "default": "phi-4-mini-q4km",
+  "server": {
+    "windows-x86_64": {
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11808/llama-b11808-bin-win-cpu-x64.zip",
+      "sha256": "62645783bca4669dcacc8db8e67cda67cd35b5b0d27156c3c23f6666fbd7b03c",
+      "bytes": 24070183,
+      "tag": "b11808"
+    },
+    "windows-x86_64-vulkan": {
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11814/llama-b11814-bin-win-vulkan-x64.zip",
+      "sha256": "0df9335f755538317d59b3442d9b28d68635742f381cdec743221c8dca7a4040",
+      "bytes": 36867710,
+      "tag": "b11814"
+    },
+    "macos-aarch64": {
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11808/llama-b11808-bin-macos-arm64.tar.gz",
+      "sha256": "fad1d981cb7255271db900f60ff738f8ed92e36af156575b09df346ecfd53df3",
+      "bytes": 16145955,
+      "tag": "b11808"
+    },
+    "linux-x86_64": {
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11808/llama-b11808-bin-ubuntu-x64.tar.gz",
+      "sha256": "34d040fa146f6aca4a5721eee87c204f73ce33678aeeef71bd93f5c4945d789f",
+      "bytes": 22332368,
+      "tag": "b11808"
+    }
+  },
+  "models": [
+    {
+      "id": "phi-4-mini-q4km",
+      "file": "Phi-4-mini-instruct-Q4_K_M.gguf",
+      "url": "https://huggingface.co/unsloth/Phi-4-mini-instruct-GGUF/resolve/78eb92a46fc37e6b524df991ed9aca9bc6aa7b80/Phi-4-mini-instruct-Q4_K_M.gguf",
+      "sha256": "88c00229914083cd112853aab84ed51b87bdf6b9ce42f532d8c85c7c63b1730a",
+      "bytes": 2491874272,
+      "ram_mb": 3032,
+      "license": "MIT"
+    },
+    {
+      "id": "qwen3.5-4b-q4km",
+      "file": "Qwen3.5-4B-Q4_K_M.gguf",
+      "url": "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/e87f176479d0855a907a41277aca2f8ee7a09523/Qwen3.5-4B-Q4_K_M.gguf",
+      "sha256": "00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4",
+      "bytes": 2740937888,
+      "ram_mb": 3306,
+      "args": ["-rea", "off"],
+      "license": "Apache-2.0"
+    },
+    {
+      "id": "qwen3-4b-2507-q4km",
+      "file": "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+      "url": "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/a06e946bb6b655725eafa393f4a9745d460374c9/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+      "sha256": "3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597",
+      "bytes": 2497281120,
+      "ram_mb": 3038,
+      "license": "Apache-2.0"
+    },
+    {
+      "id": "gemma-3-4b-q4km",
+      "file": "gemma-3-4b-it-Q4_K_M.gguf",
+      "url": "https://huggingface.co/unsloth/gemma-3-4b-it-GGUF/resolve/5a3566e716d80f709ed7b79817eaf7733d2a1fce/gemma-3-4b-it-Q4_K_M.gguf",
+      "sha256": "04a43a22e8d2003deda5acc262f68ec1005fa76c735a9962a8c77042a74a7d19",
+      "bytes": 2489894016,
+      "ram_mb": 3030,
+      "license": "gemma"
+    },
+    {
+      "id": "qwen3-1.7b-q4km",
+      "file": "Qwen3-1.7B-Q4_K_M.gguf",
+      "url": "https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/d7f544eead698dbd1f15126ef60b45a1e1933222/Qwen3-1.7B-Q4_K_M.gguf",
+      "sha256": "b139949c5bd74937ad8ed8c8cf3d9ffb1e99c866c823204dc42c0d91fa181897",
+      "bytes": 1107409472,
+      "ram_mb": 1514,
+      "args": ["-rea", "off"],
+      "license": "Apache-2.0"
+    },
+    {
+      "id": "llama-3.2-1b-q4km",
+      "file": "Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+      "url": "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/067b946cf014b7c697f3654f621d577a3e3afd1c/Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+      "sha256": "6f85a640a97cf2bf5b8e764087b1e83da0fdb51d7c9fab7d0fece9385611df83",
+      "bytes": 807694464,
+      "ram_mb": 1100,
+      "license": "llama3.2"
+    },
+    {
+      "id": "llama-3.2-3b-q4km",
+      "file": "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+      "url": "https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/5ab33fa94d1d04e903623ae72c95d1696f09f9e8/Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+      "sha256": "6c1a2b41161032677be168d354123594c0e6e67d2b9227c84f296ad037c728ff",
+      "bytes": 2019377696,
+      "ram_mb": 2600,
+      "license": "llama3.2"
+    }
+  ]
+}

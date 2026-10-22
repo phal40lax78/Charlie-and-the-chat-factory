@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["task", "file", "error"],
+  "properties": {
+    "task": { "type": "string" },
+    "file": { "type": ["string", "null"] },
+    "error": { "type": ["string", "null"] }
+  }
+}

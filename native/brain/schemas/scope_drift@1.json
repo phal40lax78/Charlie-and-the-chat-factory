@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["drifted", "asked", "done", "extra"],
+  "properties": {
+    "drifted": { "type": "boolean" },
+    "asked": { "type": "integer", "minimum": 0 },
+    "done": { "type": "integer", "minimum": 0 },
+    "extra": { "type": "array", "items": { "type": "string" } }
+  }
+}

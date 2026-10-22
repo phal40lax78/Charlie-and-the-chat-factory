@@ -1,0 +1,57 @@
+{
+  "format": 1,
+  "id": "default",
+  "name": "Default",
+  "version": "1.0.0",
+  "author": "Hae-chan Hong",
+  "voice": "OVERLAY",
+  "tags": [
+    "neutral",
+    "en"
+  ],
+  "mascot": {
+    "w": 160,
+    "h": 128,
+    "scale": 2,
+    "anchor": [
+      80,
+      124
+    ]
+  },
+  "colours": {
+    "accent": "#5EF6FF",
+    "box": "#0E0E17",
+    "ink": "#E2DCCF",
+    "gold": "#F0B537"
+  },
+  "moods": [
+    "idle",
+    "ready",
+    "pleased",
+    "sad",
+    "smug",
+    "angry",
+    "scared"
+  ],
+  "tray": {
+    "mood": "ready",
+    "frame": 0,
+    "crop": [
+      80,
+      60,
+      160,
+      160
+    ]
+  },
+  "fallback": {
+    "smug": "ready",
+    "angry": "ready",
+    "scared": "ready",
+    "pleased": "ready",
+    "sad": "idle"
+  },
+  "modes": [
+    "killer"
+  ],
+  "maxChars": 95
+}

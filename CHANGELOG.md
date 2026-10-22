@@ -1,5 +1,69 @@
 # Changelog
 
+## 0.11.2 — Skin packs and the Brain, not wired in yet
+
+Two parts for the native overlay, in the repo and tested on their own.
+Nothing you run changes: the overlay loads neither yet.
+
+- **Skin packs: the mascot as data.** A pack is a folder - a manifest
+  (`skin.json`), one sprite atlas and its frame data per mood, the lines
+  (`lines.json`), the mood rules (`moodmap.json`) and its writer's notes -
+  in the format `docs/skin-pack.md` sets out. To install one, drop it in
+  `data/skins/<id>/`; to uninstall it, delete that folder. The overlay
+  will list packs under Skin in its menu and fall back to the default for
+  a pack that is missing or broken.
+- **The default skin.** `skins/default/` is a neutral mascot - a round
+  badge, seven moods, 24 frames each - with plain lines that only state
+  facts ("{project} finished."). `skins/tools/make_default.py` draws it
+  from code, so the repo holds no third-party art, and a writer copies
+  the folder to start a pack of their own.
+- **The Brain: a classifier beside the overlay.** `native/brain/` is
+  `chatq-brain`, a small program on its own that answers the overlay's
+  questions about a chat's last few turns over localhost. Four of them
+  go to a model: did the assistant change more than was asked
+  (`scope_drift`), did you change your mind (`contradiction`), is a
+  reply left unread (`unread_reply`), is a prompt too thin
+  (`prompt_quality`). Two - what kind of failure, and what to pull out
+  of a tool's output - stay on regex rules.
+- **Three backends, one picked.** `"backend"` in `data/brain/brain.json`
+  picks the model behind those four: `gemini` (the default, Google's
+  `gemini-3.1-flash-lite`), `anthropic` (Claude Haiku 4.5) or `local`
+  (llama.cpp on this PC). Read once at start; any other name stops the
+  Brain with an error, never a quiet fallback. Each backend's own
+  `"model"` can be set there too.
+- **Your key, in one file.** The Gemini API key goes in
+  `data/brain/gemini-key` (or `GEMINI_API_KEY`), Claude's in
+  `data/brain/anthropic-key` (or `ANTHROPIC_API_KEY`); each backend reads
+  only its own, and a key is never logged, put in a URL or answered
+  back. For Gemini a paid key is recommended: on the free tier Google
+  may use the text to improve its products. Local needs no key.
+- **Local, on request.** Nothing downloads until the menu asks
+  (`POST /install`): then a llama.cpp server and one model, each pinned
+  to a release and its sha256, resumed if cut off. Phi-4 mini is the
+  default of seven; one model stays on disk. GPU (Vulkan) is opt-in. It
+  loads on first use, unloads after 10 minutes idle, and waits rather
+  than load when free memory is short.
+- **What it costs, kept.** Each call adds a line to
+  `data/brain/usage.jsonl` - tokens, time and cost, no chat text - and
+  `/usage` sums it by day, month and all time, on all three backends.
+  About $0.17 per 1,000 calls on Gemini, an estimated $0.63 on Claude,
+  0 on local.
+- **No fallback.** When the model does not answer in time - no key, a
+  bad key, rate-limited, overloaded, offline, slower than 2.3 s (10 s
+  on local) - that event is dropped: no line, no tag. Failure kinds and extraction keep
+  their regex answer.
+- **Why not a local model, by default.** On this PC no local model beat
+  a rule that always says no by more than one case in 40, and few
+  answered within 2.5 s; Gemini 3.1 Flash-Lite got 32 of 40 verdicts
+  right, against that rule's 20, in about 1.1 s. Local is there for a
+  PC with no network or no key, later - not the one to pick now.
+- **What will ship, per question** (40 hand-labelled tails from real
+  chats, tested on the same tails the prompts were tuned on, so
+  optimistic): `unread_reply` yes, 9 of 10; `prompt_quality` the
+  weak-or-fine verdict only, 9 of 10, not its 0-3 score; `scope_drift`
+  provisionally, 8 of 10, to be checked on fresh tails; `contradiction`
+  no, 6 of 10, still calling 4 of 5 clean tails a contradiction.
+
 ## 0.11.1 — The Rust panel ships
 
 - **The VS Code extension carries the native panel.** Its package holds

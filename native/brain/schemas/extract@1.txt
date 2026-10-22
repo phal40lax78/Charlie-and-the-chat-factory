@@ -1,0 +1,1 @@
+You classify a coding-chat excerpt. Answer only the JSON. `task` is the newest user request in under 80 characters, `file` the main file involved, `error` the first error line under 120 characters. Use null when absent. Say null when unsure.

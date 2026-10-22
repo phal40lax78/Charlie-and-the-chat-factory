@@ -1,0 +1,30 @@
+{
+  "about": "extract@1 regex task: task = first line of the newest user turn cut at 80; file = first path in tool_out, else in the newest assistant turn; error = first line matching error/panicked at/Traceback/exception (tool_out first) cut at 120. Confidence 1.0.",
+  "task": "extract",
+  "cases": [
+    {"name": "task, file and error", "positive": true,
+     "input": {"turns": [{"role": "user", "text": "Fix the failing test in parser\nand be careful"}], "tool_out": "running...\nsrc/parser.rs:10: error: mismatched types\nmore"},
+     "expect": {"labels": {"task": "Fix the failing test in parser", "file": "src/parser.rs", "error": "src/parser.rs:10: error: mismatched types"}, "confidence": 1.0}},
+    {"name": "file from the assistant turn when tool_out has none", "positive": true,
+     "input": {"turns": [{"role": "user", "text": "update it"}, {"role": "assistant", "text": "I edited lib/app.ts"}], "tool_out": ""},
+     "expect": {"labels": {"file": "lib/app.ts", "error": null}}},
+    {"name": "error from the assistant turn", "positive": true,
+     "input": {"turns": [{"role": "user", "text": "go"}, {"role": "assistant", "text": "Got an error: no module x"}], "tool_out": ""},
+     "expect": {"labels": {"error": "Got an error: no module x"}}},
+    {"name": "first line cut at 80", "positive": true,
+     "input": {"turns": [{"role": "user", "text": "abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghij"}], "tool_out": ""},
+     "expect": {"labels": {"task": "abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghij"}}},
+    {"name": "rust panic line", "positive": true,
+     "input": {"turns": [], "tool_out": "thread 'main' panicked at src/main.rs:5:9:\nboom"},
+     "expect": {"labels": {"file": "src/main.rs", "error": "thread 'main' panicked at src/main.rs:5:9:"}}},
+    {"name": "newest user turn wins", "positive": true,
+     "input": {"turns": [{"role": "user", "text": "old request"}, {"role": "user", "text": "new request"}], "tool_out": ""},
+     "expect": {"labels": {"task": "new request"}}},
+    {"name": "clean output has no file and no error", "positive": false,
+     "input": {"turns": [{"role": "user", "text": "run it"}, {"role": "assistant", "text": "All good."}], "tool_out": "all good"},
+     "expect": {"labels": {"task": "run it", "file": null, "error": null}}},
+    {"name": "nothing to extract", "positive": false,
+     "input": {"turns": [], "tool_out": ""},
+     "expect": {"labels": {"task": "", "file": null, "error": null}}}
+  ]
+}

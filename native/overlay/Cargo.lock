@@ -597,7 +597,7 @@ dependencies = [
 
 [[package]]
 name = "chatq-core"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -612,7 +612,7 @@ dependencies = [
 
 [[package]]
 name = "chatq-overlay"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "chatq-core",
  "chrono",

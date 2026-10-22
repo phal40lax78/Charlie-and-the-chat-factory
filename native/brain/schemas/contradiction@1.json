@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contradicts", "earlier", "later"],
+  "properties": {
+    "contradicts": { "type": "boolean" },
+    "earlier": { "type": ["string", "null"] },
+    "later": { "type": ["string", "null"] }
+  }
+}

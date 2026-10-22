@@ -2291,6 +2291,21 @@ and the tray says so once. The next version tries native again;
 `charlie -Panel native` clears the fuse now and restarts a running
 overlay onto it.
 
+**Skins and the Brain are on their way** for the native panel, and the
+panel loads neither yet. A skin pack - the mascot's faces, lines and
+voice - will go in `data/skins/<id>/` and come out by deleting that
+folder; its format is [docs/skin-pack.md](docs/skin-pack.md), and
+`skins/default/` is the plain one built in. The Brain,
+`chatq-brain.exe` in `data/brain/` ([native/brain/README.md](native/brain/README.md)),
+asks Google's Gemini a few questions about a chat's last turns - did the
+assistant do more than asked, is a reply unread, is a prompt too thin -
+with your Gemini API key in `data/brain/gemini-key`, at about $0.17 per
+1,000 questions. `data/brain/brain.json` can pick Claude Haiku instead
+(key in `data/brain/anthropic-key`) or a local llama.cpp model the menu
+downloads; Gemini stays the default, as the local models were slower and
+weaker on this PC. When the model does not answer in time, that question
+is dropped, with nothing said.
+
 One setting the overlay reads sits at the top of `data/config.json`, not
 under `overlay`, like `liveIdle`: `autoContinue`, `"ask"` (the default),
 `"on"` or `"off"` - whether, once the limit is over, the overlay asks to

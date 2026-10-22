@@ -65,6 +65,62 @@ do differently:
   but only this PC's own answer comes from Windows itself - a real full
   screen in front is Tier 1; commands are logged by verb alone.
 
+## Skin packs and the Brain in the native overlay
+
+**Why it waits:** 0.11.2 landed both parts on their own - the pack
+format and the default skin ([docs/skin-pack.md](docs/skin-pack.md),
+`skins/default/`) and the Brain (`native/brain/`) - but the overlay
+([App](native/overlay/src/app.rs)) loads neither yet.
+- **Skins.** The four pieces of docs/skin-pack.md section 6: the loader
+  (`skin.rs`, scan and validate `data/skins/*/`, the default compiled in
+  with `include_bytes!`), the sprite animator (one decoded atlas at a
+  time), the mood switch (`moodNow`, `moodFor`, the fallback hop) and the
+  line picker; the Skin menu (Default first, the packs, Refresh, a broken
+  pack greyed with its reason) and `skin` in `overlay-state.json`. Its
+  acceptance list and `skin-*.json` vectors are in that section.
+- **The Brain client.** native/brain/SPEC.md section 8: the brain as a
+  member of `native/Cargo.toml`; Brain mode Off / Regex only / Gemini
+  with its tag; a key field that writes `data/brain/gemini-key` whole and
+  shows only present or missing, with the paid-key line beside it;
+  `/health`'s `key`, `state` and `note` in the status line; the cost from
+  `/usage` (today, month, an unpriced model's note) in the menu or hover;
+  the 2,500 ms `/classify` timeout, and every 503 dropping the event with
+  no line; the backend in `brain.json` and the local model's install
+  (`POST /install`) and `/health` progress in the menu.
+- **Late answers in local mode.** A local answer takes about 7 s on this
+  PC's CPU, so the 2,500 ms `/classify` timeout throws most of them away
+  (native/brain/SPEC.md sections 8 and 10). On `local` the overlay must
+  wait up to `local.timeout_ms` and accept an answer that comes late,
+  without holding the panel.
+- **Local and Claude never run for real.** Both are mock-tested only
+  ([supervisor::Local](native/brain/src/supervisor.rs),
+  [anthropic::call](native/brain/src/anthropic.rs)). Closing it: a
+  Tier 1 run with the user's go-ahead - a real `/install` and
+  llama-server on this PC, and live Claude calls on the 40 tails, its
+  prices checked against Anthropic's page.
+- **Closing it.** The overlay session builds both; the default skin's
+  checks in TESTING.md ("The Brain and the default skin") become its
+  loader's vectors.
+
+## The Brain's held tasks
+
+**Why it waits:** S61 (TESTING.md) scored them on the 40 tails the
+prompts were tuned on, with no held-out set, so even the good numbers
+are optimistic (native/brain/SPEC.md section 9, "Tuned prompts").
+- **`scope_drift`, shipped provisionally.** 8 of 10, 1 of 5 clean tails
+  flagged, recall 0.80. Closing it: label fresh tails, never the 40, and
+  score it again; hold it back if clean turns draw lines.
+- **`contradiction`, not shipped.** 6 of 10; it still says `contradicts`
+  on 4 of 5 clean tails - two refinements, one complaint that an
+  instruction was ignored, one quoting the assistant. An untested guess:
+  `serde_json` sends the schema's keys sorted, so the model writes the
+  verdict before the two quotes that should back it
+  ([gemini::json_schema](native/brain/src/gemini.rs)). Closing it: a
+  `contradiction@2` schema whose quote fields come first, or a stronger
+  model, scored on fresh tails; until then the overlay asks nothing for it.
+- **`prompt_quality`'s score.** Only the weak-or-fine verdict ships (9 of
+  10); the 0-3 score is right 4 of 10 (MAE 0.6) and is not shown.
+
 ## A Recent line's chip hint cut at the screen's left edge
 
 **Why it waits:** found in review for 0.10.19; it needs a narrow Recent

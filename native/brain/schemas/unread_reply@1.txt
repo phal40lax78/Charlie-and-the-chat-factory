@@ -1,0 +1,1 @@
+You classify a coding-chat excerpt. Answer only the JSON. `asked` is true when the last assistant message before the newest user message asks the user a question. `answered` is true when the newest user message actually answers it. `question` quotes the question under 120 characters; null when none. Say `asked` false when unsure.

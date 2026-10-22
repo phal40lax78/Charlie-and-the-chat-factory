@@ -1,0 +1,21 @@
+{
+  "about": "Canned answers of chatq-brain --mock for the four model-tier tasks (SPEC.md section 6). The mock has no model and no regex stand-in for these tasks; it answers these labels for any tail, tier \"model\", why \"mock:<task>@1\". The regex-tier tasks (fail_kind, extract) run the real regex layer in the mock. Every labels object validates against schemas/<task>@1.json (tests/contract.rs).",
+  "answers": {
+    "scope_drift": {
+      "labels": {"drifted": true, "asked": 1, "done": 2, "extra": ["lib/z.rs"]},
+      "confidence": 0.8
+    },
+    "contradiction": {
+      "labels": {"contradicts": true, "earlier": "Use tabs", "later": "Don't use tabs"},
+      "confidence": 0.8
+    },
+    "unread_reply": {
+      "labels": {"asked": true, "answered": false, "question": "Which file should I edit?"},
+      "confidence": 0.8
+    },
+    "prompt_quality": {
+      "labels": {"score": 1, "issues": ["vague", "no_file"]},
+      "confidence": 0.8
+    }
+  }
+}

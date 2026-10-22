@@ -282,7 +282,10 @@ permit section takes the bridge's pwsh leg from a `pwsh` on the PATH alone.
   4 points of that machine's 31.6 GB at its peak, about 1.3 GB: start one
   under 90%.
 
-What it covers (at 0.11.1, 1958 checks in `run-tests.ps1` under 5.1
+What it covers (at 0.11.2, 1975 checks in `run-tests.ps1` under 5.1
+and 1976 under pwsh 7, 491 in `extension-check.js`, 261, 138 and 39,
+211 in `cargo test`, 86 in `cargo test` of the overlay, and 152 in
+`cargo test` of the Brain; at 0.11.1, 1958 checks in `run-tests.ps1` under 5.1
 and 1959 under pwsh 7, 491 in `extension-check.js`, 261, 138 and 39,
 211 in `cargo test`, and 86 in `cargo test` of the overlay; at 0.11.0,
 1950 checks in `run-tests.ps1` under 5.1
@@ -3242,6 +3245,56 @@ What 0.11.1 adds, checked with no real VS Code and no real panel:
   (cargo-about 0.9.2) on 2026-10-22, all nine Slint crates listed under
   Royalty-free 2.0 with its text.
 
+### The Brain and the default skin (Tier 0)
+
+What 0.11.2 adds, neither of it loaded by the overlay yet:
+
+- **The Brain**, `native/brain/`, a crate of its own (its own
+  `[workspace]`, not a member of `native/Cargo.toml` until its SPEC
+  section 8), with its own target folder, `native/brain/target/`:
+
+  ```powershell
+  cargo test --manifest-path native/brain/Cargo.toml
+  ```
+
+  152 tests at 0.11.2: 71 unit tests in `src/`, 21 in
+  `tests/contract.rs`, 14 in `tests/anthropic.rs`, 5 in
+  `tests/backends.rs`, 34 in `tests/local.rs` and 7 in
+  `tests/rules_vectors.rs`. Nothing leaves 127.0.0.1, nothing is
+  downloaded and no real llama-server runs: the contract tests run the
+  real server over a socket, against `--mock`, against local stand-ins
+  for the Gemini and Anthropic APIs
+  ([testutil::MockGemini](native/brain/src/testutil.rs),
+  [testutil::MockAnthropic](native/brain/src/testutil.rs)), and for the
+  local backend against [testutil::FakeLlm](native/brain/src/testutil.rs),
+  a faked clock and memory, a pinned-file server on 127.0.0.1
+  ([testutil::FileServer](native/brain/src/testutil.rs)) and
+  [proc::ProcLlama](native/brain/src/proc.rs) launching the test-only
+  `fake-llama-server`. `tests/backends.rs` pins that `brain.json` picks
+  the backend and each its own model, and that an unknown backend exits
+  1 with no `port`; `tests/local.rs` the lazy load, idle unload, RAM
+  guard, crash against timeout, launch flags and GPU opt-in, and
+  `/install`'s sha256 check, `.part` resume, zip-slip and model swap.
+  What each file pins is in
+  [native/brain/README.md](native/brain/README.md), "Tests (Tier 0)";
+  among them, that a key travels only in its own header
+  (`x-goog-api-key`, `x-api-key`), and that no transcript text or key
+  reaches `usage.jsonl` or `brain.log`. A real local install and
+  llama-server, and a live Claude call, are untested: Tier 1, with the
+  user's go-ahead (native/brain/README.md, "Run it for real").
+- **The default skin**, `skins/default/`, is made by
+  `python -I -X utf8 skins/tools/make_default.py` and checked by hand
+  against [docs/skin-pack.md](docs/skin-pack.md), section 3's validation
+  rules, until the overlay's loader and its `skin-*.json` vectors exist:
+  format 1, the id the folder's, `idle` and `ready` among seven known
+  moods, each with its atlas and frame data, every fallback a listed
+  mood, frame over scale the mascot's size, each atlas 1920x1024 -
+  7,864,320 bytes decoded, under the 8,388,608 budget - the tray crop
+  inside a frame, an id on every event, only known slots and moods. And
+  the script run again into another folder gives the same 19 files byte
+  for byte. Run 2026-10-23: all held. It found the Brain status lines'
+  `{where}` and `{ms}` missing from the format's slot list, now added.
+
 ### The overlay in Slint, the M9 spike (S58)
 
 **S58, run 2026-10-20** on this PC - one monitor, 2560x1440 at 96 dpi,
@@ -3457,6 +3510,64 @@ native/SPEC.md 3.3's M3 row: does chatqd listening stay at or under
   after. From this finding chatqd hands such a window to the PowerShell
   watcher (CHANGELOG, 0.10.21; native/SPEC.md 8, "Deliberate
   differences"), S59 step 8 on the day.
+
+### The Brain on Gemini, the 40 tails (S61)
+
+**S61, run 2026-10-22 and 2026-10-23** on this PC by the main session,
+with the user's Gemini key in `data/brain/gemini-key`, read by the Brain
+alone and never printed. The eval set is 40 tails of the user's own
+Claude Code chats, 10 per model task (5 yes, 5 no), hand-labelled and
+scrubbed, in `data/brain-eval/tails.json`: never committed, and no text
+of theirs is in the repo. `data/brain-eval/eval_gemini.py` sends each
+through `/classify` on a release `chatq-brain.exe` and scores the key
+field and the verdict per task; the per-case rows are beside it, in
+`data/`. One question: which model tasks are good enough to ship?
+
+- **First, the request.** One call confirmed the request as built -
+  `responseJsonSchema` and `thinkingConfig` accepted, schema-valid
+  answers, 0 thought tokens. `gemini-2.5-flash-lite` answers 404 for a
+  new key.
+- **The model.** `gemini-3.5-flash-lite`, then the default, answered only
+  6 of 40 within the Brain's 2,300 ms timeout (median about 2.55 s);
+  `gemini-3.1-flash-lite` was as accurate, median about 1.2 s, 79 of 80
+  within it, and cheaper. It is the default since 2026-10-23
+  ([config::DEFAULT_MODEL](native/brain/src/config.rs)).
+- **The prompts.** `scope_drift` and `contradiction` were rewritten and
+  rerun in two rounds on 3.1 Flash-Lite, at the shipped 2,300 ms timeout
+  and a 10 s client timeout, all 40 tails and all four tasks. Round 2
+  ships. The numbers are optimistic: the prompts were checked on the same
+  40 tails they are scored on, with no held-out set.
+
+| Task (10 each) | Prompt | Correct | TP FP TN FN | Precision | Recall | Median ms | Max ms |
+|---|---|---|---|---|---|---|---|
+| `scope_drift` | before | 7 | 5 3 2 0 | 0.63 | 1.00 | 1308 | 2150 |
+| | round 2 | 8 | 4 1 4 1 | 0.80 | 0.80 | 1066 | 1279 |
+| `contradiction` | before | 5 | 5 5 0 0 | 0.50 | 1.00 | 1209 | 1438 |
+| | round 2 | 6 | 5 4 1 0 | 0.56 | 1.00 | 1061 | 1320 |
+| `unread_reply` | unchanged | 9 | 5 1 4 0 | 0.83 | 1.00 | 1076 | 1234 |
+| `prompt_quality` (verdict 9) | unchanged | 4 | 4 0 5 1 | 1.00 | 0.80 | 1011 | 1228 |
+
+- **Totals:** 27 of 40 on the key field and 32 on the verdict, against
+  20 for a rule that always says no and 24 for the best local model
+  (native/brain/SPEC.md section 9).
+- **Errors:** none. All 80 tuned answers were schema-valid 200s inside
+  the 2,300 ms timeout, client max 1,914 ms; no 429 or 503 in 243 calls.
+- **Cost,** from `/usage`: $0.0067 a round of 40, $0.17 per 1,000
+  calls; $0.036 for all 243 calls of S61.
+- **Verdicts:** ship `unread_reply`, `prompt_quality`'s weak-or-fine
+  verdict (not its score) and, provisionally, `scope_drift`; not
+  `contradiction` (FUTURE_WORK.md, "The Brain's held tasks").
+
+To run it again (Tier 1, ask first; it spends a few cents of the key's
+quota): a release build (`python -I -X utf8 native/brain/tools/package.py`,
+or `cargo build --release --manifest-path native/brain/Cargo.toml`) as
+`data/brain/chatq-brain.exe`, the key in `data/brain/gemini-key`; start
+that exe, which writes `port` and `token` beside it, then
+`python -I -X utf8 data/brain-eval/eval_gemini.py run <name>` (rows to
+`results-gemini-<name>.json`) and `... score <name>` for the table. On this PC
+the firewall lets only that exe out, so a build anywhere else fails with
+`remote error`. Stop the Brain after - Ctrl-C removes `port` and
+`token` - and check that `/usage` grew by the calls the run made.
 
 ### The headless host's sandbox audit (M9a)
 

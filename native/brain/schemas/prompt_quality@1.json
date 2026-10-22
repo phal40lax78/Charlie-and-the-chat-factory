@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["score", "issues"],
+  "properties": {
+    "score": { "type": "integer", "minimum": 0, "maximum": 3 },
+    "issues": {
+      "type": "array",
+      "items": { "enum": ["vague", "no_file", "no_goal", "no_check", "too_long"] }
+    }
+  }
+}
