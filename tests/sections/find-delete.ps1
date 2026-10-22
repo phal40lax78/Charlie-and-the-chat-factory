@@ -258,9 +258,13 @@ Check 'without src/ it names the missing parts and defines no command' (($nosrc 
 # these, each looked at: auto-continue's, which only the overlay's process
 # runs, the phone setup's window, whose launch sets CHATQ_ALLPARTS, and the
 # Mac host's stand-in, which calls the Windows host's - both defined only
-# where the three are left out. And
-# whatever reaches them is called from inside them, or is that window, and
-# never at a part's top level. A new one is a new path to look at.
+# where the three are left out - and the headless host's console, whose
+# launch sets no CHATQ_ALLPARTS: it loads the panel's and the console's
+# parts itself (Import-ChatOverlayConsoleParts), so each of its calls into
+# them sits under a test of that load or of the console it made. And
+# whatever reaches them is called from inside them, or is that window or
+# that host, both started by a launch's command, and never at a part's top
+# level. A new one is a new path to look at.
 $gtRoot = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $root 'Charlie-and-the-chat-factory.ps1'), [ref]$null, [ref]$null)
 $gtParts = @($gtRoot.Find({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -eq '$chatParts' }, $true).Right.FindAll(
         { param($n) $n -is [System.Management.Automation.Language.StringConstantExpressionAst] }, $true) | ForEach-Object { $_.Value })
@@ -291,16 +295,41 @@ do {
     foreach ($c in $gtCalls) { if ($c.From -and $gtReach.ContainsKey($c.To) -and -not $gtReach.ContainsKey($c.From)) { $gtReach[$c.From] = $true; $gtNew++ } }
 } while ($gtNew)
 $gtCalledIn = { param($n) @(foreach ($p in $gtGated) { $gtAst[$p].FindAll({ param($x) $x -is [System.Management.Automation.Language.CommandAst] -and $x.GetCommandName() -eq $n }, $true) }).Count -gt 0 }
-$gtLoose = @($gtReach.Keys | Where-Object { $n = $_; -not @($gtCalls | Where-Object { $_.From -and $_.To -eq $n }).Count -and $n -ne 'Show-ChatqPhoneSetup' -and -not (& $gtCalledIn $n) })
+$gtLoose = @($gtReach.Keys | Where-Object { $n = $_; -not @($gtCalls | Where-Object { $_.From -and $_.To -eq $n }).Count -and $n -notin 'Show-ChatqPhoneSetup', 'Start-ChatOverlayHeadlessHost' -and -not (& $gtCalledIn $n) })
 $gtTop = @($gtCalls | Where-Object { -not $_.From -and ((& $gtIn $_.To) -or $gtReach.ContainsKey($_.To)) } | ForEach-Object { $_.To })
+# the headless host's calls into them, each under an if that tests the
+# parts' load or the console it made
+$gtGuarded = {
+    param($c)
+    $n = $c
+    while ($n.Parent) {
+        $p = $n.Parent
+        if ($p -is [System.Management.Automation.Language.IfStatementAst]) {
+            foreach ($cl in $p.Clauses) { if ([object]::ReferenceEquals($cl.Item2, $n) -and $cl.Item1.Extent.Text -match '\$H\.Console|Import-ChatOverlayConsoleParts') { return $true } }
+        }
+        $n = $p
+    }
+    $false
+}
+$gtHeadless = @($gtAst['overlay-host'].FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Start-ChatOverlayHeadlessHost' }, $true))
+$gtBare = @(foreach ($c in $gtHeadless[0].FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true)) {
+        $to = $c.GetCommandName()
+        if ($to -and ((& $gtIn $to) -or $gtReach.ContainsKey($to)) -and -not (& $gtGuarded $c)) { "$to@$($c.Extent.StartLineNumber)" }
+    })
+$gtHeadlessCmd = (Get-ChatOverlayLaunch -UiExe 'C:\ui\chatq-overlay.exe').Command
 $gtWant = 'Add-ChatConsoleAutoLine>New-ChatConsoleChips,Add-ChatConsoleAutoLine>New-ChatOverlayText,Invoke-ChatConsoleDontContinue>Set-ChatConsoleStatus,' +
-'Invoke-ChatConsoleDontContinue>Update-ChatConsoleNow,Invoke-ChatOverlayAutoChip>Hide-ChatOverlayChip,Invoke-ChatOverlayAutoChip>Show-ChatOverlayBalloon,' +
+'Invoke-ChatConsoleDontContinue>Update-ChatConsoleNow,' +
 'New-ChatqPhoneSetupWindow>Get-ChatIconSource,Set-ChatConsoleAutoChat>Set-ChatConsoleStatus,Set-ChatConsoleAutoChat>Update-ChatConsoleNow,' +
-'Set-ChatConsoleAutoChat>Update-ChatConsoleTarget,Show-ChatOverlayAutoNotice>Show-ChatOverlayBalloon,Show-ChatOverlayAutoQueued>Show-ChatOverlayBalloon,' +
+'Set-ChatConsoleAutoChat>Update-ChatConsoleTarget,' +
+'Start-ChatOverlayHeadlessHost>Exit-ChatOverlayConsoleMode,Start-ChatOverlayHeadlessHost>Open-ChatOverlayHeadlessConsole,' +
+'Start-ChatOverlayHeadlessHost>Stop-ChatOverlayHeadlessConsole,Start-ChatOverlayHeadlessHost>Update-ChatOverlayHeadlessConsole,' +
+'Start-ChatOverlayHeadlessHost>Wait-ChatOverlayHeadlessConsole,' +
 'Start-ChatOverlayMacHost>Start-ChatOverlayHost'
-Check 'a shell''s load leaves out the overlay''s parts: every call into them from the rest a known one, reached from inside them or from the phone setup''s window - launched with CHATQ_ALLPARTS - and none at a top level' (
+Check 'a shell''s load leaves out the overlay''s parts: every call into them from the rest a known one, reached from inside them, from the phone setup''s window - launched with CHATQ_ALLPARTS - or from the headless host, under a test of the parts it loads itself; none at a top level' (
     $gtBridges -eq $gtWant -and -not $gtLoose.Count -and -not $gtTop.Count -and $gtReach.ContainsKey('Show-ChatqPhoneSetup') -and
-    (Get-ChatqPhoneSetupLaunch).Command -like "*CHATQ_ALLPARTS='1'*Show-ChatqPhoneSetup*") "$($gtParts.Count) / $gtBridges / loose $($gtLoose -join ',') / top $($gtTop -join ',')"
+    (Get-ChatqPhoneSetupLaunch).Command -like "*CHATQ_ALLPARTS='1'*Show-ChatqPhoneSetup*" -and
+    $gtHeadless.Count -eq 1 -and -not $gtBare.Count -and $gtReach.ContainsKey('Start-ChatOverlayHeadlessHost') -and
+    $gtHeadlessCmd -like '*Start-ChatOverlayHeadlessHost -UiExe*' -and $gtHeadlessCmd -notlike '*CHATQ_ALLPARTS=''1''*') "$($gtParts.Count) / $gtBridges / loose $($gtLoose -join ',') / top $($gtTop -join ',') / bare $($gtBare -join ',')"
 # and the load itself, in a process of its own: a shell's without them, but
 # with charlie (and chatoverlay, its alias) and chatconsole - which start or
 # tell the overlay's own process - and the console's folders the phone's

@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.11.0 — The overlay in Rust, if you want it
+
+- **`charlie -Panel native` draws the panel in Rust.** On Windows,
+  `chatq-overlay.exe` - the same panel in Rust and Slint, in a process
+  of its own - takes the WPF panel's place, the hidden PowerShell still
+  collecting the chats, doing what you click and drawing the console.
+  It is `"panel": "native"` under `overlay` in `data/config.json`; the
+  WPF panel stays the default, and `charlie -Panel ps` goes back. A
+  running overlay starts again on the one chosen.
+- **It is found beside the script, as chatqd is:**
+  `bin/<version>/x86_64-pc-windows-msvc/chatq-overlay.exe` - a
+  developer's build for now, put there by hand; none ships yet. With none
+  there, the WPF panel, and one line in `data/logs/overlay.log` saying
+  where it looked; `charlie -Panel native` says so too, and only reloads
+  a running overlay, which would come back as the WPF panel anyway.
+- **An update to a version with no build there draws the WPF panel.**
+  The overlay's restart onto the new code no longer keeps the old
+  version's build: it starts what a fresh start would.
+- **The native panel's bar has no Windows title bar.** Shown, or shown
+  again, the bar under the panel could draw a grey caption reading
+  `chatq-overlay` with a close button until it was resized: Windows
+  painted it each time the panel set its window's title. It is set
+  unseen now.
+- **The native panel logs each balloon,** with the tray up too.
+- **What you click while the native panel starts again is done.** The
+  panel says which of the overlay's commands it has carried out, and one
+  started in its place carries out the rest, none twice.
+- **A said line outlives a restart of the native panel,** shown again
+  for its whole time, as a balloon is.
+- **The console opens with no flash after the code changed.** The
+  headless host keeps the console's code as it read it when it started,
+  so the console opens in that process rather than in a restart.
+- **The console asked for as the overlay starts is kept** across a
+  restart in its first pass.
+- **A command file the overlay cannot take no longer spins it.** An
+  `overlay-cmd` that cannot be moved - held open, or denied - is tried
+  again each pass, said once in the log, and no longer wakes every wait
+  between passes at once.
+- **A full screen, as Windows answers for it.** The native panel's
+  reading of Windows' full-screen query is tested answer by answer: a
+  busy screen, a game's full screen and a presentation step it aside;
+  an app's own, quiet time and a failed query don't.
+- **The panel's sandbox runs take no hotkeys.** `tests/m9/collect.ps1`
+  and `tests/m9/audit.ps1` give their panel none unless `-Hotkey` and
+  `-ConsoleHotkey` name some, so a real panel run in them never takes
+  Ctrl+Alt+Shift+O or Q from the overlay you are using.
+
 ## 0.10.21 — The native watcher listens
 
 - **An open reply window is listened to natively - for a developer, for

@@ -172,12 +172,12 @@ menu is wanted.
 ## The tray's ask items while the menu is open
 
 **Scope:** The tray items and the keys a click answers for keep what the menu
-showed when it opened ([Update-ChatOverlayAsk](src/overlay-windows.ps1)); a
+showed when it opened ([Update-ChatOverlayAsk](src/overlay-host.ps1)); a
 chat joining the ask meanwhile waits for the next ask.
 
 **The tray's items while the menu is open.** They, and the keys a click
 answers for, keep what the menu showed when it opened
-([Update-ChatOverlayAsk](src/overlay-windows.ps1)); a chat that joins the
+([Update-ChatOverlayAsk](src/overlay-host.ps1)); a chat that joins the
 ask meanwhile waits for the next ask. **Why deferred:** a menu that
 changes under the pointer could answer for a chat never shown. **To
 close:** only if S41 shows it matters: put the menu in step as it opens.
@@ -1152,7 +1152,7 @@ window knows a tab was looked at. The marks are kept in memory alone, so a
 restart clears every dot: marks read back from a file would mean turns
 that ended while no overlay watched, which it cannot know. Since 0.10.15
 the overlay also restarts itself when it holds more than
-`overlay.restartMB` ([Update-ChatOverlayRestartDue](src/overlay-windows.ps1)),
+`overlay.restartMB` ([Update-ChatOverlayRestartDue](src/overlay-host.ps1)),
 about once a day going by one PC's log, so the dots can go that often
 with no update. Windows only:
 [Invoke-ChatOverlayCycle](src/overlay-data.ps1) skips the marking where
@@ -1830,7 +1830,7 @@ Windows PowerShell 5.1 gives them: no `COMPlus_` variable is set by
 [Start-ChatOverlayProcess](src/overlay.ps1) or
 [Start-ChatqWatcherProcess](src/watcher.ps1). The overlay's one lever on
 its heap stays the full collection every 5 minutes in
-[Invoke-ChatOverlayHeapCompact](src/overlay-windows.ps1).
+[Invoke-ChatOverlayHeapCompact](src/overlay-host.ps1).
 
 **Why deferred:** measured 2026-10-19, after Word's preview ran the PC
 out of memory and 0.10.15 brought the memory restart. 5.1 runs on .NET

@@ -1,6 +1,7 @@
 name: release
 
-# chatqd's release assets, made from test.yml's own builds and attached to
+# chatqd's release assets, and the native panel's (chatq-overlay.exe,
+# Windows only), made from test.yml's own builds and attached to
 # nothing: the unsigned dry run of native/SPEC.md 7 (M0). The real release
 # adds Authenticode signing, the v* tag trigger, build provenance and the
 # upload to the GitHub release (SPEC 4.7, 4.8), once install.ps1 fetches
@@ -23,7 +24,7 @@ jobs:
 
       - uses: actions/download-artifact@v8
         with:
-          pattern: chatqd-*
+          pattern: chatq*-*
           path: dist
 
       # the names install.ps1 will ask for (SPEC 4.7); the Mac binary's mode
@@ -34,6 +35,7 @@ jobs:
           test -n "$v"
           mkdir out
           (cd dist/chatqd-x86_64-pc-windows-msvc && zip -X "../../out/chatqd-$v-x86_64-pc-windows-msvc.zip" chatqd.exe)
+          (cd dist/chatq-overlay-x86_64-pc-windows-msvc && zip -X "../../out/chatq-overlay-$v-x86_64-pc-windows-msvc.zip" chatq-overlay.exe)
           cp dist/chatqd-universal-apple-darwin/chatqd-universal-apple-darwin.tar.gz "out/chatqd-$v-universal-apple-darwin.tar.gz"
           tar -tvzf "out/chatqd-$v-universal-apple-darwin.tar.gz" | grep -q '^-rwxr-xr-x .* chatqd$'
           (cd out && sha256sum -- * > SHA256SUMS && cat SHA256SUMS)

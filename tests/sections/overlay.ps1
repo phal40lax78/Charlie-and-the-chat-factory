@@ -1009,6 +1009,26 @@ Check '-Compact on is compact rows, -ChipDelay kept, both said; out of range ref
     $cmDefault -and -not $cm1.prompts -and $cm1.chipDelayMs -eq 250 -and ($cmSaid -join '|') -like '*compact rows: on*' -and ($cmSaid -join '|') -like '*open chip: after a 250 ms rest*' -and
     -not $cm2.prompts -and $cm2.chipDelayMs -eq 250 -and $cmdsC -match ' reload\n' -and $cm3.prompts -and $cm3.chipDelayMs -eq 600) "$($cm1.prompts) $($cm1.chipDelayMs) / $($cm2.prompts) $($cm2.chipDelayMs) / $($cm3.prompts) $($cm3.chipDelayMs) / $($cmSaid -join '|')"
 Set-ChatOverlayConfig @{ prompts = $true; chipDelayMs = 400 }
+# the panel's engine: the WPF one unless -Panel native, kept and said; native
+# with no chatq-overlay.exe staged says the WPF one stays; a running overlay
+# is restarted onto a new one, and only told to reload when it is the same -
+# or native with none staged, which would come back as the WPF one it is
+$pnDefault = (Get-ChatOverlayConfig).panel
+$cmdsN = Get-OvToldCommands { charlie -Panel native }
+Set-ChatOverlayConfig @{ panel = 'ps' }
+$pnSaid = @(charlie -Panel native 6>&1 | ForEach-Object { "$_" })
+$pn1 = (Get-ChatOverlayConfig).panel
+$cmdsP = Get-OvToldCommands { charlie -Panel ps }
+$cmdsP2 = Get-OvToldCommands { charlie -Panel ps }
+Set-ChatOverlayConfig @{ panel = 'rust' }
+$pnJunk = (Get-ChatOverlayConfig).panel
+Set-ChatOverlayConfig @{ panel = 'ps' }
+Check '-Panel native kept and said, none staged said too; a running overlay restarted onto another panel, told to reload for the same or for native with none staged; ps unless set, a panel it does not know ps' (
+    $pnDefault -eq 'ps' -and $pn1 -eq 'native' -and ($pnSaid -join '|') -like '*panel: native, chatq-overlay.exe*' -and
+    ($pnSaid -join '|') -like '*no chatq-overlay.exe under bin\*\x86_64-pc-windows-msvc beside the script - the WPF panel until one is there*' -and
+    $cmdsP -match ' restart\n' -and $cmdsP -notmatch ' reload\n' -and $cmdsP2 -match ' reload\n' -and $cmdsP2 -notmatch ' restart\n' -and
+    $cmdsN -match ' reload\n' -and $cmdsN -notmatch ' restart\n' -and
+    $pnJunk -eq 'ps' -and (Get-ChatOverlayConfig).panel -eq 'ps') "$pnDefault $pn1 $pnJunk / $($pnSaid -join '|') / $($cmdsN -replace "`n", ' | ') / $($cmdsP -replace "`n", ' | ') / $($cmdsP2 -replace "`n", ' | ')"
 $script:ChatOverlaySpawn = { $true }
 
 # the pure parts

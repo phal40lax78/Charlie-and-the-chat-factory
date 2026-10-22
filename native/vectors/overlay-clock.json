@@ -1,0 +1,418 @@
+{
+  "about": "The panel's words for a usage reset at an instant in a zone: Format-ChatOverlayReset and Format-ChatOverlayResetAt of an epoch ms, Get-ChatOverlayResetWindow of a usage's windows (a label or null), and Format-ChatOverlayTooltip of a snapshot",
+  "cases": [
+    {
+      "name": "reset none",
+      "input": {
+        "kind": "reset",
+        "now": "2026-10-15T03:00:00.0000000Z",
+        "zone": "Korea Standard Time",
+        "resetsAt": null
+      },
+      "expect": ""
+    },
+    {
+      "name": "reset zero",
+      "input": {
+        "kind": "reset",
+        "now": "2026-10-15T03:00:00.0000000Z",
+        "zone": "Korea Standard Time",
+        "resetsAt": 0
+      },
+      "expect": ""
+    },
+    {
+      "name": "reset past",
+      "input": {
+        "kind": "reset",
+        "now": "2026-10-15T03:00:00.0000000Z",
+        "zone": "Korea Standard Time",
+        "resetsAt": 1792033199000
+      },
+      "expect": "reset"
+    },
+    {
+      "name": "reset now",
+      "input": {
+        "kind": "reset",
+        "now": "2026-10-15T03:00:00.0000000Z",
+        "zone": "Korea Standard Time",
+        "resetsAt": 1792033200000
+      },
+      "expect": "reset"
+    },
+    {
+      "name": "reset in 1 ms",
+      "input": {
+        "kind": "reset",
+        "now": "2026-10-15T03:00:00.0000000Z",
+        "zone": "Korea Standard Time",
+        "resetsAt": 1792033200001
+      },
+      "expect": "1s"
+    },
+    {
+      "name": "reset in 59.4 s",
+      "input": {
+        "kind": "reset",
+        "now": "2026-10-15T03:00:00.0000000Z",
+        "zone": "Korea Standard Time",
+        "resetsAt": 1792033259400
+      },
+      "expect": "60s"
+    },
+    {
+      "name": "reset in 60 s",
+      "input": {
+        "kind": "reset",
+        "now": "2026-10-15T03:00:00.0000000Z",
+        "zone": "Korea Standard Time",
+        "resetsAt": 1792033260000
+      },
+      "expect": "1m"
+    },
+    {
+      "name": "reset in 59 m 59 s",
+      "input": {
+        "kind": "reset",
+        "now": "2026-10-15T03:00:00.0000000Z",
+        "zone": "Korea Standard Time",
+        "resetsAt": 1792036799000
+      },
+      "expect": "59m"
+    },
+    {
+      "name": "reset in 1 h",
+      "input": {
+        "kind": "reset",
+        "now": "2026-10-15T03:00:00.0000000Z",
+        "zone": "Korea Standard Time",
+        "resetsAt": 1792036800000
+      },
+      "expect": "1h 0m"
+    },
+    {
+      "name": "reset in 4 h 7 m",
+      "input": {
+        "kind": "reset",
+        "now": "2026-10-15T03:00:00.0000000Z",
+        "zone": "Korea Standard Time",
+        "resetsAt": 1792048020000
+      },
+      "expect": "4h 7m"
+    },
+    {
+      "name": "reset in 23 h 59 m",
+      "input": {
+        "kind": "reset",
+        "now": "2026-10-15T03:00:00.0000000Z",
+        "zone": "Korea Standard Time",
+        "resetsAt": 1792119540000
+      },
+      "expect": "23h 59m"
+    },
+    {
+      "name": "reset in exactly a day",
+      "input": {
+        "kind": "reset",
+        "now": "2026-10-15T03:00:00.0000000Z",
+        "zone": "Korea Standard Time",
+        "resetsAt": 1792119600000
+      },
+      "expect": "Fri 12:00"
+    },
+    {
+      "name": "reset in 3 days",
+      "input": {
+        "kind": "reset",
+        "now": "2026-10-15T03:00:00.0000000Z",
+        "zone": "Korea Standard Time",
+        "resetsAt": 1792292400000
+      },
+      "expect": "Sun 12:00"
+    },
+    {
+      "name": "reset a day off in Pacific",
+      "input": {
+        "kind": "reset",
+        "now": "2026-10-15T03:00:00.0000000Z",
+        "zone": "Pacific Standard Time",
+        "resetsAt": 1792123200000
+      },
+      "expect": "Thu 21:00"
+    },
+    {
+      "name": "resetAt none",
+      "input": {
+        "kind": "resetAt",
+        "now": "2026-10-15T03:00:00.0000000Z",
+        "zone": "Korea Standard Time",
+        "resetsAt": null
+      },
+      "expect": ""
+    },
+    {
+      "name": "resetAt past",
+      "input": {
+        "kind": "resetAt",
+        "now": "2026-10-15T03:00:00.0000000Z",
+        "zone": "Korea Standard Time",
+        "resetsAt": 1792033199999
+      },
+      "expect": ""
+    },
+    {
+      "name": "resetAt later today",
+      "input": {
+        "kind": "resetAt",
+        "now": "2026-10-15T03:00:00.0000000Z",
+        "zone": "Korea Standard Time",
+        "resetsAt": 1792040400000
+      },
+      "expect": "14:00"
+    },
+    {
+      "name": "resetAt after midnight in the zone",
+      "input": {
+        "kind": "resetAt",
+        "now": "2026-10-15T03:00:00.0000000Z",
+        "zone": "Korea Standard Time",
+        "resetsAt": 1792087200000
+      },
+      "expect": "Fri 03:00"
+    },
+    {
+      "name": "resetAt next week",
+      "input": {
+        "kind": "resetAt",
+        "now": "2026-10-15T03:00:00.0000000Z",
+        "zone": "Korea Standard Time",
+        "resetsAt": 1792638000000
+      },
+      "expect": "Thu 12:00"
+    },
+    {
+      "name": "resetAt India, later today",
+      "input": {
+        "kind": "resetAt",
+        "now": "2026-10-15T03:00:00.0000000Z",
+        "zone": "India Standard Time",
+        "resetsAt": 1792040400000
+      },
+      "expect": "10:30"
+    },
+    {
+      "name": "resetAt Pacific, across the DST end",
+      "input": {
+        "kind": "resetAt",
+        "now": "2026-11-01T07:00:00.0000000Z",
+        "zone": "Pacific Standard Time",
+        "resetsAt": 1793529000000
+      },
+      "expect": "02:30"
+    },
+    {
+      "name": "window 5h ahead",
+      "input": {
+        "kind": "window",
+        "now": "2026-10-15T03:00:00.0000000Z",
+        "zone": "Korea Standard Time",
+        "windows": [{"label": "5h", "percent": 40, "limited": false, "resetsAt": 1792036800000}]
+      },
+      "expect": "5h"
+    },
+    {
+      "name": "window week limited beats 5h",
+      "input": {
+        "kind": "window",
+        "now": "2026-10-15T03:00:00.0000000Z",
+        "zone": "Korea Standard Time",
+        "windows": [
+          {"label": "5h", "percent": 40, "limited": false, "resetsAt": 1792036800000},
+          {"label": "week", "percent": 100, "limited": true, "resetsAt": 1792206000000}
+        ]
+      },
+      "expect": "week"
+    },
+    {
+      "name": "window the later of two limited",
+      "input": {
+        "kind": "window",
+        "now": "2026-10-15T03:00:00.0000000Z",
+        "zone": "Korea Standard Time",
+        "windows": [
+          {"label": "5h", "percent": 100, "limited": true, "resetsAt": 1792036800000},
+          {"label": "week", "percent": 100, "limited": true, "resetsAt": 1792206000000}
+        ]
+      },
+      "expect": "week"
+    },
+    {
+      "name": "window 5h past",
+      "input": {
+        "kind": "window",
+        "now": "2026-10-15T03:00:00.0000000Z",
+        "zone": "Korea Standard Time",
+        "windows": [{"label": "5h", "percent": 10, "limited": false, "resetsAt": 1792033199999}]
+      },
+      "expect": null
+    },
+    {
+      "name": "window none",
+      "input": {
+        "kind": "window",
+        "now": "2026-10-15T03:00:00.0000000Z",
+        "zone": "Korea Standard Time",
+        "windows": []
+      },
+      "expect": null
+    },
+    {
+      "name": "tooltip nothing open",
+      "input": {
+        "kind": "tooltip",
+        "now": "2026-10-15T03:00:00.0000000Z",
+        "zone": "Korea Standard Time",
+        "snap": {
+          "counts": {
+            "waiting": 0,
+            "busy": 0,
+            "idle": 0,
+            "running": 0,
+            "queued": 0,
+            "needsInput": 0,
+            "cutOff": 0,
+            "unread": 0
+          },
+          "header": {"usage": [{"provider": "Claude", "windows": []}], "reload": []}
+        }
+      },
+      "expect": "Charlie: no chats open"
+    },
+    {
+      "name": "tooltip every count, 5h and its reset",
+      "input": {
+        "kind": "tooltip",
+        "now": "2026-10-15T03:00:00.0000000Z",
+        "zone": "Korea Standard Time",
+        "snap": {
+          "counts": {
+            "waiting": 1,
+            "busy": 2,
+            "idle": 3,
+            "running": 1,
+            "queued": 4,
+            "needsInput": 1,
+            "cutOff": 3,
+            "unread": 2
+          },
+          "header": {
+            "usage": [
+              {
+                "provider": "Claude",
+                "windows": [{"label": "5h", "percent": 40, "limited": false, "resetsAt": 1792036800000}]
+              }
+            ],
+            "reload": []
+          }
+        }
+      },
+      "expect": "Charlie: 2 need you, 2 new, 3 cut off, 2 working, 1 running, 3 idle, 4 queued - 5h 40%, resets 13:00"
+    },
+    {
+      "name": "tooltip week holds: no reset said",
+      "input": {
+        "kind": "tooltip",
+        "now": "2026-10-15T03:00:00.0000000Z",
+        "zone": "Korea Standard Time",
+        "snap": {
+          "counts": {
+            "waiting": 1,
+            "busy": 2,
+            "idle": 3,
+            "running": 1,
+            "queued": 4,
+            "needsInput": 1,
+            "cutOff": 3,
+            "unread": 2
+          },
+          "header": {
+            "usage": [
+              {
+                "provider": "Claude",
+                "windows": [
+                  {"label": "5h", "percent": 40, "limited": false, "resetsAt": 1792036800000},
+                  {"label": "week", "percent": 100, "limited": true, "resetsAt": 1792206000000}
+                ]
+              }
+            ],
+            "reload": []
+          }
+        }
+      },
+      "expect": "Charlie: 2 need you, 2 new, 3 cut off, 2 working, 1 running, 3 idle, 4 queued - 5h 40%"
+    },
+    {
+      "name": "tooltip reloads and an ask",
+      "input": {
+        "kind": "tooltip",
+        "now": "2026-10-15T03:00:00.0000000Z",
+        "zone": "Korea Standard Time",
+        "snap": {
+          "counts": {
+            "waiting": 1,
+            "busy": 2,
+            "idle": 3,
+            "running": 1,
+            "queued": 4,
+            "needsInput": 1,
+            "cutOff": 3,
+            "unread": 2
+          },
+          "header": {
+            "usage": [
+              {
+                "provider": "Claude",
+                "windows": [{"label": "5h", "percent": 40, "limited": false, "resetsAt": 1792036800000}]
+              }
+            ],
+            "reload": [{"pid": 10, "id": "a"}, {"pid": 11, "id": "b"}],
+            "ask": {"count": 2}
+          }
+        }
+      },
+      "expect": "Charlie: 2 need you, 2 reloads asked, 2 new, 2 can continue, 1 cut off, 2 working, 1 running, 3 idle, 4 queued - 5h 40%, reset\u2026"
+    },
+    {
+      "name": "tooltip cut to 127",
+      "input": {
+        "kind": "tooltip",
+        "now": "2026-10-15T03:00:00.0000000Z",
+        "zone": "Korea Standard Time",
+        "snap": {
+          "counts": {
+            "waiting": 1234,
+            "busy": 5678,
+            "idle": 9012,
+            "running": 3456,
+            "queued": 7890,
+            "needsInput": 1234,
+            "cutOff": 5678,
+            "unread": 9012
+          },
+          "header": {
+            "usage": [
+              {
+                "provider": "Claude",
+                "windows": [{"label": "5h", "percent": 40, "limited": false, "resetsAt": 1792036800000}]
+              }
+            ],
+            "reload": [{"pid": 10, "id": "a"}],
+            "ask": {"count": 77}
+          }
+        }
+      },
+      "expect": "Charlie: 2468 need you, 1 reload asked, 9012 new, 77 can continue, 5601 cut off, 5678 working, 3456 running, 9012 idle, 7890 q\u2026"
+    }
+  ]
+}

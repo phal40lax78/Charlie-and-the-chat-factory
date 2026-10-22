@@ -12,8 +12,10 @@ jobs:
   # chatqd, the native watcher (native/SPEC.md 6.4). Every run step is in
   # native/, where rustup finds rust-toolchain.toml and cargo finds
   # .cargo/config.toml's +crt-static, which a release build refuses to go
-  # without. The release build comes first, so the PowerShell legs get an
-  # exe to run whatever a later step finds.
+  # without. chatqd's release build comes first, so the PowerShell legs get
+  # an exe to run whatever a later step finds; the native panel's build and
+  # checks come after chatqd's, so a panel that does not build never skips
+  # them.
   native-windows:
     runs-on: windows-latest
     defaults:
@@ -65,12 +67,37 @@ jobs:
           }
           exit $bad
 
+      # the native panel, chatq-overlay.exe (native/SPEC.md 8): a workspace
+      # of its own, built and checked with chatqd's config, its release
+      # asset beside chatqd's (release.yml), its goldens in its cargo test
+      - name: Release build (overlay)
+        run: cargo build --release --locked --manifest-path overlay/Cargo.toml --target x86_64-pc-windows-msvc --target-dir target
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: chatq-overlay-x86_64-pc-windows-msvc
+          path: native/target/x86_64-pc-windows-msvc/release/chatq-overlay.exe
+          if-no-files-found: error
+
+      - name: Format (overlay)
+        run: cargo fmt --all --check --manifest-path overlay/Cargo.toml
+
+      - name: Lint (overlay)
+        run: cargo clippy --workspace --all-targets --locked --manifest-path overlay/Cargo.toml --target-dir target -- -D warnings
+
+      - name: Test (overlay)
+        run: cargo test --workspace --locked --manifest-path overlay/Cargo.toml --target-dir target
+
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-deny
 
       - name: Dependencies (cargo deny)
         run: cargo deny check
+
+      # its own deny.toml, beside its manifest
+      - name: Dependencies (cargo deny, overlay)
+        run: cargo deny --manifest-path overlay/Cargo.toml --config overlay/deny.toml check
 
   # The same on an Apple Silicon runner, plus the Intel build's tests under
   # Rosetta and the universal binary, re-signed after lipo as a release's

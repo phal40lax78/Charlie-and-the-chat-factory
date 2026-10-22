@@ -20,7 +20,7 @@ $env:CHAT_CODE_USER = $codeUser
 $env:CHATQ_CLAUDE = Join-Path $here 'fake-claude.cmd'
 $env:CHATQ_CODEX = Join-Path $here 'fake-claude.cmd'
 $env:CHATQ_WATCHER = '1'      # no auto-start from the load below
-# all 26 parts, the overlay's own among them, which a shell's load leaves
+# all 27 parts, the overlay's own among them, which a shell's load leaves
 # out - for this run and every child it starts
 $env:CHATQ_ALLPARTS = '1'
 # gh's login is this machine's, whatever the sandbox: no run - child

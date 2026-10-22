@@ -13,6 +13,7 @@ PowerShell.
 [![licence](https://img.shields.io/github/license/phal40lax78/Charlie-and-the-chat-factory)](LICENSE)
 [![PowerShell 5.1 | 7](https://img.shields.io/badge/PowerShell-5.1%20%7C%207-5391FE?logo=powershell&logoColor=white)](#requirements)
 [![sponsor: coming soon](https://img.shields.io/badge/sponsor-coming%20soon-lightgrey?logo=githubsponsors)](DEFERRED.md#sponsorship)
+<a href="https://slint.dev"><img src="https://raw.githubusercontent.com/slint-ui/slint/master/logo/MadeWithSlint-logo-whitebg.png" alt="Made with Slint" height="20"></a>
 
 ![chatq queueing a prompt for a chat picked by its title, to be sent a minute after the five-hour limit resets](docs/demo-queue.svg)
 
@@ -2253,11 +2254,28 @@ where it last stopped. The first look at a 20 MB chat reads the last 256 KB.
 Settings live in `data/config.json` under `overlay`. `charlie -Theme`,
 `-Opacity`, `-Width`, `-Rows`, `-Compact`, `-ChipDelay`, `-Recent`,
 `-UsageView`, `-Hotkey`, `-ConsoleHotkey`, `-AutoStart`, `-LiveUsage`,
-`-CopilotUsage` and `-CodexUsage` set theirs and apply them at once; after editing the file
+`-CopilotUsage`, `-CodexUsage` and `-Panel` set theirs and apply them at once; after editing the file
 by hand, `charlie -Stop` and start it again. `-Width`, `-Rows`,
 `-ChipDelay` and `-Recent` refuse a value out of range and save nothing
 from that line, as `-Opacity` does; one out of range in the file is held
 to the range.
+
+**The panel in Rust, if you want it.** On Windows the panel is the WPF
+one unless `charlie -Panel native` (`"panel": "native"` under `overlay`)
+asks for `chatq-overlay.exe`, the same panel drawn in Rust and Slint
+([native/SPEC.md](native/SPEC.md) 8), in a process of its own beside
+the hidden PowerShell, which still collects the chats, carries out what
+you click and draws the console. As with chatqd, no build of it ships
+yet - it is a developer's build for now: put one at
+`bin/<version>/x86_64-pc-windows-msvc/chatq-overlay.exe` beside
+`data/`, the version being the script's. With none there the overlay
+draws the WPF panel, says so once in `data/logs/overlay.log`, and
+`charlie -Panel native` says so too - and an overlay already running
+only reloads, as it would come back as the WPF panel anyway. Otherwise
+a running overlay starts again on the panel chosen; `charlie -Panel ps`
+goes back. After an update to a version with no build there, the
+overlay's restart onto the new code draws the WPF panel, as a fresh
+start would, never the old version's build.
 
 One setting the overlay reads sits at the top of `data/config.json`, not
 under `overlay`, like `liveIdle`: `autoContinue`, `"ask"` (the default),
@@ -2298,6 +2316,7 @@ charlie -Recent 10            # ten chats not open under the rest; 0 for none
 | `liveUsage` | `true`, `false` on macOS | `charlie -LiveUsage off` |
 | `copilotUsage` | `true` | `charlie -CopilotUsage off`: no Copilot line, and `gh` never run for it |
 | `codexUsage` | `true` | `charlie -CodexUsage off`: Codex's line only from its rollouts, and `codex app-server` never started for it |
+| `panel` | `ps` | Windows: `native` for `chatq-overlay.exe` once it is staged ([the panel in Rust](#the-overlay)), the WPF panel until then; anything else reads as `ps`. `charlie -Panel native` |
 | `usageSeconds` | 300 | how often usage is asked while a chat works - Codex's while Codex works (three times that while idle, and for Copilot); 60 at least |
 | `memoryWarn` | 95 | 0–99; the percent of Windows' commit limit in use at which the panel and the tray say memory runs short ([it says so](#the-overlay)); 0 for never |
 | `leakGB` | 2 | 0–64, parts of a GB too; how much one process grows in 10 minutes before the panel and the tray say it keeps growing, memory low or not ([it says so](#the-overlay)); 0 for never |

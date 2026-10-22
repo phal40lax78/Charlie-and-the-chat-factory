@@ -1,0 +1,185 @@
+{
+  "about": "data/overlay.json as each PowerShell's ConvertTo-Json -Depth 6 -Compress writes the cycle's snapshot (by edition): what a reader takes from it - schema, version, rows' keys and titles, Recent's titles, the usage line, the events' ids and kinds, ui.spin - and every path whose value went past depth 6 and was written as its .NET name",
+  "cases": [
+    {
+      "name": "Desktop the WPF host's",
+      "by": "Desktop",
+      "input": {
+        "text": "{\"schema\":1,\"version\":\"0.10.22\",\"pid\":1234,\"at\":1760490123123,\"header\":{\"usage\":[{\"provider\":\"Claude\",\"status\":\"live\",\"stale\":false,\"windows\":[{\"label\":\"5h\",\"percent\":42,\"severity\":\"normal\",\"limited\":false,\"resetsAt\":1760500000000}]}],\"usageText\":\"Claude 5h 42%\",\"usageWhy\":null,\"reload\":[{\"pid\":4321,\"window\":\"proj - Visual Studio Code\",\"id\":\"4321-1-k2\",\"state\":\"asked\",\"say\":\"reload?\",\"text\":\"Reload to apply\",\"count\":1}],\"liveHold\":null,\"next\":\"14:05\",\"watcher\":\"running\",\"error\":null,\"notes\":[{\"kind\":\"ask\",\"text\":\"two chats can continue\",\"tone\":\"warn\"}],\"memory\":null,\"leaks\":[],\"ask\":{\"count\":2,\"resetsAt\":1760500000000,\"keys\":[\"k1\",\"k2\"],\"restart\":0,\"cause\":\"\",\"titles\":[\"one\",\"two\"],\"left\":[]},\"autoContinue\":\"ask\",\"autoOn\":false},\"counts\":{\"waiting\":0,\"busy\":0,\"idle\":2,\"running\":0,\"queued\":0,\"needsInput\":0,\"cutOff\":0,\"unread\":0,\"auto\":0},\"config\":{\"maxRows\":8,\"recent\":3,\"opacity\":0.9,\"theme\":\"dark\",\"autoContinue\":\"ask\",\"restartMB\":400},\"commands\":[{\"id\":1,\"verb\":\"lock\",\"at\":1760490120000}],\"rows\":[{\"key\":\"s:a1\",\"kind\":\"session\",\"provider\":\"Claude\",\"status\":\"idle\",\"chat\":\"idle\",\"title\":\"first chat\",\"project\":\"proj\",\"prompt\":\"last prompt\",\"stateText\":\"idle 3m\",\"since\":1760490000000,\"sessionId\":\"sid\",\"cwd\":\"D:\\\\work\\\\proj\",\"where\":\"vscode\",\"unread\":false,\"auto\":{\"state\":\"armed\",\"at\":\"13:00\",\"why\":null},\"background\":[{\"kind\":\"workflow\",\"name\":\"nightly\"}]},{\"key\":\"j:7\",\"kind\":\"job\",\"provider\":\"Claude\",\"status\":\"idle\",\"chat\":\"idle\",\"title\":\"\ud55c\uae00 \ucc44\ud305 \ub300\uae30\uc5f4\",\"project\":\"proj\",\"prompt\":\"last prompt\",\"stateText\":\"idle 3m\",\"since\":1760490000000,\"sessionId\":\"sid\",\"cwd\":\"D:\\\\work\\\\proj\",\"where\":\"vscode\",\"unread\":false,\"auto\":{\"state\":\"armed\",\"at\":\"13:00\",\"why\":null},\"background\":[{\"kind\":\"workflow\",\"name\":\"nightly\"}]}],\"recent\":[{\"title\":\"\ucd5c\uadfc \ucc44\ud305\",\"project\":\"old\",\"stateText\":\"2h\",\"sessionId\":\"r1\",\"cwd\":\"D:\\\\old\",\"since\":1760480000000}],\"recentMore\":[]}"
+      },
+      "expect": {
+        "schema": 1,
+        "version": "0.10.22",
+        "rowKeys": ["s:a1", "j:7"],
+        "rowTitles": ["first chat", "\ud55c\uae00 \ucc44\ud305 \ub300\uae30\uc5f4"],
+        "recent": ["\ucd5c\uadfc \ucc44\ud305"],
+        "usageText": "Claude 5h 42%",
+        "events": [],
+        "spin": null,
+        "deep": []
+      }
+    },
+    {
+      "name": "Desktop the headless host's",
+      "by": "Desktop",
+      "input": {
+        "text": "{\"schema\":1,\"version\":\"0.10.22\",\"pid\":1234,\"at\":1760490123123,\"header\":{\"usage\":[{\"provider\":\"Claude\",\"status\":\"live\",\"stale\":false,\"windows\":[{\"label\":\"5h\",\"percent\":42,\"severity\":\"normal\",\"limited\":false,\"resetsAt\":1760500000000}]}],\"usageText\":\"Claude 5h 42%\",\"usageWhy\":null,\"reload\":[{\"pid\":4321,\"window\":\"proj - Visual Studio Code\",\"id\":\"4321-1-k2\",\"state\":\"asked\",\"say\":\"reload?\",\"text\":\"Reload to apply\",\"count\":1}],\"liveHold\":null,\"next\":\"14:05\",\"watcher\":\"running\",\"error\":null,\"notes\":[{\"kind\":\"ask\",\"text\":\"two chats can continue\",\"tone\":\"warn\"}],\"memory\":null,\"leaks\":[],\"ask\":{\"count\":2,\"resetsAt\":1760500000000,\"keys\":[\"k1\",\"k2\"],\"restart\":0,\"cause\":\"\",\"titles\":[\"one\",\"two\"],\"left\":[]},\"autoContinue\":\"ask\",\"autoOn\":false},\"counts\":{\"waiting\":0,\"busy\":0,\"idle\":2,\"running\":0,\"queued\":0,\"needsInput\":0,\"cutOff\":0,\"unread\":0,\"auto\":0},\"config\":{\"maxRows\":8,\"recent\":3,\"opacity\":0.9,\"theme\":\"dark\",\"autoContinue\":\"ask\",\"restartMB\":400},\"commands\":[{\"id\":1,\"verb\":\"lock\",\"at\":1760490120000}],\"rows\":[{\"key\":\"s:a1\",\"kind\":\"session\",\"provider\":\"Claude\",\"status\":\"idle\",\"chat\":\"idle\",\"title\":\"first chat\",\"project\":\"proj\",\"prompt\":\"last prompt\",\"stateText\":\"idle 3m\",\"since\":1760490000000,\"sessionId\":\"sid\",\"cwd\":\"D:\\\\work\\\\proj\",\"where\":\"vscode\",\"unread\":false,\"auto\":{\"state\":\"armed\",\"at\":\"13:00\",\"why\":null},\"background\":[{\"kind\":\"workflow\",\"name\":\"nightly\"}]},{\"key\":\"j:7\",\"kind\":\"job\",\"provider\":\"Claude\",\"status\":\"idle\",\"chat\":\"idle\",\"title\":\"\ud55c\uae00 \ucc44\ud305 \ub300\uae30\uc5f4\",\"project\":\"proj\",\"prompt\":\"last prompt\",\"stateText\":\"idle 3m\",\"since\":1760490000000,\"sessionId\":\"sid\",\"cwd\":\"D:\\\\work\\\\proj\",\"where\":\"vscode\",\"unread\":false,\"auto\":{\"state\":\"armed\",\"at\":\"13:00\",\"why\":null},\"background\":[{\"kind\":\"workflow\",\"name\":\"nightly\"}]}],\"recent\":[{\"title\":\"\ucd5c\uadfc \ucc44\ud305\",\"project\":\"old\",\"stateText\":\"2h\",\"sessionId\":\"r1\",\"cwd\":\"D:\\\\old\",\"since\":1760480000000}],\"recentMore\":[],\"ui\":{\"spin\":true},\"events\":[{\"id\":\"1760490000000-1\",\"at\":1760490001000,\"kind\":\"balloon\",\"click\":\"ask\",\"icon\":\"None\",\"keys\":[\"k1\",\"k2\"],\"ms\":10000,\"text\":\"two chats can continue\",\"title\":\"Charlie\"}]}"
+      },
+      "expect": {
+        "schema": 1,
+        "version": "0.10.22",
+        "rowKeys": ["s:a1", "j:7"],
+        "rowTitles": ["first chat", "\ud55c\uae00 \ucc44\ud305 \ub300\uae30\uc5f4"],
+        "recent": ["\ucd5c\uadfc \ucc44\ud305"],
+        "usageText": "Claude 5h 42%",
+        "events": ["1760490000000-1 balloon"],
+        "spin": true,
+        "deep": []
+      }
+    },
+    {
+      "name": "Desktop no rows",
+      "by": "Desktop",
+      "input": {
+        "text": "{\"schema\":1,\"version\":\"0.10.22\",\"pid\":1234,\"at\":1760490123123,\"header\":{\"usage\":[{\"provider\":\"Claude\",\"status\":\"live\",\"stale\":false,\"windows\":[{\"label\":\"5h\",\"percent\":42,\"severity\":\"normal\",\"limited\":false,\"resetsAt\":1760500000000}]}],\"usageText\":\"Claude 5h 42%\",\"usageWhy\":null,\"reload\":[{\"pid\":4321,\"window\":\"proj - Visual Studio Code\",\"id\":\"4321-1-k2\",\"state\":\"asked\",\"say\":\"reload?\",\"text\":\"Reload to apply\",\"count\":1}],\"liveHold\":null,\"next\":\"14:05\",\"watcher\":\"running\",\"error\":null,\"notes\":[{\"kind\":\"ask\",\"text\":\"two chats can continue\",\"tone\":\"warn\"}],\"memory\":null,\"leaks\":[],\"ask\":{\"count\":2,\"resetsAt\":1760500000000,\"keys\":[\"k1\",\"k2\"],\"restart\":0,\"cause\":\"\",\"titles\":[\"one\",\"two\"],\"left\":[]},\"autoContinue\":\"ask\",\"autoOn\":false},\"counts\":{\"waiting\":0,\"busy\":0,\"idle\":0,\"running\":0,\"queued\":0,\"needsInput\":0,\"cutOff\":0,\"unread\":0,\"auto\":0},\"config\":{\"maxRows\":8,\"recent\":3,\"opacity\":0.9,\"theme\":\"dark\",\"autoContinue\":\"ask\",\"restartMB\":400},\"commands\":[{\"id\":1,\"verb\":\"lock\",\"at\":1760490120000}],\"rows\":[],\"recent\":[{\"title\":\"\ucd5c\uadfc \ucc44\ud305\",\"project\":\"old\",\"stateText\":\"2h\",\"sessionId\":\"r1\",\"cwd\":\"D:\\\\old\",\"since\":1760480000000}],\"recentMore\":[],\"ui\":{\"spin\":true},\"events\":[{\"id\":\"1760490000000-1\",\"at\":1760490001000,\"kind\":\"balloon\",\"click\":\"ask\",\"icon\":\"None\",\"keys\":[\"k1\",\"k2\"],\"ms\":10000,\"text\":\"two chats can continue\",\"title\":\"Charlie\"}]}"
+      },
+      "expect": {
+        "schema": 1,
+        "version": "0.10.22",
+        "rowKeys": [],
+        "rowTitles": [],
+        "recent": ["\ucd5c\uadfc \ucc44\ud305"],
+        "usageText": "Claude 5h 42%",
+        "events": ["1760490000000-1 balloon"],
+        "spin": true,
+        "deep": []
+      }
+    },
+    {
+      "name": "Desktop a row too deep",
+      "by": "Desktop",
+      "input": {
+        "text": "{\"schema\":1,\"version\":\"0.10.22\",\"pid\":1234,\"at\":1760490123123,\"header\":{\"usage\":[{\"provider\":\"Claude\",\"status\":\"live\",\"stale\":false,\"windows\":[{\"label\":\"5h\",\"percent\":42,\"severity\":\"normal\",\"limited\":false,\"resetsAt\":1760500000000}]}],\"usageText\":\"Claude 5h 42%\",\"usageWhy\":null,\"reload\":[{\"pid\":4321,\"window\":\"proj - Visual Studio Code\",\"id\":\"4321-1-k2\",\"state\":\"asked\",\"say\":\"reload?\",\"text\":\"Reload to apply\",\"count\":1}],\"liveHold\":null,\"next\":\"14:05\",\"watcher\":\"running\",\"error\":null,\"notes\":[{\"kind\":\"ask\",\"text\":\"two chats can continue\",\"tone\":\"warn\"}],\"memory\":null,\"leaks\":[],\"ask\":{\"count\":2,\"resetsAt\":1760500000000,\"keys\":[\"k1\",\"k2\"],\"restart\":0,\"cause\":\"\",\"titles\":[\"one\",\"two\"],\"left\":[]},\"autoContinue\":\"ask\",\"autoOn\":false},\"counts\":{\"waiting\":0,\"busy\":0,\"idle\":1,\"running\":0,\"queued\":0,\"needsInput\":0,\"cutOff\":0,\"unread\":0,\"auto\":0},\"config\":{\"maxRows\":8,\"recent\":3,\"opacity\":0.9,\"theme\":\"dark\",\"autoContinue\":\"ask\",\"restartMB\":400},\"commands\":[{\"id\":1,\"verb\":\"lock\",\"at\":1760490120000}],\"rows\":[{\"key\":\"s:d1\",\"kind\":\"session\",\"provider\":\"Claude\",\"status\":\"idle\",\"chat\":\"idle\",\"title\":\"too deep\",\"project\":\"proj\",\"prompt\":\"last prompt\",\"stateText\":\"idle 3m\",\"since\":1760490000000,\"sessionId\":\"sid\",\"cwd\":\"D:\\\\work\\\\proj\",\"where\":\"vscode\",\"unread\":false,\"auto\":{\"state\":\"armed\",\"at\":\"13:00\",\"why\":null},\"background\":[{\"kind\":\"workflow\",\"detail\":{\"steps\":[\"System.Collections.Specialized.OrderedDictionary\"]}}]}],\"recent\":[{\"title\":\"\ucd5c\uadfc \ucc44\ud305\",\"project\":\"old\",\"stateText\":\"2h\",\"sessionId\":\"r1\",\"cwd\":\"D:\\\\old\",\"since\":1760480000000}],\"recentMore\":[],\"ui\":{\"spin\":true},\"events\":[{\"id\":\"1760490000000-1\",\"at\":1760490001000,\"kind\":\"balloon\",\"click\":\"ask\",\"icon\":\"None\",\"keys\":[\"k1\",\"k2\"],\"ms\":10000,\"text\":\"two chats can continue\",\"title\":\"Charlie\"}]}"
+      },
+      "expect": {
+        "schema": 1,
+        "version": "0.10.22",
+        "rowKeys": ["s:d1"],
+        "rowTitles": ["too deep"],
+        "recent": ["\ucd5c\uadfc \ucc44\ud305"],
+        "usageText": "Claude 5h 42%",
+        "events": ["1760490000000-1 balloon"],
+        "spin": true,
+        "deep": ["rows[0].background[0].detail.steps[0]"]
+      }
+    },
+    {
+      "name": "Desktop escapes",
+      "by": "Desktop",
+      "input": {
+        "text": "{\"schema\":1,\"version\":\"0.10.22\",\"pid\":1234,\"at\":1760490123123,\"header\":{\"usage\":[{\"provider\":\"Claude\",\"status\":\"live\",\"stale\":false,\"windows\":[{\"label\":\"5h\",\"percent\":42,\"severity\":\"normal\",\"limited\":false,\"resetsAt\":1760500000000}]}],\"usageText\":\"Claude 5h 42%\",\"usageWhy\":null,\"reload\":[{\"pid\":4321,\"window\":\"proj - Visual Studio Code\",\"id\":\"4321-1-k2\",\"state\":\"asked\",\"say\":\"reload?\",\"text\":\"Reload to apply\",\"count\":1}],\"liveHold\":null,\"next\":\"14:05\",\"watcher\":\"running\",\"error\":null,\"notes\":[{\"kind\":\"ask\",\"text\":\"two chats can continue\",\"tone\":\"warn\"}],\"memory\":null,\"leaks\":[],\"ask\":{\"count\":2,\"resetsAt\":1760500000000,\"keys\":[\"k1\",\"k2\"],\"restart\":0,\"cause\":\"\",\"titles\":[\"one\",\"two\"],\"left\":[]},\"autoContinue\":\"ask\",\"autoOn\":false},\"counts\":{\"waiting\":0,\"busy\":0,\"idle\":1,\"running\":0,\"queued\":0,\"needsInput\":0,\"cutOff\":0,\"unread\":0,\"auto\":0},\"config\":{\"maxRows\":8,\"recent\":3,\"opacity\":0.9,\"theme\":\"dark\",\"autoContinue\":\"ask\",\"restartMB\":400},\"commands\":[{\"id\":1,\"verb\":\"lock\",\"at\":1760490120000}],\"rows\":[{\"key\":\"c:q\\\"1\",\"kind\":\"session\",\"provider\":\"Claude\",\"status\":\"idle\",\"chat\":\"idle\",\"title\":\"quote \\\" back \\\\ slash \\u003ctag\\u003e \\u0026 \u2026\",\"project\":\"proj\",\"prompt\":\"last prompt\",\"stateText\":\"idle 3m\",\"since\":1760490000000,\"sessionId\":\"sid\",\"cwd\":\"D:\\\\work\\\\proj\",\"where\":\"vscode\",\"unread\":false,\"auto\":{\"state\":\"armed\",\"at\":\"13:00\",\"why\":null},\"background\":[{\"kind\":\"workflow\",\"name\":\"nightly\"}]}],\"recent\":[{\"title\":\"\ucd5c\uadfc \ucc44\ud305\",\"project\":\"old\",\"stateText\":\"2h\",\"sessionId\":\"r1\",\"cwd\":\"D:\\\\old\",\"since\":1760480000000}],\"recentMore\":[],\"ui\":{\"spin\":true},\"events\":[{\"id\":\"1760490000000-1\",\"at\":1760490001000,\"kind\":\"balloon\",\"click\":\"ask\",\"icon\":\"None\",\"keys\":[\"k1\",\"k2\"],\"ms\":10000,\"text\":\"two chats can continue\",\"title\":\"Charlie\"}]}"
+      },
+      "expect": {
+        "schema": 1,
+        "version": "0.10.22",
+        "rowKeys": ["c:q\"1"],
+        "rowTitles": ["quote \" back \\ slash <tag> & \u2026"],
+        "recent": ["\ucd5c\uadfc \ucc44\ud305"],
+        "usageText": "Claude 5h 42%",
+        "events": ["1760490000000-1 balloon"],
+        "spin": true,
+        "deep": []
+      }
+    },
+    {
+      "name": "Core the WPF host's",
+      "by": "Core",
+      "input": {
+        "text": "{\"schema\":1,\"version\":\"0.10.22\",\"pid\":1234,\"at\":1760490123123,\"header\":{\"usage\":[{\"provider\":\"Claude\",\"status\":\"live\",\"stale\":false,\"windows\":[{\"label\":\"5h\",\"percent\":42,\"severity\":\"normal\",\"limited\":false,\"resetsAt\":1760500000000}]}],\"usageText\":\"Claude 5h 42%\",\"usageWhy\":null,\"reload\":[{\"pid\":4321,\"window\":\"proj - Visual Studio Code\",\"id\":\"4321-1-k2\",\"state\":\"asked\",\"say\":\"reload?\",\"text\":\"Reload to apply\",\"count\":1}],\"liveHold\":null,\"next\":\"14:05\",\"watcher\":\"running\",\"error\":null,\"notes\":[{\"kind\":\"ask\",\"text\":\"two chats can continue\",\"tone\":\"warn\"}],\"memory\":null,\"leaks\":[],\"ask\":{\"count\":2,\"resetsAt\":1760500000000,\"keys\":[\"k1\",\"k2\"],\"restart\":0,\"cause\":\"\",\"titles\":[\"one\",\"two\"],\"left\":[]},\"autoContinue\":\"ask\",\"autoOn\":false},\"counts\":{\"waiting\":0,\"busy\":0,\"idle\":2,\"running\":0,\"queued\":0,\"needsInput\":0,\"cutOff\":0,\"unread\":0,\"auto\":0},\"config\":{\"maxRows\":8,\"recent\":3,\"opacity\":0.9,\"theme\":\"dark\",\"autoContinue\":\"ask\",\"restartMB\":400},\"commands\":[{\"id\":1,\"verb\":\"lock\",\"at\":1760490120000}],\"rows\":[{\"key\":\"s:a1\",\"kind\":\"session\",\"provider\":\"Claude\",\"status\":\"idle\",\"chat\":\"idle\",\"title\":\"first chat\",\"project\":\"proj\",\"prompt\":\"last prompt\",\"stateText\":\"idle 3m\",\"since\":1760490000000,\"sessionId\":\"sid\",\"cwd\":\"D:\\\\work\\\\proj\",\"where\":\"vscode\",\"unread\":false,\"auto\":{\"state\":\"armed\",\"at\":\"13:00\",\"why\":null},\"background\":[{\"kind\":\"workflow\",\"name\":\"nightly\"}]},{\"key\":\"j:7\",\"kind\":\"job\",\"provider\":\"Claude\",\"status\":\"idle\",\"chat\":\"idle\",\"title\":\"\ud55c\uae00 \ucc44\ud305 \ub300\uae30\uc5f4\",\"project\":\"proj\",\"prompt\":\"last prompt\",\"stateText\":\"idle 3m\",\"since\":1760490000000,\"sessionId\":\"sid\",\"cwd\":\"D:\\\\work\\\\proj\",\"where\":\"vscode\",\"unread\":false,\"auto\":{\"state\":\"armed\",\"at\":\"13:00\",\"why\":null},\"background\":[{\"kind\":\"workflow\",\"name\":\"nightly\"}]}],\"recent\":[{\"title\":\"\ucd5c\uadfc \ucc44\ud305\",\"project\":\"old\",\"stateText\":\"2h\",\"sessionId\":\"r1\",\"cwd\":\"D:\\\\old\",\"since\":1760480000000}],\"recentMore\":[]}"
+      },
+      "expect": {
+        "schema": 1,
+        "version": "0.10.22",
+        "rowKeys": ["s:a1", "j:7"],
+        "rowTitles": ["first chat", "\ud55c\uae00 \ucc44\ud305 \ub300\uae30\uc5f4"],
+        "recent": ["\ucd5c\uadfc \ucc44\ud305"],
+        "usageText": "Claude 5h 42%",
+        "events": [],
+        "spin": null,
+        "deep": []
+      }
+    },
+    {
+      "name": "Core the headless host's",
+      "by": "Core",
+      "input": {
+        "text": "{\"schema\":1,\"version\":\"0.10.22\",\"pid\":1234,\"at\":1760490123123,\"header\":{\"usage\":[{\"provider\":\"Claude\",\"status\":\"live\",\"stale\":false,\"windows\":[{\"label\":\"5h\",\"percent\":42,\"severity\":\"normal\",\"limited\":false,\"resetsAt\":1760500000000}]}],\"usageText\":\"Claude 5h 42%\",\"usageWhy\":null,\"reload\":[{\"pid\":4321,\"window\":\"proj - Visual Studio Code\",\"id\":\"4321-1-k2\",\"state\":\"asked\",\"say\":\"reload?\",\"text\":\"Reload to apply\",\"count\":1}],\"liveHold\":null,\"next\":\"14:05\",\"watcher\":\"running\",\"error\":null,\"notes\":[{\"kind\":\"ask\",\"text\":\"two chats can continue\",\"tone\":\"warn\"}],\"memory\":null,\"leaks\":[],\"ask\":{\"count\":2,\"resetsAt\":1760500000000,\"keys\":[\"k1\",\"k2\"],\"restart\":0,\"cause\":\"\",\"titles\":[\"one\",\"two\"],\"left\":[]},\"autoContinue\":\"ask\",\"autoOn\":false},\"counts\":{\"waiting\":0,\"busy\":0,\"idle\":2,\"running\":0,\"queued\":0,\"needsInput\":0,\"cutOff\":0,\"unread\":0,\"auto\":0},\"config\":{\"maxRows\":8,\"recent\":3,\"opacity\":0.9,\"theme\":\"dark\",\"autoContinue\":\"ask\",\"restartMB\":400},\"commands\":[{\"id\":1,\"verb\":\"lock\",\"at\":1760490120000}],\"rows\":[{\"key\":\"s:a1\",\"kind\":\"session\",\"provider\":\"Claude\",\"status\":\"idle\",\"chat\":\"idle\",\"title\":\"first chat\",\"project\":\"proj\",\"prompt\":\"last prompt\",\"stateText\":\"idle 3m\",\"since\":1760490000000,\"sessionId\":\"sid\",\"cwd\":\"D:\\\\work\\\\proj\",\"where\":\"vscode\",\"unread\":false,\"auto\":{\"state\":\"armed\",\"at\":\"13:00\",\"why\":null},\"background\":[{\"kind\":\"workflow\",\"name\":\"nightly\"}]},{\"key\":\"j:7\",\"kind\":\"job\",\"provider\":\"Claude\",\"status\":\"idle\",\"chat\":\"idle\",\"title\":\"\ud55c\uae00 \ucc44\ud305 \ub300\uae30\uc5f4\",\"project\":\"proj\",\"prompt\":\"last prompt\",\"stateText\":\"idle 3m\",\"since\":1760490000000,\"sessionId\":\"sid\",\"cwd\":\"D:\\\\work\\\\proj\",\"where\":\"vscode\",\"unread\":false,\"auto\":{\"state\":\"armed\",\"at\":\"13:00\",\"why\":null},\"background\":[{\"kind\":\"workflow\",\"name\":\"nightly\"}]}],\"recent\":[{\"title\":\"\ucd5c\uadfc \ucc44\ud305\",\"project\":\"old\",\"stateText\":\"2h\",\"sessionId\":\"r1\",\"cwd\":\"D:\\\\old\",\"since\":1760480000000}],\"recentMore\":[],\"ui\":{\"spin\":true},\"events\":[{\"id\":\"1760490000000-1\",\"at\":1760490001000,\"kind\":\"balloon\",\"click\":\"ask\",\"icon\":\"None\",\"keys\":[\"k1\",\"k2\"],\"ms\":10000,\"text\":\"two chats can continue\",\"title\":\"Charlie\"}]}"
+      },
+      "expect": {
+        "schema": 1,
+        "version": "0.10.22",
+        "rowKeys": ["s:a1", "j:7"],
+        "rowTitles": ["first chat", "\ud55c\uae00 \ucc44\ud305 \ub300\uae30\uc5f4"],
+        "recent": ["\ucd5c\uadfc \ucc44\ud305"],
+        "usageText": "Claude 5h 42%",
+        "events": ["1760490000000-1 balloon"],
+        "spin": true,
+        "deep": []
+      }
+    },
+    {
+      "name": "Core no rows",
+      "by": "Core",
+      "input": {
+        "text": "{\"schema\":1,\"version\":\"0.10.22\",\"pid\":1234,\"at\":1760490123123,\"header\":{\"usage\":[{\"provider\":\"Claude\",\"status\":\"live\",\"stale\":false,\"windows\":[{\"label\":\"5h\",\"percent\":42,\"severity\":\"normal\",\"limited\":false,\"resetsAt\":1760500000000}]}],\"usageText\":\"Claude 5h 42%\",\"usageWhy\":null,\"reload\":[{\"pid\":4321,\"window\":\"proj - Visual Studio Code\",\"id\":\"4321-1-k2\",\"state\":\"asked\",\"say\":\"reload?\",\"text\":\"Reload to apply\",\"count\":1}],\"liveHold\":null,\"next\":\"14:05\",\"watcher\":\"running\",\"error\":null,\"notes\":[{\"kind\":\"ask\",\"text\":\"two chats can continue\",\"tone\":\"warn\"}],\"memory\":null,\"leaks\":[],\"ask\":{\"count\":2,\"resetsAt\":1760500000000,\"keys\":[\"k1\",\"k2\"],\"restart\":0,\"cause\":\"\",\"titles\":[\"one\",\"two\"],\"left\":[]},\"autoContinue\":\"ask\",\"autoOn\":false},\"counts\":{\"waiting\":0,\"busy\":0,\"idle\":0,\"running\":0,\"queued\":0,\"needsInput\":0,\"cutOff\":0,\"unread\":0,\"auto\":0},\"config\":{\"maxRows\":8,\"recent\":3,\"opacity\":0.9,\"theme\":\"dark\",\"autoContinue\":\"ask\",\"restartMB\":400},\"commands\":[{\"id\":1,\"verb\":\"lock\",\"at\":1760490120000}],\"rows\":[],\"recent\":[{\"title\":\"\ucd5c\uadfc \ucc44\ud305\",\"project\":\"old\",\"stateText\":\"2h\",\"sessionId\":\"r1\",\"cwd\":\"D:\\\\old\",\"since\":1760480000000}],\"recentMore\":[],\"ui\":{\"spin\":true},\"events\":[{\"id\":\"1760490000000-1\",\"at\":1760490001000,\"kind\":\"balloon\",\"click\":\"ask\",\"icon\":\"None\",\"keys\":[\"k1\",\"k2\"],\"ms\":10000,\"text\":\"two chats can continue\",\"title\":\"Charlie\"}]}"
+      },
+      "expect": {
+        "schema": 1,
+        "version": "0.10.22",
+        "rowKeys": [],
+        "rowTitles": [],
+        "recent": ["\ucd5c\uadfc \ucc44\ud305"],
+        "usageText": "Claude 5h 42%",
+        "events": ["1760490000000-1 balloon"],
+        "spin": true,
+        "deep": []
+      }
+    },
+    {
+      "name": "Core a row too deep",
+      "by": "Core",
+      "input": {
+        "text": "{\"schema\":1,\"version\":\"0.10.22\",\"pid\":1234,\"at\":1760490123123,\"header\":{\"usage\":[{\"provider\":\"Claude\",\"status\":\"live\",\"stale\":false,\"windows\":[{\"label\":\"5h\",\"percent\":42,\"severity\":\"normal\",\"limited\":false,\"resetsAt\":1760500000000}]}],\"usageText\":\"Claude 5h 42%\",\"usageWhy\":null,\"reload\":[{\"pid\":4321,\"window\":\"proj - Visual Studio Code\",\"id\":\"4321-1-k2\",\"state\":\"asked\",\"say\":\"reload?\",\"text\":\"Reload to apply\",\"count\":1}],\"liveHold\":null,\"next\":\"14:05\",\"watcher\":\"running\",\"error\":null,\"notes\":[{\"kind\":\"ask\",\"text\":\"two chats can continue\",\"tone\":\"warn\"}],\"memory\":null,\"leaks\":[],\"ask\":{\"count\":2,\"resetsAt\":1760500000000,\"keys\":[\"k1\",\"k2\"],\"restart\":0,\"cause\":\"\",\"titles\":[\"one\",\"two\"],\"left\":[]},\"autoContinue\":\"ask\",\"autoOn\":false},\"counts\":{\"waiting\":0,\"busy\":0,\"idle\":1,\"running\":0,\"queued\":0,\"needsInput\":0,\"cutOff\":0,\"unread\":0,\"auto\":0},\"config\":{\"maxRows\":8,\"recent\":3,\"opacity\":0.9,\"theme\":\"dark\",\"autoContinue\":\"ask\",\"restartMB\":400},\"commands\":[{\"id\":1,\"verb\":\"lock\",\"at\":1760490120000}],\"rows\":[{\"key\":\"s:d1\",\"kind\":\"session\",\"provider\":\"Claude\",\"status\":\"idle\",\"chat\":\"idle\",\"title\":\"too deep\",\"project\":\"proj\",\"prompt\":\"last prompt\",\"stateText\":\"idle 3m\",\"since\":1760490000000,\"sessionId\":\"sid\",\"cwd\":\"D:\\\\work\\\\proj\",\"where\":\"vscode\",\"unread\":false,\"auto\":{\"state\":\"armed\",\"at\":\"13:00\",\"why\":null},\"background\":[{\"kind\":\"workflow\",\"detail\":{\"steps\":[\"System.Collections.Specialized.OrderedDictionary\"]}}]}],\"recent\":[{\"title\":\"\ucd5c\uadfc \ucc44\ud305\",\"project\":\"old\",\"stateText\":\"2h\",\"sessionId\":\"r1\",\"cwd\":\"D:\\\\old\",\"since\":1760480000000}],\"recentMore\":[],\"ui\":{\"spin\":true},\"events\":[{\"id\":\"1760490000000-1\",\"at\":1760490001000,\"kind\":\"balloon\",\"click\":\"ask\",\"icon\":\"None\",\"keys\":[\"k1\",\"k2\"],\"ms\":10000,\"text\":\"two chats can continue\",\"title\":\"Charlie\"}]}"
+      },
+      "expect": {
+        "schema": 1,
+        "version": "0.10.22",
+        "rowKeys": ["s:d1"],
+        "rowTitles": ["too deep"],
+        "recent": ["\ucd5c\uadfc \ucc44\ud305"],
+        "usageText": "Claude 5h 42%",
+        "events": ["1760490000000-1 balloon"],
+        "spin": true,
+        "deep": ["rows[0].background[0].detail.steps[0]"]
+      }
+    },
+    {
+      "name": "Core escapes",
+      "by": "Core",
+      "input": {
+        "text": "{\"schema\":1,\"version\":\"0.10.22\",\"pid\":1234,\"at\":1760490123123,\"header\":{\"usage\":[{\"provider\":\"Claude\",\"status\":\"live\",\"stale\":false,\"windows\":[{\"label\":\"5h\",\"percent\":42,\"severity\":\"normal\",\"limited\":false,\"resetsAt\":1760500000000}]}],\"usageText\":\"Claude 5h 42%\",\"usageWhy\":null,\"reload\":[{\"pid\":4321,\"window\":\"proj - Visual Studio Code\",\"id\":\"4321-1-k2\",\"state\":\"asked\",\"say\":\"reload?\",\"text\":\"Reload to apply\",\"count\":1}],\"liveHold\":null,\"next\":\"14:05\",\"watcher\":\"running\",\"error\":null,\"notes\":[{\"kind\":\"ask\",\"text\":\"two chats can continue\",\"tone\":\"warn\"}],\"memory\":null,\"leaks\":[],\"ask\":{\"count\":2,\"resetsAt\":1760500000000,\"keys\":[\"k1\",\"k2\"],\"restart\":0,\"cause\":\"\",\"titles\":[\"one\",\"two\"],\"left\":[]},\"autoContinue\":\"ask\",\"autoOn\":false},\"counts\":{\"waiting\":0,\"busy\":0,\"idle\":1,\"running\":0,\"queued\":0,\"needsInput\":0,\"cutOff\":0,\"unread\":0,\"auto\":0},\"config\":{\"maxRows\":8,\"recent\":3,\"opacity\":0.9,\"theme\":\"dark\",\"autoContinue\":\"ask\",\"restartMB\":400},\"commands\":[{\"id\":1,\"verb\":\"lock\",\"at\":1760490120000}],\"rows\":[{\"key\":\"c:q\\\"1\",\"kind\":\"session\",\"provider\":\"Claude\",\"status\":\"idle\",\"chat\":\"idle\",\"title\":\"quote \\\" back \\\\ slash <tag> & \u2026\",\"project\":\"proj\",\"prompt\":\"last prompt\",\"stateText\":\"idle 3m\",\"since\":1760490000000,\"sessionId\":\"sid\",\"cwd\":\"D:\\\\work\\\\proj\",\"where\":\"vscode\",\"unread\":false,\"auto\":{\"state\":\"armed\",\"at\":\"13:00\",\"why\":null},\"background\":[{\"kind\":\"workflow\",\"name\":\"nightly\"}]}],\"recent\":[{\"title\":\"\ucd5c\uadfc \ucc44\ud305\",\"project\":\"old\",\"stateText\":\"2h\",\"sessionId\":\"r1\",\"cwd\":\"D:\\\\old\",\"since\":1760480000000}],\"recentMore\":[],\"ui\":{\"spin\":true},\"events\":[{\"id\":\"1760490000000-1\",\"at\":1760490001000,\"kind\":\"balloon\",\"click\":\"ask\",\"icon\":\"None\",\"keys\":[\"k1\",\"k2\"],\"ms\":10000,\"text\":\"two chats can continue\",\"title\":\"Charlie\"}]}"
+      },
+      "expect": {
+        "schema": 1,
+        "version": "0.10.22",
+        "rowKeys": ["c:q\"1"],
+        "rowTitles": ["quote \" back \\ slash <tag> & \u2026"],
+        "recent": ["\ucd5c\uadfc \ucc44\ud305"],
+        "usageText": "Claude 5h 42%",
+        "events": ["1760490000000-1 balloon"],
+        "spin": true,
+        "deep": []
+      }
+    }
+  ]
+}

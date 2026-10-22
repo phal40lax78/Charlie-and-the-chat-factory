@@ -1,0 +1,3458 @@
+{
+  "about": "The WPF overlay's panel rules the Slint panel ports (native/overlay/src/model.rs): the chip's actions, target and bookkeeping, where the chip, the card and the bar of buttons go, a drag's rows, the head's markers, the folded line, a row's clock and words, the hotkey's parse, the window an open raises; input.kind names the function, times are epoch ms in UTC",
+  "cases": [
+    {
+      "name": "title empty",
+      "input": {"kind": "title", "text": "", "width": 60},
+      "expect": "(empty)"
+    },
+    {
+      "name": "title white space folded",
+      "input": {"kind": "title", "text": "  fix\tthe   build  ", "width": 60},
+      "expect": "fix the build"
+    },
+    {
+      "name": "title cut at the width",
+      "input": {"kind": "title", "text": "abcdefghij", "width": 5},
+      "expect": "abcde..."
+    },
+    {
+      "name": "title cut, its end trimmed",
+      "input": {"kind": "title", "text": "abcd efgh", "width": 5},
+      "expect": "abcd..."
+    },
+    {
+      "name": "title the width exactly",
+      "input": {"kind": "title", "text": "abcde", "width": 5},
+      "expect": "abcde"
+    },
+    {
+      "name": "limit short enough",
+      "input": {"kind": "limit", "text": "abc", "max": 5, "ellipsis": false},
+      "expect": "abc"
+    },
+    {
+      "name": "limit cut",
+      "input": {"kind": "limit", "text": "abcdef", "max": 4, "ellipsis": false},
+      "expect": "abcd"
+    },
+    {
+      "name": "limit cut with an ellipsis",
+      "input": {"kind": "limit", "text": "abc def", "max": 5, "ellipsis": true},
+      "expect": "abc\u2026"
+    },
+    {
+      "name": "limit max 1 with an ellipsis",
+      "input": {"kind": "limit", "text": "abc", "max": 1, "ellipsis": true},
+      "expect": "\u2026"
+    },
+    {
+      "name": "limit max 0 with an ellipsis",
+      "input": {"kind": "limit", "text": "abc", "max": 0, "ellipsis": true},
+      "expect": "\u2026"
+    },
+    {
+      "name": "limit never between an emoji's halves",
+      "input": {"kind": "limit", "text": "ab\ud83d\ude00cd", "max": 3, "ellipsis": false},
+      "expect": "ab"
+    },
+    {
+      "name": "limit an emoji whole before the ellipsis",
+      "input": {"kind": "limit", "text": "ab\ud83d\ude00cd", "max": 5, "ellipsis": true},
+      "expect": "ab\ud83d\ude00\u2026"
+    },
+    {
+      "name": "autoTitle short enough",
+      "input": {"kind": "autoTitle", "text": "fix the build", "max": 40},
+      "expect": "fix the build"
+    },
+    {
+      "name": "autoTitle cut to 40",
+      "input": {"kind": "autoTitle", "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", "max": 40},
+      "expect": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\u2026"
+    },
+    {
+      "name": "autoTitle 40 exactly",
+      "input": {"kind": "autoTitle", "text": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy", "max": 40},
+      "expect": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+    },
+    {
+      "name": "askHead the limit, no time",
+      "input": {"kind": "askHead", "ask": {"count": 2, "restart": 0}, "now": 1792033200000},
+      "expect": "limit over"
+    },
+    {
+      "name": "askHead the limit at a time today",
+      "input": {
+        "kind": "askHead",
+        "ask": {"count": 2, "restart": 0, "resetsAt": 1792040400000},
+        "now": 1792033200000
+      },
+      "expect": "limit over at 05:00"
+    },
+    {
+      "name": "askHead the limit on another day",
+      "input": {
+        "kind": "askHead",
+        "ask": {"count": 1, "restart": 0, "resetsAt": 1792206000000},
+        "now": 1792033200000
+      },
+      "expect": "limit over at Sat 03:00"
+    },
+    {
+      "name": "askHead the limit, its time passed",
+      "input": {
+        "kind": "askHead",
+        "ask": {"count": 1, "restart": 0, "resetsAt": 1792029600000},
+        "now": 1792033200000
+      },
+      "expect": "limit over at 02:00"
+    },
+    {
+      "name": "askHead a reset of 0 says no time",
+      "input": {"kind": "askHead", "ask": {"count": 1, "resetsAt": 0}, "now": 1792033200000},
+      "expect": "limit over"
+    },
+    {
+      "name": "askHead a restart alone",
+      "input": {"kind": "askHead", "ask": {"count": 2, "restart": 2, "cause": "oom"}, "now": 1792033200000},
+      "expect": "VS Code ran out of memory"
+    },
+    {
+      "name": "askHead a restart, no cause",
+      "input": {"kind": "askHead", "ask": {"count": 1, "restart": 1}, "now": 1792033200000},
+      "expect": "VS Code restarted"
+    },
+    {
+      "name": "askHead both, a crash",
+      "input": {
+        "kind": "askHead",
+        "ask": {"count": 3, "restart": 1, "cause": "crash", "resetsAt": 1792036800000},
+        "now": 1792033200000
+      },
+      "expect": "limit over at 04:00, and VS Code crashed"
+    },
+    {
+      "name": "askHead counts as strings",
+      "input": {
+        "kind": "askHead",
+        "ask": {"count": "2", "restart": "1", "cause": "OOM"},
+        "now": 1792033200000
+      },
+      "expect": "limit over, and VS Code ran out of memory"
+    },
+    {
+      "name": "askCount one",
+      "input": {"kind": "askCount", "ask": {"count": 1}},
+      "expect": "1 chat it cut off"
+    },
+    {
+      "name": "askLeave one",
+      "input": {"kind": "askLeave", "ask": {"count": 1}},
+      "expect": "Leave them as they are - their rows stay orange; Continue all in the console still continues them"
+    },
+    {
+      "name": "askCount three, one a restart",
+      "input": {"kind": "askCount", "ask": {"count": 3, "restart": 1}},
+      "expect": "3 chats they cut off"
+    },
+    {
+      "name": "askLeave three, one a restart",
+      "input": {"kind": "askLeave", "ask": {"count": 3, "restart": 1}},
+      "expect": "Leave them as they are - the limit's keep their orange rows, which Continue all in the console still continues; those a VS Code restart cut off are not offered again, and their rows go"
+    },
+    {
+      "name": "askCount two restarts",
+      "input": {"kind": "askCount", "ask": {"count": 2, "restart": 2}},
+      "expect": "2 chats it cut off"
+    },
+    {
+      "name": "askLeave two restarts",
+      "input": {"kind": "askLeave", "ask": {"count": 2, "restart": 2}},
+      "expect": "Leave them as they are - a chat a VS Code restart cut off is not offered again, and its row goes"
+    },
+    {
+      "name": "reloadText a window and why",
+      "input": {"kind": "reloadText", "reload": {"window": "proj", "say": "an extension changed"}},
+      "expect": "proj needs a reload - an extension changed"
+    },
+    {
+      "name": "reloadText neither",
+      "input": {"kind": "reloadText", "reload": {"pid": 5}},
+      "expect": "a VS Code window needs a reload"
+    },
+    {
+      "name": "chipActions a reload ask",
+      "input": {"kind": "chipActions", "row": {"kind": "reload", "window": "proj", "state": "ask", "pid": 7}},
+      "expect": [
+        {
+          "id": "reload-go",
+          "label": "reload",
+          "tip": "Reload proj now, as its notice's Reload does.",
+          "disabled": false
+        },
+        {
+          "id": "reload-later",
+          "label": "later",
+          "tip": "Take this off the overlay - the notice stays in proj, to answer there.",
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "chipActions a reload that stops a chat",
+      "input": {"kind": "chipActions", "row": {"kind": "reload", "state": "anyway"}},
+      "expect": [
+        {
+          "id": "reload-go",
+          "label": "reload anyway",
+          "tip": "Reload the VS Code window now, as its Reload anyway does - a chat working there stops.",
+          "disabled": false
+        },
+        {
+          "id": "reload-later",
+          "label": "later",
+          "tip": "Take this off the overlay - the notice stays in the VS Code window, to answer there.",
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "chipActions the limit's ask",
+      "input": {
+        "kind": "chipActions",
+        "row": {"kind": "ask", "count": 2, "restart": 0, "titles": ["fix the build", "write the docs"]}
+      },
+      "expect": [
+        {
+          "id": "ask-go",
+          "label": "continue 2",
+          "tip": "Queue \"Continue from where you left off.\" for each of the 2 chats the limit cut off, to go one at a time: fix the build, write the docs",
+          "disabled": false
+        },
+        {
+          "id": "ask-leave",
+          "label": "leave them",
+          "tip": "Leave them as they are - their rows stay orange; Continue all in the console still continues them",
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "chipActions a restart's ask",
+      "input": {
+        "kind": "chipActions",
+        "row": {"kind": "ask", "count": 1, "restart": 1, "titles": ["fix the build"]}
+      },
+      "expect": [
+        {
+          "id": "ask-go",
+          "label": "continue 1",
+          "tip": "Queue a continue for each of the 1 chats a VS Code restart cut off, saying what it ended, to go one at a time: fix the build",
+          "disabled": false
+        },
+        {
+          "id": "ask-leave",
+          "label": "leave them",
+          "tip": "Leave them as they are - a chat a VS Code restart cut off is not offered again, and its row goes",
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "chipActions an ask of both, no titles",
+      "input": {"kind": "chipActions", "row": {"kind": "ask", "count": 3, "restart": 1, "titles": []}},
+      "expect": [
+        {
+          "id": "ask-go",
+          "label": "continue 3",
+          "tip": "Queue a continue for each of the 3 chats the limit or a VS Code restart cut off, to go one at a time: ",
+          "disabled": false
+        },
+        {
+          "id": "ask-leave",
+          "label": "leave them",
+          "tip": "Leave them as they are - the limit's keep their orange rows, which Continue all in the console still continues; those a VS Code restart cut off are not offered again, and their rows go",
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "chipActions an open chat",
+      "input": {
+        "kind": "chipActions",
+        "row": {
+          "kind": "session",
+          "provider": "claude",
+          "sessionId": "0b9c6a7e-1f2d-4c3b-8a9e-5d6f7a8b9c0d",
+          "cwd": "C:\\work\\proj",
+          "status": "idle",
+          "where": "vscode",
+          "title": "fix the build"
+        }
+      },
+      "expect": [
+        {
+          "id": "open",
+          "label": "open",
+          "tip": "Open this chat as a tab in its VS Code window - or bring forward the tab already showing it.",
+          "disabled": false
+        },
+        {
+          "id": "delete",
+          "label": "delete",
+          "tip": "Delete this chat for good, as chatrm does - click once more to be sure.",
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "chipActions a chat at work",
+      "input": {
+        "kind": "chipActions",
+        "row": {
+          "kind": "session",
+          "provider": "claude",
+          "sessionId": "0b9c6a7e-1f2d-4c3b-8a9e-5d6f7a8b9c0d",
+          "cwd": "C:\\work\\proj",
+          "status": "busy",
+          "where": "vscode",
+          "title": "fix the build"
+        }
+      },
+      "expect": [
+        {
+          "id": "open",
+          "label": "open",
+          "tip": "Open this chat as a tab in its VS Code window - or bring forward the tab already showing it.",
+          "disabled": false
+        },
+        {
+          "id": "delete",
+          "label": "delete",
+          "tip": "Not while this chat works or waits on you, or while a terminal or a queued prompt has it open.",
+          "disabled": true
+        }
+      ]
+    },
+    {
+      "name": "chipActions a chat in a terminal",
+      "input": {
+        "kind": "chipActions",
+        "row": {
+          "kind": "session",
+          "provider": "claude",
+          "sessionId": "0b9c6a7e-1f2d-4c3b-8a9e-5d6f7a8b9c0d",
+          "cwd": "C:\\work\\proj",
+          "status": "idle",
+          "where": "terminal",
+          "title": "fix the build"
+        }
+      },
+      "expect": [
+        {
+          "id": "open",
+          "label": "open",
+          "tip": "Open this chat as a tab in its VS Code window - or bring forward the tab already showing it.",
+          "disabled": false
+        },
+        {
+          "id": "delete",
+          "label": "delete",
+          "tip": "Not while this chat works or waits on you, or while a terminal or a queued prompt has it open.",
+          "disabled": true
+        }
+      ]
+    },
+    {
+      "name": "chipActions a chat whose job runs",
+      "input": {
+        "kind": "chipActions",
+        "row": {
+          "kind": "session",
+          "provider": "claude",
+          "sessionId": "0b9c6a7e-1f2d-4c3b-8a9e-5d6f7a8b9c0d",
+          "cwd": "C:\\work\\proj",
+          "status": "idle",
+          "where": "vscode",
+          "title": "fix the build",
+          "job": {"state": "running"}
+        }
+      },
+      "expect": [
+        {
+          "id": "open",
+          "label": "watch",
+          "tip": "A queued prompt is running in this chat - watch it live in its VS Code window.",
+          "disabled": false
+        },
+        {
+          "id": "delete",
+          "label": "delete",
+          "tip": "Delete this chat for good, as chatrm does - click once more to be sure.",
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "chipActions a job queued, not running",
+      "input": {
+        "kind": "chipActions",
+        "row": {
+          "kind": "session",
+          "provider": "claude",
+          "sessionId": "0b9c6a7e-1f2d-4c3b-8a9e-5d6f7a8b9c0d",
+          "cwd": "C:\\work\\proj",
+          "status": "idle",
+          "where": "vscode",
+          "title": "fix the build",
+          "job": {"state": "queued"}
+        }
+      },
+      "expect": [
+        {
+          "id": "open",
+          "label": "open",
+          "tip": "Open this chat as a tab in its VS Code window - or bring forward the tab already showing it.",
+          "disabled": false
+        },
+        {
+          "id": "delete",
+          "label": "delete",
+          "tip": "Delete this chat for good, as chatrm does - click once more to be sure.",
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "chipActions a cut-off armed to continue",
+      "input": {
+        "kind": "chipActions",
+        "row": {
+          "kind": "cutoff",
+          "provider": "claude",
+          "sessionId": "0b9c6a7e-1f2d-4c3b-8a9e-5d6f7a8b9c0d",
+          "cwd": "C:\\work\\proj",
+          "status": "cutoff",
+          "where": "vscode",
+          "title": "fix the build",
+          "auto": {"state": "armed", "long": "Continues at 13:00"}
+        }
+      },
+      "expect": [
+        {
+          "id": "dont",
+          "label": "don't continue",
+          "tip": "Continues at 13:00. Don't send \"continue\" to this chat after this reset. The next time the limit cuts it off, it is continued again - chatq 'fix the build' -AutoContinue never stops that.",
+          "disabled": false
+        },
+        {
+          "id": "open",
+          "label": "open",
+          "tip": "Open this chat as a tab in its VS Code window - or bring forward the tab already showing it.",
+          "disabled": false
+        },
+        {
+          "id": "delete",
+          "label": "delete",
+          "tip": "Delete this chat for good, as chatrm does - click once more to be sure.",
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "chipActions a 529 due, no folder",
+      "input": {
+        "kind": "chipActions",
+        "row": {
+          "kind": "cutoff",
+          "provider": "claude",
+          "sessionId": "0b9c6a7e-1f2d-4c3b-8a9e-5d6f7a8b9c0d",
+          "title": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+          "auto": {"state": "due", "cutWhy": "overloaded"}
+        }
+      },
+      "expect": [
+        {
+          "id": "dont",
+          "label": "don't continue",
+          "tip": "Don't send \"continue\" to this chat for this 529. The next time it is cut off, it is continued again - chatq 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\u2026' -AutoContinue never stops that.",
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "chipActions a cut-off with auto off",
+      "input": {
+        "kind": "chipActions",
+        "row": {
+          "kind": "cutoff",
+          "provider": "claude",
+          "sessionId": "0b9c6a7e-1f2d-4c3b-8a9e-5d6f7a8b9c0d",
+          "cwd": "C:\\work\\proj",
+          "status": "idle",
+          "where": "vscode",
+          "title": "fix the build",
+          "auto": {"state": "off"}
+        }
+      },
+      "expect": [
+        {
+          "id": "continue",
+          "label": "continue",
+          "tip": "Queue \"Continue from where you left off.\" for this chat - it goes when the limit is over.",
+          "disabled": false
+        },
+        {
+          "id": "open",
+          "label": "open",
+          "tip": "Open this chat as a tab in its VS Code window - or bring forward the tab already showing it.",
+          "disabled": false
+        },
+        {
+          "id": "delete",
+          "label": "delete",
+          "tip": "Delete this chat for good, as chatrm does - click once more to be sure.",
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "chipActions a 529 ready",
+      "input": {
+        "kind": "chipActions",
+        "row": {
+          "kind": "cutoff",
+          "title": "x",
+          "auto": {"state": "Ready", "cutWhy": "overloaded", "long": "Claude was overloaded"}
+        }
+      },
+      "expect": [
+        {
+          "id": "continue",
+          "label": "continue",
+          "tip": "Claude was overloaded. Queue \"Continue from where you left off.\" for this chat - it goes when Claude is back.",
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "chipActions a continue running",
+      "input": {
+        "kind": "chipActions",
+        "row": {
+          "kind": "cutoff",
+          "provider": "claude",
+          "sessionId": "0b9c6a7e-1f2d-4c3b-8a9e-5d6f7a8b9c0d",
+          "cwd": "C:\\work\\proj",
+          "status": "idle",
+          "where": "vscode",
+          "title": "fix the build",
+          "auto": {"state": "running"}
+        }
+      },
+      "expect": [
+        {
+          "id": "open",
+          "label": "open",
+          "tip": "Open this chat as a tab in its VS Code window - or bring forward the tab already showing it.",
+          "disabled": false
+        },
+        {
+          "id": "delete",
+          "label": "delete",
+          "tip": "Delete this chat for good, as chatrm does - click once more to be sure.",
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "chipActions a Codex chat",
+      "input": {
+        "kind": "chipActions",
+        "row": {
+          "kind": "session",
+          "provider": "codex",
+          "sessionId": "0b9c6a7e-1f2d-4c3b-8a9e-5d6f7a8b9c0d",
+          "cwd": "C:\\work\\proj",
+          "status": "idle",
+          "where": "vscode",
+          "title": "fix the build"
+        }
+      },
+      "expect": []
+    },
+    {
+      "name": "chipActions an id that is not one",
+      "input": {
+        "kind": "chipActions",
+        "row": {
+          "kind": "session",
+          "provider": "claude",
+          "sessionId": "abc",
+          "cwd": "C:\\work\\proj",
+          "status": "idle",
+          "where": "vscode",
+          "title": "fix the build"
+        }
+      },
+      "expect": []
+    },
+    {"name": "chipActions no row", "input": {"kind": "chipActions", "row": null}, "expect": []},
+    {
+      "name": "openable an upper-case id, Claude",
+      "input": {
+        "kind": "openable",
+        "row": {
+          "kind": "session",
+          "provider": "Claude",
+          "sessionId": "0B9C6A7E-1F2D-4C3B-8A9E-5D6F7A8B9C0D",
+          "cwd": "C:\\work\\proj",
+          "status": "idle",
+          "where": "vscode",
+          "title": "fix the build"
+        }
+      },
+      "expect": true
+    },
+    {
+      "name": "openable no folder",
+      "input": {
+        "kind": "openable",
+        "row": {
+          "kind": "session",
+          "provider": "claude",
+          "sessionId": "0b9c6a7e-1f2d-4c3b-8a9e-5d6f7a8b9c0d",
+          "cwd": "",
+          "status": "idle",
+          "where": "vscode",
+          "title": "fix the build"
+        }
+      },
+      "expect": false
+    },
+    {
+      "name": "openable an id in braces",
+      "input": {
+        "kind": "openable",
+        "row": {
+          "kind": "session",
+          "provider": "claude",
+          "sessionId": "{0b9c6a7e-1f2d-4c3b-8a9e-5d6f7a8b9c0d}",
+          "cwd": "C:\\work\\proj",
+          "status": "idle",
+          "where": "vscode",
+          "title": "fix the build"
+        }
+      },
+      "expect": false
+    },
+    {
+      "name": "deletable waiting",
+      "input": {"kind": "deletable", "row": {"kind": "session", "status": "waiting"}},
+      "expect": false
+    },
+    {
+      "name": "deletable a queued prompt's run",
+      "input": {"kind": "deletable", "row": {"kind": "session", "status": "idle", "where": "run"}},
+      "expect": false
+    },
+    {
+      "name": "deletable a job",
+      "input": {"kind": "deletable", "row": {"kind": "job", "status": "busy"}},
+      "expect": true
+    },
+    {
+      "name": "deletable idle in VS Code",
+      "input": {"kind": "deletable", "row": {"kind": "Session", "status": "Idle", "where": "vscode"}},
+      "expect": true
+    },
+    {
+      "name": "deletable busy, any case",
+      "input": {"kind": "deletable", "row": {"kind": "session", "status": "BUSY"}},
+      "expect": false
+    },
+    {
+      "name": "deleteArmed the second click",
+      "input": {
+        "kind": "deleteArmed",
+        "armedKey": "s:1",
+        "armedAt": 1792033199000,
+        "key": "s:1",
+        "now": 1792033200000
+      },
+      "expect": true
+    },
+    {
+      "name": "deleteArmed 4 s on",
+      "input": {
+        "kind": "deleteArmed",
+        "armedKey": "s:1",
+        "armedAt": 1792033196000,
+        "key": "s:1",
+        "now": 1792033200000
+      },
+      "expect": false
+    },
+    {
+      "name": "deleteArmed another row",
+      "input": {
+        "kind": "deleteArmed",
+        "armedKey": "s:1",
+        "armedAt": 1792033199000,
+        "key": "s:2",
+        "now": 1792033200000
+      },
+      "expect": false
+    },
+    {
+      "name": "deleteArmed never armed",
+      "input": {
+        "kind": "deleteArmed",
+        "armedKey": "s:1",
+        "armedAt": null,
+        "key": "s:1",
+        "now": 1792033200000
+      },
+      "expect": false
+    },
+    {
+      "name": "deleteArmed no key armed",
+      "input": {
+        "kind": "deleteArmed",
+        "armedKey": "",
+        "armedAt": 1792033199000,
+        "key": "",
+        "now": 1792033200000
+      },
+      "expect": false
+    },
+    {
+      "name": "deleteArmed a key in another case",
+      "input": {
+        "kind": "deleteArmed",
+        "armedKey": "S:1",
+        "armedAt": 1792033199000,
+        "key": "s:1",
+        "now": 1792033200000
+      },
+      "expect": true
+    },
+    {
+      "name": "pressCounts no chip shown",
+      "input": {"kind": "pressCounts", "shown": null, "press": 5000},
+      "expect": false
+    },
+    {
+      "name": "pressCounts 299 ms on",
+      "input": {"kind": "pressCounts", "shown": 1000, "press": 1299},
+      "expect": false
+    },
+    {
+      "name": "pressCounts 300 ms on",
+      "input": {"kind": "pressCounts", "shown": 1000, "press": 1300},
+      "expect": true
+    },
+    {
+      "name": "pressCounts stamped before it showed",
+      "input": {"kind": "pressCounts", "shown": 1000, "press": 900},
+      "expect": false
+    },
+    {
+      "name": "pressCounts across the tick's wrap",
+      "input": {"kind": "pressCounts", "shown": 2147483000, "press": -2147483000},
+      "expect": true
+    },
+    {
+      "name": "chipTarget blocked",
+      "input": {
+        "kind": "chipTarget",
+        "shown": "s:1",
+        "under": "s:1",
+        "rested": 0,
+        "onChip": false,
+        "sinceOver": 0,
+        "down": false,
+        "blocked": true,
+        "spent": "",
+        "delay": 400
+      },
+      "expect": ""
+    },
+    {
+      "name": "chipTarget shown, over its row",
+      "input": {
+        "kind": "chipTarget",
+        "shown": "s:1",
+        "under": "S:1",
+        "rested": 0,
+        "onChip": false,
+        "sinceOver": 0,
+        "down": false,
+        "blocked": false,
+        "spent": "",
+        "delay": 400
+      },
+      "expect": "s:1"
+    },
+    {
+      "name": "chipTarget shown, over the chip",
+      "input": {
+        "kind": "chipTarget",
+        "shown": "s:1",
+        "under": "s:2",
+        "rested": 0,
+        "onChip": true,
+        "sinceOver": 0,
+        "down": false,
+        "blocked": false,
+        "spent": "",
+        "delay": 400
+      },
+      "expect": "s:1"
+    },
+    {
+      "name": "chipTarget shown, over another row",
+      "input": {
+        "kind": "chipTarget",
+        "shown": "s:1",
+        "under": "s:2",
+        "rested": 0,
+        "onChip": false,
+        "sinceOver": 0,
+        "down": false,
+        "blocked": false,
+        "spent": "",
+        "delay": 400
+      },
+      "expect": ""
+    },
+    {
+      "name": "chipTarget shown, just off",
+      "input": {
+        "kind": "chipTarget",
+        "shown": "s:1",
+        "under": "",
+        "rested": 0,
+        "onChip": false,
+        "sinceOver": 299,
+        "down": false,
+        "blocked": false,
+        "spent": "",
+        "delay": 400
+      },
+      "expect": "s:1"
+    },
+    {
+      "name": "chipTarget shown, 300 ms off",
+      "input": {
+        "kind": "chipTarget",
+        "shown": "s:1",
+        "under": "",
+        "rested": 0,
+        "onChip": false,
+        "sinceOver": 300,
+        "down": false,
+        "blocked": false,
+        "spent": "",
+        "delay": 400
+      },
+      "expect": ""
+    },
+    {
+      "name": "chipTarget rested the delay",
+      "input": {
+        "kind": "chipTarget",
+        "shown": "",
+        "under": "s:1",
+        "rested": 400,
+        "onChip": false,
+        "sinceOver": 0,
+        "down": false,
+        "blocked": false,
+        "spent": "",
+        "delay": 400
+      },
+      "expect": "s:1"
+    },
+    {
+      "name": "chipTarget not rested yet",
+      "input": {
+        "kind": "chipTarget",
+        "shown": "",
+        "under": "s:1",
+        "rested": 399.5,
+        "onChip": false,
+        "sinceOver": 0,
+        "down": false,
+        "blocked": false,
+        "spent": "",
+        "delay": 400
+      },
+      "expect": ""
+    },
+    {
+      "name": "chipTarget spent on this row",
+      "input": {
+        "kind": "chipTarget",
+        "shown": "",
+        "under": "s:1",
+        "rested": 900,
+        "onChip": false,
+        "sinceOver": 0,
+        "down": false,
+        "blocked": false,
+        "spent": "s:1",
+        "delay": 400
+      },
+      "expect": ""
+    },
+    {
+      "name": "chipTarget a button held",
+      "input": {
+        "kind": "chipTarget",
+        "shown": "",
+        "under": "s:1",
+        "rested": 900,
+        "onChip": false,
+        "sinceOver": 0,
+        "down": true,
+        "blocked": false,
+        "spent": "",
+        "delay": 400
+      },
+      "expect": ""
+    },
+    {
+      "name": "chipTarget a delay of its own",
+      "input": {
+        "kind": "chipTarget",
+        "shown": "",
+        "under": "s:1",
+        "rested": 150,
+        "onChip": false,
+        "sinceOver": 0,
+        "down": false,
+        "blocked": false,
+        "spent": "",
+        "delay": 100
+      },
+      "expect": "s:1"
+    },
+    {
+      "name": "step moved onto a row",
+      "input": {
+        "kind": "step",
+        "state": {
+          "under": "",
+          "underAt": null,
+          "lastPos": "1,1",
+          "key": "",
+          "overAt": null,
+          "spent": "",
+          "armed": false
+        },
+        "under": "s:1",
+        "pos": "2,2",
+        "onChip": false,
+        "now": 1792033200000
+      },
+      "expect": {
+        "under": "s:1",
+        "underAt": 1792033200000,
+        "lastPos": "2,2",
+        "key": "",
+        "overAt": null,
+        "spent": "",
+        "armed": false
+      }
+    },
+    {
+      "name": "step rows redrawn under a still pointer",
+      "input": {
+        "kind": "step",
+        "state": {
+          "under": "",
+          "underAt": null,
+          "lastPos": "2,2",
+          "key": "",
+          "overAt": null,
+          "spent": "",
+          "armed": false
+        },
+        "under": "s:1",
+        "pos": "2,2",
+        "onChip": false,
+        "now": 1792033200000
+      },
+      "expect": {
+        "under": "s:1",
+        "underAt": null,
+        "lastPos": "2,2",
+        "key": "",
+        "overAt": null,
+        "spent": "",
+        "armed": false
+      }
+    },
+    {
+      "name": "step still, then moved",
+      "input": {
+        "kind": "step",
+        "state": {
+          "under": "s:1",
+          "underAt": null,
+          "lastPos": "2,2",
+          "key": "",
+          "overAt": null,
+          "spent": "",
+          "armed": false
+        },
+        "under": "s:1",
+        "pos": "3,3",
+        "onChip": false,
+        "now": 1792033200000
+      },
+      "expect": {
+        "under": "s:1",
+        "underAt": 1792033200000,
+        "lastPos": "3,3",
+        "key": "",
+        "overAt": null,
+        "spent": "",
+        "armed": false
+      }
+    },
+    {
+      "name": "step rested on, no move",
+      "input": {
+        "kind": "step",
+        "state": {
+          "under": "s:1",
+          "underAt": 1792033199500,
+          "lastPos": "3,3",
+          "key": "",
+          "overAt": null,
+          "spent": "",
+          "armed": false
+        },
+        "under": "s:1",
+        "pos": "3,3",
+        "onChip": false,
+        "now": 1792033200000
+      },
+      "expect": {
+        "under": "s:1",
+        "underAt": 1792033199500,
+        "lastPos": "3,3",
+        "key": "",
+        "overAt": null,
+        "spent": "",
+        "armed": false
+      }
+    },
+    {
+      "name": "step the chip up, over its row",
+      "input": {
+        "kind": "step",
+        "state": {
+          "under": "s:1",
+          "underAt": 1792033199500,
+          "lastPos": "3,3",
+          "key": "s:1",
+          "overAt": 1792033199500,
+          "spent": "",
+          "armed": false
+        },
+        "under": "s:1",
+        "pos": "3,3",
+        "onChip": false,
+        "now": 1792033200000
+      },
+      "expect": {
+        "under": "s:1",
+        "underAt": 1792033199500,
+        "lastPos": "3,3",
+        "key": "s:1",
+        "overAt": 1792033200000,
+        "spent": "",
+        "armed": true
+      }
+    },
+    {
+      "name": "step over the chip",
+      "input": {
+        "kind": "step",
+        "state": {
+          "under": "s:1",
+          "underAt": 1792033199500,
+          "lastPos": "3,3",
+          "key": "s:1",
+          "overAt": 1792033199500,
+          "spent": "",
+          "armed": false
+        },
+        "under": "",
+        "pos": "9,9",
+        "onChip": true,
+        "now": 1792033200000
+      },
+      "expect": {
+        "under": "",
+        "underAt": null,
+        "lastPos": "9,9",
+        "key": "s:1",
+        "overAt": 1792033200000,
+        "spent": "",
+        "armed": false
+      }
+    },
+    {
+      "name": "step off its row, spent cleared",
+      "input": {
+        "kind": "step",
+        "state": {
+          "under": "s:1",
+          "underAt": 1792033199500,
+          "lastPos": "3,3",
+          "key": "",
+          "overAt": null,
+          "spent": "s:1",
+          "armed": false
+        },
+        "under": "s:2",
+        "pos": "4,4",
+        "onChip": false,
+        "now": 1792033200000
+      },
+      "expect": {
+        "under": "s:2",
+        "underAt": 1792033200000,
+        "lastPos": "4,4",
+        "key": "",
+        "overAt": null,
+        "spent": "",
+        "armed": false
+      }
+    },
+    {
+      "name": "step off the panel",
+      "input": {
+        "kind": "step",
+        "state": {
+          "under": "s:1",
+          "underAt": 1792033199500,
+          "lastPos": "3,3",
+          "key": "s:1",
+          "overAt": 1792033199500,
+          "spent": "",
+          "armed": true
+        },
+        "under": "",
+        "pos": "50,50",
+        "onChip": false,
+        "now": 1792033200000
+      },
+      "expect": {
+        "under": "",
+        "underAt": null,
+        "lastPos": "50,50",
+        "key": "s:1",
+        "overAt": 1792033199500,
+        "spent": "",
+        "armed": true
+      }
+    },
+    {
+      "name": "cardLeft on the right of its screen",
+      "input": {
+        "kind": "cardLeft",
+        "panel": [1500, 100, 300, 400],
+        "screen": {"X": 0, "Y": 0, "Width": 1920, "Height": 1040}
+      },
+      "expect": true
+    },
+    {
+      "name": "cardLeft on the left",
+      "input": {
+        "kind": "cardLeft",
+        "panel": [10, 100, 300, 400],
+        "screen": {"X": 0, "Y": 0, "Width": 1920, "Height": 1040}
+      },
+      "expect": false
+    },
+    {
+      "name": "cardLeft a tie goes left",
+      "input": {
+        "kind": "cardLeft",
+        "panel": [810, 0, 300, 100],
+        "screen": {"X": 0, "Y": 0, "Width": 1920, "Height": 1040}
+      },
+      "expect": true
+    },
+    {
+      "name": "chipLayout a tile, its icons and words on the right",
+      "input": {
+        "kind": "chipLayout",
+        "row": [100, 200, 300, 36],
+        "line": [100, 200, 300, 36],
+        "icons": [40, 20],
+        "words": [80, 22],
+        "screen": {"X": 0, "Y": 0, "Width": 1920, "Height": 1040},
+        "name": [[104, 200, 292, 36]],
+        "panel": [100, 50, 300, 600],
+        "gap": 4,
+        "wordsX": null
+      },
+      "expect": {
+        "X": 104,
+        "Y": 200,
+        "IconsAt": [248, 8],
+        "WordsAt": [300, 7],
+        "NameAt": [0, 0],
+        "Left": false,
+        "Out": 84
+      }
+    },
+    {
+      "name": "chipLayout on the left of the panel",
+      "input": {
+        "kind": "chipLayout",
+        "row": [1500, 200, 300, 36],
+        "line": [1500, 200, 300, 36],
+        "icons": [40, 20],
+        "words": [80, 22],
+        "screen": {"X": 0, "Y": 0, "Width": 1920, "Height": 1040},
+        "name": [[1504, 200, 292, 36]],
+        "panel": [1500, 50, 300, 600],
+        "gap": 4,
+        "wordsX": null
+      },
+      "expect": {
+        "X": 1416,
+        "Y": 200,
+        "IconsAt": [336, 8],
+        "WordsAt": [0, 7],
+        "NameAt": [88, 0],
+        "Left": true,
+        "Out": 84
+      }
+    },
+    {
+      "name": "chipLayout no tile: the icons on the row",
+      "input": {
+        "kind": "chipLayout",
+        "row": [100, 200, 300, 36],
+        "line": [100, 200, 300, 36],
+        "icons": [40, 20],
+        "words": [80, 22],
+        "screen": {"X": 0, "Y": 0, "Width": 1920, "Height": 1040},
+        "name": [],
+        "panel": [100, 50, 300, 600],
+        "gap": 4,
+        "wordsX": null
+      },
+      "expect": {
+        "X": 356,
+        "Y": 207,
+        "IconsAt": [0, 1],
+        "WordsAt": [48, 0],
+        "NameAt": null,
+        "Left": false,
+        "Out": 84
+      }
+    },
+    {
+      "name": "chipLayout no words",
+      "input": {
+        "kind": "chipLayout",
+        "row": [100, 200, 300, 36],
+        "line": [100, 200, 300, 36],
+        "icons": [40, 20],
+        "words": [0, 0],
+        "screen": {"X": 0, "Y": 0, "Width": 1920, "Height": 1040},
+        "name": [[104, 200, 292, 36]],
+        "panel": [100, 50, 300, 600],
+        "gap": 4,
+        "wordsX": null
+      },
+      "expect": {
+        "X": 104,
+        "Y": 200,
+        "IconsAt": [248, 8],
+        "WordsAt": null,
+        "NameAt": [0, 0],
+        "Left": false,
+        "Out": 0
+      }
+    },
+    {
+      "name": "chipLayout words where a reload says",
+      "input": {
+        "kind": "chipLayout",
+        "row": [100, 200, 300, 36],
+        "line": [100, 200, 300, 36],
+        "icons": [40, 20],
+        "words": [80, 22],
+        "screen": {"X": 0, "Y": 0, "Width": 1920, "Height": 1040},
+        "name": [[104, 200, 292, 36]],
+        "panel": [100, 50, 300, 600],
+        "gap": 4,
+        "wordsX": 380
+      },
+      "expect": {
+        "X": 104,
+        "Y": 200,
+        "IconsAt": [248, 8],
+        "WordsAt": [276, 7],
+        "NameAt": [0, 0],
+        "Left": false,
+        "Out": 60
+      }
+    },
+    {
+      "name": "chipLayout words at a place, on the left",
+      "input": {
+        "kind": "chipLayout",
+        "row": [1500, 200, 300, 36],
+        "line": [1500, 200, 300, 36],
+        "icons": [40, 20],
+        "words": [80, 22],
+        "screen": {"X": 0, "Y": 0, "Width": 1920, "Height": 1040},
+        "name": [],
+        "panel": [1500, 50, 300, 600],
+        "gap": 4,
+        "wordsX": 1540
+      },
+      "expect": {
+        "X": 1540,
+        "Y": 207,
+        "IconsAt": [216, 1],
+        "WordsAt": [0, 0],
+        "NameAt": null,
+        "Left": true,
+        "Out": 0
+      }
+    },
+    {
+      "name": "chipLayout nothing to show",
+      "input": {
+        "kind": "chipLayout",
+        "row": [100, 200, 300, 36],
+        "line": [100, 200, 300, 36],
+        "icons": [0, 0],
+        "words": [0, 0],
+        "screen": {"X": 0, "Y": 0, "Width": 1920, "Height": 1040},
+        "name": [],
+        "panel": [100, 50, 300, 600],
+        "gap": 4,
+        "wordsX": null
+      },
+      "expect": null
+    },
+    {
+      "name": "chipLayout held off the screen's top and left",
+      "input": {
+        "kind": "chipLayout",
+        "row": [-30, -8, 300, 24],
+        "line": [-30, -8, 300, 24],
+        "icons": [40, 20],
+        "words": [80, 22],
+        "screen": {"X": 0, "Y": 0, "Width": 1920, "Height": 1040},
+        "name": [[-26, -8, 292, 24]],
+        "panel": [-30, -20, 300, 600],
+        "gap": 4,
+        "wordsX": null
+      },
+      "expect": {
+        "X": 0,
+        "Y": 0,
+        "IconsAt": [222, -6],
+        "WordsAt": [274, -7],
+        "NameAt": [-26, -8],
+        "Left": false,
+        "Out": 84
+      }
+    },
+    {
+      "name": "chipLayout a narrow tile's icons past the panel",
+      "input": {
+        "kind": "chipLayout",
+        "row": [1500, 300, 300, 24],
+        "line": [1500, 300, 300, 24],
+        "icons": [60, 20],
+        "words": [80, 22],
+        "screen": {"X": 0, "Y": 0, "Width": 1920, "Height": 1040},
+        "name": [[1510, 302, 30, 20]],
+        "panel": [1500, 50, 300, 600],
+        "gap": 4,
+        "wordsX": null
+      },
+      "expect": {
+        "X": 1416,
+        "Y": 301,
+        "IconsAt": [60, 1],
+        "WordsAt": [0, 0],
+        "NameAt": [94, 1],
+        "Left": true,
+        "Out": 84
+      }
+    },
+    {
+      "name": "chipLayout no panel given: the row",
+      "input": {
+        "kind": "chipLayout",
+        "row": [100, 200, 300, 36],
+        "line": [100, 200, 300, 36],
+        "icons": [40, 20],
+        "words": [80, 22],
+        "screen": {"X": 0, "Y": 0, "Width": 1920, "Height": 1040},
+        "name": [[104, 200, 292, 36]],
+        "panel": null,
+        "gap": 4,
+        "wordsX": null
+      },
+      "expect": {
+        "X": 104,
+        "Y": 200,
+        "IconsAt": [248, 8],
+        "WordsAt": [300, 7],
+        "NameAt": [0, 0],
+        "Left": false,
+        "Out": 84
+      }
+    },
+    {
+      "name": "chipLayout two name parts",
+      "input": {
+        "kind": "chipLayout",
+        "row": [100, 200, 300, 36],
+        "line": [100, 200, 300, 36],
+        "icons": [40, 20],
+        "words": [80, 22],
+        "screen": {"X": 0, "Y": 0, "Width": 1920, "Height": 1040},
+        "name": [[104, 200, 100, 36], [210, 202, 50, 30]],
+        "panel": [100, 50, 300, 600],
+        "gap": 4,
+        "wordsX": null
+      },
+      "expect": {
+        "X": 104,
+        "Y": 200,
+        "IconsAt": [112, 8],
+        "WordsAt": [300, 7],
+        "NameAt": [0, 0],
+        "Left": false,
+        "Out": 84
+      }
+    },
+    {
+      "name": "chipLayout a half centres to even",
+      "input": {
+        "kind": "chipLayout",
+        "row": [100, 200, 300, 36],
+        "line": [100, 200, 300, 36],
+        "icons": [40, 21],
+        "words": [80, 23],
+        "screen": {"X": 0, "Y": 0, "Width": 1920, "Height": 1040},
+        "name": [[104, 200, 292, 36]],
+        "panel": [100, 50, 300, 600],
+        "gap": 4,
+        "wordsX": null
+      },
+      "expect": {
+        "X": 104,
+        "Y": 200,
+        "IconsAt": [248, 8],
+        "WordsAt": [300, 6],
+        "NameAt": [0, 0],
+        "Left": false,
+        "Out": 84
+      }
+    },
+    {
+      "name": "cardPlace right of the panel",
+      "input": {
+        "kind": "cardPlace",
+        "panel": [100, 50, 300, 600],
+        "row": [100, 200, 300, 36],
+        "size": [337, 150],
+        "screen": {"X": 0, "Y": 0, "Width": 1920, "Height": 1040},
+        "gap": 5,
+        "push": 0,
+        "below": false
+      },
+      "expect": {"X": 405, "Y": 200, "Left": false, "Below": false, "Above": false, "TipX": 0}
+    },
+    {
+      "name": "cardPlace left of the panel, past the chip",
+      "input": {
+        "kind": "cardPlace",
+        "panel": [1500, 50, 300, 600],
+        "row": [1500, 200, 300, 36],
+        "size": [337, 150],
+        "screen": {"X": 0, "Y": 0, "Width": 1920, "Height": 1040},
+        "gap": 5,
+        "push": 84,
+        "below": false
+      },
+      "expect": {"X": 1074, "Y": 200, "Left": true, "Below": false, "Above": false, "TipX": 0}
+    },
+    {
+      "name": "cardPlace held up off the screen's foot",
+      "input": {
+        "kind": "cardPlace",
+        "panel": [100, 50, 300, 600],
+        "row": [100, 1000, 300, 36],
+        "size": [337, 150],
+        "screen": {"X": 0, "Y": 0, "Width": 1920, "Height": 1040},
+        "gap": 5,
+        "push": 0,
+        "below": false
+      },
+      "expect": {"X": 405, "Y": 890, "Left": false, "Below": false, "Above": false, "TipX": 0}
+    },
+    {
+      "name": "cardPlace held on the screen's right",
+      "input": {
+        "kind": "cardPlace",
+        "panel": [10, 50, 1650, 600],
+        "row": [10, 200, 1650, 36],
+        "size": [337, 150],
+        "screen": {"X": 0, "Y": 0, "Width": 1920, "Height": 1040},
+        "gap": 5,
+        "push": 0,
+        "below": false
+      },
+      "expect": {"X": 1583, "Y": 200, "Left": false, "Below": false, "Above": false, "TipX": 0}
+    },
+    {
+      "name": "cardPlace under a gauge",
+      "input": {
+        "kind": "cardPlace",
+        "panel": [100, 50, 300, 600],
+        "row": [120, 60, 280, 10],
+        "size": [337, 120],
+        "screen": {"X": 0, "Y": 0, "Width": 1920, "Height": 1040},
+        "gap": 5,
+        "push": 0,
+        "below": true
+      },
+      "expect": {"X": 92, "Y": 75, "Left": false, "Below": true, "Above": false, "TipX": 168}
+    },
+    {
+      "name": "cardPlace over a gauge at the foot",
+      "input": {
+        "kind": "cardPlace",
+        "panel": [100, 50, 300, 600],
+        "row": [120, 950, 280, 10],
+        "size": [337, 120],
+        "screen": {"X": 0, "Y": 0, "Width": 1920, "Height": 1040},
+        "gap": 5,
+        "push": 0,
+        "below": true
+      },
+      "expect": {"X": 92, "Y": 825, "Left": false, "Below": true, "Above": true, "TipX": 168}
+    },
+    {
+      "name": "cardPlace under a gauge at the right",
+      "input": {
+        "kind": "cardPlace",
+        "panel": [100, 50, 300, 600],
+        "row": [1800, 60, 100, 10],
+        "size": [337, 120],
+        "screen": {"X": 0, "Y": 0, "Width": 1920, "Height": 1040},
+        "gap": 5,
+        "push": 0,
+        "below": true
+      },
+      "expect": {"X": 1583, "Y": 75, "Left": false, "Below": true, "Above": false, "TipX": 267}
+    },
+    {
+      "name": "cardPlace a tip on a half rounds to even",
+      "input": {
+        "kind": "cardPlace",
+        "panel": [100, 50, 300, 600],
+        "row": [100, 60, 281, 10],
+        "size": [337, 120],
+        "screen": {"X": 0, "Y": 0, "Width": 1920, "Height": 1040},
+        "gap": 5,
+        "push": 0,
+        "below": true
+      },
+      "expect": {"X": 72, "Y": 75, "Left": false, "Below": true, "Above": false, "TipX": 168}
+    },
+    {
+      "name": "cardPlace no room either side of a gauge",
+      "input": {
+        "kind": "cardPlace",
+        "panel": [100, 50, 300, 600],
+        "row": [120, 100, 280, 10],
+        "size": [337, 1000],
+        "screen": {"X": 0, "Y": 0, "Width": 1920, "Height": 1040},
+        "gap": 5,
+        "push": 0,
+        "below": true
+      },
+      "expect": {"X": 92, "Y": 40, "Left": false, "Below": true, "Above": false, "TipX": 168}
+    },
+    {
+      "name": "controlsPlace the box shut",
+      "input": {
+        "kind": "controlsPlace",
+        "panel": [1500, 100, 300, 600],
+        "size": [200, 30],
+        "screen": {"X": 0, "Y": 0, "Width": 1920, "Height": 1040},
+        "gap": 4,
+        "prefer": "above",
+        "bar": 22,
+        "box": 0,
+        "inset": 4,
+        "indent": 8
+      },
+      "expect": {"X": 1592, "Y": 104, "Side": "above", "Align": "Right"}
+    },
+    {
+      "name": "controlsPlace the box above",
+      "input": {
+        "kind": "controlsPlace",
+        "panel": [1500, 400, 300, 600],
+        "size": [200, 30],
+        "screen": {"X": 0, "Y": 0, "Width": 1920, "Height": 1040},
+        "gap": 4,
+        "prefer": "above",
+        "bar": 22,
+        "box": 200,
+        "inset": 4,
+        "indent": 8
+      },
+      "expect": {"X": 1592, "Y": 196, "Side": "above", "Align": "Right"}
+    },
+    {
+      "name": "controlsPlace no room above: below",
+      "input": {
+        "kind": "controlsPlace",
+        "panel": [1500, 100, 300, 600],
+        "size": [200, 30],
+        "screen": {"X": 0, "Y": 0, "Width": 1920, "Height": 1040},
+        "gap": 4,
+        "prefer": "above",
+        "bar": 22,
+        "box": 200,
+        "inset": 4,
+        "indent": 8
+      },
+      "expect": {"X": 1592, "Y": 104, "Side": "below", "Align": "Right"}
+    },
+    {
+      "name": "controlsPlace below, as it was",
+      "input": {
+        "kind": "controlsPlace",
+        "panel": [1500, 400, 300, 600],
+        "size": [200, 30],
+        "screen": {"X": 0, "Y": 0, "Width": 1920, "Height": 1040},
+        "gap": 4,
+        "prefer": "below",
+        "bar": 22,
+        "box": 200,
+        "inset": 4,
+        "indent": 8
+      },
+      "expect": {"X": 1592, "Y": 404, "Side": "below", "Align": "Right"}
+    },
+    {
+      "name": "controlsPlace below wanted, no room",
+      "input": {
+        "kind": "controlsPlace",
+        "panel": [1500, 900, 300, 100],
+        "size": [200, 30],
+        "screen": {"X": 0, "Y": 0, "Width": 1920, "Height": 1040},
+        "gap": 4,
+        "prefer": "below",
+        "bar": 22,
+        "box": 300,
+        "inset": 4,
+        "indent": 8
+      },
+      "expect": {"X": 1592, "Y": 596, "Side": "above", "Align": "Right"}
+    },
+    {
+      "name": "controlsPlace room on neither side: the more",
+      "input": {
+        "kind": "controlsPlace",
+        "panel": [1500, 150, 300, 200],
+        "size": [200, 30],
+        "screen": {"X": 0, "Y": 0, "Width": 1920, "Height": 400},
+        "gap": 4,
+        "prefer": "above",
+        "bar": 22,
+        "box": 300,
+        "inset": 4,
+        "indent": 8
+      },
+      "expect": {"X": 1592, "Y": 154, "Side": "below", "Align": "Right"}
+    },
+    {
+      "name": "controlsPlace room on neither side: above",
+      "input": {
+        "kind": "controlsPlace",
+        "panel": [1500, 250, 300, 100],
+        "size": [200, 30],
+        "screen": {"X": 0, "Y": 0, "Width": 1920, "Height": 400},
+        "gap": 4,
+        "prefer": "above",
+        "bar": 22,
+        "box": 300,
+        "inset": 4,
+        "indent": 8
+      },
+      "expect": {"X": 1592, "Y": -54, "Side": "above", "Align": "Right"}
+    },
+    {
+      "name": "controlsPlace wider than the room to the left",
+      "input": {
+        "kind": "controlsPlace",
+        "panel": [0, 100, 150, 600],
+        "size": [250, 30],
+        "screen": {"X": 0, "Y": 0, "Width": 1920, "Height": 1040},
+        "gap": 4,
+        "prefer": "above",
+        "bar": 22,
+        "box": 0,
+        "inset": 4,
+        "indent": 8
+      },
+      "expect": {"X": 8, "Y": 104, "Side": "above", "Align": "Left"}
+    },
+    {
+      "name": "controlsPlace a screen left of the main",
+      "input": {
+        "kind": "controlsPlace",
+        "panel": [-1700, 300, 300, 600],
+        "size": [260, 30],
+        "screen": {"X": -1920, "Y": 0, "Width": 1920, "Height": 1040},
+        "gap": 4,
+        "prefer": "above",
+        "bar": 22,
+        "box": 150,
+        "inset": 4,
+        "indent": 8
+      },
+      "expect": {"X": -1668, "Y": 146, "Side": "above", "Align": "Right"}
+    },
+    {
+      "name": "controlsShown mid-drag",
+      "input": {
+        "kind": "controlsShown",
+        "shown": false,
+        "onPanel": false,
+        "onControls": false,
+        "dragging": true,
+        "down": false,
+        "rested": 0,
+        "sinceOver": 0
+      },
+      "expect": true
+    },
+    {
+      "name": "controlsShown rested on the panel",
+      "input": {
+        "kind": "controlsShown",
+        "shown": false,
+        "onPanel": true,
+        "onControls": false,
+        "dragging": false,
+        "down": false,
+        "rested": 350,
+        "sinceOver": 0
+      },
+      "expect": true
+    },
+    {
+      "name": "controlsShown not rested yet",
+      "input": {
+        "kind": "controlsShown",
+        "shown": false,
+        "onPanel": true,
+        "onControls": false,
+        "dragging": false,
+        "down": false,
+        "rested": 349,
+        "sinceOver": 0
+      },
+      "expect": false
+    },
+    {
+      "name": "controlsShown a button held",
+      "input": {
+        "kind": "controlsShown",
+        "shown": false,
+        "onPanel": true,
+        "onControls": false,
+        "dragging": false,
+        "down": true,
+        "rested": 900,
+        "sinceOver": 0
+      },
+      "expect": false
+    },
+    {
+      "name": "controlsShown rested on the buttons",
+      "input": {
+        "kind": "controlsShown",
+        "shown": false,
+        "onPanel": false,
+        "onControls": true,
+        "dragging": false,
+        "down": false,
+        "rested": 600,
+        "sinceOver": 0
+      },
+      "expect": true
+    },
+    {
+      "name": "controlsShown up, just left",
+      "input": {
+        "kind": "controlsShown",
+        "shown": true,
+        "onPanel": false,
+        "onControls": false,
+        "dragging": false,
+        "down": false,
+        "rested": 0,
+        "sinceOver": 699
+      },
+      "expect": true
+    },
+    {
+      "name": "controlsShown up, 700 ms gone",
+      "input": {
+        "kind": "controlsShown",
+        "shown": true,
+        "onPanel": false,
+        "onControls": false,
+        "dragging": false,
+        "down": false,
+        "rested": 0,
+        "sinceOver": 700
+      },
+      "expect": false
+    },
+    {
+      "name": "controlsShown up, a button held off it",
+      "input": {
+        "kind": "controlsShown",
+        "shown": true,
+        "onPanel": false,
+        "onControls": false,
+        "dragging": false,
+        "down": true,
+        "rested": 0,
+        "sinceOver": 5000
+      },
+      "expect": true
+    },
+    {
+      "name": "resize the foot down two rows",
+      "input": {
+        "kind": "resize",
+        "rows": 3,
+        "dy": 90,
+        "rowHeight": 42,
+        "scale": 1,
+        "collapsed": false,
+        "kept": 0,
+        "edge": "s",
+        "open": 10,
+        "recentDrawn": 0,
+        "recentPool": 0,
+        "recentKept": -1,
+        "recentHeight": 0,
+        "headHeight": 0
+      },
+      "expect": {"Rows": 5, "Recent": 0, "Steps": 2, "RecentSteps": 0, "Grow": 84}
+    },
+    {
+      "name": "resize the top up two rows",
+      "input": {
+        "kind": "resize",
+        "rows": 3,
+        "dy": -90,
+        "rowHeight": 42,
+        "scale": 1,
+        "collapsed": false,
+        "kept": 0,
+        "edge": "n",
+        "open": 10,
+        "recentDrawn": 0,
+        "recentPool": 0,
+        "recentKept": -1,
+        "recentHeight": 0,
+        "headHeight": 0
+      },
+      "expect": {"Rows": 5, "Recent": 0, "Steps": 2, "RecentSteps": 0, "Grow": 84}
+    },
+    {
+      "name": "resize the top down takes them",
+      "input": {
+        "kind": "resize",
+        "rows": 4,
+        "dy": 90,
+        "rowHeight": 42,
+        "scale": 1,
+        "collapsed": false,
+        "kept": 0,
+        "edge": "n",
+        "open": 10,
+        "recentDrawn": 0,
+        "recentPool": 0,
+        "recentKept": -1,
+        "recentHeight": 0,
+        "headHeight": 0
+      },
+      "expect": {"Rows": 2, "Recent": 0, "Steps": -2, "RecentSteps": 0, "Grow": -84}
+    },
+    {
+      "name": "resize within the first row",
+      "input": {
+        "kind": "resize",
+        "rows": 3,
+        "dy": 30,
+        "rowHeight": 42,
+        "scale": 1,
+        "collapsed": false,
+        "kept": 0,
+        "edge": "s",
+        "open": 10,
+        "recentDrawn": 0,
+        "recentPool": 0,
+        "recentKept": -1,
+        "recentHeight": 0,
+        "headHeight": 0
+      },
+      "expect": {"Rows": 3, "Recent": 0, "Steps": 0, "RecentSteps": 0, "Grow": 0}
+    },
+    {
+      "name": "resize no travel keeps the saved",
+      "input": {
+        "kind": "resize",
+        "rows": 3,
+        "dy": 10,
+        "rowHeight": 42,
+        "scale": 1,
+        "collapsed": false,
+        "kept": 8,
+        "edge": "s",
+        "open": 3,
+        "recentDrawn": 0,
+        "recentPool": 0,
+        "recentKept": -1,
+        "recentHeight": 0,
+        "headHeight": 0
+      },
+      "expect": {"Rows": 8, "Recent": 0, "Steps": 0, "RecentSteps": 0, "Grow": 0}
+    },
+    {
+      "name": "resize outward never under the saved",
+      "input": {
+        "kind": "resize",
+        "rows": 3,
+        "dy": 90,
+        "rowHeight": 42,
+        "scale": 1,
+        "collapsed": false,
+        "kept": 8,
+        "edge": "s",
+        "open": 4,
+        "recentDrawn": 0,
+        "recentPool": 0,
+        "recentKept": -1,
+        "recentHeight": 0,
+        "headHeight": 0
+      },
+      "expect": {"Rows": 8, "Recent": 0, "Steps": 1, "RecentSteps": 0, "Grow": 42}
+    },
+    {
+      "name": "resize inward from the saved",
+      "input": {
+        "kind": "resize",
+        "rows": 3,
+        "dy": -50,
+        "rowHeight": 42,
+        "scale": 1,
+        "collapsed": false,
+        "kept": 8,
+        "edge": "s",
+        "open": 3,
+        "recentDrawn": 0,
+        "recentPool": 0,
+        "recentKept": -1,
+        "recentHeight": 0,
+        "headHeight": 0
+      },
+      "expect": {"Rows": 2, "Recent": 0, "Steps": -1, "RecentSteps": 0, "Grow": -42}
+    },
+    {
+      "name": "resize past the open rows into Recent",
+      "input": {
+        "kind": "resize",
+        "rows": 3,
+        "dy": 130,
+        "rowHeight": 42,
+        "scale": 1,
+        "collapsed": false,
+        "kept": 0,
+        "edge": "s",
+        "open": 3,
+        "recentDrawn": 0,
+        "recentPool": 5,
+        "recentKept": -1,
+        "recentHeight": 20,
+        "headHeight": 18
+      },
+      "expect": {"Rows": 3, "Recent": 5, "Steps": 0, "RecentSteps": 5, "Grow": 118}
+    },
+    {
+      "name": "resize Recent as far as there is",
+      "input": {
+        "kind": "resize",
+        "rows": 3,
+        "dy": 900,
+        "rowHeight": 42,
+        "scale": 1,
+        "collapsed": false,
+        "kept": 0,
+        "edge": "s",
+        "open": 3,
+        "recentDrawn": 2,
+        "recentPool": 4,
+        "recentKept": -1,
+        "recentHeight": 20,
+        "headHeight": 18
+      },
+      "expect": {"Rows": 3, "Recent": 4, "Steps": 0, "RecentSteps": 2, "Grow": 40}
+    },
+    {
+      "name": "resize inward takes Recent first",
+      "input": {
+        "kind": "resize",
+        "rows": 3,
+        "dy": -50,
+        "rowHeight": 42,
+        "scale": 1,
+        "collapsed": false,
+        "kept": 0,
+        "edge": "s",
+        "open": 5,
+        "recentDrawn": 3,
+        "recentPool": 0,
+        "recentKept": -1,
+        "recentHeight": 20,
+        "headHeight": 18
+      },
+      "expect": {"Rows": 3, "Recent": 1, "Steps": 0, "RecentSteps": -2, "Grow": -40}
+    },
+    {
+      "name": "resize inward past Recent into rows",
+      "input": {
+        "kind": "resize",
+        "rows": 4,
+        "dy": -150,
+        "rowHeight": 42,
+        "scale": 1,
+        "collapsed": false,
+        "kept": 0,
+        "edge": "s",
+        "open": 5,
+        "recentDrawn": 2,
+        "recentPool": 0,
+        "recentKept": -1,
+        "recentHeight": 20,
+        "headHeight": 18
+      },
+      "expect": {"Rows": 2, "Recent": 0, "Steps": -2, "RecentSteps": -2, "Grow": -142}
+    },
+    {
+      "name": "resize collapsed: nothing",
+      "input": {
+        "kind": "resize",
+        "rows": 3,
+        "dy": 300,
+        "rowHeight": 42,
+        "scale": 1,
+        "collapsed": true,
+        "kept": 0,
+        "edge": "s",
+        "open": 10,
+        "recentDrawn": 0,
+        "recentPool": 0,
+        "recentKept": -1,
+        "recentHeight": 0,
+        "headHeight": 0
+      },
+      "expect": {"Rows": 3, "Recent": 0, "Steps": 0, "RecentSteps": 0, "Grow": 0}
+    },
+    {
+      "name": "resize at 1.5 x",
+      "input": {
+        "kind": "resize",
+        "rows": 2,
+        "dy": 130,
+        "rowHeight": 63,
+        "scale": 1.5,
+        "collapsed": false,
+        "kept": 0,
+        "edge": "s",
+        "open": 30,
+        "recentDrawn": 0,
+        "recentPool": 0,
+        "recentKept": -1,
+        "recentHeight": 0,
+        "headHeight": 0
+      },
+      "expect": {"Rows": 4, "Recent": 0, "Steps": 2, "RecentSteps": 0, "Grow": 84}
+    },
+    {
+      "name": "resize no row height known",
+      "input": {
+        "kind": "resize",
+        "rows": 2,
+        "dy": 110,
+        "rowHeight": 0,
+        "scale": 1.25,
+        "collapsed": false,
+        "kept": 0,
+        "edge": "s",
+        "open": 30,
+        "recentDrawn": 0,
+        "recentPool": 0,
+        "recentKept": -1,
+        "recentHeight": 0,
+        "headHeight": 0
+      },
+      "expect": {"Rows": 4, "Recent": 0, "Steps": 2, "RecentSteps": 0, "Grow": 84}
+    },
+    {
+      "name": "resize a grow with a fraction",
+      "input": {
+        "kind": "resize",
+        "rows": 2,
+        "dy": 110,
+        "rowHeight": 51,
+        "scale": 1.25,
+        "collapsed": false,
+        "kept": 0,
+        "edge": "s",
+        "open": 30,
+        "recentDrawn": 0,
+        "recentPool": 0,
+        "recentKept": -1,
+        "recentHeight": 0,
+        "headHeight": 0
+      },
+      "expect": {"Rows": 4, "Recent": 0, "Steps": 2, "RecentSteps": 0, "Grow": 81.6}
+    },
+    {
+      "name": "resize Recent kept with no line moved",
+      "input": {
+        "kind": "resize",
+        "rows": 2,
+        "dy": 5,
+        "rowHeight": 42,
+        "scale": 1,
+        "collapsed": false,
+        "kept": 0,
+        "edge": "s",
+        "open": 2,
+        "recentDrawn": 2,
+        "recentPool": 6,
+        "recentKept": 4,
+        "recentHeight": 0,
+        "headHeight": 0
+      },
+      "expect": {"Rows": 2, "Recent": 4, "Steps": 0, "RecentSteps": 0, "Grow": 0}
+    },
+    {
+      "name": "resize Recent outward never under its saved",
+      "input": {
+        "kind": "resize",
+        "rows": 2,
+        "dy": 25,
+        "rowHeight": 42,
+        "scale": 1,
+        "collapsed": false,
+        "kept": 0,
+        "edge": "s",
+        "open": 2,
+        "recentDrawn": 2,
+        "recentPool": 6,
+        "recentKept": 5,
+        "recentHeight": 20,
+        "headHeight": 0
+      },
+      "expect": {"Rows": 2, "Recent": 5, "Steps": 0, "RecentSteps": 1, "Grow": 20}
+    },
+    {
+      "name": "resize no open row to take",
+      "input": {
+        "kind": "resize",
+        "rows": 8,
+        "dy": -100,
+        "rowHeight": 42,
+        "scale": 1,
+        "collapsed": false,
+        "kept": 0,
+        "edge": "s",
+        "open": 0,
+        "recentDrawn": 0,
+        "recentPool": 0,
+        "recentKept": -1,
+        "recentHeight": 0,
+        "headHeight": 0
+      },
+      "expect": {"Rows": 8, "Recent": 0, "Steps": 0, "RecentSteps": 0, "Grow": 0}
+    },
+    {
+      "name": "resize never past 30",
+      "input": {
+        "kind": "resize",
+        "rows": 29,
+        "dy": 900,
+        "rowHeight": 42,
+        "scale": 1,
+        "collapsed": false,
+        "kept": 0,
+        "edge": "s",
+        "open": 40,
+        "recentDrawn": 0,
+        "recentPool": 0,
+        "recentKept": -1,
+        "recentHeight": 0,
+        "headHeight": 0
+      },
+      "expect": {"Rows": 30, "Recent": 0, "Steps": 1, "RecentSteps": 0, "Grow": 42}
+    },
+    {
+      "name": "resize a scale of 0 is 1",
+      "input": {
+        "kind": "resize",
+        "rows": 2,
+        "dy": 84,
+        "rowHeight": 42,
+        "scale": 0,
+        "collapsed": false,
+        "kept": 0,
+        "edge": "s",
+        "open": 30,
+        "recentDrawn": 0,
+        "recentPool": 0,
+        "recentKept": -1,
+        "recentHeight": 0,
+        "headHeight": 0
+      },
+      "expect": {"Rows": 4, "Recent": 0, "Steps": 2, "RecentSteps": 0, "Grow": 84}
+    },
+    {
+      "name": "heightCap down to the foot",
+      "input": {
+        "kind": "heightCap",
+        "top": 100,
+        "area": {"X": 0, "Y": 40, "Width": 1920, "Height": 1000},
+        "scale": 1,
+        "floor": 42,
+        "bottom": null
+      },
+      "expect": 940
+    },
+    {
+      "name": "heightCap at 1.5 x",
+      "input": {
+        "kind": "heightCap",
+        "top": 100,
+        "area": {"X": 0, "Y": 40, "Width": 1920, "Height": 1000},
+        "scale": 1.5,
+        "floor": 42,
+        "bottom": null
+      },
+      "expect": 626
+    },
+    {
+      "name": "heightCap never under the floor",
+      "input": {
+        "kind": "heightCap",
+        "top": 1030,
+        "area": {"X": 0, "Y": 40, "Width": 1920, "Height": 1000},
+        "scale": 1,
+        "floor": 41.5,
+        "bottom": null
+      },
+      "expect": 42
+    },
+    {
+      "name": "heightCap the foot held: up to the top",
+      "input": {
+        "kind": "heightCap",
+        "top": 100,
+        "area": {"X": 0, "Y": 40, "Width": 1920, "Height": 1000},
+        "scale": 1.25,
+        "floor": 42,
+        "bottom": 800
+      },
+      "expect": 608
+    },
+    {
+      "name": "heightCap a scale of 0 is 1",
+      "input": {
+        "kind": "heightCap",
+        "top": 100,
+        "area": {"X": 0, "Y": 40, "Width": 1920, "Height": 1000},
+        "scale": 0,
+        "floor": 0,
+        "bottom": null
+      },
+      "expect": 940
+    },
+    {
+      "name": "placement where it was left",
+      "input": {
+        "kind": "placement",
+        "x": 100,
+        "y": 100,
+        "w": 300,
+        "h": 200,
+        "screens": [{"X": 0, "Y": 0, "Width": 1920, "Height": 1040, "Primary": true}]
+      },
+      "expect": {"X": 100, "Y": 100, "Moved": false}
+    },
+    {
+      "name": "placement off every screen",
+      "input": {
+        "kind": "placement",
+        "x": 3000,
+        "y": 100,
+        "w": 300,
+        "h": 200,
+        "screens": [{"X": 0, "Y": 0, "Width": 1920, "Height": 1040, "Primary": true}]
+      },
+      "expect": {"X": 1604, "Y": 16, "Moved": true}
+    },
+    {
+      "name": "placement a 48 x 24 corner shows",
+      "input": {
+        "kind": "placement",
+        "x": 1872,
+        "y": 1016,
+        "w": 300,
+        "h": 200,
+        "screens": [{"X": 0, "Y": 0, "Width": 1920, "Height": 1040, "Primary": true}]
+      },
+      "expect": {"X": 1872, "Y": 1016, "Moved": false}
+    },
+    {
+      "name": "placement 47 wide shows not",
+      "input": {
+        "kind": "placement",
+        "x": 1873,
+        "y": 100,
+        "w": 300,
+        "h": 200,
+        "screens": [{"X": 0, "Y": 0, "Width": 1920, "Height": 1040, "Primary": true}]
+      },
+      "expect": {"X": 1604, "Y": 16, "Moved": true}
+    },
+    {
+      "name": "placement on the second screen",
+      "input": {
+        "kind": "placement",
+        "x": 2000,
+        "y": 50,
+        "w": 300,
+        "h": 200,
+        "screens": [
+          {"X": 0, "Y": 0, "Width": 1920, "Height": 1040, "Primary": true},
+          {"X": 1920, "Y": 0, "Width": 1280, "Height": 1000, "Primary": false}
+        ]
+      },
+      "expect": {"X": 2000, "Y": 50, "Moved": false}
+    },
+    {
+      "name": "placement no place kept",
+      "input": {
+        "kind": "placement",
+        "x": null,
+        "y": null,
+        "w": 300,
+        "h": 200,
+        "screens": [
+          {"X": 0, "Y": 0, "Width": 1920, "Height": 1040, "Primary": true},
+          {"X": 1920, "Y": 0, "Width": 1280, "Height": 1000, "Primary": false}
+        ]
+      },
+      "expect": {"X": 1604, "Y": 16, "Moved": true}
+    },
+    {
+      "name": "placement the main screen second",
+      "input": {
+        "kind": "placement",
+        "x": null,
+        "y": null,
+        "w": 300,
+        "h": 200,
+        "screens": [
+          {"X": -1280, "Y": 0, "Width": 1280, "Height": 1000, "Primary": false},
+          {"X": 0, "Y": 0, "Width": 1920, "Height": 1040, "Primary": true}
+        ]
+      },
+      "expect": {"X": 1604, "Y": 16, "Moved": true}
+    },
+    {
+      "name": "placement no main screen named",
+      "input": {
+        "kind": "placement",
+        "x": 5000,
+        "y": 5000,
+        "w": 300,
+        "h": 200,
+        "screens": [{"X": -1280, "Y": 0, "Width": 1280, "Height": 1000, "Primary": false}]
+      },
+      "expect": {"X": -316, "Y": 16, "Moved": true}
+    },
+    {
+      "name": "placement no screens",
+      "input": {"kind": "placement", "x": 10, "y": 10, "w": 300, "h": 200, "screens": []},
+      "expect": {"X": 0, "Y": 0, "Moved": true}
+    },
+    {
+      "name": "edgesRect six out",
+      "input": {"kind": "edgesRect", "panel": [100, 200, 300, 400], "out": 6},
+      "expect": [94, 194, 312, 412]
+    },
+    {
+      "name": "edgesRect none out",
+      "input": {"kind": "edgesRect", "panel": [-50, 0, 10, 10], "out": 0},
+      "expect": [-50, 0, 10, 10]
+    },
+    {
+      "name": "raisePlan code 0",
+      "input": {"kind": "raisePlan", "code": 0},
+      "expect": {"By": "folder", "Seconds": 5, "Words": 0}
+    },
+    {
+      "name": "raisePlan code 10",
+      "input": {"kind": "raisePlan", "code": 10},
+      "expect": {"By": "folder", "Seconds": 5, "Words": 10}
+    },
+    {"name": "raisePlan code 15", "input": {"kind": "raisePlan", "code": 15}, "expect": null},
+    {
+      "name": "raisePlan code 16",
+      "input": {"kind": "raisePlan", "code": 16},
+      "expect": {"By": "folder", "Seconds": 5, "Words": 16}
+    },
+    {"name": "raisePlan code 20", "input": {"kind": "raisePlan", "code": 20}, "expect": null},
+    {
+      "name": "raisePlan code 21",
+      "input": {"kind": "raisePlan", "code": 21},
+      "expect": {"By": "folder", "Seconds": 5, "Words": 21}
+    },
+    {
+      "name": "raisePlan code 25",
+      "input": {"kind": "raisePlan", "code": 25},
+      "expect": {"By": "name", "Seconds": 0, "Words": 0}
+    },
+    {
+      "name": "raisePlan code 26",
+      "input": {"kind": "raisePlan", "code": 26},
+      "expect": {"By": "name", "Seconds": 0, "Words": 21}
+    },
+    {"name": "raisePlan code 30", "input": {"kind": "raisePlan", "code": 30}, "expect": null},
+    {
+      "name": "raisePlan code 40",
+      "input": {"kind": "raisePlan", "code": 40},
+      "expect": {"By": "folder", "Seconds": 0, "Words": 0}
+    },
+    {
+      "name": "raisePlan code 41",
+      "input": {"kind": "raisePlan", "code": 41},
+      "expect": {"By": "folder", "Seconds": 0, "Words": 0}
+    },
+    {
+      "name": "raisePlan code 42",
+      "input": {"kind": "raisePlan", "code": 42},
+      "expect": {"By": "folder", "Seconds": 0, "Words": 21}
+    },
+    {
+      "name": "raisePlan code 43",
+      "input": {"kind": "raisePlan", "code": 43},
+      "expect": {"By": "folder", "Seconds": 0, "Words": 21}
+    },
+    {"name": "raisePlan code 50", "input": {"kind": "raisePlan", "code": 50}, "expect": null},
+    {"name": "raisePlan code 1", "input": {"kind": "raisePlan", "code": 1}, "expect": null},
+    {
+      "name": "titleOn a folder",
+      "input": {"kind": "titleOn", "title": "proj - Visual Studio Code", "root": "proj", "profiles": []},
+      "expect": true
+    },
+    {
+      "name": "titleOn a file in it",
+      "input": {
+        "kind": "titleOn",
+        "title": "main.rs - proj - Visual Studio Code",
+        "root": "proj",
+        "profiles": []
+      },
+      "expect": true
+    },
+    {
+      "name": "titleOn Insiders",
+      "input": {
+        "kind": "titleOn",
+        "title": "proj - Visual Studio Code - Insiders",
+        "root": "proj",
+        "profiles": []
+      },
+      "expect": true
+    },
+    {
+      "name": "titleOn run as admin",
+      "input": {
+        "kind": "titleOn",
+        "title": "proj - Visual Studio Code [Administrator]",
+        "root": "proj",
+        "profiles": []
+      },
+      "expect": true
+    },
+    {
+      "name": "titleOn a profile",
+      "input": {
+        "kind": "titleOn",
+        "title": "proj - Work - Visual Studio Code",
+        "root": "proj",
+        "profiles": ["Work"]
+      },
+      "expect": true
+    },
+    {
+      "name": "titleOn a profile not known",
+      "input": {
+        "kind": "titleOn",
+        "title": "proj - Work - Visual Studio Code",
+        "root": "proj",
+        "profiles": []
+      },
+      "expect": false
+    },
+    {
+      "name": "titleOn a folder of a longer name",
+      "input": {"kind": "titleOn", "title": "projX - Visual Studio Code", "root": "proj", "profiles": []},
+      "expect": false
+    },
+    {
+      "name": "titleOn any case",
+      "input": {"kind": "titleOn", "title": "PROJ - visual studio code", "root": "proj", "profiles": []},
+      "expect": true
+    },
+    {
+      "name": "titleOn no root",
+      "input": {"kind": "titleOn", "title": "proj - Visual Studio Code", "root": "", "profiles": []},
+      "expect": false
+    },
+    {
+      "name": "titleOn no name of VS Code",
+      "input": {"kind": "titleOn", "title": "proj", "root": "proj", "profiles": []},
+      "expect": true
+    },
+    {
+      "name": "titleOn a dash with no space",
+      "input": {"kind": "titleOn", "title": "proj-Visual Studio Code", "root": "proj", "profiles": []},
+      "expect": false
+    },
+    {
+      "name": "titleOn a workspace",
+      "input": {
+        "kind": "titleOn",
+        "title": "Team (Workspace) - Visual Studio Code",
+        "root": "Team (Workspace)",
+        "profiles": []
+      },
+      "expect": true
+    },
+    {
+      "name": "selectWindow by its folder",
+      "input": {
+        "kind": "selectWindow",
+        "cwd": "C:\\work\\proj",
+        "windows": [
+          {"Handle": 101, "Title": "proj - Visual Studio Code"},
+          {"Handle": 202, "Title": "other - Visual Studio Code"}
+        ],
+        "profiles": [],
+        "name": ""
+      },
+      "expect": 101
+    },
+    {
+      "name": "selectWindow a slash at the end",
+      "input": {
+        "kind": "selectWindow",
+        "cwd": "C:\\work\\proj\\",
+        "windows": [
+          {"Handle": 202, "Title": "other - Visual Studio Code"},
+          {"Handle": 101, "Title": "proj - Visual Studio Code"}
+        ],
+        "profiles": [],
+        "name": ""
+      },
+      "expect": 101
+    },
+    {
+      "name": "selectWindow forward slashes",
+      "input": {
+        "kind": "selectWindow",
+        "cwd": "D:/a/b/proj",
+        "windows": [
+          {"Handle": 101, "Title": "proj - Visual Studio Code"},
+          {"Handle": 202, "Title": "other - Visual Studio Code"}
+        ],
+        "profiles": [],
+        "name": ""
+      },
+      "expect": 101
+    },
+    {
+      "name": "selectWindow two on a folder of that name",
+      "input": {
+        "kind": "selectWindow",
+        "cwd": "C:\\work\\proj",
+        "windows": [
+          {"Handle": 101, "Title": "proj - Visual Studio Code"},
+          {"Handle": 303, "Title": "main.rs - proj - Visual Studio Code"}
+        ],
+        "profiles": [],
+        "name": ""
+      },
+      "expect": null
+    },
+    {
+      "name": "selectWindow none on it",
+      "input": {
+        "kind": "selectWindow",
+        "cwd": "C:\\work\\gone",
+        "windows": [
+          {"Handle": 101, "Title": "proj - Visual Studio Code"},
+          {"Handle": 202, "Title": "other - Visual Studio Code"}
+        ],
+        "profiles": [],
+        "name": ""
+      },
+      "expect": null
+    },
+    {
+      "name": "selectWindow by the name its tab gives",
+      "input": {
+        "kind": "selectWindow",
+        "cwd": "C:\\work\\proj",
+        "windows": [
+          {"Handle": 101, "Title": "proj - Visual Studio Code"},
+          {"Handle": 404, "Title": "Team (Workspace) - Visual Studio Code"}
+        ],
+        "profiles": [],
+        "name": "Team"
+      },
+      "expect": 404
+    },
+    {
+      "name": "selectWindow a window with no handle",
+      "input": {
+        "kind": "selectWindow",
+        "cwd": "C:\\work\\proj",
+        "windows": [
+          {"Handle": 0, "Title": "proj - Visual Studio Code"},
+          {"Handle": 505, "Title": "proj - Visual Studio Code"}
+        ],
+        "profiles": [],
+        "name": ""
+      },
+      "expect": 505
+    },
+    {
+      "name": "selectWindow no folder",
+      "input": {
+        "kind": "selectWindow",
+        "cwd": "",
+        "windows": [{"Handle": 101, "Title": "proj - Visual Studio Code"}],
+        "profiles": [],
+        "name": ""
+      },
+      "expect": null
+    },
+    {"name": "hotkey none set", "input": {"kind": "hotkey", "text": ""}, "expect": null},
+    {"name": "hotkey none said", "input": {"kind": "hotkey", "text": "None"}, "expect": null},
+    {
+      "name": "hotkey the default",
+      "input": {"kind": "hotkey", "text": "Ctrl+Alt+Shift+O"},
+      "expect": {"Mods": 7, "Vk": 79, "Text": "Ctrl+Alt+Shift+O"}
+    },
+    {
+      "name": "hotkey Win and a function key",
+      "input": {"kind": "hotkey", "text": "Ctrl+Win+F9"},
+      "expect": {"Mods": 10, "Vk": 120, "Text": "Ctrl+Win+F9"}
+    },
+    {
+      "name": "hotkey spaces and any case",
+      "input": {"kind": "hotkey", "text": " control + Shift + 5 "},
+      "expect": {"Mods": 6, "Vk": 53, "Text": "control + Shift + 5"}
+    },
+    {
+      "name": "hotkey F24",
+      "input": {"kind": "hotkey", "text": "Alt+F24"},
+      "expect": {"Mods": 1, "Vk": 135, "Text": "Alt+F24"}
+    },
+    {
+      "name": "hotkey F25 is not one",
+      "input": {"kind": "hotkey", "text": "Alt+F25"},
+      "expect": {
+        "error": "cannot read 'F25' in hotkey 'Alt+F25' - use e.g. Ctrl+Alt+Shift+O, Ctrl+Win+F9 or none"
+      }
+    },
+    {
+      "name": "hotkey F01 is not one",
+      "input": {"kind": "hotkey", "text": "Alt+F01"},
+      "expect": {
+        "error": "cannot read 'F01' in hotkey 'Alt+F01' - use e.g. Ctrl+Alt+Shift+O, Ctrl+Win+F9 or none"
+      }
+    },
+    {
+      "name": "hotkey no key",
+      "input": {"kind": "hotkey", "text": "Ctrl+Alt"},
+      "expect": {"error": "hotkey 'Ctrl+Alt' names no key - e.g. Ctrl+Alt+Shift+O"}
+    },
+    {
+      "name": "hotkey no modifier",
+      "input": {"kind": "hotkey", "text": "O"},
+      "expect": {"error": "hotkey 'O' needs Ctrl, Alt, Shift or Win with the key"}
+    },
+    {
+      "name": "hotkey the last key named",
+      "input": {"kind": "hotkey", "text": "Ctrl+A+B"},
+      "expect": {"Mods": 2, "Vk": 66, "Text": "Ctrl+A+B"}
+    },
+    {
+      "name": "hotkey an empty part",
+      "input": {"kind": "hotkey", "text": "Ctrl++O"},
+      "expect": {
+        "error": "cannot read '' in hotkey 'Ctrl++O' - use e.g. Ctrl+Alt+Shift+O, Ctrl+Win+F9 or none"
+      }
+    },
+    {
+      "name": "hotkey Windows spelled out",
+      "input": {"kind": "hotkey", "text": "windows+shift+z"},
+      "expect": {"Mods": 12, "Vk": 90, "Text": "windows+shift+z"}
+    },
+    {
+      "name": "rowClock idle 5 min",
+      "input": {
+        "kind": "rowClock",
+        "row": {"status": "idle", "since": 1792032900000},
+        "live": false,
+        "now": 1792033200000
+      },
+      "expect": " 0h05"
+    },
+    {
+      "name": "rowClock at work 12 h",
+      "input": {
+        "kind": "rowClock",
+        "row": {"status": "busy", "since": 1791990000000},
+        "live": false,
+        "now": 1792033200000
+      },
+      "expect": "12h00"
+    },
+    {
+      "name": "rowClock live, under an hour",
+      "input": {
+        "kind": "rowClock",
+        "row": {"status": "busy", "since": 1792033075000},
+        "live": true,
+        "now": 1792033200000
+      },
+      "expect": " 2:05"
+    },
+    {
+      "name": "rowClock live, past an hour",
+      "input": {
+        "kind": "rowClock",
+        "row": {"status": "busy", "since": 1792029500000},
+        "live": true,
+        "now": 1792033200000
+      },
+      "expect": " 1h01"
+    },
+    {
+      "name": "rowClock queued, sends in 90 s",
+      "input": {
+        "kind": "rowClock",
+        "row": {"status": "queued", "since": 1792033195000, "sendAt": 1792033290000},
+        "live": false,
+        "now": 1792033200000
+      },
+      "expect": "-0h02"
+    },
+    {
+      "name": "rowClock queued, its time passed",
+      "input": {
+        "kind": "rowClock",
+        "row": {"status": "queued", "since": 1792033195000, "sendAt": 1792033199000},
+        "live": false,
+        "now": 1792033200000
+      },
+      "expect": "--:--"
+    },
+    {
+      "name": "rowClock cut off, the reset ahead",
+      "input": {
+        "kind": "rowClock",
+        "row": {"status": "cutoff", "since": 1792032600000, "resetsAt": 1792044000000},
+        "live": false,
+        "now": 1792033200000
+      },
+      "expect": "-3h00"
+    },
+    {
+      "name": "rowClock cut off, the reset passed",
+      "input": {
+        "kind": "rowClock",
+        "row": {"status": "cutoff", "since": 1792032600000, "resetsAt": 1792033199999},
+        "live": false,
+        "now": 1792033200000
+      },
+      "expect": " 0h10"
+    },
+    {
+      "name": "rowClock a minute and a bit to go",
+      "input": {
+        "kind": "rowClock",
+        "row": {"status": "cutoff", "resetsAt": 1792033260001},
+        "live": false,
+        "now": 1792033200000
+      },
+      "expect": "-0h01"
+    },
+    {
+      "name": "rowClock 101 hours: days",
+      "input": {
+        "kind": "rowClock",
+        "row": {"status": "idle", "since": 1791669600000},
+        "live": false,
+        "now": 1792033200000
+      },
+      "expect": " 4d05"
+    },
+    {
+      "name": "rowClock 300 days: held at 99",
+      "input": {
+        "kind": "rowClock",
+        "row": {"status": "idle", "since": 1766113200000},
+        "live": false,
+        "now": 1792033200000
+      },
+      "expect": "99d00"
+    },
+    {
+      "name": "rowClock no since",
+      "input": {"kind": "rowClock", "row": {"status": "idle"}, "live": false, "now": 1792033200000},
+      "expect": "--:--"
+    },
+    {
+      "name": "rowClock a since ahead",
+      "input": {
+        "kind": "rowClock",
+        "row": {"status": "idle", "since": 1792033205000},
+        "live": false,
+        "now": 1792033200000
+      },
+      "expect": " 0h00"
+    },
+    {
+      "name": "rowWords a Recent line says its age",
+      "input": {"kind": "rowWords", "row": {"kind": "recent", "stateText": "5m ago", "stateWords": "idle"}},
+      "expect": "5m ago"
+    },
+    {
+      "name": "rowWords idle alone says nothing",
+      "input": {"kind": "rowWords", "row": {"kind": "session", "stateWords": "idle"}},
+      "expect": ""
+    },
+    {
+      "name": "rowWords needs you, any case",
+      "input": {"kind": "rowWords", "row": {"kind": "session", "stateWords": "Needs You"}},
+      "expect": ""
+    },
+    {
+      "name": "rowWords a plain word after the dot",
+      "input": {"kind": "rowWords", "row": {"kind": "session", "stateWords": "resets 13:00 \u00b7 working"}},
+      "expect": "resets 13:00"
+    },
+    {
+      "name": "rowWords a detail kept",
+      "input": {
+        "kind": "rowWords",
+        "row": {"kind": "session", "stateWords": "2nd in the queue \u00b7 queued"}
+      },
+      "expect": "2nd in the queue \u00b7 queued"
+    },
+    {
+      "name": "rowWords no words: the state text",
+      "input": {"kind": "rowWords", "row": {"kind": "job", "stateText": "sends 14:00"}},
+      "expect": "sends 14:00"
+    },
+    {
+      "name": "rowWords a dot first",
+      "input": {"kind": "rowWords", "row": {"kind": "session", "stateWords": " \u00b7 idle"}},
+      "expect": " \u00b7 idle"
+    },
+    {
+      "name": "cardWords the card says nothing like it",
+      "input": {
+        "kind": "cardWords",
+        "row": {"kind": "session", "stateWords": "2nd in the queue \u00b7 queued"},
+        "what": "WAITING"
+      },
+      "expect": "2nd in the queue \u00b7 queued"
+    },
+    {
+      "name": "cardWords the card says it",
+      "input": {
+        "kind": "cardWords",
+        "row": {"kind": "cutoff", "stateWords": "resets 13:00"},
+        "what": "resets 13:00"
+      },
+      "expect": ""
+    },
+    {
+      "name": "cardWords the card says more",
+      "input": {
+        "kind": "cardWords",
+        "row": {"kind": "cutoff", "stateWords": "13:00"},
+        "what": "resets 13:00"
+      },
+      "expect": ""
+    },
+    {
+      "name": "cardWords a Recent line",
+      "input": {"kind": "cardWords", "row": {"kind": "recent", "stateText": "5m ago"}, "what": ""},
+      "expect": ""
+    },
+    {
+      "name": "cardWords nothing to say",
+      "input": {"kind": "cardWords", "row": {"kind": "session", "stateWords": "idle"}, "what": "IDLE"},
+      "expect": ""
+    },
+    {
+      "name": "headNotices every kind of note, then the ask",
+      "input": {
+        "kind": "headNotices",
+        "snap": {
+          "header": {
+            "notes": [
+              {"kind": "memory", "tone": "warn", "text": "memory: 90% used"},
+              {"kind": "leak", "tone": "warn", "text": "Code.exe grows"},
+              {"kind": "leak", "tone": "error", "text": "node.exe grows"},
+              {"kind": "ask", "tone": "cutoff", "text": "the ask"},
+              {"kind": "reload", "tone": "dim", "text": "a reload"},
+              {"kind": "usage", "tone": "warn", "text": "usage: Codex is not answering"},
+              {"kind": "watcher", "tone": "error", "text": "the watcher stopped - see its log"},
+              {"kind": "next", "tone": "dim", "text": "next queued prompt: 14:00"},
+              {"kind": "error", "tone": "error", "text": "the collector failed"},
+              {"kind": "note", "tone": "dim", "text": "something to say"},
+              {"kind": "note", "tone": "warn", "text": "Something else"}
+            ],
+            "ask": {"s:1": null, "s:2": null}
+          }
+        },
+        "now": 1792033200000
+      },
+      "expect": [
+        {
+          "key": "notice:memory",
+          "kind": "notice",
+          "provider": "",
+          "sessionId": "",
+          "cwd": "",
+          "tone": "warn",
+          "word": "MEMORY",
+          "text": "memory: 90% used"
+        },
+        {
+          "key": "notice:leak:0",
+          "kind": "notice",
+          "provider": "",
+          "sessionId": "",
+          "cwd": "",
+          "tone": "warn",
+          "word": "LEAK",
+          "text": "Code.exe grows"
+        },
+        {
+          "key": "notice:leak:1",
+          "kind": "notice",
+          "provider": "",
+          "sessionId": "",
+          "cwd": "",
+          "tone": "error",
+          "word": "LEAK",
+          "text": "node.exe grows"
+        },
+        {
+          "key": "notice:usage",
+          "kind": "notice",
+          "provider": "",
+          "sessionId": "",
+          "cwd": "",
+          "tone": "warn",
+          "word": "USAGE",
+          "text": "usage: Codex is not answering"
+        },
+        {
+          "key": "notice:watcher",
+          "kind": "notice",
+          "provider": "",
+          "sessionId": "",
+          "cwd": "",
+          "tone": "error",
+          "word": "WATCHER",
+          "text": "the watcher stopped - see its log"
+        },
+        {
+          "key": "notice:next",
+          "kind": "notice",
+          "provider": "",
+          "sessionId": "",
+          "cwd": "",
+          "tone": "dim",
+          "word": "NEXT",
+          "text": "next queued prompt: 14:00"
+        },
+        {
+          "key": "notice:error",
+          "kind": "notice",
+          "provider": "",
+          "sessionId": "",
+          "cwd": "",
+          "tone": "error",
+          "word": "ERROR",
+          "text": "the collector failed"
+        },
+        {
+          "key": "notice:note:0",
+          "kind": "notice",
+          "provider": "",
+          "sessionId": "",
+          "cwd": "",
+          "tone": "dim",
+          "word": "NOTE",
+          "text": "something to say"
+        },
+        {
+          "key": "notice:note:1",
+          "kind": "notice",
+          "provider": "",
+          "sessionId": "",
+          "cwd": "",
+          "tone": "warn",
+          "word": "NOTE",
+          "text": "Something else"
+        },
+        {
+          "key": "ask",
+          "kind": "ask",
+          "provider": "",
+          "sessionId": "",
+          "cwd": "",
+          "count": 0,
+          "keys": [],
+          "titles": [],
+          "restart": 0,
+          "tone": "cutoff",
+          "word": "CONTINUE?",
+          "text": "limit over \u00b7 0 chats it cut off can continue"
+        }
+      ]
+    },
+    {
+      "name": "headNotices no notes, no ask",
+      "input": {"kind": "headNotices", "snap": {"header": {"notes": []}}, "now": 1792033200000},
+      "expect": []
+    },
+    {
+      "name": "headNotices one note, not in a list",
+      "input": {
+        "kind": "headNotices",
+        "snap": {"header": {"notes": {"kind": "leak", "tone": "warn", "text": "x grows"}}},
+        "now": 1792033200000
+      },
+      "expect": [
+        {
+          "key": "notice:leak:0",
+          "kind": "notice",
+          "provider": "",
+          "sessionId": "",
+          "cwd": "",
+          "tone": "warn",
+          "word": "LEAK",
+          "text": "x grows"
+        }
+      ]
+    },
+    {
+      "name": "headNotices an ask of restarts, no keys",
+      "input": {
+        "kind": "headNotices",
+        "snap": {
+          "header": {"ask": {"count": 1, "restart": 1, "cause": "crash", "titles": ["fix the build"]}}
+        },
+        "now": 1792033200000
+      },
+      "expect": [
+        {
+          "key": "ask",
+          "kind": "ask",
+          "provider": "",
+          "sessionId": "",
+          "cwd": "",
+          "count": 1,
+          "keys": [],
+          "titles": ["fix the build"],
+          "restart": 1,
+          "tone": "cutoff",
+          "word": "CONTINUE?",
+          "text": "VS Code crashed \u00b7 1 chat it cut off can continue\nfix the build"
+        }
+      ]
+    },
+    {
+      "name": "reloadNotice with the notice's words",
+      "input": {
+        "kind": "reloadNotice",
+        "reload": {
+          "pid": 4321,
+          "window": "proj",
+          "id": "r1",
+          "state": "ask",
+          "say": "an extension changed",
+          "text": "fix the build is working there",
+          "count": 1
+        }
+      },
+      "expect": {
+        "key": "reload:4321",
+        "kind": "reload",
+        "provider": "",
+        "sessionId": "",
+        "cwd": "",
+        "pid": 4321,
+        "id": "r1",
+        "state": "ask",
+        "window": "proj",
+        "tone": "dim",
+        "word": "RELOAD?",
+        "text": "proj needs a reload - an extension changed\nfix the build is working there"
+      }
+    },
+    {
+      "name": "reloadNotice bare",
+      "input": {"kind": "reloadNotice", "reload": {"pid": 99}},
+      "expect": {
+        "key": "reload:99",
+        "kind": "reload",
+        "provider": "",
+        "sessionId": "",
+        "cwd": "",
+        "pid": 99,
+        "id": "",
+        "state": "",
+        "window": "",
+        "tone": "dim",
+        "word": "RELOAD?",
+        "text": "a VS Code window needs a reload"
+      }
+    },
+    {
+      "name": "sayWord busy dim",
+      "input": {"kind": "sayWord", "say": "busy", "tone": "dim"},
+      "expect": "OPENING"
+    },
+    {
+      "name": "sayWord late warn",
+      "input": {"kind": "sayWord", "say": "late", "tone": "warn"},
+      "expect": "NO ANSWER"
+    },
+    {
+      "name": "sayWord nostart warn",
+      "input": {"kind": "sayWord", "say": "nostart", "tone": "warn"},
+      "expect": "NOT OPENED"
+    },
+    {
+      "name": "sayWord delete dim",
+      "input": {"kind": "sayWord", "say": "delete", "tone": "dim"},
+      "expect": "DELETED"
+    },
+    {
+      "name": "sayWord delete warn",
+      "input": {"kind": "sayWord", "say": "delete", "tone": "warn"},
+      "expect": "NOT DELETED"
+    },
+    {
+      "name": "sayWord reload dim",
+      "input": {"kind": "sayWord", "say": "reload", "tone": "dim"},
+      "expect": "RELOAD"
+    },
+    {
+      "name": "sayWord done dim",
+      "input": {"kind": "sayWord", "say": "done", "tone": "dim"},
+      "expect": "OPENED"
+    },
+    {
+      "name": "sayWord done warn",
+      "input": {"kind": "sayWord", "say": "done", "tone": "warn"},
+      "expect": "NOT OPENED"
+    },
+    {
+      "name": "sayWord Busy WARN",
+      "input": {"kind": "sayWord", "say": "Busy", "tone": "WARN"},
+      "expect": "OPENING"
+    },
+    {
+      "name": "compact every count",
+      "input": {
+        "kind": "compact",
+        "snap": {
+          "counts": {
+            "waiting": 1,
+            "busy": 2,
+            "idle": 3,
+            "running": 1,
+            "queued": 4,
+            "needsInput": 1,
+            "cutOff": 3,
+            "unread": 2,
+            "auto": 1
+          },
+          "header": {"ask": {"count": 1}, "reload": [{"pid": 1}]}
+        }
+      },
+      "expect": {
+        "dot": "waiting",
+        "text": "2 waiting \u00b7 1 reload asked \u00b7 2 new \u00b7 1 can continue \u00b7 2 cut off (1 auto) \u00b7 2 working \u00b7 1 running \u00b7 3 idle \u00b7 4 queued"
+      }
+    },
+    {
+      "name": "compact nothing open",
+      "input": {
+        "kind": "compact",
+        "snap": {
+          "counts": {
+            "waiting": 0,
+            "busy": 0,
+            "idle": 0,
+            "running": 0,
+            "queued": 0,
+            "needsInput": 0,
+            "cutOff": 0,
+            "unread": 0
+          },
+          "header": {}
+        }
+      },
+      "expect": {"dot": "idle", "text": "no chats open"}
+    },
+    {
+      "name": "compact cut off, all can continue",
+      "input": {
+        "kind": "compact",
+        "snap": {"counts": {"cutOff": 2, "idle": 1}, "header": {"ask": {"count": 2}}}
+      },
+      "expect": {"dot": "cutoff", "text": "2 can continue \u00b7 1 idle"}
+    },
+    {
+      "name": "compact cut off, some auto",
+      "input": {
+        "kind": "compact",
+        "snap": {
+          "counts": {"cutOff": 3, "auto": 2, "busy": 1},
+          "header": {"reload": [{"pid": 1}, {"pid": 2}]}
+        }
+      },
+      "expect": {"dot": "cutoff", "text": "2 reloads asked \u00b7 3 cut off (2 auto) \u00b7 1 working"}
+    },
+    {
+      "name": "compact running alone",
+      "input": {"kind": "compact", "snap": {"counts": {"running": 2}, "header": {}}},
+      "expect": {"dot": "running", "text": "2 running"}
+    },
+    {
+      "name": "compact no counts",
+      "input": {"kind": "compact", "snap": {"header": {}}},
+      "expect": {"dot": "idle", "text": "no chats open"}
+    },
+    {
+      "name": "activeUsage a provider a row is open for",
+      "input": {
+        "kind": "activeUsage",
+        "snap": {
+          "rows": [{"provider": "claude"}, {"provider": "CODEX"}],
+          "header": {
+            "usage": [
+              {"provider": "Claude", "windows": []},
+              {"provider": "codex", "windows": []},
+              {"provider": "Copilot", "windows": []}
+            ]
+          }
+        }
+      },
+      "expect": ["Claude", "codex"]
+    },
+    {
+      "name": "activeUsage no rows, none",
+      "input": {
+        "kind": "activeUsage",
+        "snap": {
+          "rows": [],
+          "header": {
+            "usage": [
+              {"provider": "Claude", "windows": []},
+              {"provider": "codex", "windows": []},
+              {"provider": "Copilot", "windows": []}
+            ]
+          }
+        }
+      },
+      "expect": []
+    },
+    {
+      "name": "activeUsage Copilot alone",
+      "input": {
+        "kind": "activeUsage",
+        "snap": {
+          "rows": [{"provider": "copilot", "kind": "job"}],
+          "header": {
+            "usage": [
+              {"provider": "Claude", "windows": []},
+              {"provider": "codex", "windows": []},
+              {"provider": "Copilot", "windows": []}
+            ]
+          }
+        }
+      },
+      "expect": ["Copilot"]
+    },
+    {
+      "name": "openBusy a short title",
+      "input": {"kind": "openBusy", "title": "fix the build", "seconds": 3},
+      "expect": "opening 'fix the build' in VS Code - 3s"
+    },
+    {
+      "name": "openBusy a long title",
+      "input": {
+        "kind": "openBusy",
+        "title": "wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww",
+        "seconds": 12
+      },
+      "expect": "opening 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww...' in VS Code - 12s"
+    },
+    {
+      "name": "openBusy no title",
+      "input": {"kind": "openBusy", "title": "", "seconds": 0},
+      "expect": "opening '(empty)' in VS Code - 0s"
+    },
+    {"name": "fullScreen state 0", "input": {"kind": "fullScreen", "state": 0}, "expect": false},
+    {"name": "fullScreen state 1", "input": {"kind": "fullScreen", "state": 1}, "expect": false},
+    {"name": "fullScreen state 2", "input": {"kind": "fullScreen", "state": 2}, "expect": true},
+    {"name": "fullScreen state 3", "input": {"kind": "fullScreen", "state": 3}, "expect": true},
+    {"name": "fullScreen state 4", "input": {"kind": "fullScreen", "state": 4}, "expect": true},
+    {"name": "fullScreen state 5", "input": {"kind": "fullScreen", "state": 5}, "expect": false},
+    {"name": "fullScreen state 6", "input": {"kind": "fullScreen", "state": 6}, "expect": false},
+    {"name": "fullScreen state 7", "input": {"kind": "fullScreen", "state": 7}, "expect": false},
+    {
+      "name": "cardRow kind 'session'",
+      "input": {"kind": "cardRow", "row": {"kind": "session"}},
+      "expect": true
+    },
+    {
+      "name": "cardRow kind 'cutoff'",
+      "input": {"kind": "cardRow", "row": {"kind": "cutoff"}},
+      "expect": true
+    },
+    {
+      "name": "cardRow kind 'recent'",
+      "input": {"kind": "cardRow", "row": {"kind": "recent"}},
+      "expect": true
+    },
+    {
+      "name": "cardRow kind 'job'",
+      "input": {"kind": "cardRow", "row": {"kind": "job"}},
+      "expect": true
+    },
+    {
+      "name": "cardRow kind 'usage'",
+      "input": {"kind": "cardRow", "row": {"kind": "usage"}},
+      "expect": true
+    },
+    {
+      "name": "cardRow kind 'notice'",
+      "input": {"kind": "cardRow", "row": {"kind": "notice"}},
+      "expect": true
+    },
+    {
+      "name": "cardRow kind 'ask'",
+      "input": {"kind": "cardRow", "row": {"kind": "ask"}},
+      "expect": true
+    },
+    {
+      "name": "cardRow kind 'reload'",
+      "input": {"kind": "cardRow", "row": {"kind": "reload"}},
+      "expect": true
+    },
+    {
+      "name": "cardRow kind 'Session'",
+      "input": {"kind": "cardRow", "row": {"kind": "Session"}},
+      "expect": true
+    },
+    {
+      "name": "cardRow kind 'header'",
+      "input": {"kind": "cardRow", "row": {"kind": "header"}},
+      "expect": false
+    },
+    {"name": "cardRow kind ''", "input": {"kind": "cardRow", "row": {"kind": ""}}, "expect": false},
+    {"name": "cardRow no row", "input": {"kind": "cardRow", "row": null}, "expect": false},
+    {
+      "name": "unlocked with the hotkey",
+      "input": {"kind": "unlocked", "hotkey": "Ctrl+Alt+Shift+O"},
+      "expect": {
+        "key": "notice:unlocked",
+        "kind": "notice",
+        "provider": "",
+        "sessionId": "",
+        "cwd": "",
+        "tone": "unlocked",
+        "word": "UNLOCKED",
+        "text": "unlocked - drag to move \u00b7 Ctrl+Alt+Shift+O locks it"
+      }
+    },
+    {
+      "name": "unlocked no hotkey",
+      "input": {"kind": "unlocked", "hotkey": ""},
+      "expect": {
+        "key": "notice:unlocked",
+        "kind": "notice",
+        "provider": "",
+        "sessionId": "",
+        "cwd": "",
+        "tone": "unlocked",
+        "word": "UNLOCKED",
+        "text": "unlocked - drag to move \u00b7 the tray menu locks it"
+      }
+    }
+  ]
+}

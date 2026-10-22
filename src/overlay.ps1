@@ -94,16 +94,22 @@ function Get-ChatOverlayLaunch {
     CHATQ_ALLPARTS loads the parts only it draws from - the panel's, the
     console's, the Mac's - and goes once they are in, so none of those loads
     them too. -Open console: the console opens as it starts - a command left
-    for it now would be swept away as it takes its lock.
+    for it now would be swept away as it takes its lock. -UiExe: the
+    headless host instead, its panel that exe (Start-ChatOverlayHeadlessHost),
+    with no CHATQ_ALLPARTS: it draws nothing of its own, so it loads the
+    collector's parts alone, as every other process does - and the panel's
+    and the console's the first time its console is asked for
+    (Import-ChatOverlayConsoleParts), -Open console among those times.
     #>
-    param([string]$Path = $script:ChatqScriptPath, [ValidateSet('', 'console')][string]$Open = '')
+    param([string]$Path = $script:ChatqScriptPath, [ValidateSet('', 'console')][string]$Open = '', [string]$UiExe = '')
     $q = { param($s) "'" + [System.Management.Automation.Language.CodeGeneration]::EscapeSingleQuotedStringContent([string]$s) + "'" }
-    $pre = '$env:CHATQ_OVERLAY=''1''; $env:CHATQ_ALLPARTS=''1''; '
+    $pre = if ($UiExe) { '$env:CHATQ_OVERLAY=''1''; ' } else { '$env:CHATQ_OVERLAY=''1''; $env:CHATQ_ALLPARTS=''1''; ' }
     foreach ($n in 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'CHATQ_CLAUDE', 'CHATQ_CODEX', 'CHATQ_GH') {
         $v = [Environment]::GetEnvironmentVariable($n)
         if ($v) { $pre += "`$env:$n=$(& $q $v); " }
     }
-    $entry = if ($script:ChatqIsWindows) { "Start-ChatOverlayHost$(if ($Open) { " -Open '$Open'" })" } else { 'Start-ChatOverlayMacHost' }
+    $entry = if ($UiExe) { "[void](Start-ChatOverlayHeadlessHost -UiExe $(& $q $UiExe)$(if ($Open) { " -Open '$Open'" }))" }
+    elseif ($script:ChatqIsWindows) { "Start-ChatOverlayHost$(if ($Open) { " -Open '$Open'" })" } else { 'Start-ChatOverlayMacHost' }
     $log = Join-Path $script:ChatqLogDir 'overlay.log'
     $cmd = $pre + "try { . $(& $q $Path); Remove-Item -LiteralPath 'env:CHATQ_ALLPARTS' -EA SilentlyContinue; $entry } catch { try { [void][IO.Directory]::CreateDirectory($(& $q $script:ChatqLogDir)); " +
     "[IO.File]::AppendAllText($(& $q $log), (Get-Date).ToString('o') + '  overlay failed to start: ' + `$_.Exception.Message + [char]10) } catch {} }"
@@ -116,17 +122,40 @@ function Get-ChatOverlayLaunch {
     return [pscustomobject]@{ Exe = (Get-Process -Id $PID).Path; Args = @('-NoProfile', '-NonInteractive', '-EncodedCommand', $enc); Command = $cmd }
 }
 
+function Get-ChatOverlayPanelExe {
+    <#
+    The native panel's exe when config.json asks for it (overlay.panel
+    native, charlie -Panel native): chatq-overlay.exe staged beside the
+    script under bin/<version>/x86_64-pc-windows-msvc/, as chatqd is
+    (Get-ChatqNativePath) - the version the script on disk says, so a
+    restart onto new code starts the new code's panel. '' for the WPF
+    panel: ps asked for, off Windows, or native with none staged, which
+    says in overlay.log where it looked - unless -Quiet.
+    #>
+    param($Config = (Get-ChatOverlayConfig), [switch]$Quiet)
+    if (-not $script:ChatqIsWindows -or $Config.panel -ne 'native' -or -not $script:ChatRoot) { return '' }
+    $ver = Get-ChatqLoaderVersion $script:ChatqScriptPath
+    if (-not $ver) { $ver = $script:ChatVersion }
+    $exe = [System.IO.Path]::Combine([string]$script:ChatRoot, 'bin', [string]$ver, 'x86_64-pc-windows-msvc', 'chatq-overlay.exe')
+    if ([System.IO.File]::Exists($exe)) { return $exe }
+    if (-not $Quiet) { Write-ChatOverlayLog "the native panel asked for, but $exe is not there - the WPF one instead" -Always }
+    return ''
+}
+
 function Start-ChatOverlayProcess {
-    # just the launch; charlie decides whether one is needed
-    param([string]$Open = '')
-    if ($script:ChatOverlaySpawn) { return (& $script:ChatOverlaySpawn) }   # tests: no real process
+    # just the launch; charlie decides whether one is needed. -UiExe: the
+    # headless host's, which starts itself again so (Get-ChatOverlayLaunch);
+    # none given, the panel config.json asks for (Get-ChatOverlayPanelExe)
+    param([string]$Open = '', [string]$UiExe = '')
+    if (-not $UiExe) { $UiExe = Get-ChatOverlayPanelExe }
+    if ($script:ChatOverlaySpawn) { return (& $script:ChatOverlaySpawn $Open $UiExe) }   # tests: no real process
     if (-not $script:ChatqIsWindows -and -not $script:ChatIsMac) { return $false }
     $path = $script:ChatqScriptPath
     if (-not $path -or -not (Test-Path -LiteralPath $path)) {
         Write-Host '  cannot start the overlay: this shell does not know where Charlie-and-the-chat-factory.ps1 is' -ForegroundColor Yellow
         return $false
     }
-    $l = Get-ChatOverlayLaunch $path -Open $Open
+    $l = Get-ChatOverlayLaunch $path -Open $Open -UiExe $UiExe
     # in your home folder, never the caller's, escaped, and -EA Stop, for
     # the reasons in Start-ChatqWatcherProcess: the panel outlives the shell
     # or VS Code that started it, and every copy it restarts into
@@ -248,6 +277,8 @@ function charlie {
     off: no Copilot line, and gh is never run for it.
     .PARAMETER CodexUsage
     off: Codex's line only from what Codex wrote on its last run, and codex app-server is never started for it.
+    .PARAMETER Panel
+    Windows' panel: ps (the default), the WPF one, or native - chatq-overlay.exe, drawn in a process of its own, once it is staged under bin/<version>/x86_64-pc-windows-msvc/ beside the script; the WPF one until it is. A running overlay starts again on the one chosen.
     .EXAMPLE
     charlie
     .EXAMPLE
@@ -278,7 +309,8 @@ function charlie {
         [int]$Recent,
         [ValidateSet('lines', 'bars')][string]$UsageView,
         [ValidateSet('on', 'off')][string]$CopilotUsage,
-        [ValidateSet('on', 'off')][string]$CodexUsage
+        [ValidateSet('on', 'off')][string]$CodexUsage,
+        [ValidateSet('ps', 'native')][string]$Panel
     )
     Set-StrictMode -Off
     if ($Print) { Write-ChatOverlayPrint; return }
@@ -309,6 +341,9 @@ function charlie {
     if ($UsageView) { $set.usageView = $UsageView.ToLowerInvariant() }
     if ($CopilotUsage) { $set.copilotUsage = ($CopilotUsage -eq 'on') }
     if ($CodexUsage) { $set.codexUsage = ($CodexUsage -eq 'on') }
+    # the panel's engine: a running overlay is restarted onto a new one, as
+    # a reload keeps the one it has
+    if ($Panel) { $panelWas = (Get-ChatOverlayConfig).panel; $set.panel = $Panel.ToLowerInvariant() }
     # compact is prompts off: the name from when full rows showed the prompt
     # everywhere - on macOS and in -Print they still do; the Windows panel's
     # row is its tile alone whichever (Add-ChatOverlayTileRow)
@@ -364,7 +399,18 @@ function charlie {
         if ($set.ContainsKey('usageView')) { Write-Host "  usage as $($set.usageView)$(if ($script:ChatqIsWindows) { ' - for -Print; the panel draws a thin bar a window' })" -ForegroundColor Green }
         if ($set.ContainsKey('copilotUsage')) { Write-Host "  Copilot usage: $CopilotUsage$(if ($CopilotUsage -eq 'on') { ' - through the GitHub CLI, gh, when it is logged in' })" -ForegroundColor Green }
         if ($set.ContainsKey('codexUsage')) { Write-Host "  Codex usage asked live: $CodexUsage$(if ($CodexUsage -eq 'on') { ' - through codex app-server, no turn spent' } else { ' - from what Codex wrote on its last run only' })" -ForegroundColor Green }
-        if ($alive) { Send-ChatOverlayCommand 'reload' }
+        $noExe = $false
+        if ($set.ContainsKey('panel')) {
+            Write-Host "  panel: $(if ($set.panel -eq 'native') { 'native, chatq-overlay.exe' } else { 'ps, the WPF one' })$(if (-not $script:ChatqIsWindows) { ' - for Windows' })" -ForegroundColor Green
+            $noExe = $set.panel -eq 'native' -and -not (Get-ChatOverlayPanelExe -Quiet)
+            if ($noExe -and $script:ChatqIsWindows) {
+                Write-Host "  no chatq-overlay.exe under bin\$(Get-ChatqLoaderVersion $script:ChatqScriptPath)\x86_64-pc-windows-msvc beside the script - the WPF panel until one is there" -ForegroundColor Yellow
+            }
+        }
+        # a panel switch restarts the overlay onto the other panel - but not
+        # native with none staged (or off Windows): the restart would come
+        # back as the WPF panel it already is, so that one is only a reload
+        if ($alive) { Send-ChatOverlayCommand $(if ($set.ContainsKey('panel') -and $set.panel -ne $panelWas -and -not $noExe) { 'restart' } else { 'reload' }) }
     }
     $verbs = @()
     if ($Unlock) { $verbs += 'unlock' }

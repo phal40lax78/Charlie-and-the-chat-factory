@@ -20,7 +20,7 @@ Then type chat for the cheat sheet. Everything else is in README.md.
 # handing back what you already had. extension/package.json carries the same
 # version: the extension installs this copy by it, and extension/build.js
 # refuses to pack the two apart.
-$script:ChatVersion = '0.10.21'
+$script:ChatVersion = '0.11.0'
 
 # The tool's folder and this file, read here once and never inside a function:
 # data/ sits in that folder, and the profile line, the watcher and the overlay
@@ -39,7 +39,7 @@ if (-not $PSScriptRoot) {
     Write-Host '  be loaded from its file:  . "C:\path\to\Charlie-and-the-chat-factory.ps1"' -ForegroundColor DarkGray
     return
 }
-$chatParts = 'core', 'shell', 'icon', 'providers', 'chatrm', 'discoverability', 'queue', 'codex-appserver', 'live-chats', 'alerts', 'phone', 'phone-extras', 'permit', 'ask', 'phone-down', 'phone-board', 'watcher', 'commands', 'phone-setup', 'overlay-data', 'overlay-windows', 'console', 'overlay-mac', 'overlay', 'auto-continue', 'host-work'
+$chatParts = 'core', 'shell', 'icon', 'providers', 'chatrm', 'discoverability', 'queue', 'codex-appserver', 'live-chats', 'alerts', 'phone', 'phone-extras', 'permit', 'ask', 'phone-down', 'phone-board', 'watcher', 'commands', 'phone-setup', 'overlay-data', 'overlay-windows', 'console', 'overlay-mac', 'overlay', 'overlay-host', 'auto-continue', 'host-work'
 # .NET's own file test, not Test-Path: the cmdlet loads a module of its
 # own, a few MB a profile's load (below) would not otherwise spend
 $chatMissing = @($chatParts | Where-Object { -not [System.IO.File]::Exists([System.IO.Path]::Combine($PSScriptRoot, 'src', "$_.ps1")) })
@@ -89,7 +89,11 @@ if ($MyInvocation.InvocationName -eq '.' -and -not $env:CHATQ_WATCHER -and -not 
 # the phone's sender and the extension's runs, none of which draws either.
 # Each is lighter for it, a shell and the watcher too: 8 MB less .NET heap,
 # 10 to 44 MB less memory by how much the PC has free, and 0.1 to 0.2 s less
-# to load. All 26 are looked for above, so a broken copy still shows.
+# to load. All 27 are looked for above, so a broken copy still shows.
+# The headless host, the overlay whose panel is native
+# (Start-ChatOverlayHeadlessHost), starts without CHATQ_ALLPARTS and loads
+# the panel's and the console's parts itself, the first time its console is
+# asked for (Import-ChatOverlayConsoleParts).
 # A process that runs one thing loads only the parts that thing reaches:
 # the permission bridge, alive as long as a queued run, and the question
 # hook, one for each question held. CHATQ_ROLE names it, ahead of

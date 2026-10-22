@@ -4,6 +4,56 @@ Open problems: what is still to find out or to do. Each says why it waits
 and what closing it would take. Deliberate deferrals - what was knowingly
 left as it is - are in [DEFERRED.md](DEFERRED.md).
 
+## The native panel's gaps against the WPF one (M9a)
+
+What the Slint panel ([App](native/overlay/src/app.rs)) and its host still
+do differently:
+
+- **Shipping.** No build of the panel ships: release.yml packs
+  `chatq-overlay-<version>-x86_64-pc-windows-msvc.zip`, but nothing
+  fetches it yet, so 0.11.0's panel is a developer's build put under
+  `bin/` by hand.
+
+- **Host.** A panel that dies after carrying out a command but before
+  its next `overlay-ui.json` says it is done (`done`,
+  [Update-ChatOverlayCommands](src/overlay-host.ps1)) leaves it listed,
+  and the panel started in its place carries it out again; the host
+  reads the panel every 1 s, the WPF one 2 s; a reload does not write a
+  slider still at rest first.
+- **Tray and balloons.** One balloon at a time, queued; the min button's
+  first-time balloon only with a tray; AskGo's tip names 5 chats, the WPF
+  one 10; the tray picture is area-averaged. The live tray and hotkeys are
+  Tier 1 only.
+- **Pointer.** Hover's "down" reads every mouse button; a button released
+  over another does nothing; a press on a slider's track jumps with no
+  drag; a frame drag polls the cursor every 16 ms rather than DragMove;
+  tooltip delays are near, not exact.
+- **Drawing.** The slider imitates Aero2; the goldens hold this PC's fonts;
+  the card's outline is a union of rects and the regions are square; the
+  hint is cut past 72 characters; the text measurer's cache grows per
+  distinct text.
+- **Console.** It is the WPF one, in a window of the headless host's own
+  ([Open-ChatOverlayHeadlessConsole](src/overlay-windows.ps1)). WPF loads
+  at its first ask and stays loaded until the host's next restart, from
+  the text the host read as it started
+  ([Read-ChatOverlayConsoleParts](src/overlay-host.ps1)), some 0.5 MB
+  held for the host's life; a file changed in the moment between the
+  code's stamp and that read loads the new text beside the old parts,
+  until the code-change restart that follows.
+  The host's passes wait while a loop of the console's own runs (its
+  folder picker), its timer keeping the snapshot new. The native panel
+  hides, and comes back, on the pass after the switch, so the two can
+  overlap or leave a gap for up to 1 s. With no panel rect and no place
+  kept, it opens at the nearest corner. A refresh in the console (a
+  `-Peek` pass) reaches the native panel a pass later, and an ask that
+  changed under its answer is not shown while a close by hand is under
+  way. `chatconsole` with no overlay running starts the WPF overlay while
+  that is the default.
+- **Other.** The card waits for card.json; the real full-screen query
+  is read answer by answer ([win32.full_screen_of](native/overlay/src/win32.rs))
+  but only this PC's own answer comes from Windows itself - a real full
+  screen in front is Tier 1; commands are logged by verb alone.
+
 ## A Recent line's chip hint cut at the screen's left edge
 
 **Why it waits:** found in review for 0.10.19; it needs a narrow Recent
@@ -937,7 +987,7 @@ dumps hours apart and compare the types that grew.
 
 Since 0.10.15 the overlay restarts itself once a compaction leaves it at
 `overlay.restartMB` (300) or more and 50 MB over where the run settled
-([Update-ChatOverlayRestartDue](src/overlay-windows.ps1)): over 78 runs
+([Update-ChatOverlayRestartDue](src/overlay-host.ps1)): over 78 runs
 in the log the figure after a compaction was 260 MB in the middle, 292
 at the 90th and 322 at the most, the last long run sitting at 315 to 322
 with a 146 to 152 MB heap some 30 hours in. That bounds the climb; it
@@ -1241,3 +1291,14 @@ one measure. **Why it waits:** the gate is memory; the processor was
 for information. **To close:** time a busy second's cycles before and
 after a run of the spike, or of M9's first build, and give its cycles
 as a share of one core beside the overlay's 5.6%.
+
+## The headless host reads a card's transcript at each hover
+
+A `card <key>` verb reads the row's transcript tail afresh
+([Invoke-ChatOverlayPanelVerb](src/overlay-host.ps1)), where the WPF
+card keeps what it read, by path and length
+([Update-ChatOverlayCard](src/overlay-windows.ps1)). A pointer moving over
+the rows reads one tail per row. **Why it waits:** a tail read is 256 KB
+at most and comes once per hover. **To close:** if the panel's hover
+shows in the host's processor time, keep the last tail as the WPF card
+does.

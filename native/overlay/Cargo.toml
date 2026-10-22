@@ -1,0 +1,65 @@
+# The overlay's UI in Slint, M9 (native/SPEC.md 8). A workspace of its
+# own, apart from chatqd's (native/Cargo.toml), so M3's Cargo.lock and
+# deny.toml stay untouched; it only reads chatq-core by path. Built with
+# --manifest-path, --config native/.cargo/config.toml and a --target-dir
+# outside the repo, so VS Code's file watcher never sees target/.
+# Started from the M9 spike (native/spikes/overlay, TESTING.md S58).
+[package]
+name = "chatq-overlay"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+chatq-core = { path = "../crates/chatq-core" }
+# chatq-core's own (native/Cargo.toml), for the wall clock the panel's
+# words are said in (clock.rs)
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+global-hotkey = "0.9.0"
+# Slint's own (through image and tiny-skia): the tray's picture read from
+# src/icon.ps1, and the golden renders written and read (trayicon.rs, goldens)
+png = "=0.18.1"
+serde_json = "1.0.154"
+# unstable-winit-030: the attributes hook and the winit window (for its HWND).
+# unstable-fontique-011: the Han fallback list (main.rs, han_fallbacks).
+# software-renderer-path: the panel's marks, clocks and glyphs are paths.
+slint = { version = "=1.18.1", default-features = false, features = ["std", "compat-1-2", "backend-winit", "renderer-software", "unstable-winit-030", "unstable-fontique-011", "software-renderer-path"] }
+tray-icon = "0.26.1"
+windows = { version = "0.62.2", features = [
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Gdi",
+    "Win32_Security",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Registry",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    "Win32_System_WindowsProgramming",
+    "Win32_UI_Controls",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+# clock.rs's tests: a vector's zone found by name, the system's left alone
+[dev-dependencies]
+windows = { version = "0.62.2", features = ["Win32_System_Time"] }
+
+# tray-icon 0.26.1 with one getter added, TrayIcon::window_uid, so the
+# balloon needs no search for the icon's uID (vendor/README.md; DEFERRED.md
+# "tray-icon's private balloon id").
+[patch.crates-io]
+tray-icon = { path = "vendor/tray-icon" }
+
+# Same as chatqd's (native/Cargo.toml).
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+panic = "unwind"

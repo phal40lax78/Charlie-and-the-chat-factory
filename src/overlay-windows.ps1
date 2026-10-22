@@ -110,6 +110,13 @@ public static class ChatOverlayNative {
     public static System.Threading.Tasks.Task CopyFileAsync(string from, string to) {
         return System.Threading.Tasks.Task.Run(() => System.IO.File.Copy(from, to, true));
     }
+    // drawn but never seen (DWMWA_CLOAK): the tests' windows, under
+    // CHATQ_CLOAK, as the native panel's are (Open-ChatOverlayHeadlessConsole)
+    [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr h, int attr, ref int value, int size);
+    public static bool Cloak(IntPtr h) {
+        int v = 1;
+        return DwmSetWindowAttribute(h, 13, ref v, 4) == 0;
+    }
 }
 
 // A system-wide hotkey: a hidden window of its own to receive WM_HOTKEY,
@@ -1792,60 +1799,6 @@ function Hide-ChatOverlayByButton {
     }
 }
 
-function Show-ChatOverlayBalloon {
-    <#
-    The tray's balloon - the one place that shows one. -Kind says what a
-    click on it means (ask: the chats the limit cut off, -Keys those asked
-    about); the tray's handlers read it back, and clear it as it closes.
-    Windows cuts the text itself past 255 characters, so it is cut here
-    first, with an ellipsis. The tests' seam takes it in the tray's place.
-    While a close by hand is on its way, only its own (-Kind close): the
-    timer's passes run on meanwhile, and the ask, the tray's word or
-    auto-continue's would put theirs over "Closed until you next sign in"
-    before it is read.
-    #>
-    param($H, [string]$Text, [string]$Title = 'Charlie', [int]$Ms = 6000, [string]$Icon = 'None', [string]$Kind = '', [string[]]$Keys = @())
-    if (-not $H -or -not $Text) { return }
-    if ($H.Closing -and $Kind -ne 'close') { return }
-    if ($Text.Length -gt 250) { $Text = $Text.Substring(0, 249) + $script:ChatqEllipsis }
-    $ks = @($Keys | Where-Object { $_ })
-    if ($script:ChatOverlayBalloonSeam) {
-        $H.BalloonKind = $Kind
-        $H.BalloonKeys = $ks
-        [void](& $script:ChatOverlayBalloonSeam @{ Title = $Title; Text = $Text; Kind = $Kind; Keys = $ks })
-        return
-    }
-    if (-not $H.Tray) { return }
-    $H.BalloonKind = $Kind
-    $H.BalloonKeys = $ks
-    $H.Tray.ShowBalloonTip($Ms, $Title, $Text, [System.Windows.Forms.ToolTipIcon]$Icon)
-}
-
-function Show-ChatOverlayMemory {
-    # after a pass: Windows' memory gone low (Update-ChatOverlayMemory), or a
-    # program growing fast (Update-ChatOverlayLeaks), said once in the tray
-    # - a VS Code window may be about to die of it. Both in one pass, one
-    # balloon says both: a second would cover the first before it is read.
-    param($H)
-    try {
-        $m = $H.Ctx.MemNews
-        $grow = @(@($H.Ctx.LeakNews) | Where-Object { $_ } | ForEach-Object { Format-ChatOverlayLeakText $_ }) -join '; '
-        if (-not $m -and -not $grow) { return }
-        $H.Ctx.MemNews = $null
-        $H.Ctx.LeakNews = $null
-        if (-not $m) {
-            Show-ChatOverlayBalloon $H "$grow. Closing it gives the memory back before a VS Code window runs out and takes its chats down with it." `
-                -Title 'Charlie - a program keeps growing' -Icon Warning -Kind leak -Ms 10000
-            return
-        }
-        $t = (Format-ChatOverlayMemoryText $m) -replace '^memory low: ', ''
-        if ($grow) { $t += ". $grow" }
-        Show-ChatOverlayBalloon $H "$t. A VS Code window that runs out of memory takes its chats down with it - close what you can spare." `
-            -Title 'Charlie - memory low' -Icon Warning -Kind memory -Ms 10000
-    }
-    catch { Write-ChatOverlayLog "memory: $($_.Exception.Message)" }
-}
-
 function Get-ChatOverlayControlsShown {
     <#
     Whether the edges show, from where the pointer is - the bar of buttons
@@ -2037,18 +1990,6 @@ function Get-ChatOverlayChipActions {
     return $out
 }
 
-function Test-ChatOverlayRowDeletable {
-    # whether a row's delete chip takes a click: not on a chat at work or
-    # waiting on you - cutting its transcript from under a turn loses the
-    # turn - nor on one a terminal's claude holds, or a print-mode run (a
-    # queued prompt), either of which writes it straight back.
-    # Remove-ChatSessionById asks the registry again as it acts. Pure.
-    param($Row)
-    if ([string](Get-ChatField $Row 'kind') -ne 'session') { return $true }
-    return ([string](Get-ChatField $Row 'status') -notin 'busy', 'waiting' -and
-        [string](Get-ChatField $Row 'where') -notin 'terminal', 'run')
-}
-
 function Test-ChatOverlayDeleteArmed {
     # whether a click on delete is the second one it asks for: the first,
     # on the same row, under -Ms ago. Pure.
@@ -2098,14 +2039,6 @@ function Set-ChatOverlayChipHint {
     if ($H.ChipHintBox) { $H.ChipHintBox.Visibility = if ($Text) { 'Visible' } else { 'Hidden' } }
 }
 
-function Get-ChatOverlayDeleteSay {
-    # the panel's said marker for a delete chip's outcome (Remove-ChatSessionById's
-    # Done and Say), as the open's is (Get-ChatOverlayOpenSay). Pure.
-    param([bool]$Done, [string]$Say)
-    if ($Done) { return @{ Kind = 'delete'; Text = $Say; Tone = 'dim'; Keep = 5 } }
-    return @{ Kind = 'delete'; Text = $(if ($Say) { $Say } else { 'Nothing deleted.' }); Tone = 'warn'; Keep = 20 }
-}
-
 function Invoke-ChatOverlayDeleteChip {
     # delete clicked: the first click only asks - the bin, -Glyph (the
     # chip's unless the console's own), turns the error's colour, and the
@@ -2129,17 +2062,8 @@ function Invoke-ChatOverlayDeleteChip {
             return
         }
         Reset-ChatOverlayDeleteArm $H
-        $sid = [string](Get-ChatField $Row 'sessionId')
-        $home0 = if ($H.Ctx -and $H.Ctx.ClaudeHome) { [string]$H.Ctx.ClaudeHome } else { $script:ChatClaudeHome }
-        $live = @(Get-ChatqLiveSessions $home0 -RegistryOnly)
-        $r = Remove-ChatSessionById -SessionId $sid -Cwd ([string](Get-ChatField $Row 'cwd')) -Title ([string](Get-ChatField $Row 'title')) -ConfigDir $home0 -Live $live
-        Write-ChatOverlayLog "delete: $($sid.Substring(0, [Math]::Min(8, $sid.Length))) $(if ($r.Done) { 'deleted' } else { 'kept' })" -Always
+        $r = Remove-ChatOverlayRow $H $Row
         Hide-ChatOverlayChip $H
-        if ($r.Done -and $H.Ctx) {
-            if ($H.Ctx.Unread) { $H.Ctx.Unread.Remove($sid) }
-            # the recent list read again at the next tick, without it
-            $H.Ctx.RecentAt = [datetime]::MinValue
-        }
         if ($r.Say) { Show-ChatOverlayBalloon $H $r.Say }
         Set-ChatOverlayOpenSay $H (Get-ChatOverlayDeleteSay ([bool]$r.Done) ([string]$r.Say)) $key
     }
@@ -2170,8 +2094,10 @@ function Invoke-ChatOverlayChipRelease {
     # nothing. open goes as before; delete through Invoke-ChatOverlayDeleteChip,
     # which asks twice; the banner's two answers through
     # Invoke-ChatOverlayAskAnswer, about the keys its row carries;
-    # auto-continue's two through Invoke-ChatOverlayAutoChip, which never
-    # takes the unread dot away (only an open does).
+    # auto-continue's two through Invoke-ChatOverlayAutoChip, the chip gone
+    # first - that part is the WPF panel's, the native one hides its own
+    # (App::clicked) - which never takes the unread dot away (only an open
+    # does).
     param($H, [string]$Pressed, [string]$On)
     if (-not $Pressed -or $Pressed -ne $On) { return }
     switch ($On) {
@@ -2181,7 +2107,7 @@ function Invoke-ChatOverlayChipRelease {
         'ask-leave' { Invoke-ChatOverlayAskAnswer $H 'leave' @(Get-ChatField $H.ChipRow 'keys') }
         'reload-go' { Invoke-ChatOverlayReloadAnswer $H $H.ChipRow 'reload' }
         'reload-later' { Invoke-ChatOverlayReloadAnswer $H $H.ChipRow 'later' }
-        { $_ -in 'dont', 'continue' } { Invoke-ChatOverlayAutoChip $H $H.ChipRow $On }
+        { $_ -in 'dont', 'continue' } { $row = $H.ChipRow; Hide-ChatOverlayChip $H; Invoke-ChatOverlayAutoChip $H $row $On }
     }
 }
 
@@ -3340,42 +3266,19 @@ function Start-ChatShowFreshProcess {
     catch { Write-ChatOverlayLog "open: $($_.Exception.Message)"; return $null }
 }
 
-function Get-ChatOverlayOpenSay {
-    <#
-    The panel's said marker about an open from the chip: Kind, Text, Tone, and
-    Keep - how many seconds it stays once said, 0 while the open runs.
-    -State busy (-Seconds so far), done (-Code, its child's exit), behind
-    (opened, but its window could not be brought to the front -
-    Invoke-ChatOverlayRaise), late (no answer in 60 s) or nostart (its
-    child did not start). Pure.
-    #>
-    param([string]$Title, [string]$State, [int]$Code = 0, [int]$Seconds = 0)
-    $t = "'$(Format-ChatTitle $Title 40)'"
-    switch ($State) {
-        'busy' { return @{ Kind = 'busy'; Text = "opening $t in VS Code - $($Seconds)s"; Tone = 'dim'; Keep = 0 } }
-        'behind' { return @{ Kind = 'done'; Text = "opened $t - VS Code's window could not be brought to the front - click it on the taskbar"; Tone = 'warn'; Keep = 20 } }
-        'late' { return @{ Kind = 'late'; Text = "opening $t - no answer in 60 s; see data/logs/watcher.log"; Tone = 'warn'; Keep = 20 } }
-        'nostart' { return @{ Kind = 'nostart'; Text = "could not open $t - its helper did not start; see data/logs/overlay.log"; Tone = 'warn'; Keep = 20 } }
-    }
-    if ($Code -eq 0) { return @{ Kind = 'done'; Text = "opened $t"; Tone = 'dim'; Keep = 5 } }
-    # a queued run's live view, which opens in VS Code: no failure either
-    # and a chat Claude Code never lists, which its window offers in a
-    # terminal (21): asked for as it should be. Not brought forward as well
-    # (26, 42, 43) is a warning, as 25, 40 and 41 are
-    if ($Code -in 16, 21) { return @{ Kind = 'done'; Text = "$t - $(Get-ChatOverlayOpenBalloon $Code)"; Tone = 'dim'; Keep = 8 } }
-    return @{ Kind = 'done'; Text = "$t - $(Get-ChatOverlayOpenBalloon $Code)"; Tone = 'warn'; Keep = 20 }
-}
-
 function Set-ChatOverlayOpenSay {
     # the panel's said marker said, or taken away ($null), and drawn at
     # once (Add-ChatOverlayOpenSay); -About, the key of the chat it is
-    # about, whose card says it too while up (Update-ChatOverlayCard)
+    # about, whose card says it too while up (Update-ChatOverlayCard). The
+    # headless host's console (Open-ChatOverlayHeadlessConsole) says it on
+    # the native panel too, an event of its host's (Add-ChatOverlaySaid).
     param($H, $Say, [string]$About = '')
     if ($Say) {
         $Say.Until = if ($Say.Keep) { (Get-Date).AddSeconds($Say.Keep) } else { $null }
         $Say.About = $About
     }
     $H.OpenSay = $Say
+    if ($Say -and $H.EventOwner) { Add-ChatOverlaySaid $H.EventOwner $Say $About }
     if ($H.Stack -and $H.Snap) { Update-ChatOverlayView $H $H.Snap }
     Update-ChatOverlayCard $H
 }
@@ -3417,30 +3320,6 @@ function Invoke-ChatOverlayOpen {
     $H.OpenSid = $sid.Substring(0, [Math]::Min(8, $sid.Length))
     Set-ChatOverlayChipHint $H 'opening'
     Write-ChatOverlayLog "open: $($H.OpenSid)" -Always
-}
-
-function Get-ChatOverlayOpenBalloon {
-    # what the tray says when an open ends, by its child's exit code
-    # (Show-ChatFresh); $null says nothing. Pure.
-    param([int]$Code)
-    switch ($Code) {
-        15 { return 'A queued prompt is running in that chat - open it once it finishes.' }
-        16 { return 'A queued prompt is running in that chat - its live view opens in VS Code.' }
-        20 { return 'That chat is open in a terminal - not opened in VS Code as well.' }
-        21 { return 'Claude Code does not list that chat, so its window offers to open it in a terminal instead of a tab.' }
-        25 { return 'Shown in its window, which also has other folders open - bring it forward yourself.' }
-        26 { return 'Claude Code does not list that chat, so its window offers to open it in a terminal - that window also has other folders open, so bring it forward yourself.' }
-        30 { return 'That chat has not started yet.' }
-        40 { return 'Asked its window to show it, but VS Code''s code command was not found, so the window was not brought forward.' }
-        41 { return 'code failed - see data/logs/watcher.log.' }
-        42 { return 'Claude Code does not list that chat, so its window offers to open it in a terminal - but VS Code''s code command was not found, so the window was not brought forward.' }
-        43 { return 'Claude Code does not list that chat, so its window offers to open it in a terminal - but code failed, so the window was not brought forward; see data/logs/watcher.log.' }
-        10 { return 'Asked its window to open it - the chat is at work, so VS Code may hold it until the turn ends.' }
-        50 { return 'Not opened - its id or its folder is not right any more.' }
-    }
-    # 0 went; anything else - a crash of its child among them - is said too
-    if ($Code) { return "Not opened - the open ended with code $Code; see data/logs/watcher.log." }
-    return $null
 }
 
 function Invoke-ChatOverlayFrontCall {
@@ -3513,32 +3392,6 @@ function Invoke-ChatOverlayRaise {
     }
     catch { $r.Why = "a window call failed: $($_.Exception.GetType().Name)" }
     return $r
-}
-
-function Get-ChatOverlayRaisePlan {
-    <#
-    Whether an open's end brings a VS Code window to the front, by its
-    child's exit code (Show-ChatFresh): By folder or name, Seconds to look
-    again for a window not there yet, and Words - the code whose words it
-    says once in front. $null: no window asked for. Pure.
-      0, 10, 16, 21   code -n ran on the folder: by folder, for up to 5 s,
-                      as a new window takes a moment to get its title
-      40, 41          the request was written, but code was not found or
-                      failed: a window already on the folder, now - and in
-                      front, it opened (0)
-      42, 43          the same for a chat Claude Code never lists: 21's
-      25, 26          its window has other folders too: by the name its tab
-                      file gives (Ctx.Tabs Window), now - in front, 0's
-                      and 21's
-      15, 20, 30, 50, a crash, and no answer in 60 s, asked no window.
-    #>
-    param([int]$Code)
-    if ($Code -in 0, 10, 16, 21) { return @{ By = 'folder'; Seconds = 5; Words = $Code } }
-    if ($Code -in 40, 41) { return @{ By = 'folder'; Seconds = 0; Words = 0 } }
-    if ($Code -in 42, 43) { return @{ By = 'folder'; Seconds = 0; Words = 21 } }
-    if ($Code -eq 25) { return @{ By = 'name'; Seconds = 0; Words = 0 } }
-    if ($Code -eq 26) { return @{ By = 'name'; Seconds = 0; Words = 21 } }
-    return $null
 }
 
 function Start-ChatOverlayRaise {
@@ -5267,8 +5120,11 @@ function Enter-ChatOverlayConsoleMode {
     $w = $H.Win
     $front = {
         if ($w.WindowState -eq [System.Windows.WindowState]::Minimized) { $w.WindowState = [System.Windows.WindowState]::Normal }
-        if ($script:ChatConsoleFrontSeam) { & $script:ChatConsoleFrontSeam $w } else { [void]$w.Activate() }
-        [void]$H.Con.Prompt.Focus()
+        # The seam's tests: brought forward by the seam alone. The prompt's
+        # focus activates its window as well, which takes the front from
+        # whatever has it whenever Windows lets this process.
+        if ($script:ChatConsoleFrontSeam) { & $script:ChatConsoleFrontSeam $w }
+        else { [void]$w.Activate(); [void]$H.Con.Prompt.Focus() }
     }
     if ($H.Mode -eq 'console') { if ($Activate) { & $front }; return }
     # Not mid-drag: DragMove's loop, and a grip or size drag, still take the
@@ -5433,6 +5289,204 @@ function Exit-ChatOverlayConsoleMode {
     Update-ChatOverlayMenu $H
 }
 
+# The native panel's console (Start-ChatOverlayHeadlessHost): this one, the
+# WPF console, in a window of the headless host's own - this part and
+# console.ps1 loaded the first time it is asked for
+# (Import-ChatOverlayConsoleParts). Its host state is a WPF panel's that never
+# shows as one, its panel the native one, which hides while the console
+# shows; its balloons and said markers are its host's, events for that panel
+# (EventOwner). Each of these never throws.
+
+function Open-ChatOverlayHeadlessConsole {
+    <#
+    The console asked for on the headless host ($H): its window made the
+    first time, on a host state of its own ($H.Console) that the WPF
+    handlers find as theirs ($script:ChatOverlayHost), then opened as the
+    WPF panel opens it (Enter-ChatOverlayConsoleMode) - grown from the
+    native panel's top-right corner (overlay-ui.json's rect), else from
+    where the panel was last kept (overlay-state.json, only read). Cloaked
+    under CHATQ_CLOAK, the tests': drawn, never seen. A timer of its own
+    saves the snapshot again, its time new, while a loop of the console's
+    own - the folder picker's - holds the passes off: the native panel
+    quits on one 20 s old. -Activate: brought forward, as asked for.
+    #>
+    param($H, [switch]$Activate)
+    try {
+        if (-not $H.Console) {
+            Initialize-ChatOverlayNative
+            $W = New-ChatOverlayHostState
+            $W.Ctx = $H.Ctx
+            $W.EventOwner = $H
+            # its panel is the native one: this one is never shown as a panel
+            $W.Hidden = $true
+            $W.Placed = $true
+            $script:ChatOverlayHost = $W
+            New-ChatOverlayWindow $W
+            if ($env:CHATQ_CLOAK -and [ChatOverlayNative].GetMethod('Cloak')) {
+                foreach ($hw in @($W.Hwnd, $W.CtlHwnd, $W.EdgesHwnd, $W.ChipHwnd, $W.CardHwnd)) { if ($hw -and $hw -ne [IntPtr]::Zero) { [void][ChatOverlayNative]::Cloak($hw) } }
+            }
+            Register-ChatOverlayUiCatch $W.Win.Dispatcher
+            $t = [System.Windows.Threading.DispatcherTimer]::new()
+            $t.Interval = [TimeSpan]::FromSeconds(3)
+            $t.Tag = $H
+            $t.add_Tick({
+                    param($s, $e)
+                    $X = $s.Tag
+                    try {
+                        if ($X.Snap -and ((Get-Date) - $X.Ctx.SavedAt).TotalSeconds -ge 12) {
+                            $X.Snap.at = ConvertTo-ChatOverlayMs (Get-Date)
+                            Save-ChatqText $script:ChatOverlayPath (ConvertTo-Json $X.Snap -Depth 6 -Compress)
+                            $X.Ctx.SavedAt = Get-Date
+                        }
+                    }
+                    catch {}
+                })
+            $W.Timer = $t
+            $t.Start()
+            $H.Console = $W
+        }
+        $W = $H.Console
+        if ($W.Mode -ne 'console') {
+            $W.Snap = $H.Snap
+            if ($null -eq $W.PendingOpacity) { $W.Win.Opacity = $W.Ctx.Config.opacity }
+            $r = @(Get-ChatField (Read-ChatOverlayUi) 'rect')
+            if ($r.Count -eq 4 -and [int]$r[2] -gt 0 -and [int]$r[3] -gt 0) { [ChatOverlayNative]::Place($W.Hwnd, [int]$r[0], [int]$r[1], [int]$r[2], [int]$r[3]) }
+            else {
+                $st = Read-ChatOverlayState
+                if ($null -ne $st.x -and $null -ne $st.y) { [ChatOverlayNative]::MoveTo($W.Hwnd, [int]$st.x, [int]$st.y) }
+            }
+        }
+        Enter-ChatOverlayConsoleMode $W -Activate:$Activate
+        Update-ChatOverlayTheme $W
+    }
+    catch { Write-ChatOverlayLog "console: $($_.Exception.Message) @ $(($_.ScriptStackTrace -split "`n")[0])" }
+    finally { $H.Ctx.PanelConsole = [bool]($H.Console -and $H.Console.Mode -eq 'console') }
+}
+
+function Update-ChatOverlayHeadlessConsole {
+    <#
+    The headless host's console after each of its passes: drawn from the
+    pass's snapshot, as the WPF host's tick draws it (Update-ChatConsole);
+    its look taken again where the config was read again (-Reload), as
+    the WPF host's reload takes it; the rows the panel goes back to kept
+    as the config says, so going back never puts old ones in the config
+    the native panel reads (Exit-ChatOverlayConsoleMode). -Answer: the
+    pass's answer to the reset ask, followed as Invoke-ChatOverlayAskAnswer
+    follows its own - the watcher it asked for, an ask that changed under
+    it drawn anew and said so. A watcher the console's own answer asked
+    for goes to the host to follow (Update-ChatOverlayAsk). Returns whether
+    something is under way in it (Test-ChatOverlayUnderWay), which holds a
+    restart off.
+    #>
+    param($H, $Snap, [switch]$Reload, $Answer)
+    $W = $H.Console
+    if (-not $W) { return $false }
+    try {
+        if ($Snap) { $W.Snap = $Snap }
+        if ($W.Mode -eq 'console') {
+            $W.PanelWas.Rows = $W.Ctx.Config.maxRows
+            if ($Reload) {
+                if ($null -eq $W.PendingOpacity) { $W.Win.Opacity = $W.Ctx.Config.opacity }
+                $W.ThemeName = $null
+                Update-ChatOverlayTheme $W
+            }
+            if ($Answer -and $W.Con) {
+                if ($Answer.Request) { $W.Con.Request = $Answer.Request }
+                $W.Con.JobsSig = $null
+                $W.Con.Sigs = @{}
+            }
+            Update-ChatConsole $W
+            if ($Answer -and $Answer.Stale) { Set-ChatConsoleStatus $W 'the chats changed - here they are now' 'warn' }
+        }
+        if ($W.AskRequest) { $H.AskRequest = $W.AskRequest; $W.AskRequest = $null }
+        return (Test-ChatOverlayUnderWay $W)
+    }
+    catch { Write-ChatOverlayLog "console: $($_.Exception.Message)"; return $false }
+}
+
+function Wait-ChatOverlayHeadlessConsole {
+    <#
+    The headless host's wait between passes while its console's window is
+    there (Invoke-ChatOverlayCollectLoop -Wait): that window's thread run
+    meanwhile, so it takes clicks and keys, until -Until (UTC), a command
+    comes in, or the console goes back to the panel or comes up again -
+    a pass at once then, for the panel to show or hide. A key just pressed
+    in the console puts the pass off a second, twice at most, so typing
+    never waits behind one, as on the WPF host (Invoke-ChatOverlayTick); a
+    second's beat moves what the WPF host's ticks move
+    (Invoke-ChatOverlayHeadlessBeat). $true: it waited.
+    #>
+    param($H, [datetime]$Until)
+    $W = $H.Console
+    if (-not $W) { return $false }
+    try {
+        if (-not $H.ConWake) {
+            $t = [System.Windows.Threading.DispatcherTimer]::new()
+            $t.add_Tick({ param($s, $e) $s.Stop(); if ($s.Tag) { $s.Tag.Continue = $false } })
+            $H.ConWake = $t
+        }
+        $t = $H.ConWake
+        $mode = $W.Mode
+        $beat = [datetime]::UtcNow
+        while ($true) {
+            $now = [datetime]::UtcNow
+            if ($now -ge $Until) {
+                $C = $W.Con
+                if ($C -and $W.Mode -eq 'console' -and $C.TypedAt -and ((Get-Date) - $C.TypedAt).TotalMilliseconds -lt 400 -and $C.Skips -lt 2) { $C.Skips++; $Until = $now.AddSeconds(1) }
+                else { if ($C) { $C.Skips = 0 }; break }
+            }
+            if ($W.Mode -ne $mode) { $H.Ctx.PanelConsole = $W.Mode -eq 'console'; break }
+            if (Test-ChatOverlayCmdWaiting) { break }
+            if (($now - $beat).TotalMilliseconds -ge 1000) { $beat = $now; Invoke-ChatOverlayHeadlessBeat $W }
+            $f = [System.Windows.Threading.DispatcherFrame]::new()
+            $t.Tag = $f
+            $t.Interval = [TimeSpan]::FromMilliseconds([Math]::Max(1, [Math]::Min(250, ($Until - $now).TotalMilliseconds)))
+            $t.Start()
+            [System.Windows.Threading.Dispatcher]::PushFrame($f)
+            $t.Stop()
+            $t.Tag = $null
+            if (-not $H.Console) { break }
+        }
+    }
+    catch { Write-ChatOverlayLog "console wait: $($_.Exception.Message)" }
+    return $true
+}
+
+function Invoke-ChatOverlayHeadlessBeat {
+    # Once a second of the headless host's wait (Wait-ChatOverlayHeadlessConsole):
+    # what Invoke-ChatOverlayTick moves for the console - a delete's sure?
+    # gone, a dropped file's copy, the list's clocks, a Remove's sure?, the
+    # system look - and an open on its way, and an answer held through a
+    # loop of the console's own
+    param($W)
+    try {
+        $W.Tick++
+        if ($W.DelArmKey -and -not (Test-ChatOverlayDeleteArmed $W.DelArmKey $W.DelArmAt $W.DelArmKey (Get-Date))) { Reset-ChatOverlayDeleteArm $W }
+        $C = $W.Con
+        if ($C -and $W.Mode -eq 'console') {
+            Update-ChatConsoleStaging $W
+            Update-ChatOverlayRowClocks $W
+            if (-not $C.Modal) { Update-ChatConsoleAsks $W }
+        }
+        if ($W.Tick % 5 -eq 0 -and $W.Mode -eq 'console' -and $W.Ctx.Config.theme -eq 'system') { Update-ChatOverlayTheme $W }
+        if ($W.OpenProc -or $W.OpenSay -or $W.Raise) { Update-ChatOverlayOpen $W }
+        if ($W.AskHeld -and -not ($C -and $C.Modal)) { Invoke-ChatOverlayHeldVerbs $W }
+    }
+    catch { Write-ChatOverlayLog "console: $($_.Exception.Message)" }
+}
+
+function Stop-ChatOverlayHeadlessConsole {
+    # the console's window closed for good as its host stops, the draft
+    # kept (Close-ChatOverlayWindow)
+    param($H)
+    try {
+        if ($H.ConWake) { $H.ConWake.Stop() }
+        if ($H.Console) { Close-ChatOverlayWindow $H.Console }
+    }
+    catch { Write-ChatOverlayLog "console: $($_.Exception.Message)" }
+    $H.Console = $null
+}
+
 function Get-ChatIconBitmap {
     # Charlie (src/icon.ps1) as a GDI+ bitmap, decoded once. Copied out of
     # the stream's image: a Bitmap read from a stream needs the stream
@@ -5568,61 +5622,6 @@ function Update-ChatOverlayMenu {
     if ($H.Menu.Crash) { $H.Menu.Crash.Checked = [bool]$H.Ctx.Config.autoContinueCrash }
 }
 
-# Deferred: DEFERRED.md "The tray's ask items while the menu is open"
-function Update-ChatOverlayAsk {
-    <#
-    After each pass, what the collector found about the chats the limit cut
-    off ($H.Ctx.Ask): the tray's two answers put in step, a new ask said in
-    a balloon once, an answer's outcome (AskSaid) said the same way, and a
-    watcher an answer asked for followed until it is up.
-    #>
-    param($H)
-    if (-not $H -or -not $H.Ctx) { return }
-    $ask = $H.Ctx.Ask
-    # Not while the menu is open: its items and their keys stay what it
-    # showed, so a click never answers for a chat that joined meanwhile.
-    $menuOpen = $H.Tray -and $H.Tray.ContextMenuStrip -and $H.Tray.ContextMenuStrip.Visible
-    if ($H.Menu.AskGo -and -not $menuOpen) {
-        $on = [bool]$ask
-        # Available, not Visible: an item's Visible reads false whenever its
-        # menu is closed - which is always, here - so once shown, a check of
-        # Visible never hid them again. Available is what Visible sets.
-        foreach ($i in $H.Menu.AskGo, $H.Menu.AskLeave, $H.Menu.AskSep) { if ($i.Available -ne $on) { $i.Available = $on } }
-        if ($on) {
-            $n = [int]$ask.Count
-            $H.Menu.AskGo.Text = "Continue $n cut-off chat$(if ($n -ne 1) { 's' })"
-            $H.Menu.AskGo.ToolTipText = (@(@($ask.Items) | Select-Object -First 10 | ForEach-Object { Format-ChatTitle ([string]$_.Title) 60 }) -join "`n")
-            $H.Menu.AskLeave.ToolTipText = Format-ChatqAskLeaveTip $ask
-        }
-        # @() around the if: an empty array out of a branch would be $null
-        $H.AskMenuKeys = @(if ($on) { $ask.Keys })
-    }
-    $news = $H.Ctx.AskNews
-    if ($news) {
-        $H.Ctx.AskNews = $null
-        $a = $news.Ask
-        $n = [int]$a.Count
-        $names = @(@($a.Items) | Select-Object -First 3 | ForEach-Object { Format-ChatTitle ([string]$_.Title) 40 })
-        $list = $names -join ', '
-        if ($n -gt 3) { $list += " and $($n - 3) more" }
-        Show-ChatOverlayBalloon $H "$(Format-ChatqAskCount $a) can continue: $list. Click to see them." -Title "Charlie - $(Format-ChatqAskHead $a)" -Ms 10000 -Kind ask -Keys @($a.Keys)
-    }
-    if ($H.Ctx.AskSaid) {
-        $said = [string]$H.Ctx.AskSaid
-        $H.Ctx.AskSaid = $null
-        Show-ChatOverlayBalloon $H $said
-    }
-    if ($H.AskRequest) {
-        # Ctx.Jobs holds each job with its first line: the state is the job's
-        $queued = [bool](@($H.Ctx.Jobs | Where-Object { $_ -and $_.Job -and $_.Job.state -eq 'queued' }).Count)
-        switch (Test-ChatqWatcherRequest $H.AskRequest $queued) {
-            'up' { $H.AskRequest = $null }
-            'none' { $H.AskRequest = $null }
-            'failed' { $H.AskRequest = $null; Show-ChatOverlayBalloon $H 'the watcher did not start - chatqrun -Foreground shows why' }
-        }
-    }
-}
-
 function Invoke-ChatOverlayAskAnswer {
     <#
     An answer to the ask about the chats the limit cut off - from the chip,
@@ -5673,15 +5672,6 @@ function Invoke-ChatOverlayAskAnswer {
         }
     }
     catch { Write-ChatOverlayLog "ask: $($_.Exception.Message)" }
-}
-
-function Get-ChatOverlayReloadSay {
-    # the panel's said marker for a reload chip's answer, as a delete's is
-    # (Get-ChatOverlayDeleteSay). Pure.
-    param([string]$Window, [string]$Answer)
-    $w = if ($Window) { $Window } else { 'the VS Code window' }
-    if ($Answer -eq 'reload') { return @{ Kind = 'reload'; Text = "$w reloads - within 2 s"; Tone = 'dim'; Keep = 6 } }
-    return @{ Kind = 'reload'; Text = "left for later - the notice is still in $w"; Tone = 'dim'; Keep = 6 }
 }
 
 function Invoke-ChatOverlayReloadAnswer {
@@ -6134,82 +6124,6 @@ function Invoke-ChatOverlayTick {
         # the next tick 30 ms past a whole second, however this one ended
         Set-ChatOverlayTickAligned $H
     }
-}
-
-# Deferred: DEFERRED.md "GC flags for the overlay"
-function Invoke-ChatOverlayHeapCompact {
-    <#
-    A full collection, the large object heap compacted with it. A start
-    reads the tail of every transcript of the last week and the open chats
-    whole, and the buffers are freed after by a collection that never moves
-    what is left, so the heap keeps its size. Live, the first gave back 22
-    to 82 MB in about 0.1 s. The passes after put little on that heap,
-    which held 12 to 15 MB an hour on, so compacting it again costs little.
-    The tick calls this every 5 minutes after the first: left to itself the
-    CLR let generation 2 grow from 89-95 MB to 146-159 between full
-    collections 17 to 21 minutes apart, and the private bytes from 250 up
-    to 290 with it. Private bytes before and after go in the log, and the
-    managed heap left after: private bytes rose from 208 to 287 MB in a day
-    with compactions freeing nothing, and only the heap's figure says
-    whether what grew is objects the overlay holds or memory outside the
-    heap - compiled script, native buffers.
-    $Error is emptied first: every caught throw in a pass lands there, up
-    to 256 records with their stack traces, and nothing in src reads it.
-    Returns the private MB after, for Update-ChatOverlayRestartDue.
-    #>
-    $p = [System.Diagnostics.Process]::GetCurrentProcess()
-    try {
-        $was = $p.PrivateMemorySize64
-        $sw = [System.Diagnostics.Stopwatch]::StartNew()
-        $global:Error.Clear()
-        [System.Runtime.GCSettings]::LargeObjectHeapCompactionMode = [System.Runtime.GCLargeObjectHeapCompactionMode]::CompactOnce
-        [System.GC]::Collect()
-        $ms = $sw.ElapsedMilliseconds
-        $p.Refresh()
-        $after = [Math]::Round($p.PrivateMemorySize64 / 1MB)
-        Write-ChatOverlayLog ('the heap compacted in {0} ms: private {1} MB, then {2}, the heap {3}' -f $ms, [Math]::Round($was / 1MB), $after, [Math]::Round([System.GC]::GetTotalMemory($false) / 1MB))
-        return $after
-    }
-    finally { $p.Dispose() }
-}
-
-function Update-ChatOverlayRestartDue {
-    <#
-    Whether this run should start again to give its memory back, from the
-    private MB a compaction left (Invoke-ChatOverlayHeapCompact). Over 78
-    runs in one PC's log that figure sat at 260 MB in the middle and 322 at
-    the most; a fresh run settles at 210 to 260, and one up some 30 hours
-    sat at 315 to 322 - the heap climbing in steps nothing explains yet
-    (FUTURE_WORK.md "The overlay's heap climbs in steps"). This bounds it.
-    Settled is the lowest such figure from 30 minutes into the run on,
-    once the start's reads are long given back. Due when the figure is at
-    config overlay.restartMB or more, 50 or more over where this run
-    settled, and the run an hour old: a run that starts high - another PC,
-    more chats - never restarts for being itself, and a new one cannot
-    restart in its first hour, so it never loops. Due, $H.MemRestart says
-    why, for the tick's restart (Invoke-ChatOverlayTick) once nothing is
-    under way; 0 is never. No figure - a compaction that threw - nothing.
-    #>
-    param($H, $AfterMB, [datetime]$Now = (Get-Date))
-    if ($null -eq $AfterMB -or $H.MemRestart -or $H.StartedAt -isnot [datetime]) { return }
-    $mb = [double]$AfterMB
-    $age = ($Now - $H.StartedAt).TotalMinutes
-    if ($age -ge 30 -and ($null -eq $H.Settled -or $mb -lt $H.Settled)) { $H.Settled = $mb }
-    $limit = [int]$H.Ctx.Config.restartMB
-    if ($limit -le 0 -or $age -lt 60 -or $null -eq $H.Settled) { return }
-    if ($mb -lt $limit -or $mb -lt $H.Settled + 50) { return }
-    $H.MemRestart = "private $mb MB after the heap compacted, over overlay.restartMB $limit and $($mb - $H.Settled) over where this run settled - restarting to give it back"
-}
-
-function Lock-ChatOverlay {
-    # A few tries, not one: an overlay handing over to a newer copy lets go
-    # of the lock only as it exits.
-    for ($try = 1; $try -le 5; $try++) {
-        $l = try { [System.IO.File]::Open($script:ChatOverlayLockPath, 'OpenOrCreate', 'ReadWrite', 'None') } catch { $null }
-        if ($l) { return $l }
-        if ($try -lt 5) { Start-Sleep -Milliseconds 200 }
-    }
-    return $null
 }
 
 function Close-ChatOverlayWindow {

@@ -836,6 +836,9 @@ try {
     Invoke-ChatOverlayChipRelease $Hx '' 'open'
     $mis = $script:AcOpened -eq 0 -and -not $script:AcAuto.Count
     Invoke-ChatOverlayChipRelease $Hx 'dont' 'dont'
+    # the WPF chip hidden as auto-continue's answer goes (Hide-ChatOverlayChip)
+    $hid = $null -eq $Hx.ChipRow
+    $Hx.ChipRow = (& $rowOf 'armed')
     Invoke-ChatOverlayChipRelease $Hx 'open' 'open'
     Invoke-ChatOverlayChipRelease $Hx 'open' 'delete'
     Invoke-ChatOverlayChipRelease $Hx 'delete' 'delete'
@@ -847,8 +850,8 @@ try {
     Invoke-ChatOverlayChipRelease $Hx 'ask-go' 'ask-leave'
 }
 finally { ${function:Invoke-ChatOverlayOpen} = $fnOpen; ${function:Invoke-ChatOverlayAutoChip} = $fnAuto; ${function:Invoke-ChatOverlayAskAnswer} = $fnAsk; ${function:Invoke-ChatOverlayDeleteChip} = $fnDel }
-Check 'a chip acts only when pressed and released on it - a press dragged onto another does nothing; the banner''s answers go the same way' (
-    $mis -and $script:AcOpened -eq 1 -and $script:AcDel -eq 1 -and ($script:AcAuto -join ',') -eq 'dont' -and ($script:AcAsk -join '|') -eq 'continue=k_1,k_2') "$($script:AcOpened) $($script:AcAuto -join ',') $($script:AcAsk -join '|')"
+Check 'a chip acts only when pressed and released on it - a press dragged onto another does nothing; the banner''s answers go the same way; auto-continue''s hides the chip as it goes' (
+    $mis -and $hid -and $script:AcOpened -eq 1 -and $script:AcDel -eq 1 -and ($script:AcAuto -join ',') -eq 'dont' -and ($script:AcAsk -join '|') -eq 'continue=k_1,k_2') "$hid $($script:AcOpened) $($script:AcAuto -join ',') $($script:AcAsk -join '|')"
 $Hu = @{ Ctx = @{ Unread = @{ $idO1 = $true }; JobsSig = 'x' }; Tray = $null }
 $rowO1 = @($snapA.rows | Where-Object { $_.sessionId -eq $idO1 })[0]
 Invoke-ChatOverlayAutoChip $Hu $rowO1 'dont'

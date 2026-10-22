@@ -17,6 +17,8 @@ $script:ChatOverlayStatePath = Join-Path $script:ChatqData 'overlay-state.json'
 $script:ChatOverlayLockPath = Join-Path $script:ChatqData 'overlay.lock'
 $script:ChatOverlayPidPath = Join-Path $script:ChatqData 'overlay.pid'
 $script:ChatOverlayCmdPath = Join-Path $script:ChatqData 'overlay-cmd'
+# overlay-cmd there and the last pass could not take it (Receive-ChatOverlayCommands)
+$script:ChatOverlayCmdStuck = $false
 $script:ChatOverlayMacJsPath = Join-Path $script:ChatqData 'overlay-mac.js'
 # VS Code windows' Claude tabs with no process, one file a window
 # (Read-ChatOpenTabs)
@@ -101,6 +103,7 @@ function Get-ChatOverlayConfig {
     $clamp = { param($v, $lo, $hi) [Math]::Max($lo, [Math]::Min($hi, $v)) }
     $theme = ([string](& $get 'theme' 'dark')).ToLowerInvariant()
     $view = ([string](& $get 'usageView' 'lines')).ToLowerInvariant()
+    $panel = ([string](& $get 'panel' 'ps')).ToLowerInvariant()
     [pscustomobject]@{
         width        = [int](& $clamp ([int](& $get 'width' 380)) 260 800)
         maxRows      = [int](& $clamp ([int](& $get 'maxRows' 8)) 1 30)
@@ -152,6 +155,10 @@ function Get-ChatOverlayConfig {
         # the overlay's own private MB after a compaction at which it starts
         # again, given back; 0 is never (Update-ChatOverlayRestartDue)
         restartMB    = [int](& $clamp ([int](& $get 'restartMB' 300)) 0 4096)
+        # the Windows panel: ps, the WPF one, or native - chatq-overlay.exe
+        # beside a headless host, where one is staged for this version
+        # (Get-ChatOverlayPanelExe)
+        panel        = $(if ($panel -in 'ps', 'native') { $panel } else { 'ps' })
     }
 }
 
@@ -1610,13 +1617,39 @@ function Sync-ChatqAnsweredJobs {
     try { return @(Close-ChatqAnsweredJobs $ctx) } catch { return @() }
 }
 
+# the process whose window is in front, read, never set: for the headless
+# host, which has no ChatOverlayNative (Get-ChatForegroundPid) - a type of
+# its own, compiled the first time a chat finishes there
+$script:ChatForegroundCode = @'
+using System;
+using System.Runtime.InteropServices;
+
+public static class ChatForeground {
+    [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+    public static int Pid() {
+        IntPtr h = GetForegroundWindow();
+        if (h == IntPtr.Zero) { return 0; }
+        uint pid;
+        GetWindowThreadProcessId(h, out pid);
+        return (int)pid;
+    }
+}
+'@
+
 function Get-ChatForegroundPid {
     # The process whose window is in front, or 0 when that cannot be told:
-    # off Windows, before the panel's native code is loaded (charlie
-    # -Print, the macOS host), a locked screen. Read, never set.
+    # off Windows, a locked screen. The WPF panel's native code where it is
+    # loaded, else a type of its own: the headless host draws nothing
+    # (ChatForeground). Read, never set.
     if ($script:ChatForegroundSeam) { return [int](& $script:ChatForegroundSeam) }   # tests
-    if (-not $script:ChatqIsWindows -or -not ('ChatOverlayNative' -as [type])) { return 0 }
-    try { return [int][ChatOverlayNative]::ForegroundPid() } catch { return 0 }
+    if (-not $script:ChatqIsWindows) { return 0 }
+    try {
+        if ('ChatOverlayNative' -as [type]) { return [int][ChatOverlayNative]::ForegroundPid() }
+        if (-not ('ChatForeground' -as [type])) { Invoke-ChatCompile { Add-Type -TypeDefinition $script:ChatForegroundCode } }
+        return [int][ChatForeground]::Pid()
+    }
+    catch { return 0 }
 }
 
 # Every process with its parent, file name and start, as ChatProcSnap's
@@ -2612,7 +2645,8 @@ function New-ChatOverlayContext {
         # pass; AskState the answered cut-offs and AskShown the announced
         # ones, each read when first needed. WantAsk: this host announces
         # and acts on it (Windows, macOS) - never charlie -Print. AskNews
-        # and AskSaid wait for the host to show them; AskPhone holds keys
+        # and AskSaid wait for the host to show them, AskAnswer - an answer's
+        # outcome a pass carried out - for it to follow; AskPhone holds keys
         # whose phone alert waits for you to be away; AskSavedKeys are those
         # in the snapshot last saved, which the macOS menu showed.
         CutScan = @(); Ask = $null; AskState = $null; AskShown = $null; WantAsk = $false
@@ -2634,7 +2668,7 @@ function New-ChatOverlayContext {
         # host's tray, and when each was last said, by name
         Sums = $null; SumsAt = $null
         LeakSamples = @(); LeakAt = $null; Leaks = @(); LeakNews = $null; LeakToldAt = @{}
-        AskNews = $null; AskSaid = $null; AskPhone = @{}; AskSavedKeys = @()
+        AskNews = $null; AskSaid = $null; AskAnswer = $null; AskPhone = @{}; AskSavedKeys = @()
         # the Recent list (Update-ChatOverlayRecent) - built only for a reader
         # that draws it (WantRecent) - and which chats finished a turn unseen,
         # with each chat process's parents (Update-ChatOverlayUnread) -
@@ -2703,6 +2737,10 @@ function Invoke-ChatOverlayCycle {
     # With the switch on, the limit's cut-offs are queued by themselves, but
     # the chats a window's restart cut off are still asked about: nothing
     # continues those by itself (Get-ChatqResetAsk -RestartOnly).
+    # Its outcome is kept in AskAnswer for the host to follow, as the WPF
+    # host follows its own (Invoke-ChatOverlayAskAnswer): the watcher it
+    # asked for, or an ask that had changed - the headless host's
+    # (Start-ChatOverlayHeadlessHost).
     $askOn = $Ctx.Config.autoContinue -eq 'ask'
     $askAny = $askOn -or $Ctx.Config.autoContinue -eq 'on'
     $act = $askAny -and $Ctx.WantAsk -and -not $Peek
@@ -2710,10 +2748,14 @@ function Invoke-ChatOverlayCycle {
     if ($act -and $askVerb) {
         $askAnswer = if ($askVerb -like 'ask-go*') { 'continue' } else { 'leave' }
         $askKeys = if ($askVerb -match '^ask-[a-z]+ (.+)$') { @($Matches[1] -split ',' | Where-Object { $_ }) } else { @($Ctx.AskSavedKeys) }
-        $null = Complete-ChatqResetAsk $Ctx $askAnswer $askKeys -Source mac
+        $Ctx.AskAnswer = Complete-ChatqResetAsk $Ctx $askAnswer $askKeys -Source mac
     }
     foreach ($v in $Ctx.Verbs) {
         if (-not $v -or $v -in 'stop', 'restart', 'reload', 'refresh' -or [string]$v -match '^ask-(go|leave)( |$)') { continue }
+        # the headless host's own (Start-ChatOverlayHeadlessHost), not its panel's
+        if ($null -ne $Ctx.Events -and $v -in 'close', 'phone', 'crash-on', 'crash-off', 'console', 'console-key', 'console-back', 'hotkey') { continue }
+        # its panel's clicks (Invoke-ChatOverlayPanelVerb): no other host's
+        if ([string]$v -match '^(opened|delete|card|reload-answer|auto-chip|config) ') { continue }
         # for a renderer in another process (macOS), by id and time
         $Ctx.CommandId++
         $Ctx.Commands.Add([pscustomobject]@{ id = $Ctx.CommandId; verb = $v; at = (ConvertTo-ChatOverlayMs $now) })
@@ -3100,6 +3142,21 @@ function Invoke-ChatOverlayCycle {
         header = $header; counts = $counts; config = $Ctx.Config; commands = @($Ctx.Commands); rows = @($rows)
         recent = @($Ctx.Recent); recentMore = @($Ctx.RecentMore)
     }
+    # A panel in a process of its own (Start-ChatOverlayHeadlessHost): what
+    # the WPF host reads off this process - a usage ask out, for its spin -
+    # and the host's news until the panel has seen it (Add-ChatOverlayEvent);
+    # a close by hand under way, which it hides for; and what an open's
+    # child takes (Start-ChatShowFreshProcess, native/overlay/src/open.rs):
+    # the script, Claude's home, and VS Code's tabs by chat for an open by
+    # its window's name. No other reader's snapshot changes.
+    if ($null -ne $Ctx.Events) {
+        $tabs = @(@($Ctx.Tabs) | Where-Object { $_ } | ForEach-Object { [pscustomobject]@{ sessionId = [string](Get-ChatField $_ 'SessionId'); window = [string](Get-ChatField $_ 'Window') } })
+        $snap | Add-Member -NotePropertyName ui -NotePropertyValue ([pscustomobject]@{
+                spin = [bool]($Ctx.Fetch -or $Ctx.CopilotFetch -or $Ctx.CodexFetch); console = [bool]$Ctx.PanelConsole; closing = [bool]$Ctx.PanelClosing
+                script = [string]$script:ChatqScriptPath; claudeHome = $(if ($Ctx.ClaudeHome) { [string]$Ctx.ClaudeHome } else { [string]$script:ChatClaudeHome }); tabs = $tabs
+            })
+        $snap | Add-Member -NotePropertyName events -NotePropertyValue @($Ctx.Events)
+    }
     $body = ConvertTo-Json $snap -Depth 6 -Compress
     $Ctx.ViewSig = $body
     $snap.at = ConvertTo-ChatOverlayMs (Get-Date)
@@ -3302,39 +3359,117 @@ function Receive-ChatOverlayCommands {
     # What shells asked for since the last pass. The file is renamed away
     # first, which is atomic, so a line appended meanwhile starts a new file
     # instead of being lost. Lines older than 5 minutes are dropped: left
-    # over from a time the overlay was not running to hear them.
+    # over from a time the overlay was not running to hear them. One that
+    # cannot be taken - held open, or its folder's rights - is left, tried
+    # again each pass and said once, and no wait between passes wakes for
+    # it meanwhile (Test-ChatOverlayCmdWaiting): it would wake at once, each
+    # time, until it went.
     $p = $script:ChatOverlayCmdPath
-    if (-not (Test-Path -LiteralPath $p)) { return @() }
+    if (-not (Test-Path -LiteralPath $p)) { $script:ChatOverlayCmdStuck = $false; return @() }
     $take = "$p.$PID"
     try {
         if (Test-Path -LiteralPath $take) { Remove-Item -LiteralPath $take -Force }
         [System.IO.File]::Move($p, $take)
     }
-    catch { return @() }
+    catch {
+        if (-not $script:ChatOverlayCmdStuck) { Write-ChatOverlayLog "overlay-cmd cannot be taken - tried again each pass: $($_.Exception.Message)" }
+        $script:ChatOverlayCmdStuck = $true
+        return @()
+    }
+    $script:ChatOverlayCmdStuck = $false
     $lines = try { [System.IO.File]::ReadAllLines($take) } catch { @() }
     Remove-Item -LiteralPath $take -Force -EA SilentlyContinue
     $cut = (Get-Date).ToUniversalTime().AddMinutes(-5)
-    # ask-go and ask-leave may name the cut-offs they answer - the macOS
-    # menu's keys, as it drew them: "ask-go k1,k2"; no other verb takes one
+    # a verb's words, when it has any, as Test-ChatOverlayVerbArg allows
+    # them, one space apart; a line whose words do not fit is dropped whole
     return @(foreach ($l in @($lines)) {
-            if ($l -notmatch '^(\S+)\s+([a-z-]+)(?:\s+([0-9A-Za-z_,-]{1,8000}))?\s*$') { continue }
+            if ($l -notmatch '^(\S+)\s+([a-z-]+)(?:\s+(\S.*?))?\s*$') { continue }
             $verb = $Matches[2]
             $arg = $Matches[3]
             $at = ConvertTo-ChatqDate $Matches[1]
             if (-not $at -or $at.ToUniversalTime() -lt $cut) { continue }
             if ($arg) {
-                if ($verb -notin 'ask-go', 'ask-leave') { continue }
+                $arg = @($arg -split '\s+') -join ' '
+                if (-not (Test-ChatOverlayVerbArg $verb $arg)) { continue }
                 "$verb $arg"
             }
             else { $verb }
         })
 }
 
+function Test-ChatOverlayCmdWaiting {
+    # a verb in overlay-cmd for the next pass to take, as the waits between
+    # passes look for one - not a file the last pass could not take
+    # (Receive-ChatOverlayCommands)
+    return (-not $script:ChatOverlayCmdStuck -and [System.IO.File]::Exists($script:ChatOverlayCmdPath))
+}
+
+function Test-ChatOverlayVerbArg {
+    <#
+    Whether a verb takes these words (Receive-ChatOverlayCommands). ask-go
+    and ask-leave may name the cut-offs they answer - the macOS menu's
+    keys, as it drew them: "ask-go k1,k2". The headless host's panel names
+    what its click was on (Invoke-ChatOverlayPanelVerb): "opened <key>
+    <exit> [front|behind|none|looking]" or "opened <key> behind|late|nostart",
+    "delete <key>", "card <key>", "reload-answer <pid>:<id> reload|later",
+    "auto-chip <key> dont|continue", and a setting of its box, "config
+    opacity|maxRows|theme|recent <value>" - a key as a row's (s:<id>,
+    c:<id>, j:<id>, recent:<id>). No other verb takes any. Pure.
+    #>
+    param([string]$Verb, [string]$Arg)
+    $key = '[0-9A-Za-z_.:-]{1,400}'
+    switch -CaseSensitive ($Verb) {
+        { $_ -cin 'ask-go', 'ask-leave' } { return ($Arg -cmatch '^[0-9A-Za-z_,-]{1,8000}$') }
+        'opened' { return ($Arg -cmatch "^$key (-?[0-9]{1,5}( (front|behind|none|looking))?|behind|late|nostart)$") }
+        { $_ -cin 'delete', 'card' } { return ($Arg -cmatch "^$key$") }
+        'reload-answer' { return ($Arg -cmatch "^$key (reload|later)$") }
+        'auto-chip' { return ($Arg -cmatch "^$key (dont|continue)$") }
+        'config' { return ($Arg -cmatch '^(opacity [0-9.]{1,6}|maxRows [0-9]{1,2}|theme (dark|light|system)|recent [0-9]{1,2})$') }
+    }
+    return $false
+}
+
+function Get-ChatOverlayRaisePlan {
+    <#
+    Whether an open's end brings a VS Code window to the front, by its
+    child's exit code (Show-ChatFresh): By folder or name, Seconds to look
+    again for a window not there yet, and Words - the code whose words it
+    says once in front. $null: no window asked for. Pure.
+      0, 10, 16, 21   code -n ran on the folder: by folder, for up to 5 s,
+                      as a new window takes a moment to get its title
+      40, 41          the request was written, but code was not found or
+                      failed: a window already on the folder, now - and in
+                      front, it opened (0)
+      42, 43          the same for a chat Claude Code never lists: 21's
+      25, 26          its window has other folders too: by the name its tab
+                      file gives (Ctx.Tabs Window), now - in front, 0's
+                      and 21's
+      15, 20, 30, 50, a crash, and no answer in 60 s, asked no window.
+    Here, not with the WPF panel that raises the window: the headless
+    host's panel answers an open with the same words
+    (Invoke-ChatOverlayPanelVerb), and that launch leaves the WPF parts out.
+    #>
+    param([int]$Code)
+    if ($Code -in 0, 10, 16, 21) { return @{ By = 'folder'; Seconds = 5; Words = $Code } }
+    if ($Code -in 40, 41) { return @{ By = 'folder'; Seconds = 0; Words = 0 } }
+    if ($Code -in 42, 43) { return @{ By = 'folder'; Seconds = 0; Words = 21 } }
+    if ($Code -eq 25) { return @{ By = 'name'; Seconds = 0; Words = 0 } }
+    if ($Code -eq 26) { return @{ By = 'name'; Seconds = 0; Words = 21 } }
+    return $null
+}
+
 function Invoke-ChatOverlayCollectLoop {
     # The collector on its own - for the macOS host, and the tests: a pass
     # every -IntervalMs until a stop or restart comes in, -OnCycle returns a
     # reason to end, or -MaxCycles passes have run. Returns why it ended.
-    param($Ctx, [int]$IntervalMs = 2000, [int]$MaxCycles = 0, [scriptblock]$OnCycle)
+    # -WakeMs: between passes, a look that often for a command, which starts
+    # the next pass at once - the headless host's, whose panel's clicks come
+    # in as commands. $Ctx.PassNow, set by -OnCycle, starts it at once too:
+    # a click acted on, whose outcome the panel is to draw. $Ctx.WakeAt, a
+    # UTC time, ends a wait sooner: a close by hand's 4 s. -Wait, given that
+    # wait's end, waits in the loop's place when it says it did - the
+    # headless host's, while a console window of its own needs its thread run.
+    param($Ctx, [int]$IntervalMs = 2000, [int]$MaxCycles = 0, [scriptblock]$OnCycle, [int]$WakeMs = 0, [scriptblock]$Wait)
     $n = 0
     while ($true) {
         $snap = $null
@@ -3348,7 +3483,14 @@ function Invoke-ChatOverlayCollectLoop {
         }
         $n++
         if ($MaxCycles -gt 0 -and $n -ge $MaxCycles) { return 'max' }
-        Start-Sleep -Milliseconds $IntervalMs
+        if ($Ctx.PassNow) { $Ctx.PassNow = $false; continue }
+        if ($WakeMs -le 0) { Start-Sleep -Milliseconds $IntervalMs; continue }
+        $until = [datetime]::UtcNow.AddMilliseconds($IntervalMs)
+        if ($Ctx.WakeAt -is [datetime] -and $Ctx.WakeAt -lt $until) { $until = $Ctx.WakeAt }
+        if ($Wait -and (& $Wait $until)) { continue }
+        while ([datetime]::UtcNow -lt $until -and -not (Test-ChatOverlayCmdWaiting)) {
+            Start-Sleep -Milliseconds ([int][Math]::Max(1, [Math]::Min($WakeMs, ($until - [datetime]::UtcNow).TotalMilliseconds)))
+        }
     }
 }
 

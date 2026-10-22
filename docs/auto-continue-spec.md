@@ -67,12 +67,12 @@ unless you say so.
   [Invoke-ChatqContinueChats](../src/commands.ps1) - the console's loop,
   made shared - and marks only the chats that got a job or had one, so a
   failed one is asked about again. Leave marks them all.
-- **Windows.** A toast ([Show-ChatOverlayBalloon](../src/overlay-windows.ps1));
+- **Windows.** A toast ([Show-ChatOverlayBalloon](../src/overlay-host.ps1));
   a click on it opens the console, never answers. A banner
   ([Add-ChatOverlayAsk](../src/overlay-windows.ps1)) whose chip carries
   **continue N** and **leave them**
   ([Get-ChatOverlayChipActions](../src/overlay-windows.ps1)); the tray's
-  items ([Update-ChatOverlayAsk](../src/overlay-windows.ps1)); both answer
+  items ([Update-ChatOverlayAsk](../src/overlay-host.ps1)); both answer
   through [Invoke-ChatOverlayAskAnswer](../src/overlay-windows.ps1). The
   settings box's **Cut off** row, Ask or Leave
   ([Set-ChatOverlayAutoChoice](../src/overlay-windows.ps1)). The console's

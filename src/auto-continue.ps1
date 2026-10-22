@@ -1127,7 +1127,9 @@ function Invoke-ChatOverlayAutoVerbs {
     (Set-ChatqAutoContinue) for every host, and taken out of -Verbs, so
     none is handed on to a renderer. Returns the verbs left, with reload
     added when one was set: every host then reads the config again, and the
-    Windows panel draws its settings box anew. Never throws.
+    Windows panel draws its settings box anew. What was set is in
+    $Ctx.AutoSet, for the headless host, whose panel's choice comes this
+    way, to say once what on does (Show-ChatOverlayAutoNotice). Never throws.
     #>
     param($Ctx, [object[]]$Verbs)
     $all = @($Verbs)
@@ -1136,6 +1138,7 @@ function Invoke-ChatOverlayAutoVerbs {
     $left = @($all | Where-Object { $_ -notin 'auto-on', 'auto-ask', 'auto-off' })
     try {
         $null = Set-ChatqAutoContinue -Value ($v -replace '^auto-', '')
+        $Ctx.AutoSet = $v -replace '^auto-', ''
         $Ctx.CutAt = [datetime]::MinValue
         Write-ChatOverlayLog "auto-continue $($v -replace '^auto-', '') from overlay-cmd" -Always
         if ($left -notcontains 'reload') { $left += 'reload' }
@@ -1193,7 +1196,6 @@ function Invoke-ChatOverlayAutoChip {
             else { $say = "Nothing queued: $((@($res.Fails)[0] -split ': ', 2)[-1])" }
             Write-ChatOverlayLog "auto-continue: continue $($sid.Substring(0, [Math]::Min(8, $sid.Length))) from the chip" -Always
         }
-        Hide-ChatOverlayChip $H
         # a pass at the next tick sees the queue as it is now
         if ($H.Ctx) { $H.Ctx.JobsSig = $null }
         if ($say) { Show-ChatOverlayBalloon $H $say }
