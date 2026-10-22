@@ -59,10 +59,10 @@ function Get-JoinPush($U) {
 # -EncodedCommand doubles it as UTF-16 base64 around the sandbox's own paths,
 # and from a long enough checkout path that passed the 32,767 characters a
 # command line holds, aborting the whole run. The BOM makes 5.1 read it as UTF-8.
-# -Global dot-sources the file into the global scope instead, as the headless
-# launch runs its command (Get-ChatOverlayLaunch): what loads there later, the
-# console's parts (Import-ChatOverlayConsoleParts), sets $script: in the global
-# scope, which a -File script's own functions would not read.
+# -Global dot-sources the file into the global scope instead, as a launch
+# runs its command (Get-ChatOverlayLaunch): the parts it loads there set
+# $script: in the global scope, which a -File script's own functions would
+# not read.
 function Invoke-Sta([string]$Name, [string]$Script, [switch]$Global) {
     $f = Join-Path $sb "$Name.ps1"
     [IO.File]::WriteAllText($f, $Script, [System.Text.UTF8Encoding]::new($true))

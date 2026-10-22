@@ -110,8 +110,9 @@ function Show-ChatOverlayBalloon {
     timer's passes run on meanwhile, and the ask, the tray's word or
     auto-continue's would put theirs over "Closed until you next sign in"
     before it is read. The headless host's console window
-    (Open-ChatOverlayHeadlessConsole) has no tray: its balloons are its
-    host's, events for the panel.
+    (Open-ChatOverlayHeadlessConsole) has no tray: its balloons are events
+    of its own process's (Start-ChatConsoleHost), sent on to its host in
+    console-ui.json for the panel (Update-ChatOverlayConsoleChild).
     #>
     param($H, [string]$Text, [string]$Title = 'Charlie', [int]$Ms = 6000, [string]$Icon = 'None', [string]$Kind = '', [string[]]$Keys = @())
     if (-not $H -or -not $Text) { return }
@@ -341,7 +342,11 @@ function Add-ChatOverlayEvent {
 }
 
 function Save-ChatOverlayEvents {
+    # the host's news to its file - never the console's own process's
+    # (Start-ChatConsoleHost), whose news goes to its host in
+    # console-ui.json (Save-ChatConsoleUi): this file is the host's
     param($H)
+    if ($H.Standalone) { return }
     try { Save-ChatqText $script:ChatOverlayEventsPath (ConvertTo-Json -InputObject @($H.Events) -Depth 4 -Compress) }
     catch { Write-ChatOverlayLog "overlay-events.json: $($_.Exception.Message)" }
 }
@@ -628,51 +633,205 @@ function Send-ChatOverlayPanelVerb {
     $Ctx.PassNow = $true
 }
 
-function Import-ChatOverlayConsoleParts {
+# The native panel's console: the WPF one, in a Windows PowerShell -STA
+# process of its own (Start-ChatConsoleHost), which this host starts as it
+# is asked for and which closes as it goes back to the panel
+# ($script:ChatConsoleKeepMinutes). Its stdin a pipe this host holds: the
+# lines its verbs become (Send-ChatConsoleLine), and closing it is how it
+# is told to go (Stop-ChatConsoleProcess) - a host that dies outright
+# closes it too. Its word back is data/console-ui.json (Read-ChatConsoleUi),
+# a console-ui verb in overlay-cmd saying when it changed.
+# tests: a stand-in start of the console's process, given how it opens
+# (show, key); returns what stands for the process - Id, HasExited,
+# StandardInput (Stop-ChatOverlayUi). And a stand-in for the grant, given
+# the pid (Grant-ChatConsoleFront).
+$script:ChatConsoleSpawnSeam = $null
+$script:ChatConsoleGrantSeam = $null
+# AllowSetForegroundWindow, for that process: this host draws nothing, so a
+# type of its own, compiled the first time the console is asked for
+$script:ChatForegroundGrantCode = @'
+using System;
+using System.Runtime.InteropServices;
+
+public static class ChatForegroundGrant {
+    [DllImport("user32.dll")] static extern bool AllowSetForegroundWindow(int pid); // allow-input-hijack
+    public static bool Allow(int pid) { return AllowSetForegroundWindow(pid); } // allow-input-hijack
+}
+'@
+
+function Start-ChatConsoleProcess {
     <#
-    The console's parts - the WPF panel's and its own, overlay-windows.ps1
-    and console.ps1 - into the headless host, the first time its console is
-    asked for: its launch leaves them out (Get-ChatOverlayLaunch), as it
-    draws nothing until then. Their text is what the host read as it
-    started ($Ctx.ConsoleParts, Read-ChatOverlayConsoleParts), so code on
-    disk changed since puts no new part beside old ones: the console opens
-    in this process, which its panel let come forward, not in a restart
-    that Windows would keep behind. Dot-sourced into the global scope, where
-    its launch put the others, by Import-ChatTool's way (Get-ChatShellScope);
-    between the swap and the swap back nothing of this function's own is in
-    reach, so what it needs is in $global:ChatOverlayPartsLoad. $true once
-    they are in.
+    The console asked for on the headless host - -Open show, or key, its
+    hotkey: a console process running is told so, else one is started
+    (Get-ChatOverlayLaunch -Console), with its stdin a pipe, sharing this
+    host's hidden console window, and no STARTF_USESHOWWINDOW, so its own
+    window shows as it asks. Either way it is let come forward first
+    (Grant-ChatConsoleFront). A show told to one that then goes before it
+    shows is kept ($H.ConWant): Update-ChatOverlayConsoleChild starts it
+    again. $true once told or started; one that will not start is logged.
     #>
-    param($Ctx)
-    if (${function:New-ChatConsole}) { return $true }
-    $text = $Ctx.ConsoleParts
-    if (-not $text) { Write-ChatOverlayLog 'console: its parts were not read as the overlay started' -Always; return $false }
-    $s = Get-ChatShellScope
-    if (-not $s) { Write-ChatOverlayLog 'console: this PowerShell cannot load its parts' -Always; return $false }
-    $u = [System.Text.UTF8Encoding]::new($false)
-    $global:ChatOverlayPartsLoad = @{ Scope = $s; Was = $s.Current.GetValue($s.Ssi)
-        A = [scriptblock]::Create($u.GetString($text.A)); B = [scriptblock]::Create($u.GetString($text.B))
+    param($H, [ValidateSet('show', 'key')][string]$Open = 'show')
+    $p = $H.ConProc
+    if ($p) {
+        $up = try { -not $p.HasExited } catch { $false }
+        if ($up) {
+            Grant-ChatConsoleFront ([int]$p.Id)
+            # key on a console that shows may take it back: no show is owed
+            $shown = [bool]($H.ConUi -and [bool](Get-ChatField $H.ConUi 'shown'))
+            if (Send-ChatConsoleLine $H $Open) {
+                if (-not ($Open -eq 'key' -and $shown)) { $H.ConWant = @{ Open = $Open; At = (ConvertTo-ChatOverlayMs (Get-Date)) } }
+                return $true
+            }
+        }
+        Stop-ChatConsoleProcess $H
     }
     try {
-        $s.Current.SetValue($s.Ssi, $s.Global)
-        try { . $global:ChatOverlayPartsLoad.A; . $global:ChatOverlayPartsLoad.B }
-        finally { $global:ChatOverlayPartsLoad.Scope.Current.SetValue($global:ChatOverlayPartsLoad.Scope.Ssi, $global:ChatOverlayPartsLoad.Was) }
+        $p = if ($script:ChatConsoleSpawnSeam) { & $script:ChatConsoleSpawnSeam $Open }   # tests
+        else {
+            $l = Get-ChatOverlayLaunch -Console -HostPid $PID -ConsoleOpen $Open
+            $si = [System.Diagnostics.ProcessStartInfo]::new($l.Exe)
+            $si.Arguments = $l.Args -join ' '
+            $si.UseShellExecute = $false
+            $si.RedirectStandardInput = $true
+            $si.CreateNoWindow = $false
+            $si.WorkingDirectory = $HOME
+            [System.Diagnostics.Process]::Start($si)
+        }
     }
-    catch { Write-ChatOverlayLog "console: its parts did not load: $($_.Exception.Message)" -Always }
-    finally { Remove-Variable -Name ChatOverlayPartsLoad -Scope Global -EA SilentlyContinue }
-    return [bool]${function:New-ChatConsole}
+    catch { Write-ChatOverlayLog "console: its process did not start: $($_.Exception.Message)" -Always; return $false }
+    if (-not $p) { return $false }
+    $H.ConProc = $p
+    $H.ConAt = Get-Date
+    $H.ConUi = $null
+    $H.ConWant = $null
+    Grant-ChatConsoleFront ([int]$p.Id)
+    Write-ChatOverlayLog "console: started $($p.Id) ($Open)"
+    return $true
 }
 
-function Read-ChatOverlayConsoleParts {
-    # the console's parts, overlay-windows.ps1 and console.ps1, as bytes -
-    # read as the headless host starts, for its console to load whenever it
-    # is first asked for (Import-ChatOverlayConsoleParts): some 0.5 MB held
-    # for the host's life. $null when they cannot be read.
+function Send-ChatConsoleLine {
+    # a line on the console process's stdin - show, key, back, reload,
+    # answer [stale] - $false when it could not take it: gone, or going.
+    # Never throws.
+    param($H, [string]$Line)
+    $p = $H.ConProc
+    if (-not $p) { return $false }
     try {
-        $src = [System.IO.Path]::Combine([string]$script:ChatRoot, 'src')
-        return @{ A = [System.IO.File]::ReadAllBytes([System.IO.Path]::Combine($src, 'overlay-windows.ps1')); B = [System.IO.File]::ReadAllBytes([System.IO.Path]::Combine($src, 'console.ps1')) }
+        if ($p.HasExited) { return $false }
+        $p.StandardInput.WriteLine($Line)
+        $p.StandardInput.Flush()
+        return $true
     }
-    catch { Write-ChatOverlayLog "console: its parts not read: $($_.Exception.Message)" -Always; return $null }
+    catch { return $false }
+}
+
+function Stop-ChatConsoleProcess {
+    # the console's process told to go - its stdin closed - and ended if
+    # still there 3 s on (Stop-ChatOverlayUi); its draft is kept as its
+    # window goes (Close-ChatOverlayWindow, there). Never throws.
+    param($H)
+    if (-not $H.ConProc) { return }
+    Stop-ChatOverlayUi $H.ConProc 3000
+    try { $H.ConProc.Dispose() } catch {}
+    $H.ConProc = $null
+    $H.ConUi = $null
+    $H.ConWant = $null
+}
+
+function Grant-ChatConsoleFront {
+    <#
+    The console's process let bring its window forward
+    (AllowSetForegroundWindow): Windows gives that to the process the last
+    click or key went to, and keeps a window another starts behind, its
+    taskbar button flashing. This host may pass it on - S62 found it can -
+    so it does before each show it sends. Not under CHATQ_NOFRONT, which
+    every test run sets, and logged either way. Never throws.
+    #>
+    param([int]$ProcessId)
+    $ok = $false
+    try {
+        if ($script:ChatConsoleGrantSeam) { $ok = [bool](& $script:ChatConsoleGrantSeam $ProcessId) }   # tests
+        elseif ($env:CHATQ_NOFRONT -or -not $script:ChatqIsWindows) { return }
+        else {
+            if (-not ('ChatForegroundGrant' -as [type])) { Invoke-ChatCompile { Add-Type -TypeDefinition $script:ChatForegroundGrantCode } }
+            $ok = [bool][ChatForegroundGrant]::Allow($ProcessId)   # allow-input-hijack
+        }
+    }
+    catch { Write-ChatOverlayLog "console: front not granted: $($_.Exception.Message)" }
+    Write-ChatOverlayLog "console: front granted $ProcessId $ok"
+}
+
+function Read-ChatConsoleUi {
+    # The console process's word back, data/console-ui.json (Save-ChatConsoleUi):
+    # { pid; at; shown; underWay; events; request }. pid its own; at in
+    # epoch ms; shown: its window shows as the console; underWay as the
+    # panel's (Test-ChatOverlayUiUnderWay); events: its news, its balloons
+    # and said markers, for the panel; request: a watcher its answer asked
+    # for { alive; spawned; at }. $null while there is none.
+    return (Read-ChatqJson $script:ChatConsoleUiPath)
+}
+
+function Update-ChatOverlayConsoleChild {
+    <#
+    Each pass of the headless host's: its console's process as it says it
+    is (Read-ChatConsoleUi), only the one this host started - its news
+    taken as this host's own, once each by id (Add-ChatOverlayEvent), for
+    the panel to show; a watcher its answer asked for followed here
+    (Update-ChatOverlayAsk). Then whether it shows - the panel hides under
+    it (the snapshot's ui.console) only once it does, and while its word is
+    under 30 s old - and whether
+    something is under way there, as the panel's word says it
+    (Test-ChatOverlayUiUnderWay), or it is starting, 20 s at most: either
+    holds a restart off, which would close it. One that has gone is let go,
+    and started again, once, if a show sent it was never seen.
+    Returns @{ Shown; UnderWay }.
+    #>
+    param($H, [datetime]$Now = (Get-Date))
+    $p = $H.ConProc
+    if (-not $p) { return @{ Shown = $false; UnderWay = $false } }
+    try {
+        # what it sent is kept there 10 minutes (Update-ChatOverlayEvents),
+        # the watcher its answer asked for as long as it runs (Save-ChatConsoleUi):
+        # what is older than the 15 minutes its ids are kept here is never
+        # taken, so a request is not taken again once its id is let go
+        $cut = (ConvertTo-ChatOverlayMs $Now) - 15 * 60000
+        foreach ($k in @($H.ConSeen.Keys)) { if ([int64]$H.ConSeen[$k] -lt $cut) { $H.ConSeen.Remove($k) } }
+        $ui = Read-ChatConsoleUi
+        if ($ui -and [int](Get-ChatField $ui 'pid') -eq [int]$p.Id) {
+            $H.ConUi = $ui
+            foreach ($e in @(Get-ChatField $ui 'events')) {
+                $id = [string](Get-ChatField $e 'id')
+                if (-not $id -or $H.ConSeen.ContainsKey($id) -or [int64](Get-ChatField $e 'at') -lt $cut) { continue }
+                $H.ConSeen[$id] = [int64](Get-ChatField $e 'at')
+                $d = @{}
+                foreach ($pr in $e.PSObject.Properties) { if ($pr.Name -notin 'id', 'at', 'kind') { $d[$pr.Name] = $pr.Value } }
+                Add-ChatOverlayEvent $H ([string]$e.kind) $d
+            }
+            $rq = Get-ChatField $ui 'request'
+            $rk = if ($rq) { "request $([int64](Get-ChatField $rq 'at'))" } else { '' }
+            if ($rk -and -not $H.ConSeen.ContainsKey($rk) -and [int64](Get-ChatField $rq 'at') -ge $cut) {
+                $H.ConSeen[$rk] = [int64](Get-ChatField $rq 'at')
+                $H.AskRequest = [pscustomobject]@{ Alive = [bool](Get-ChatField $rq 'alive'); Spawned = [bool](Get-ChatField $rq 'spawned'); Respawned = $false; At = $Now }
+            }
+            if ($H.ConWant -and [bool](Get-ChatField $ui 'shown') -and [int64](Get-ChatField $ui 'at') -ge [int64]$H.ConWant.At) { $H.ConWant = $null }
+        }
+        if ($p.HasExited) {
+            $want = $H.ConWant
+            $code = try { $p.ExitCode } catch { '?' }
+            Write-ChatOverlayLog "console: $($p.Id) ended ($code)"
+            Stop-ChatConsoleProcess $H
+            if ($want) { [void](Start-ChatConsoleProcess $H $want.Open) }
+            return @{ Shown = $false; UnderWay = [bool]$H.ConProc }
+        }
+    }
+    catch { Write-ChatOverlayLog "console: $($_.Exception.Message)" }
+    $u = $H.ConUi
+    $busy = if ($u) { Test-ChatOverlayUiUnderWay $u $Now } else { [bool]($H.ConAt -and ($Now - $H.ConAt).TotalSeconds -lt 20) }
+    # shown only on a word under 30 s old: its 3 s timer keeps it new through
+    # its own loops, so one older is a console that hangs, and the panel
+    # comes back rather than stay hidden under it
+    $age = if ($u -and (Get-ChatField $u 'at')) { (ConvertTo-ChatOverlayMs $Now) - [int64](Get-ChatField $u 'at') } else { [int64]::MaxValue }
+    return @{ Shown = [bool]($u -and [bool](Get-ChatField $u 'shown') -and $age -ge -2000 -and $age -lt 30000); UnderWay = $busy }
 }
 
 function Start-ChatOverlayHeadlessClose {
@@ -726,11 +885,17 @@ function New-ChatOverlayHeadlessState {
         # epoch ms (Start-ChatOverlayUi -Since); UiFail: why a start threw,
         # which blows the panel's fuse (Set-ChatOverlayPanelFuse)
         Child = $null; Starts = [System.Collections.Generic.List[datetime]]::new(); UiSince = 0; UnderWay = $false; Snap = $null; UiFail = $null
-        # the console's window, once asked for (Open-ChatOverlayHeadlessConsole),
-        # and the timer its waits run on; a close by hand's end (CloseAt); a
-        # verb to take as the first pass's (Open) - the next start's too, if
-        # that pass is the last
-        Console = $null; ConWake = $null; CloseAt = $null; Open = ''
+        # the console's process, once asked for (Start-ChatConsoleProcess),
+        # its start, a show sent it not yet seen (ConWant), its last word
+        # read (ConUi, console-ui.json) and the ids of the news it sent that
+        # are taken (ConSeen); the panel kept hidden for -Open's console
+        # until that word (ConHold); a close by hand's end (CloseAt); a verb
+        # to take as the first pass's (Open) - the next start's too, if that
+        # pass is the last
+        ConProc = $null; ConAt = $null; ConWant = $null; ConUi = $null; ConSeen = @{}; ConHold = $false; CloseAt = $null; Open = ''
+        # the console's own process (Start-ChatConsoleHost) keeps this state
+        # too, Standalone: its window (Console), its waits' timer (ConWake)
+        Standalone = $false; Console = $null; ConWake = $null
     }
 }
 
@@ -755,12 +920,12 @@ function Start-ChatOverlayHeadlessHost {
     at once too, for the panel to draw its outcome. A panel started again
     acts on the commands the last one had not said it had done
     (Update-ChatOverlayCommands).
-    The console: a window of this process's own, the WPF one, its parts
-    loaded the first time it is asked for (Import-ChatOverlayConsoleParts,
-    Open-ChatOverlayHeadlessConsole). While it shows, the panel hides (the
-    snapshot's ui.console) and the waits between passes run its thread
-    (Wait-ChatOverlayHeadlessConsole); back to the panel, the panel shows
-    again. -Open console: it opens with the first pass - chatconsole's
+    The console: the WPF one, in a process of its own started as it is
+    asked for (Start-ChatConsoleProcess), told this host's verbs for it on
+    its stdin (Send-ChatConsoleLine), and read back each pass
+    (Update-ChatOverlayConsoleChild). While it shows, the panel hides (the
+    snapshot's ui.console); back to the panel, it closes, and the panel
+    shows again. -Open console: it opens with the first pass - chatconsole's
     start - or, should that pass end the host in a restart, with the next
     host's.
     The panel's close, by hand: said, and the process 4 s on, in which the
@@ -803,7 +968,6 @@ function Start-ChatOverlayHeadlessHost {
         $ctx.RecentPool = $true
         $ctx.CodeStamp = Get-ChatOverlayCodeStamp
         $ctx.CodeLookAt = Get-Date
-        $ctx.ConsoleParts = Read-ChatOverlayConsoleParts
         $ctx.WantPhone = $true
         $ctx.WantAsk = $true
         $ctx.WantAuto = $true
@@ -813,7 +977,7 @@ function Start-ChatOverlayHeadlessHost {
         Clear-ChatOverlayClosed $H.State
         # chatconsole's start: the console with the first pass, and the
         # panel hidden under it from the first snapshot on
-        if ($Open) { $H.Open = $Open; $ctx.PanelConsole = $true }
+        if ($Open) { $H.Open = $Open; $H.ConHold = $true; $ctx.PanelConsole = $true }
         [void](Invoke-ChatOverlayCycle $ctx)
         Update-ChatOverlayAsk $H
         Show-ChatOverlayAutoNotice $H
@@ -827,11 +991,7 @@ function Start-ChatOverlayHeadlessHost {
             $H.Starts.Add((Get-Date))
         }
         if (-not $why) {
-            # the console's thread run between passes while it is open
-            $why = Invoke-ChatOverlayCollectLoop $ctx -IntervalMs $IntervalMs -MaxCycles $MaxCycles -WakeMs 250 -Wait {
-                param($until)
-                if ($H.Console) { Wait-ChatOverlayHeadlessConsole $H $until } else { $false }
-            } -OnCycle {
+            $why = Invoke-ChatOverlayCollectLoop $ctx -IntervalMs $IntervalMs -MaxCycles $MaxCycles -WakeMs 250 -OnCycle {
                 param($snap)
                 $now = Get-Date
                 $ui = Read-ChatOverlayUi
@@ -855,7 +1015,7 @@ function Start-ChatOverlayHeadlessHost {
                     # the panel's x, the tray's Quit: a close by hand, the
                     # console back to the panel first, as the WPF host's
                     if ($v -eq 'close') {
-                        if ($H.Console) { Exit-ChatOverlayConsoleMode $H.Console }
+                        [void](Send-ChatConsoleLine $H 'back')
                         if (-not (Start-ChatOverlayHeadlessClose $H)) { return 'close' }
                         continue
                     }
@@ -863,29 +1023,22 @@ function Start-ChatOverlayHeadlessHost {
                     if ([string]$v -match '^(opened|delete|card|reload-answer|config|auto-chip) ' -and (Invoke-ChatOverlayPanelVerb $H $v $snap)) { $ctx.PassNow = $true }
                     # The console, as the WPF host's verbs bring it
                     # (Invoke-ChatOverlayVerb): the tray's item, chatconsole
-                    # and -Open open it or bring it forward; its hotkey again
-                    # while it has the keyboard goes back to the panel - on
-                    # the parts this host started with, however the code on
-                    # disk has changed (Import-ChatOverlayConsoleParts).
-                    # Opened, the next pass
-                    # at once, for the panel to hide: the open has set what
-                    # the snapshot says (Ctx.PanelConsole), so the sync below
-                    # sees no change to start one.
-                    if ($v -in 'console', 'console-key') {
-                        $active = if ($script:ChatConsoleActiveSeam) { [bool](& $script:ChatConsoleActiveSeam) } else { [bool]($H.Console -and $H.Console.Win.IsActive) }
-                        if ($v -eq 'console-key' -and $H.Console -and $H.Console.Mode -eq 'console' -and $active) { Exit-ChatOverlayConsoleMode $H.Console }
-                        elseif (Import-ChatOverlayConsoleParts $ctx) { Open-ChatOverlayHeadlessConsole $H -Activate; $ctx.PassNow = $true }
-                    }
+                    # and -Open open it or bring it forward, its process
+                    # started if none runs (Start-ChatConsoleProcess); its
+                    # hotkey again while it has the keyboard goes back to the
+                    # panel, which that process tells. The panel hides once
+                    # it says it shows (Update-ChatOverlayConsoleChild).
+                    if ($v -in 'console', 'console-key') { [void](Start-ChatConsoleProcess $H $(if ($v -eq 'console-key') { 'key' } else { 'show' })) }
                     # back to the panel: the panel's own hotkey while the
                     # console shows (console-back), and the shell's verbs that
                     # act on the panel, which the panel then takes; outside
                     # the console, the shell's hotkey is the panel's
-                    if ($v -eq 'console-back' -and $H.Console) { Exit-ChatOverlayConsoleMode $H.Console }
+                    if ($v -eq 'console-back') { [void](Send-ChatConsoleLine $H 'back') }
                     if ($v -eq 'hotkey') {
-                        if ($H.Console -and $H.Console.Mode -eq 'console') { Exit-ChatOverlayConsoleMode $H.Console }
+                        if ($ctx.PanelConsole) { [void](Send-ChatConsoleLine $H 'back') }
                         else { Send-ChatOverlayPanelVerb $ctx 'hotkey' }
                     }
-                    if ($v -in 'lock', 'unlock', 'toggle', 'hide', 'collapse', 'expand', 'reset' -and $H.Console) { Exit-ChatOverlayConsoleMode $H.Console }
+                    if ($v -in 'lock', 'unlock', 'toggle', 'hide', 'collapse', 'expand', 'reset') { [void](Send-ChatConsoleLine $H 'back') }
                     if ($v -in 'crash-on', 'crash-off') {
                         $on = $v -eq 'crash-on'
                         if ([bool]$ctx.Config.autoContinueCrash -ne $on) {
@@ -912,22 +1065,27 @@ function Start-ChatOverlayHeadlessHost {
                 # watcher it asked for watched (Update-ChatOverlayAsk), and an
                 # ask that changed under it shown as it is now - the panel
                 # shown and opened out, the console's list drawn anew and
-                # said so (Update-ChatOverlayHeadlessConsole).
+                # said so (Invoke-ChatConsoleLine's answer, in its process).
                 $ans = $ctx.AskAnswer
                 $ctx.AskAnswer = $null
                 if ($ans) {
                     if ($ans.Request) { $H.AskRequest = $ans.Request }
-                    if ($ans.Stale -and -not ($H.Console -and $H.Console.Mode -eq 'console')) { Send-ChatOverlayPanelVerb $ctx 'show'; Send-ChatOverlayPanelVerb $ctx 'expand' }
+                    if ($ans.Stale -and -not $ctx.PanelConsole) { Send-ChatOverlayPanelVerb $ctx 'show'; Send-ChatOverlayPanelVerb $ctx 'expand' }
+                    [void](Send-ChatConsoleLine $H $(if ($ans.Stale) { 'answer stale' } else { 'answer' }))
                     $ctx.PassNow = $true
                 }
                 if ($snap) { $H.Snap = $snap }
-                # the console drawn from this pass, and told when the config
-                # was read again; the panel hidden under it while it shows
-                $cw = $false
-                if ($H.Console) { $cw = Update-ChatOverlayHeadlessConsole $H $snap -Reload:(@($verbs | Where-Object { $_ -eq 'reload' -or [string]$_ -like 'config *' }).Count -gt 0) -Answer $ans }
-                $con = [bool]($H.Console -and $H.Console.Mode -eq 'console')
+                # the console told when the config was read again, as its
+                # look follows it; the panel hidden under it while it says
+                # it shows
+                if (@($verbs | Where-Object { $_ -eq 'reload' -or [string]$_ -like 'config *' }).Count) { [void](Send-ChatConsoleLine $H 'reload') }
+                # - and -Open's, chatconsole's start, from the first snapshot
+                # on, until its process first says how it is (ConHold)
+                $cs = Update-ChatOverlayConsoleChild $H $now
+                if (-not ($H.ConProc -and -not $H.ConUi)) { $H.ConHold = $false }
+                $con = $cs.Shown -or [bool]$H.ConHold
                 if ($con -ne [bool]$ctx.PanelConsole) { $ctx.PanelConsole = $con; $ctx.PassNow = $true }
-                $H.UnderWay = (Test-ChatOverlayUiUnderWay $ui $now) -or $H.Closing -or $cw
+                $H.UnderWay = (Test-ChatOverlayUiUnderWay $ui $now) -or $H.Closing -or $cs.UnderWay
                 # Not while a close by hand is on its way, as on the WPF host
                 # (Invoke-ChatOverlayTick): each says its news in a balloon,
                 # which Show-ChatOverlayBalloon would drop; said once the
@@ -970,8 +1128,9 @@ function Start-ChatOverlayHeadlessHost {
     }
     catch { Write-ChatOverlayLog "overlay failed: $($_.Exception.Message) @ $(($_.ScriptStackTrace -split "`n")[0])" }
     finally {
-        # the console's draft kept as its window goes (Close-ChatOverlayWindow)
-        if ($H.Console) { Stop-ChatOverlayHeadlessConsole $H }
+        # the console's process told to go, its draft kept as its window
+        # goes (Stop-ChatConsoleProcess)
+        Stop-ChatConsoleProcess $H
         Stop-ChatOverlayUi $H.Child
         # the file's state, read now: the panel may have saved its place
         if ($why -in 'stop', 'close') { [void](Set-ChatOverlayClosed) }

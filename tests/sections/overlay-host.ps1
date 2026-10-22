@@ -4,10 +4,11 @@ Section 'overlay host: the headless host and its panel''s news'
 # process stands in (ChatOverlayUiSpawnSeam), as do the usage endpoint, the
 # watcher's start and the sign-in; every file it writes is put back.
 $hsWas = @{ Usage = $script:ChatOverlayUsageSeam; Spawn = $script:ChatqSpawn; Ui = $script:ChatOverlayUiSpawnSeam; SignIn = $script:ChatqSignInSeam; OvSpawn = $script:ChatOverlaySpawn
-    LiveFn = ${function:Get-ChatqLiveSessions}; RmFn = ${function:Remove-ChatSessionById}; AnsFn = ${function:Write-ChatReloadAnswer} }
+    LiveFn = ${function:Get-ChatqLiveSessions}; RmFn = ${function:Remove-ChatSessionById}; AnsFn = ${function:Write-ChatReloadAnswer}
+    Copilot = $script:ChatOverlayCopilotSeam; Codex = $script:ChatOverlayCodexUsageSeam; ConSpawn = $script:ChatConsoleSpawnSeam; ConGrant = $script:ChatConsoleGrantSeam }
 $hsFiles = @{}
 $hsFuseFile = Get-ChatqNativeFile 'panel-fuse.json'
-foreach ($p in $script:ChatOverlayStatePath, $script:ChatOverlayEventsPath, $script:ChatOverlayUiPath, $script:ChatOverlayPath, $script:ChatOverlayCardPath, $hsFuseFile) { $hsFiles[$p] = Read-TestFile $p }
+foreach ($p in $script:ChatOverlayStatePath, $script:ChatOverlayEventsPath, $script:ChatOverlayUiPath, $script:ChatOverlayPath, $script:ChatOverlayCardPath, $hsFuseFile, $script:ChatConsoleUiPath) { $hsFiles[$p] = Read-TestFile $p }
 Clear-ChatOverlayPanelFuse
 $script:ChatOverlayUsageSeam = { @{ Ok = $true; Status = 200; Windows = @([pscustomobject]@{ Label = '5h'; Percent = 10; ResetsAt = (Get-Date).AddHours(3); Severity = 'normal' }) } }
 $script:ChatqSpawn = { $true }
@@ -477,6 +478,178 @@ try {
         $hsLw.Command -like "*`$env:CHATQ_ALLPARTS='1'*" -and $hsLw.Command -like "*`$env:CHATQ_OVERLAY='1'*" -and
         $hsLc.Command -like "*Start-ChatOverlayHeadlessHost -UiExe 'C:\ui\chatq-overlay.exe' -Open 'console')*" -and $hsLc.Command -notlike '*$env:CHATQ_ALLPARTS=*' -and
         $hsLu.Command -notlike '*-Open*') "$($hsLu.Command) / $($hsLw.Command) / $($hsLc.Command)"
+    $hsLk = Get-ChatOverlayLaunch -Console -HostPid 42 -ConsoleOpen key
+    $hsLs = Get-ChatOverlayLaunch -Console
+    Check 'the native panel''s console''s launch: CHATQ_OVERLAY and CHATQ_ALLPARTS, its host and how it was asked for, a failure logged as the console''s' (
+        $hsLk.Command -like "*`$env:CHATQ_OVERLAY='1'; `$env:CHATQ_ALLPARTS='1'*" -and $hsLk.Command -like "*Start-ChatConsoleHost -HostPid 42 -Open 'key')*" -and
+        $hsLk.Command -like '*console failed to start*' -and $hsLk.Command -notlike '*Start-ChatOverlay*' -and
+        $hsLs.Command -like "*Start-ChatConsoleHost -HostPid 0 -Open 'show')*") "$($hsLk.Command) / $($hsLs.Command)"
+
+    # The native panel's console, a process of its own (Start-ChatConsoleHost),
+    # as its host sees it: the process stood in (ChatConsoleSpawnSeam) - its
+    # stdin's lines written down, its close ending it - as is the grant to
+    # come forward (ChatConsoleGrantSeam); its word back, console-ui.json,
+    # written here as it writes it (Save-ChatConsoleUi).
+    $script:HsConLines = [System.Collections.Generic.List[string]]::new()
+    $script:HsConSpawns = [System.Collections.Generic.List[string]]::new()
+    $script:HsGrants = [System.Collections.Generic.List[int]]::new()
+    $script:HsConFake = {
+        param([int]$Id)
+        $c = [pscustomobject]@{ Id = $Id; HasExited = $false; ExitCode = 0 }
+        $in = [pscustomobject]@{ Owner = $c }
+        $in | Add-Member -MemberType ScriptMethod -Name WriteLine -Value { param($l) $script:HsConLines.Add("$($this.Owner.Id) $l") }
+        $in | Add-Member -MemberType ScriptMethod -Name Flush -Value { }
+        $in | Add-Member -MemberType ScriptMethod -Name Close -Value { $script:HsConLines.Add("$($this.Owner.Id) closed"); $this.Owner.HasExited = $true }
+        $c | Add-Member -NotePropertyName StandardInput -NotePropertyValue $in
+        $c | Add-Member -MemberType ScriptMethod -Name WaitForExit -Value { param($ms) $this.HasExited }
+        $c | Add-Member -MemberType ScriptMethod -Name Kill -Value { $script:HsConLines.Add("$($this.Id) killed") }
+        $c | Add-Member -MemberType ScriptMethod -Name Dispose -Value { }
+        $c
+    }
+    $script:ChatConsoleSpawnSeam = { param($Open) $script:HsConSpawns.Add($Open); & $script:HsConFake (4100 + $script:HsConSpawns.Count) }
+    $script:ChatConsoleGrantSeam = { param($p) $script:HsGrants.Add($p); $true }
+    $hsConUi = {
+        param([int]$ProcId, [bool]$Shown, [bool]$Busy, [object[]]$Events = @(), $Request = $null, [int]$AgoMs = 0)
+        $b = [ordered]@{ pid = $ProcId; at = (ConvertTo-ChatOverlayMs (Get-Date)) - $AgoMs; shown = $Shown; underWay = $Busy; events = @($Events); request = $Request }
+        Save-ChatqText $script:ChatConsoleUiPath (ConvertTo-Json -InputObject $b -Depth 5 -Compress)
+    }
+    Remove-Item -LiteralPath $script:ChatConsoleUiPath -Force -EA SilentlyContinue
+    $hcH = New-ChatOverlayHeadlessState
+    $hcH.Ctx = New-ChatOverlayContext
+    $hcR0 = Update-ChatOverlayConsoleChild $hcH
+    $hcL0 = Send-ChatConsoleLine $hcH 'show'
+    $hcS1 = Start-ChatConsoleProcess $hcH 'show'
+    $hcR1 = Update-ChatOverlayConsoleChild $hcH
+    $hcR1b = Update-ChatOverlayConsoleChild $hcH ((Get-Date).AddSeconds(25))
+    Check 'the console asked for on the headless host: its process started, let come forward; starting, it holds a restart off 20 s at most, the panel left until it says it shows' (
+        -not $hcR0.Shown -and -not $hcR0.UnderWay -and -not $hcL0 -and $hcS1 -and ($script:HsConSpawns -join ',') -eq 'show' -and ($script:HsGrants -join ',') -eq '4101' -and
+        $hcH.ConProc.Id -eq 4101 -and -not $hcR1.Shown -and $hcR1.UnderWay -and -not $hcR1b.UnderWay -and -not $script:HsConLines.Count) (
+        "$($hcR1 | ConvertTo-Json -Compress) / $($hcR1b | ConvertTo-Json -Compress) / spawns $($script:HsConSpawns -join ',') / grants $($script:HsGrants -join ',')")
+    & $hsConUi 9999 $true $false
+    $hcR2 = Update-ChatOverlayConsoleChild $hcH
+    $hcEv = [pscustomobject]@{ id = 'c-1'; at = (ConvertTo-ChatOverlayMs (Get-Date)); kind = 'balloon'; text = 'from the console'; title = 'Charlie' }
+    & $hsConUi 4101 $true $true @($hcEv) ([pscustomobject]@{ alive = $true; spawned = $false; at = (ConvertTo-ChatOverlayMs (Get-Date)) })
+    $hcR3 = Update-ChatOverlayConsoleChild $hcH
+    $hcRq = $hcH.AskRequest
+    $hcH.AskRequest = $null
+    $hcR4 = Update-ChatOverlayConsoleChild $hcH
+    $hcRq4 = $hcH.AskRequest
+    # 16 minutes on, the same word still there: its ids let go here, and
+    # neither its news nor its request taken again, by that pass or the next
+    $null = Update-ChatOverlayConsoleChild $hcH ((Get-Date).AddMinutes(16))
+    $hcR4b = Update-ChatOverlayConsoleChild $hcH ((Get-Date).AddMinutes(16))
+    $hcE = @($hcH.Events | Where-Object { $_.text -eq 'from the console' })
+    Check 'its word: only its own process''s; its news taken once, as the host''s own, and a watcher its answer asked for once - not again once its id is let go; shown and under way as it says' (
+        -not $hcR2.Shown -and $hcR2.UnderWay -and $hcR3.Shown -and $hcR3.UnderWay -and $hcR4.Shown -and $hcE.Count -eq 1 -and $hcE[0].kind -eq 'balloon' -and
+        $hcE[0].title -eq 'Charlie' -and $hcE[0].id -ne 'c-1' -and $hcRq -and $hcRq.Alive -and -not $hcRq.Spawned -and $null -eq $hcRq4 -and $null -eq $hcH.AskRequest -and -not $hcR4b.Shown) (
+        "$($hcR2 | ConvertTo-Json -Compress) / $($hcR3 | ConvertTo-Json -Compress) / $($hcR4 | ConvertTo-Json -Compress) / $(ConvertTo-Json @($hcH.Events) -Compress -Depth 3) / $($hcRq | ConvertTo-Json -Compress) / again $($null -ne $hcRq4) $($null -ne $hcH.AskRequest)")
+    & $hsConUi 4101 $true $true -AgoMs 11000
+    $hcR5 = Update-ChatOverlayConsoleChild $hcH
+    $hcR5b = Update-ChatOverlayConsoleChild $hcH ((Get-Date).AddSeconds(25))
+    $hcS2 = Start-ChatConsoleProcess $hcH 'key'
+    $hcW2 = $hcH.ConWant
+    $hcS3 = Start-ChatConsoleProcess $hcH 'show'
+    $hcW3 = $hcH.ConWant
+    Check 'asked for again while it runs: told on its stdin and let come forward again, no second process; a show owed until it says it shows, a key on one that shows owing none; under way only on a word under 10 s old, shown only on one under 30 s old' (
+        $hcR5.Shown -and -not $hcR5.UnderWay -and -not $hcR5b.Shown -and $hcS2 -and $hcS3 -and ($script:HsConLines -join ',') -eq '4101 key,4101 show' -and ($script:HsConSpawns -join ',') -eq 'show' -and
+        ($script:HsGrants -join ',') -eq '4101,4101,4101' -and $null -eq $hcW2 -and $hcW3 -and $hcW3.Open -eq 'show') "$($hcR5b | ConvertTo-Json -Compress) / $($script:HsConLines -join ',') / grants $($script:HsGrants -join ',') / want $($hcW3 | ConvertTo-Json -Compress)"
+    $hcH.ConProc.HasExited = $true
+    $hcR6 = Update-ChatOverlayConsoleChild $hcH
+    $hcP6 = $hcH.ConProc
+    if ($hcP6) { $hcP6.HasExited = $true }
+    $hcR7 = Update-ChatOverlayConsoleChild $hcH
+    Check 'one that has gone is let go, and started again, once, when a show sent it was never seen' (
+        -not $hcR6.Shown -and $hcR6.UnderWay -and $hcP6 -and $hcP6.Id -eq 4102 -and $script:HsGrants[-1] -eq 4102 -and
+        -not $hcR7.Shown -and -not $hcR7.UnderWay -and $null -eq $hcH.ConProc -and ($script:HsConSpawns -join ',') -eq 'show,show') "$($hcR6 | ConvertTo-Json -Compress) / $($hcR7 | ConvertTo-Json -Compress) / spawns $($script:HsConSpawns -join ',')"
+    $null = Start-ChatConsoleProcess $hcH 'show'
+    Stop-ChatConsoleProcess $hcH
+    Check 'told to go: its stdin closed, and let go' ($script:HsConLines[-1] -eq '4103 closed' -and $null -eq $hcH.ConProc -and -not (Send-ChatConsoleLine $hcH 'back')) "$($script:HsConLines -join ',')"
+
+    # NoFetch, the console's own process's context: no usage endpoint asked
+    $script:HsNf = @{ Usage = 0; Codex = 0; Copilot = 0 }
+    $hsUsageWas = $script:ChatOverlayUsageSeam
+    $script:ChatOverlayUsageSeam = { $script:HsNf.Usage++; @{ Ok = $true; Status = 200; Windows = @() } }
+    $script:ChatOverlayCodexUsageSeam = { param($h) $script:HsNf.Codex++; @{ Ok = $false; Why = 'none in the tests'; Quiet = $true } }
+    $script:ChatOverlayCopilotSeam = { $script:HsNf.Copilot++; @{ Ok = $false; Why = 'none in the tests'; Quiet = $true } }
+    $hcNf = New-ChatOverlayContext
+    $hcNf.Config.liveUsage = $true
+    $hcNf.Config.codexUsage = $true
+    $hcNf.Config.copilotUsage = $true
+    $hcNf.NoFetch = $true
+    $null = Update-ChatOverlayUsage $hcNf
+    $hcNf0 = "$($script:HsNf.Usage) $($script:HsNf.Codex) $($script:HsNf.Copilot)"
+    $hcNf.NoFetch = $false
+    $null = Update-ChatOverlayUsage $hcNf
+    $hcNf1 = "$($script:HsNf.Usage) $($script:HsNf.Codex) $($script:HsNf.Copilot)"
+    $script:ChatOverlayUsageSeam = $hsUsageWas
+    $script:ChatOverlayCodexUsageSeam = $hsWas.Codex
+    $script:ChatOverlayCopilotSeam = $hsWas.Copilot
+    Check 'NoFetch, the console''s own process''s context: Claude, Codex and Copilot none asked live, all three asked by one without it' ($hcNf0 -eq '0 0 0' -and $hcNf1 -eq '1 1 1') "$hcNf0 / $hcNf1"
+
+    # The whole host with it: chatconsole's start, then each verb that
+    # reaches it, a pass at a time - the panel's process stood in, each look
+    # at its HasExited a pass's hook (HsConPlan): a check, then the verbs for
+    # the pass after
+    $script:HsConLines.Clear(); $script:HsConSpawns.Clear(); $script:HsGrants.Clear()
+    foreach ($p in $script:ChatConsoleUiPath, $script:ChatOverlayCmdPath, $script:ChatOverlayEventsPath) { Remove-Item -LiteralPath $p -Force -EA SilentlyContinue }
+    $script:HsN = 0
+    $script:HsOk = [ordered]@{}
+    $script:HsSay = [System.Collections.Generic.List[string]]::new()
+    $script:HsAt = { param([string]$Key, [bool]$Ok, [string]$Text) $script:HsOk[$Key] = $Ok; if (-not $Ok) { $script:HsSay.Add("${Key}: $Text") } }
+    $script:HsLines = { $script:HsConLines -join ',' }
+    $script:HsPanelCmds = { param([string]$Verb) @($H.Ctx.Commands | Where-Object { $_.verb -eq $Verb }).Count }
+    $script:HsPanelFake = [pscustomobject]@{ Gone = $false; ExitCode = 0 }
+    $script:HsPanelFake | Add-Member -MemberType ScriptProperty -Name HasExited -Value {
+        if (-not $this.Gone) {
+            $script:HsN++
+            foreach ($s in @($script:HsConPlan[$script:HsN])) {
+                if ($null -eq $s) { continue }
+                try { if ($s -is [scriptblock]) { $null = & $s } else { Send-ChatOverlayCommand ([string]$s) } }
+                catch { $script:HsSay.Add("pass $($script:HsN): $($_.Exception.Message)") }
+            }
+        }
+        [bool]$this.Gone
+    }
+    $hsPfIn = [pscustomobject]@{ Owner = $script:HsPanelFake }
+    $hsPfIn | Add-Member -MemberType ScriptMethod -Name Close -Value { $this.Owner.Gone = $true }
+    $script:HsPanelFake | Add-Member -NotePropertyName StandardInput -NotePropertyValue $hsPfIn
+    $script:HsPanelFake | Add-Member -MemberType ScriptMethod -Name WaitForExit -Value { param($ms) $this.Gone }
+    $script:HsPanelFake | Add-Member -MemberType ScriptMethod -Name Kill -Value { }
+    $hsUiWas = $script:ChatOverlayUiSpawnSeam
+    $script:ChatOverlayUiSpawnSeam = { param($Exe, $Data) $script:HsPanelFake }
+    $script:HsConPlan = @{
+        1 = @({
+                & $script:HsAt 'held' ($H.Ctx.PanelConsole -and $H.ConHold -and ($script:HsConSpawns -join ',') -eq 'show' -and ($script:HsGrants -join ',') -eq '4101' -and $H.UnderWay) (
+                    "console $($H.Ctx.PanelConsole), hold $($H.ConHold), spawns $($script:HsConSpawns -join ','), under way $($H.UnderWay)")
+                & $hsConUi 4101 $true $false
+            }, 'console-ui')
+        2 = @({ & $script:HsAt 'shown' ($H.Ctx.PanelConsole -and -not $H.ConHold -and -not $script:HsConLines.Count) "console $($H.Ctx.PanelConsole), hold $($H.ConHold), lines $(& $script:HsLines)" }, 'console-key')
+        3 = @({ & $script:HsAt 'key' ((& $script:HsLines) -eq '4101 key' -and $script:HsConSpawns.Count -eq 1 -and ($script:HsGrants -join ',') -eq '4101,4101') "lines $(& $script:HsLines), grants $($script:HsGrants -join ',')" }, 'hotkey')
+        4 = @({
+                & $script:HsAt 'hotkey' ((& $script:HsLines) -eq '4101 key,4101 back' -and (& $script:HsPanelCmds 'hotkey') -eq 0) "lines $(& $script:HsLines), the panel's $(& $script:HsPanelCmds 'hotkey')"
+                & $hsConUi 4101 $false $false
+            }, 'console-ui')
+        5 = @({ & $script:HsAt 'back' (-not $H.Ctx.PanelConsole) "console $($H.Ctx.PanelConsole)" }, 'hotkey')
+        6 = @({ & $script:HsAt 'hotkey2' ((& $script:HsPanelCmds 'hotkey') -eq 1 -and $script:HsConLines.Count -eq 2) "the panel's $(& $script:HsPanelCmds 'hotkey'), lines $(& $script:HsLines)" }, 'console-back', 'hide', 'reload')
+        7 = @({
+                & $script:HsAt 'verbs' ((& $script:HsLines) -eq '4101 key,4101 back,4101 back,4101 back,4101 reload') "lines $(& $script:HsLines)"
+                $H.ConProc.HasExited = $true
+            }, 'console-ui')
+        8 = @({ & $script:HsAt 'gone' ($null -eq $H.ConProc -and $script:HsConSpawns.Count -eq 1 -and -not $H.Ctx.PanelConsole) "process $($null -ne $H.ConProc), spawns $($script:HsConSpawns -join ',')" }, 'console')
+        9 = @({ & $script:HsAt 'again' (($script:HsConSpawns -join ',') -eq 'show,show' -and $H.ConProc.Id -eq 4102 -and $script:HsGrants[-1] -eq 4102) "spawns $($script:HsConSpawns -join ','), grants $($script:HsGrants -join ',')" }, 'close')
+        10 = { & $script:HsAt 'close' ($script:HsConLines[-1] -eq '4102 back' -and $H.Closing) "lines $(& $script:HsLines), closing $($H.Closing)" }
+    }
+    $hsWhyC = Start-ChatOverlayHeadlessHost -UiExe 'C:\ui\chatq-overlay.exe' -IntervalMs 3000 -MaxCycles 10 -Open console
+    & $script:HsAt 'end' ($hsWhyC -eq 'max' -and $script:HsConLines[-1] -eq '4102 closed' -and $script:HsN -ge 10) "ended $hsWhyC after $($script:HsN), lines $(& $script:HsLines)"
+    $hsConCheck = {
+        param([string]$Name, [string[]]$Keys)
+        $bad = @($Keys | Where-Object { $script:HsOk[$_] -ne $true })
+        Check $Name ($bad.Count -eq 0) "not $($bad -join ', ') // $(@($script:HsSay) -join ' / ')"
+    }
+    & $hsConCheck 'chatconsole''s start on the headless host: the console''s process started with the first pass, the panel hidden under it from the first snapshot on, until it says it shows' 'held', 'shown'
+    & $hsConCheck 'the host''s verbs for it, told on its stdin while it shows: its hotkey, the shell''s hotkey - back to the panel - and the panel''s own; the shell''s hotkey the panel''s once it shows no more' 'key', 'hotkey', 'back', 'hotkey2', 'verbs'
+    & $hsConCheck 'its process gone: let go, and the console asked for again starts another; a close tells it first, the host''s end closes it' 'gone', 'again', 'close', 'end'
+    $script:ChatOverlayUiSpawnSeam = $hsUiWas
 
     # a restart onto new code starts the new code's panel
     $hsBin = [System.IO.Path]::GetFullPath((Join-Path $script:ChatqData 'hs-bin'))
@@ -674,31 +847,56 @@ if ($hsBad.Count) { $global:HsSay.Add("log: $($hsBad -join ' | ')") }
 if ($global:HsSay.Count -or @($global:HsOk.Values) -contains $false) { $global:HsSay.Add("log tail: $(@($hsLines | Select-Object -Last 6) -join ' | ')") }
 ConvertTo-Json ([ordered]@{ ok = $global:HsOk; say = @($global:HsSay) }) -Compress -Depth 4
 '@
-    # B2, the console on the headless host: cloaked, so drawn and never seen,
-    # and brought forward only through its seam, so never in front. Its
-    # parts load at its first ask; it opens grown from the native panel's
-    # top-right corner (overlay-ui.json's rect, on a screen the work-area
-    # seam makes wide enough at any scale), interactive while the panel
-    # hides; then back to the panel and in again, by each verb that does it,
-    # and a close from inside it.
+    # B2, the native panel's console, in its own process
+    # (Start-ChatConsoleHost) as its launch runs it, every part loaded:
+    # cloaked, so drawn and never seen, and brought forward only through its
+    # seam, so never in front. Its host's lines come through a stand-in for
+    # its stdin (ChatConsoleInSeam), each look at it past the last line a
+    # pass's hook (HsCon): a check, then the lines for the pass after. It
+    # opens grown from the native panel's top-right corner (overlay-ui.json's
+    # rect, on a screen the work-area seam makes wide enough at any scale),
+    # says so in console-ui.json, and goes as its console goes back to the
+    # panel ($script:ChatConsoleKeepMinutes 0), once its stdin ends, or with
+    # one already running.
     $hsConsoleBody = @'
 & {
     try {
         $env:CHATQ_CLOAK = '1'
+        Remove-Item -LiteralPath 'env:CHATQ_ALLPARTS' -EA SilentlyContinue
         $global:ChatForegroundSeam = { 0 }
-        $global:HsOk.before = -not ${function:New-ChatConsole} -and -not ${function:New-ChatOverlayWindow} -and $null -eq $global:ChatOverlayNativeCode
+        $global:HsOk.parts = [bool]${function:New-ChatConsole} -and [bool]${function:Start-ChatConsoleHost} -and $global:ChatConsoleKeepMinutes -eq 0
         $global:ChatOverlayWorkAreaSeam = { param($r) [pscustomobject]@{ X = -6000; Y = 0; Width = 3840; Height = 2160 } }
         Save-ChatqText $global:ChatOverlayUiPath (ConvertTo-Json @{ at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds(); rect = @(-2594, 197, 380, 300) } -Compress)
-        # the real import, then the console's own seams, which its load sets anew
-        $global:HsImport = ${function:Import-ChatOverlayConsoleParts}
-        $global:HsImports = 0
+        Remove-Item -LiteralPath $global:ChatOverlayEventsPath -Force -EA SilentlyContinue
         $global:HsFront = 0
-        function global:Import-ChatOverlayConsoleParts {
-            param($Ctx)
-            $global:HsImports++
-            try { & $global:HsImport $Ctx }
-            finally { $global:ChatConsoleNoSync = $true; $global:ChatConsoleFrontSeam = { param($w) $global:HsFront++ } }
+        $global:ChatConsoleNoSync = $true
+        $global:ChatConsoleFrontSeam = { param($w) $global:HsFront++ }
+        # no usage endpoint asked: its host's (NoFetch)
+        $global:HsAsked = 0
+        $global:ChatOverlayUsageSeam = { $global:HsAsked++; @{ Ok = $true; Status = 200; Windows = @() } }
+        $global:ChatOverlayCodexUsageSeam = { param($h) $global:HsAsked++; @{ Ok = $false; Why = 'none in the tests'; Quiet = $true } }
+        $global:ChatOverlayCopilotSeam = { $global:HsAsked++; @{ Ok = $false; Why = 'none in the tests'; Quiet = $true } }
+        # its stdin: the lines waiting, then '' - past which the pass's hook -
+        # and <eof> for the end
+        $global:HsIn = [System.Collections.Generic.List[string]]::new()
+        $global:HsPass = 0
+        $global:HsCon = @{}
+        $global:ChatConsoleInSeam = {
+            if ($global:HsIn.Count) {
+                $l = $global:HsIn[0]
+                $global:HsIn.RemoveAt(0)
+                if ($l -eq '<eof>') { return $null }
+                return $l
+            }
+            $global:HsPass++
+            foreach ($s in @($global:HsCon[$global:HsPass])) {
+                if ($null -eq $s) { continue }
+                try { if ($s -is [scriptblock]) { $null = & $s } else { $global:HsIn.Add([string]$s) } }
+                catch { $global:HsSay.Add("pass $($global:HsPass): $($_.Exception.Message)") }
+            }
+            return ''
         }
+        $global:HsWord = { Read-ChatqJson $global:ChatConsoleUiPath }
         $global:HsShown = {
             param($W, [string]$Name)
             $hw = $W.Hwnd
@@ -720,30 +918,42 @@ ConvertTo-Json ([ordered]@{ ok = $global:HsOk; say = @($global:HsSay) }) -Compre
             if (-not $ok) { $global:HsSay.Add("${Name}: mode $($W.Mode), visible $([HsWin]::IsWindowVisible($W.Hwnd))") }
             $ok
         }
-        $global:HsUi = { $s = Read-ChatqJson $global:ChatOverlayPath; "$($s.ui.console)/$($s.ui.closing)" }
-        $global:HsPlan = @{
+        $global:HsHook = {
+            param([hashtable]$Plan)
+            $global:HsIn.Clear()
+            $global:HsPass = 0
+            $global:HsCon = $Plan
+        }
+        & $global:HsHook @{
             1 = {
-                $H.CompactAt = $null
                 $W = $H.Console
                 $global:HsHwnd = if ($W) { $W.Hwnd } else { $null }
-                $global:HsOk.loaded = $global:HsImports -eq 1 -and [bool]${function:New-ChatConsole} -and [bool]${function:New-ChatOverlayWindow} -and
-                    $null -ne $global:ChatOverlayNativeCode -and $null -ne $W -and [object]::ReferenceEquals($W, $global:ChatOverlayHost)
-                & $global:HsNote 'loaded' "imports $($global:HsImports), console $($null -ne $W)"
+                $global:HsOk.ctx = $H.Standalone -and $H.Ctx.NoFetch -and -not $H.Ctx.WantAuto -and $H.Ctx.WantAsk -and $null -eq $H.Ctx.Events -and
+                    $null -ne $W -and [object]::ReferenceEquals($W, $global:ChatOverlayHost) -and [object]::ReferenceEquals($W.EventOwner, $H)
+                & $global:HsNote 'ctx' "standalone $($H.Standalone), no fetch $($H.Ctx.NoFetch), auto $($H.Ctx.WantAuto), console $($null -ne $W)"
                 if ($W) {
                     $r = [ChatOverlayNative]::GetRect($W.Hwnd)
                     $global:HsOk.open = (& $global:HsShown $W 'open') -and $global:HsFront -eq 1 -and $null -ne $r -and
                         [Math]::Abs($r[0] + $r[2] + 2214) -le 2 -and [Math]::Abs($r[1] - 197) -le 2
                     & $global:HsNote 'open' "front $($global:HsFront), at $($r -join ','), the panel's $($W.PanelWas.Rect -join ',')"
                 }
-                $global:HsOk.hidden1 = (& $global:HsUi) -eq 'True/False'
-                & $global:HsNote 'hidden1' (& $global:HsUi)
             }
-            # a loop of the console's own holds the passes off: its timer keeps the snapshot new
+            # its word after its first pass; news of its own goes to its host there, never to overlay-events.json
             2 = @({
-                    $global:HsOk.hidden = (& $global:HsUi) -eq 'True/False'
-                    & $global:HsNote 'hidden' (& $global:HsUi)
-                    $a0 = [int64](Read-ChatqJson $global:ChatOverlayPath).at
-                    $H.Ctx.SavedAt = (Get-Date).AddSeconds(-30)
+                    $w = & $global:HsWord
+                    $cmdText = if (Test-Path -LiteralPath $global:ChatOverlayCmdPath) { [System.IO.File]::ReadAllText($global:ChatOverlayCmdPath) } else { '' }
+                    $global:HsOk.word = $w -and [int]$w.pid -eq $PID -and $w.shown -eq $true -and $cmdText -like '*console-ui*'
+                    & $global:HsNote 'word' "$(ConvertTo-Json $w -Compress -Depth 4) / overlay-cmd $cmdText"
+                    Show-ChatOverlayBalloon $H 'from the console'
+                }, 'show', 'reload')
+            # a loop of the console's own holds the passes off: its timer keeps its word new
+            3 = {
+                    $w = & $global:HsWord
+                    $global:HsOk.news = @($w.events | Where-Object { $_.text -eq 'from the console' }).Count -eq 1 -and -not (Test-Path -LiteralPath $global:ChatOverlayEventsPath)
+                    & $global:HsNote 'news' "$(ConvertTo-Json @($w.events) -Compress -Depth 3), overlay-events.json $(Test-Path -LiteralPath $global:ChatOverlayEventsPath)"
+                    $global:HsOk.again = (& $global:HsShown $H.Console 'again') -and $global:HsFront -eq 2 -and $H.ConReload
+                    & $global:HsNote 'again' "front $($global:HsFront), reload $($H.ConReload)"
+                    $a0 = [int64]$w.at
                     $t0 = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
                     $f = [System.Windows.Threading.DispatcherFrame]::new()
                     $s = [System.Windows.Threading.DispatcherTimer]::new()
@@ -752,53 +962,63 @@ ConvertTo-Json ([ordered]@{ ok = $global:HsOk; say = @($global:HsSay) }) -Compre
                     $s.add_Tick({ param($x, $e) $x.Stop(); $x.Tag.Continue = $false })
                     $s.Start()
                     [System.Windows.Threading.Dispatcher]::PushFrame($f)
-                    $a1 = [int64](Read-ChatqJson $global:ChatOverlayPath).at
-                    $global:HsOk.keep = $a1 -gt $a0 -and $a1 -ge $t0 -and ((Get-Date) - $H.Ctx.SavedAt).TotalSeconds -lt 4
+                    $a1 = [int64](& $global:HsWord).at
+                    $global:HsOk.keep = $a1 -gt $a0 -and $a1 -ge $t0
                     & $global:HsNote 'keep' "at $a0 then $a1, from $t0"
-                }, 'console-back')
-            3 = { $global:HsOk.back = & $global:HsGone $H.Console 'back' }
-            4 = @({ $global:HsOk.back2 = (& $global:HsUi) -eq 'False/False'; & $global:HsNote 'back2' (& $global:HsUi) }, 'console')
-            5 = { $global:HsOk.again = (& $global:HsShown $H.Console 'again') -and $global:HsFront -eq 2 -and $global:HsImports -eq 2; & $global:HsNote 'again' "front $($global:HsFront), imports $($global:HsImports)" }
-            # the pass after an open comes at once, not an interval on
-            6 = @({
-                    $ms = [int]($global:HsT[6] - $global:HsT[5]).TotalMilliseconds
-                    $global:HsOk.fast = (& $global:HsUi) -eq 'True/False' -and $ms -lt 7500
-                    & $global:HsNote 'fast' "$(& $global:HsUi), $ms ms"
+                    $global:HsIn.Add('answer stale')
+                }
+            4 = { $global:HsOk.reload = -not $H.ConReload -and $null -ne $H.ConAnswer; & $global:HsNote 'reload' "reload $($H.ConReload), answer $($null -ne $H.ConAnswer)" }
+            # the answer's pass drew the lists anew and said so; then its
+            # hotkey, the console not the window in front, then in front
+            5 = {
+                    $t = if ($H.Console.Con -and $H.Console.Con.Status) { [string]$H.Console.Con.Status.Text } else { '' }
+                    $global:HsOk.answer = $t -eq 'the chats changed - here they are now' -and $null -eq $H.ConAnswer
+                    & $global:HsNote 'answer' "status '$t'"
+                    $global:ChatConsoleActiveSeam = { $false }
+                    $global:HsIn.Add('key')
+                }
+            6 = {
+                    $global:HsOk.key = (& $global:HsShown $H.Console 'key') -and $global:HsFront -eq 3
+                    & $global:HsNote 'key' "front $($global:HsFront)"
                     $global:ChatConsoleActiveSeam = { $true }
-                }, 'console-key')
-            7 = @({ $global:HsOk.key = (& $global:HsGone $H.Console 'key') -and $global:HsFront -eq 2; & $global:HsNote 'key' "front $($global:HsFront)"; $global:ChatConsoleActiveSeam = $null }, 'console-key')
-            8 = @({ $global:HsOk.key2 = (& $global:HsShown $H.Console 'key2') -and $global:HsFront -eq 3; & $global:HsNote 'key2' "front $($global:HsFront)" }, 'hotkey')
-            9 = @({ $global:HsOk.hotkey = (& $global:HsGone $H.Console 'hotkey') -and (& $global:HsCmds 'hotkey') -eq 0; & $global:HsNote 'hotkey' "commands $(& $global:HsCmds 'hotkey')" }, 'hotkey')
-            10 = @({ $global:HsOk.hotkey2 = (& $global:HsCmds 'hotkey') -eq 1 -and $H.Console.Mode -eq 'panel'; & $global:HsNote 'hotkey2' "commands $(& $global:HsCmds 'hotkey'), mode $($H.Console.Mode)" }, 'console')
-            11 = @({ $global:HsOk.close = (& $global:HsShown $H.Console 'close') -and $global:HsFront -eq 4; & $global:HsNote 'close' "front $($global:HsFront)" }, 'close')
-            12 = { $global:HsOk.close2 = (& $global:HsGone $H.Console 'close2') -and $H.Closing; & $global:HsNote 'close2' "closing $($H.Closing)" }
-            13 = { $global:HsOk.close3 = (& $global:HsUi) -eq 'False/True'; & $global:HsNote 'close3' (& $global:HsUi) }
+                    $global:HsIn.Add('key')
+                }
+            7 = { $global:HsOk.key2 = (& $global:HsGone $H.Console 'key2') -and $global:HsFront -eq 3; & $global:HsNote 'key2' "front $($global:HsFront)" }
         }
-        # the code on disk changed once the host has started, as its panel
-        # starts: the console still loads the parts the host read then
-        # (Import-ChatOverlayConsoleParts), not the new console.ps1 - the
-        # code's restart held off for the run
-        $global:HsConPath = [System.IO.Path]::Combine([string]$global:ChatRoot, 'src', 'console.ps1')
-        $global:HsConWas = [System.IO.File]::ReadAllBytes($global:HsConPath)
-        $global:HsDisk = $false
-        $global:HsChanged = $false
-        $global:ChatOverlayUiSpawnSeam = {
-            param($Exe, $Data)
-            [System.IO.File]::AppendAllText($global:HsConPath, "`n`$global:HsDisk = `$true`n")
-            $global:HsChanged = $true
-            $H.Ctx.CodeLookAt = (Get-Date).AddHours(1)
-            $global:HsPanel
-        }
-        try { $global:HsWhy = Start-ChatOverlayHeadlessHost -UiExe 'C:\ui\chatq-overlay.exe' -IntervalMs 15000 -MaxCycles 16 -Open console }
-        finally { [System.IO.File]::WriteAllBytes($global:HsConPath, $global:HsConWas) }
-        $global:HsOk.cached = $global:HsChanged -and -not $global:HsDisk -and [bool]${function:New-ChatConsole}
-        & $global:HsNote 'cached' "changed $($global:HsChanged), the new console.ps1 run $($global:HsDisk)"
+        $global:HsWhy1 = Start-ChatConsoleHost -HostPid $PID -Open show -IntervalMs 500 -MaxCycles 12
         [System.Windows.Threading.Dispatcher]::CurrentDispatcher.Invoke([Action] {}, [System.Windows.Threading.DispatcherPriority]::Background)
         $hw = $global:HsHwnd
-        $st = Read-ChatOverlayState
-        $global:HsOk.end = [string]$global:HsWhy -eq 'close' -and $null -ne $hw -and -not [HsWin]::IsWindow($hw) -and
-            [int64]$st.closedSignIn -eq 1700000000000 -and $global:HsImports -eq 4 -and [bool]${function:New-ChatConsole}
-        & $global:HsNote 'end' "ended $($global:HsWhy), window $(if ($null -ne $hw) { [HsWin]::IsWindow($hw) } else { 'none' }), closedSignIn $($st.closedSignIn), imports $($global:HsImports)"
+        $w = & $global:HsWord
+        $global:HsOk.back = [string]$global:HsWhy1 -eq 'back' -and $null -ne $hw -and -not [HsWin]::IsWindow($hw) -and $w -and [int]$w.pid -eq $PID -and $w.shown -eq $false -and $w.underWay -eq $false
+        & $global:HsNote 'back' "ended $($global:HsWhy1) after $($global:HsPass), window $(if ($null -ne $hw) { [HsWin]::IsWindow($hw) } else { 'none' }), word $(ConvertTo-Json $w -Compress -Depth 4)"
+        $global:ChatConsoleActiveSeam = $null
+        # one running already: this one goes at once
+        $lk = [System.IO.File]::Open($global:ChatConsoleLockPath, 'OpenOrCreate', 'ReadWrite', 'None')
+        try { $global:HsWhy2 = Start-ChatConsoleHost -HostPid $PID -IntervalMs 500 -MaxCycles 2 }
+        finally { $lk.Dispose() }
+        $global:HsOk.running = [string]$global:HsWhy2 -eq 'running'
+        & $global:HsNote 'running' "ended $($global:HsWhy2)"
+        # opened by its hotkey, then its host's back
+        & $global:HsHook @{
+            1 = { $global:HsOk.keyOpen = [bool]($H.Console -and $H.Console.Mode -eq 'console'); & $global:HsNote 'keyOpen' "mode $($H.Console.Mode)"; $global:HsIn.Add('back') }
+            2 = { $global:HsOk.backLine = & $global:HsGone $H.Console 'backLine' }
+        }
+        $global:HsWhy3 = Start-ChatConsoleHost -HostPid $PID -Open key -IntervalMs 500 -MaxCycles 6
+        $global:HsOk.backEnd = [string]$global:HsWhy3 -eq 'back'
+        & $global:HsNote 'backEnd' "ended $($global:HsWhy3) after $($global:HsPass)"
+        # its stdin ended: its host gone, or telling it to go
+        & $global:HsHook @{ 1 = '<eof>' }
+        $global:HsWhy4 = Start-ChatConsoleHost -HostPid $PID -IntervalMs 500 -MaxCycles 6
+        $w = & $global:HsWord
+        $free = try { $f = [System.IO.File]::Open($global:ChatConsoleLockPath, 'OpenOrCreate', 'ReadWrite', 'None'); $f.Dispose(); $true } catch { $false }
+        $global:HsOk.eof = [string]$global:HsWhy4 -eq 'eof' -and $w -and $w.shown -eq $false -and $free
+        & $global:HsNote 'eof' "ended $($global:HsWhy4) after $($global:HsPass), shown $($w.shown), lock free $free"
+        $global:HsOk.asked = $global:HsAsked -eq 0
+        & $global:HsNote 'asked' "$($global:HsAsked) usage asks"
+        $lines = @(if (Test-Path -LiteralPath $global:HsLogPath) { [System.IO.File]::ReadAllLines($global:HsLogPath) })
+        $bad = @($lines | Where-Object { $_ -like '*console failed*' -or $_ -like '*console pass:*' -or $_ -like '*console: *' -or $_ -like '*console wait:*' -or $_ -like '*console-ui.json:*' })
+        $global:HsOk.quiet = $bad.Count -eq 0
+        & $global:HsNote 'quiet' ($bad -join ' | ')
     }
     catch { $global:HsSay.Add("threw: $($_.Exception.Message) @ $($_.ScriptStackTrace)") }
 } 2>$null | Out-Null
@@ -894,6 +1114,23 @@ ConvertTo-Json ([ordered]@{ ok = $global:HsOk; say = @($global:HsSay) }) -Compre
         $global:HsPhone = 0
         function global:Start-ChatqPhoneSetup { param([switch]$NoWait) $global:HsPhone++ }
         $global:HsNotes = { @($H.Events | Where-Object { $_.kind -eq 'balloon' -and $_.text -like 'chatq now continues*' }).Count }
+        # the console's process stood in: its start and its stdin's lines
+        # written down, its close ending it
+        $global:HsConLines = [System.Collections.Generic.List[string]]::new()
+        $global:ChatConsoleSpawnSeam = {
+            param($Open)
+            $global:HsConLines.Add("${Open}:spawned")
+            $c = [pscustomobject]@{ Id = 4242; HasExited = $false; ExitCode = 0 }
+            $in = [pscustomobject]@{ Owner = $c }
+            $in | Add-Member -MemberType ScriptMethod -Name WriteLine -Value { param($l) $global:HsConLines.Add([string]$l) }
+            $in | Add-Member -MemberType ScriptMethod -Name Flush -Value { }
+            $in | Add-Member -MemberType ScriptMethod -Name Close -Value { $global:HsConLines.Add('closed'); $this.Owner.HasExited = $true }
+            $c | Add-Member -NotePropertyName StandardInput -NotePropertyValue $in
+            $c | Add-Member -MemberType ScriptMethod -Name WaitForExit -Value { param($ms) $this.HasExited }
+            $c | Add-Member -MemberType ScriptMethod -Name Kill -Value { }
+            $c | Add-Member -MemberType ScriptMethod -Name Dispose -Value { }
+            $c
+        }
         $global:HsPlan = @{
             1 = @({ $H.CompactAt = $null }, 'auto-on')
             2 = @({ $global:HsOk.autoOn = (Get-ChatqAutoContinue) -eq 'on' -and (& $global:HsNotes) -eq 1; & $global:HsNote 'autoOn' "$(Get-ChatqAutoContinue), notices $(& $global:HsNotes)" }, 'auto-ask')
@@ -906,8 +1143,13 @@ ConvertTo-Json ([ordered]@{ ok = $global:HsOk; say = @($global:HsSay) }) -Compre
             9 = @({ $global:HsOk.phone = $global:HsPhone -eq 1; & $global:HsNote 'phone' "$($global:HsPhone) setups" }, 'crash-on')
             10 = @({ $global:HsOk.crashOn = $H.Ctx.Config.autoContinueCrash -eq $true; & $global:HsNote 'crashOn' "$($H.Ctx.Config.autoContinueCrash)" }, 'crash-off')
             11 = @({ $global:HsOk.crashOff = $H.Ctx.Config.autoContinueCrash -eq $false; & $global:HsNote 'crashOff' "$($H.Ctx.Config.autoContinueCrash)" }, 'hotkey')
-            12 = @({ $global:HsOk.hotkey = (& $global:HsCmds 'hotkey') -eq 1; & $global:HsNote 'hotkey' "commands $(& $global:HsCmds 'hotkey')" }, 'console-back', 'hide')
-            13 = @({ $global:HsOk.hide = (& $global:HsCmds 'hide') -eq 1 -and -not $H.Console -and -not ${function:New-ChatConsole}; & $global:HsNote 'hide' "commands $(& $global:HsCmds 'hide'), console $([bool]$H.Console)" },
+            12 = @({ $global:HsOk.hotkey = (& $global:HsCmds 'hotkey') -eq 1; & $global:HsNote 'hotkey' "commands $(& $global:HsCmds 'hotkey')" }, 'console', 'console-back', 'hide')
+            13 = @({
+                    $global:HsOk.hide = (& $global:HsCmds 'hide') -eq 1 -and -not $H.Console -and -not ${function:New-ChatConsole}
+                    & $global:HsNote 'hide' "commands $(& $global:HsCmds 'hide'), console $([bool]$H.Console)"
+                    $global:HsOk.console = ($global:HsConLines -join ',') -eq 'show:spawned,back,back' -and $H.ConProc -and -not ${function:Start-ChatConsoleHost}
+                    & $global:HsNote 'console' "lines $($global:HsConLines -join ','), process $([bool]$H.ConProc)"
+                },
                 'config theme dark', 'delete s:nope', 'opened s:nope 0', 'card s:nope', 'auto-chip s:nope dont', 'reload-answer 1:x later')
             14 = {
                 $s = @($H.Events | Where-Object { $_.kind -eq 'said' -and $_.about -eq 's:nope' } | ForEach-Object { "$($_.said)/$($_.tone)" }) -join ','
@@ -917,16 +1159,17 @@ ConvertTo-Json ([ordered]@{ ok = $global:HsOk; say = @($global:HsSay) }) -Compre
             }
         }
         $global:HsWhy = Start-ChatOverlayHeadlessHost -UiExe 'C:\ui\chatq-overlay.exe' -IntervalMs 3000 -MaxCycles 15
-        $global:HsOk.end = [string]$global:HsWhy -eq 'max' -and -not ${function:New-ChatConsole} -and -not ${function:New-ChatOverlayWindow} -and -not ('ChatOverlayNative' -as [type])
-        & $global:HsNote 'end' "ended $($global:HsWhy)"
+        $global:HsOk.end = [string]$global:HsWhy -eq 'max' -and -not ${function:New-ChatConsole} -and -not ${function:New-ChatOverlayWindow} -and -not ('ChatOverlayNative' -as [type]) -and
+            $global:HsConLines.Count -and $global:HsConLines[-1] -eq 'closed'
+        & $global:HsNote 'end' "ended $($global:HsWhy), the console's lines $($global:HsConLines -join ',')"
     }
     catch { $global:HsSay.Add("threw: $($_.Exception.Message) @ $($_.ScriptStackTrace)") }
 } 2>$null | Out-Null
 '@
     $hsStaRun = {
-        param([string]$Name, [string]$Body)
+        param([string]$Name, [string]$Body, [string]$Head = $hsHead)
         Remove-Item -LiteralPath (Join-Path $hsToolDir 'data') -Recurse -Force -EA SilentlyContinue
-        $text = $hsHead.Replace('@TOOL@', $hsTool) + "`r`n" + $Body + "`r`n" + $hsTail
+        $text = $Head.Replace('@TOOL@', $hsTool) + "`r`n" + $Body + "`r`n" + $hsTail
         $raw = try { Invoke-Sta $Name $text -Global } catch { "threw: $($_.Exception.Message)" }
         [pscustomobject]@{ Raw = "$raw"; O = $(try { "$raw" | ConvertFrom-Json } catch { $null }) }
     }
@@ -935,22 +1178,23 @@ ConvertTo-Json ([ordered]@{ ok = $global:HsOk; say = @($global:HsSay) }) -Compre
         $bad = if ($R.O) { @($Keys | Where-Object { $R.O.ok.$_ -ne $true }) } else { @($Keys) }
         Check $Name ($bad.Count -eq 0) "not $($bad -join ', ') // $(if ($R.O) { @($R.O.say) -join ' / ' } else { $R.Raw })"
     }
-    $hsStaA = & $hsStaRun 'hs-console' $hsConsoleBody
-    & $hsStaCheck $hsStaA 'the headless host''s console: its parts loaded the first time it is asked for, into the global scope, not before' 'before', 'loaded'
-    & $hsStaCheck $hsStaA 'and loaded from the parts read as the host started, the code on disk changed since' 'cached'
+    # the console's process loads every part, as its launch does
+    $hsConHead = $hsHead.Replace("Remove-Item -LiteralPath 'env:CHATQ_ALLPARTS' -EA SilentlyContinue", "`$env:CHATQ_ALLPARTS = '1'")
+    $hsStaA = & $hsStaRun 'hs-console' $hsConsoleBody $hsConHead
+    & $hsStaCheck $hsStaA 'the native panel''s console''s process: every part loaded; a context of its own that asks no usage endpoint, leaves auto-continue to its host and takes no command' 'parts', 'ctx', 'asked'
     & $hsStaCheck $hsStaA 'it opens cloaked, interactive and on the taskbar, grown from the native panel''s top-right corner, never in front' 'open'
-    & $hsStaCheck $hsStaA 'the panel hidden from the first snapshot on; a loop of the console''s own still keeps the snapshot new' 'hidden1', 'hidden', 'keep'
-    & $hsStaCheck $hsStaA 'console-back: the console''s window hidden, the panel shown again' 'back', 'back2'
-    & $hsStaCheck $hsStaA 'the console asked for again: shown at once, the panel hidden by the very next pass' 'again', 'fast'
-    & $hsStaCheck $hsStaA 'the console hotkey: back to the panel while the console has the keyboard, else the console brought forward' 'key', 'key2'
-    & $hsStaCheck $hsStaA 'the shell''s hotkey: from the console back to the panel, from the panel the panel''s own' 'hotkey', 'hotkey2'
-    & $hsStaCheck $hsStaA 'a close in the console: the panel first, then the close by hand, the window gone with the host' 'close', 'close2', 'close3', 'end'
-    & $hsStaCheck $hsStaA 'the console''s run calls no function its launch leaves out' 'missing', 'log'
+    & $hsStaCheck $hsStaA 'its word in console-ui.json, its pid and shown, a console-ui verb for its host; its news there, never in overlay-events.json; a loop of the console''s own still keeps its word new' 'word', 'news', 'keep'
+    & $hsStaCheck $hsStaA 'its host''s lines: show brings it forward again, reload and answer for the next pass - the lists drawn anew and said so when the ask changed under it' 'again', 'reload', 'answer'
+    & $hsStaCheck $hsStaA 'the console hotkey''s line: the console brought forward while it is not the window in front, else back to the panel' 'key', 'key2'
+    & $hsStaCheck $hsStaA 'back to the panel, it goes at once - its window gone, its last word shown false - by the hotkey, or opened by it and told back' 'back', 'keyOpen', 'backLine', 'backEnd'
+    & $hsStaCheck $hsStaA 'one already running: it goes at once; its stdin ended: it goes, its lock let go' 'running', 'eof'
+    & $hsStaCheck $hsStaA 'the console''s run calls no function its launch leaves out, and logs no failure' 'missing', 'log', 'quiet'
     $hsStaB = & $hsStaRun 'hs-parts' $hsPartsBody
     & $hsStaCheck $hsStaB 'the headless launch''s parts: none of the WPF panel''s, the console''s or the macOS host''s, no WPF type; the host''s own there' 'parts'
     & $hsStaCheck $hsStaB 'the panel''s opened on the headless launch: every outcome said, the unread dot gone' 'opened'
     & $hsStaCheck $hsStaB 'the panel''s config, auto-chip, delete, reload-answer and card on the headless launch: each done and said' 'config', 'chip', 'delete', 'reload', 'card'
     & $hsStaCheck $hsStaB 'the host''s own verbs on the headless launch: the switch said once, a changed ask shown, refresh, phone, crash, hotkey, hide' 'autoOn', 'autoAsk', 'autoOnce', 'autoAsk2', 'stale', 'stale2', 'refresh', 'phoneFn', 'phone', 'crashOn', 'crashOff', 'hotkey', 'hide'
+    & $hsStaCheck $hsStaB 'the console on the headless launch: its process started and told its verbs, none of its parts loaded here' 'console'
     & $hsStaCheck $hsStaB 'the panel''s verbs through the whole headless host, and none of the WPF parts loaded by them' 'panel', 'end'
     & $hsStaCheck $hsStaB 'the unread dot on the headless launch: the chat in front spared, the window in front read by a type of its own' 'b10'
     & $hsStaCheck $hsStaB 'the headless launch''s run calls no function it leaves out' 'missing', 'log'
@@ -964,6 +1208,10 @@ finally {
     ${function:Get-ChatqLiveSessions} = $hsWas.LiveFn
     ${function:Remove-ChatSessionById} = $hsWas.RmFn
     ${function:Write-ChatReloadAnswer} = $hsWas.AnsFn
+    $script:ChatOverlayCopilotSeam = $hsWas.Copilot
+    $script:ChatOverlayCodexUsageSeam = $hsWas.Codex
+    $script:ChatConsoleSpawnSeam = $hsWas.ConSpawn
+    $script:ChatConsoleGrantSeam = $hsWas.ConGrant
     Remove-Item -LiteralPath (Join-Path $script:ChatqData 'hs-bin') -Recurse -Force -EA SilentlyContinue
     Remove-Item -LiteralPath (Join-Path $sb 'hs-tool') -Recurse -Force -EA SilentlyContinue
     Remove-Item -LiteralPath $script:ChatOverlayCmdPath -Force -EA SilentlyContinue

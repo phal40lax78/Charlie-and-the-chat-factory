@@ -1009,13 +1009,25 @@ try {
     Check 'crash continue on, the chat open in a terminal meanwhile: left to its own claude - nothing queued, no marker, its row kept' (
         -not @(& $ecJobsOf $idR1).Count -and -not (Test-ChatqCrashContinued $idR1 (Get-Date)) -and
         @($ecKc.RestartScan | Where-Object { $_.Id -eq $idR1 }).Count -eq 1 -and -not ($ecKc.AskState -and $ecKc.AskState[$ecHk])) (
-        "$(@(& $ecJobsOf $idR1).Count) $(@($ecKc.RestartScan | ForEach-Object { $_.Id.Substring(0, 2) }) -join ',')")
+        "$(@(& $ecJobsOf $idR1).Count) $(@(@($ecKc.RestartScan) | Where-Object { $_ } | ForEach-Object { "$($_.Id)" -replace '^(..).*$', '$1' }) -join ',')")
     # a -Peek pass - a click's, the console's - leaves the look to the host's
     # own while the crash continue is on: it would leave the chat to be asked
     # about, then continued a look later
     $ecKc.CutAt = [datetime]::MinValue
     $null = Invoke-ChatOverlayCycle $ecKc -Peek
     Check 'crash continue on: a -Peek pass leaves the cut-off look to the host''s own pass' ($ecKc.CutAt -eq [datetime]::MinValue -and -not @(& $ecJobsOf $idR1).Count) "$($ecKc.CutAt)"
+    # The native panel's console, in a process of its own
+    # (Start-ChatConsoleHost): its context leaves auto-continue to its host
+    # (WantAuto off), so its -Peek passes take the look with the crash
+    # continue on - the chat listed, nothing queued - and once its host's
+    # pass has continued it, list it no more, as the host's does
+    $ecCon = New-ChatOverlayContext
+    $ecCon.WantAsk = $true
+    $ecCon.NoFetch = $true
+    $null = Invoke-ChatOverlayCycle $ecCon -Peek
+    $ecConA0 = @($ecCon.Ask.Items | Where-Object { $_.Id -eq $idR1 }).Count
+    $ecConJ0 = @(& $ecJobsOf $idR1).Count
+    $ecConAt = $ecCon.CutAt
     $ecKs2 = Invoke-ChatOverlayCycle $ecKc
     $ecKj = @(& $ecJobsOf $idR1)
     $ecKk = Get-ChatqCutKey $ecKr[0]
@@ -1028,6 +1040,13 @@ try {
         $ecKm -and $ecKm.source -eq 'crash' -and $ecKm.answer -eq 'continue' -and $ecKm.why -eq 'restart' -and (@($ecKm.seq) -join ',') -eq "$($ecKj[0].seq)" -and
         $ecKk -and $ecKc.AskState -and $ecKc.AskState[$ecKk] -and -not @($ecKc.Ask.Items | Where-Object { $_.Id -eq $idR1 }).Count -and
         -not @($ecKs2.rows | Where-Object { $_.key -eq "c:$idR1" }).Count -and $ecKl -like "*crash: continued 1 - #$($ecKj[0].seq)*") "$($ecKj.Count) $(Read-TestFile (Join-Path $script:ChatqAutoDir "$ecKk.json")) // $ecKt"
+    $ecConS1 = Invoke-ChatOverlayCycle $ecCon -Peek
+    Check 'the console''s own process (WantAuto off): its -Peek pass takes the look with crash continue on and lists the chat, queueing nothing; once the host has continued it, neither lists it, ask or row' (
+        $ecConAt -ne [datetime]::MinValue -and $ecConA0 -eq 1 -and $ecConJ0 -eq 0 -and
+        -not @($ecCon.Ask.Items | Where-Object { $_.Id -eq $idR1 }).Count -and -not @($ecConS1.rows | Where-Object { $_.key -eq "c:$idR1" }).Count -and
+        @(& $ecJobsOf $idR1).Count -eq 1) (
+        # no ask is $null, which a pipe would still hand on as one item
+        "look $ecConAt, asked $ecConA0, jobs $ecConJ0, then $(@(@(if ($ecCon.Ask) { $ecCon.Ask.Items }) | Where-Object { $_ } | ForEach-Object { "$($_.Id)" -replace '^(..).*$', '$1' }) -join ',') / $(@(@($ecConS1.rows) | Where-Object { $_ -and $_.key -like 'c:*' } | ForEach-Object { $_.key }) -join ',')")
 
     # Never past its guards, each on a row that is continued but for it:
     # answered; continued here in the last 2 hours; no cause - a reload, or a

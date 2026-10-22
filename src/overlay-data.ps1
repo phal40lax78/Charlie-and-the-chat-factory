@@ -19,6 +19,12 @@ $script:ChatOverlayPidPath = Join-Path $script:ChatqData 'overlay.pid'
 $script:ChatOverlayCmdPath = Join-Path $script:ChatqData 'overlay-cmd'
 # overlay-cmd there and the last pass could not take it (Receive-ChatOverlayCommands)
 $script:ChatOverlayCmdStuck = $false
+# The native panel's console, in a process of its own (Start-ChatConsoleHost):
+# its word back to its host - { pid; at; shown; underWay; events; request },
+# at in epoch ms (Save-ChatConsoleUi, Read-ChatConsoleUi) - and the lock that
+# keeps it to one
+$script:ChatConsoleUiPath = Join-Path $script:ChatqData 'console-ui.json'
+$script:ChatConsoleLockPath = Join-Path $script:ChatqData 'console.lock'
 $script:ChatOverlayMacJsPath = Join-Path $script:ChatqData 'overlay-mac.js'
 # VS Code windows' Claude tabs with no process, one file a window
 # (Read-ChatOpenTabs)
@@ -715,6 +721,9 @@ function Update-ChatOverlayUsage {
     its Retry-After says, or backs off 5, 10, 20, then 30 minutes without
     one; a refusal for the login waits for Claude Code to renew it.
     Codex is asked as its own: -CodexBusy is a Codex job of chatq's at work.
+    A context with NoFetch - the native panel's console, in a process of its
+    own beside the host that asks - asks none of the three: it reads what the
+    host last had (Restore-ChatOverlayUsage) and the files below.
     #>
     param($Ctx, [bool]$Busy, [int]$WaitMs = 0, [hashtable]$Blocks, [bool]$CodexBusy)
     $now = Get-Date
@@ -730,7 +739,7 @@ function Update-ChatOverlayUsage {
             $Ctx.AuthStamp = $null
             $Ctx.HoldUntil = $now
         }
-        if (-not $Ctx.Fetch -and $now -ge $Ctx.HoldUntil) {
+        if (-not $Ctx.Fetch -and -not $Ctx.NoFetch -and $now -ge $Ctx.HoldUntil) {
             $every = if ($Busy) { $cfg.usageSeconds } else { 3 * $cfg.usageSeconds }
             $due = -not $Ctx.LiveTriedAt -or ($now - $Ctx.LiveTriedAt).TotalSeconds -ge $every
             if (-not $due -and $Ctx.Live) { $due = & $resetPassed $Ctx.Live }
@@ -810,7 +819,7 @@ function Update-ChatOverlayUsage {
     # its own home.
     if ($cfg.codexUsage) {
         $cxHold = if ($Ctx.CodexHoldUntil -is [datetime]) { $Ctx.CodexHoldUntil } else { [datetime]::MinValue }
-        if (-not $Ctx.CodexFetch -and $now -ge $cxHold) {
+        if (-not $Ctx.CodexFetch -and -not $Ctx.NoFetch -and $now -ge $cxHold) {
             $newest = if ($Ctx.CodexFiles.Count) { $Ctx.CodexFiles[0] } else { $null }
             $cxBusy = $CodexBusy -or ($newest -and ($now - $newest.LastWriteTime).TotalSeconds -lt $cfg.usageSeconds)
             $every = if ($cxBusy) { $cfg.usageSeconds } else { 3 * $cfg.usageSeconds }
@@ -852,7 +861,7 @@ function Update-ChatOverlayUsage {
     # Copilot: a monthly quota, so every 3 x usageSeconds (15 minutes) and on
     # the refresh button. gh not there or not logged in: no line, no fuss.
     if ($cfg.copilotUsage) {
-        if (-not $Ctx.CopilotFetch -and (-not $Ctx.CopilotTriedAt -or ($now - $Ctx.CopilotTriedAt).TotalSeconds -ge 3 * $cfg.usageSeconds)) {
+        if (-not $Ctx.CopilotFetch -and -not $Ctx.NoFetch -and (-not $Ctx.CopilotTriedAt -or ($now - $Ctx.CopilotTriedAt).TotalSeconds -ge 3 * $cfg.usageSeconds)) {
             $Ctx.CopilotTriedAt = $now
             $Ctx.CopilotFetch = Start-ChatqCopilotFetch
         }
@@ -2637,6 +2646,8 @@ function New-ChatOverlayContext {
         Watcher = $false; WatcherAt = $never
         Fetch = $null; Live = $null; LiveWhy = $null; LiveFails = 0; LiveTriedAt = $null; HoldUntil = $never; HoldKind = $null; AuthStamp = $null; Refresh = $null
         CopilotFetch = $null; Copilot = $null; CopilotWhy = $null; CopilotTriedAt = $null
+        # NoFetch: none of the three asked live here (Update-ChatOverlayUsage)
+        NoFetch = $false
         Cache = $null; CacheStamp = $null; CacheAt = $never
         Codex = $null; CodexFiles = @(); CodexListAt = $never; CodexStamp = $null; CodexAt = $never
         # Codex asked live (Update-ChatOverlayUsage): the ask out, its last
@@ -2758,7 +2769,7 @@ function Invoke-ChatOverlayCycle {
     foreach ($v in $Ctx.Verbs) {
         if (-not $v -or $v -in 'stop', 'restart', 'reload', 'refresh' -or [string]$v -match '^ask-(go|leave)( |$)') { continue }
         # the headless host's own (Start-ChatOverlayHeadlessHost), not its panel's
-        if ($null -ne $Ctx.Events -and $v -in 'close', 'phone', 'crash-on', 'crash-off', 'console', 'console-key', 'console-back', 'hotkey') { continue }
+        if ($null -ne $Ctx.Events -and $v -in 'close', 'phone', 'crash-on', 'crash-off', 'console', 'console-key', 'console-back', 'console-ui', 'hotkey') { continue }
         # its panel's clicks (Invoke-ChatOverlayPanelVerb): no other host's
         if ([string]$v -match '^(opened|delete|card|reload-answer|auto-chip|config) ') { continue }
         # for a renderer in another process (macOS), by id and time
@@ -3471,10 +3482,8 @@ function Invoke-ChatOverlayCollectLoop {
     # the next pass at once - the headless host's, whose panel's clicks come
     # in as commands. $Ctx.PassNow, set by -OnCycle, starts it at once too:
     # a click acted on, whose outcome the panel is to draw. $Ctx.WakeAt, a
-    # UTC time, ends a wait sooner: a close by hand's 4 s. -Wait, given that
-    # wait's end, waits in the loop's place when it says it did - the
-    # headless host's, while a console window of its own needs its thread run.
-    param($Ctx, [int]$IntervalMs = 2000, [int]$MaxCycles = 0, [scriptblock]$OnCycle, [int]$WakeMs = 0, [scriptblock]$Wait)
+    # UTC time, ends a wait sooner: a close by hand's 4 s.
+    param($Ctx, [int]$IntervalMs = 2000, [int]$MaxCycles = 0, [scriptblock]$OnCycle, [int]$WakeMs = 0)
     $n = 0
     while ($true) {
         $snap = $null
@@ -3492,7 +3501,6 @@ function Invoke-ChatOverlayCollectLoop {
         if ($WakeMs -le 0) { Start-Sleep -Milliseconds $IntervalMs; continue }
         $until = [datetime]::UtcNow.AddMilliseconds($IntervalMs)
         if ($Ctx.WakeAt -is [datetime] -and $Ctx.WakeAt -lt $until) { $until = $Ctx.WakeAt }
-        if ($Wait -and (& $Wait $until)) { continue }
         while ([datetime]::UtcNow -lt $until -and -not (Test-ChatOverlayCmdWaiting)) {
             Start-Sleep -Milliseconds ([int][Math]::Max(1, [Math]::Min($WakeMs, ($until - [datetime]::UtcNow).TotalMilliseconds)))
         }

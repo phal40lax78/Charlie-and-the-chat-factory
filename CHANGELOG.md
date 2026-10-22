@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.11.6 — The console in a process of its own
+
+- **With the native panel, the console runs in its own process.**
+  `chatconsole`, the panel's maximize button, the tray's **Open console**
+  and Ctrl+Alt+Shift+Q start a Windows PowerShell of its own for the
+  console. It closes with the console's window: Esc, **← Panel**, the
+  hotkey again or Alt+F4. Before, the hidden PowerShell behind the
+  panel loaded the console into itself the first time it was asked for,
+  and the console's parts stayed there until the overlay's next restart.
+  Measured on this PC, that PowerShell settles at 131 MB private. It
+  held 242 MB with the console open and 239 MB after it closed; now it
+  holds 141 MB and 138 MB. The console's own process takes about 262 MB,
+  only while the console is open. The WPF panel's console is unchanged.
+- **The console takes about 2 s to open.** Each open starts the process
+  afresh: 2.1 to 2.2 s to its first frame on this PC, its lists filled
+  at about 2.8 s. Before, the first open took about 1.1 s and each one
+  after it 0.2 s. Keeping the process loaded for 15 minutes after use
+  would open it again in 0.1 to 0.3 s, but hold its 262 MB the whole
+  time, so it closes at once.
+- **The console runs the code on disk.** The overlay no longer keeps a
+  copy of the console's code from its start (0.11.0). A console opened
+  after an update, before the overlay has restarted onto it, runs the
+  new code.
+- **The console works as before.** The panel hides once the console
+  shows and comes back as it closes. The overlay's verbs reach the
+  console: its hotkey, the panel's own hotkey, hide, collapse, lock,
+  unlock, Move to top right, Quit, a settings change and an answer to
+  the limit's ask. A setting changed in the console reaches the panel.
+  A balloon or said line from the console shows on the panel. While the
+  console shows, or for up to 20 s while it starts, the overlay's
+  code-change and memory restarts wait, as they do for the WPF console.
+  If the console's process ends before a show sent to it is seen, it is
+  started once more.
+- **Only the overlay asks for usage.** The console shows the usage the
+  overlay last read, and asks Claude, Codex and Copilot nothing itself.
+- **The console comes to the front.** Checked by hand over a remote
+  desktop: from the panel's maximize, the tray's **Open console** and
+  `charlie -Console`, the console opened in front with the cursor in
+  its text box. The hotkey is still to check at the PC itself; a
+  console that Windows keeps behind flashes on the taskbar instead
+  (TESTING.md S62).
+
 ## 0.11.5 — The mascot's moods
 
 The native panel's mascot now wears a mood that follows your chats. The

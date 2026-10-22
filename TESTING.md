@@ -207,9 +207,10 @@ permit section takes the bridge's pwsh leg from a `pwsh` on the PATH alone.
 - **A private copy.** The script and its `src/` are dot-sourced from a copy
   in the sandbox, so the run gets its own `data/`. `CHATQ_ALLPARTS`, set for
   the run and every child it starts, loads all 27 parts - the overlay's
-  three among them, which a shell's load leaves out. The overlay-host
-  section's two STA children drop it, to load only what the headless
-  launch loads (`CHATQ_OVERLAY` alone).
+  three among them, which a shell's load leaves out. Of the overlay-host
+  section's two STA children, `hs-parts` drops it, to load only what the
+  headless launch loads (`CHATQ_OVERLAY` alone); `hs-console` keeps it,
+  as the console's own process loads every part.
 - **Never in a git worktree of this repo.** VS Code's git extension opens
   every worktree of an open repository as one of its own
   (`git.detectWorktrees`, on by default), wherever it lies, and watches it.
@@ -287,7 +288,7 @@ permit section takes the bridge's pwsh leg from a `pwsh` on the PATH alone.
   4 points of that machine's 31.6 GB at its peak, about 1.3 GB: start one
   under 90%.
 
-What it covers (at 0.11.5, 1975 checks in `run-tests.ps1` under 5.1,
+What it covers (at 0.11.6, 1968 checks in `run-tests.ps1` under 5.1 and 1969 under pwsh 7, 491 in `extension-check.js`, 261, 138 and 39, 211 in `cargo test` and 113 in `cargo test` of the overlay - the old in-host console's checks folded into fewer, broader ones; at 0.11.5, 1975 checks in `run-tests.ps1` under 5.1,
 491 in `extension-check.js`, 261, 138 and 39, 211 in `cargo test`, and
 113 in `cargo test` of the overlay; at 0.11.4, 1975 checks in `run-tests.ps1` under 5.1,
 491 in `extension-check.js`, 261, 138 and 39, 211 in `cargo test`, and
@@ -391,7 +392,7 @@ pwsh 7, 279, 250, 78 and 35):
 | overlay: answered jobs | what was last typed into an open chat kept - a prompt typed after a command, not the command; a job parked on input answered only by something typed into its chat after it stopped, never by its own prompt nor for a job in another state; a pass skips, `answered in the chat`, the one whose open chat was typed into since and the one whose closed chat's transcript was, its tail read only once it changed after the job stopped, and leaves the one nobody answered; with no overlay, the phone's Status and `chatqlist` skip it as they list and no longer say it needs you, a list with no job waiting closing none |
 | overlay: usage | the live answer's 5 h, week, and a model's week once used, in the server's colours; not asked again on the next pass; a window whose reset passed reads empty and is asked about at once; a 401 falls back to the cached figure and waits 10 minutes, a 429 with no Retry-After 5 and says when it asks again; the refresh button asks at once after that, but not twice in 20 s; what a click did is said at the end of Claude's usage - asking, then when Claude answered, gone 10 s on, or why it did not ask - and reaches overlay.json on the next pass; an old Codex figure says it is from Codex's last run; each provider's line ends in when its figure is from or what is happening to it (asking, checked, cached, last run, retry at the named wait) - under its name as bars - and in neither view does any of that take a row of its own, and a time over a week old shows its date (`Mar 13`, not the weekday that read six months as last Friday); Copilot's quota read from GitHub's answer on the free plan (chat, code) and a paid one (premium alone), a fraction of a percent kept as one (`[Math]::Max(0, 0.1)` had rounded it away), a Copilot line from gh's answer, and none - quietly - when gh is not logged in or not there; Codex asked live through `ChatOverlayCodexUsageSeam` (the sandbox's default answers as a codex that is not there, so no pass starts the fake): the answer over an older rollout with its month, plan and the time it was asked rather than `last run`, a newer rollout over it, asked every `usageSeconds` while a Codex job works and not while idle, again once a window's reset passes; a quiet failure keeping the rollout's figure, logging and saying nothing and waiting 30 minutes; any other logged, said after the last answer with its retry, and waiting 2 then 4 minutes; the refresh button lifting that wait; `codexUsage` off never asking and showing the rollout alone; a restart keeping the last answer and its plan, counted as asked; Retry-After read from a real `HttpResponseMessage` as seconds (2867, the figure the live endpoint sent) or as a date; a 429 with Retry-After waits that long, says `rate-limited until`, and the refresh button keeps to it; the panel's note says so over the last live figure too; a live figure 16 minutes old is not stale while idle asks are 15 apart, a cached one is; with live usage off, only the cache shows; a restart restores the last live figure and that wait from `overlay.json` and does not ask; an expired login is not used; a failed ask is logged and the token appears in no file; a machine with no Codex still gets Claude's; the panel drawing a provider's usage only while a chat or job of it is among the rows, whatever the case of its name, a Recent chat keeping none up ([Select-ChatOverlayActiveUsage](src/overlay-windows.ps1)) |
 | overlay: control | a running overlay is shown, never started twice; `-Stop`, `chatinstall` and `chatuninstall` reach it; commands taken once, a stale one dropped, a pass with none queues none; the collector loop ends on `restart`; `overlay.json` BOM-less with Hangul, schema 1, epoch ms; `-Unlock` / `-Reset` / `-Collapse` wait in `overlay-state.json` while it is not running, and `-Expand` undoes it; `-AutoStart on` read at shell start, `-AutoStart off` kept and honoured; on by default on Windows, with no `overlay` block or no `config.json` at all, and started then; `Start-ChatOverlayAuto` prints one word - off, running while the lock is held, started once through the launch, failed when it fails - and none of the launch's own words, which go to `overlay.log` with the reason, or what it threw; a `config.json` that does not read → off, nothing started; `-Stop` keeping the close against the (stood-in) sign-in and saying so, the auto start then off and starting nothing until the next sign-in, `charlie` - even a launch that fails - and `-AutoStart on` lifting it, and no sign-in known keeping nothing and promising nothing; `chatuninstall` lifting a close; the real `Get-ChatqSignInAt` (Windows) reading a time, the same twice, no later than the test process's start; the code stamp of the script and `src`, a change - a newer write, or a copy with the old times but not the length - restarting it only once looked at a minute on and held 5 s, a new part holding it off again, none noted or no script never; `-Width` and `-Rows` kept and said - the width for macOS, the Windows panel as wide as a tile - out of range refused with nothing on that line saved, out of range in the file held to 260-800 and 1-30, and a running panel sent `reload`; `chatoverlay -Width 100` saying what `charlie -Width 100` says, `Get-Command chatoverlay` an alias that resolves to `charlie`, and `Get-Help chatoverlay` showing charlie's help; an edge's drag, summed - the bottom a row per row's height of travel down and the top one per row's height up, none within the first, 1 to 30, and no width - an unknown row height taken as 42 units, and from fewer rows drawn than kept, outward never below those kept while back takes one off those drawn; stretched out, the open rows not drawn first, a row a row's height, then Recent lines, a line a line's height, and past the pool nothing more; stretched in, the Recent lines first, then rows, never under one, Recent down to none - by the top edge too; no travel keeping rows and Recent as saved, outward never fewer, inward from those drawn; with no chat open, travel in past the Recent lines taking no rows, `maxRows` kept as saved; Grow, for the top edge's cap, in WPF units the rows and lines the travel came to, the Recent header with the first line and without the last, none folded; the edges' window the panel's rect and the band's depth more on every side; the height cap as the top edge is dragged, from the bottom held up to the working area's top, never under its floor; `-Compact on` compact rows and `-ChipDelay` kept, both said, out of range refused with the rest of its line, and a running panel told; `-Recent` 5 unless set, kept and said, 0 off, out of range refused, held to 0-20 in `config.json`, a running panel told; where a chat runs from its registry entry's `entrypoint` - `claude-vscode` a VS Code panel, an SDK's (`claude -p`) a run, any other a terminal, none nothing, a run beside a window winning, a job nowhere - in the snapshot the view key is made of; delete greyed on a chat a queued prompt runs in, as on a terminal's; `-Print` marks a terminal's chat `>_`, one a queued prompt runs in `|>`, and lists Recent under the rows; a held job's reason - `waits for a background command (since ...)`, `waits for you to leave its tab` - in the console and the panel's rows where its send time would be, its ETA again once the hold is over, and the same words from `Format-ChatqDeferWhy` as the lists' - a week-old start as its date, a busy wait none; the chip reading **watch** while the row's job runs, `opening` while its child runs, the tray's words for a live view asked for (16) and for a print-mode run no job is (15), and the unread dot kept on 16; `overlay.log` writes a line once in 5 minutes, and every time with `-Always`, and past 500 lines held back lets go of those 5 minutes old as the next is written, a newer one still held back ([Write-ChatOverlayLog](src/overlay-data.ps1)); hotkeys parsed and nonsense refused; `-UsageView`, `-CopilotUsage` and `-CodexUsage` kept (Codex's on by default), lines by default and for a view it does not know; `-Theme` and `-Opacity` kept, a percent read as one, an opacity out of range refused, an unknown theme drawn dark; `system` following the (stood-in) Windows setting; both palettes name every colour, the light look's `trim` its `edge` (one cached brush, so it draws as it did) and its `trayRing` the icon's own near-black `#130A1E`, the dark look's `trim` none of waiting's, warning's, warn's or cutoff's colours, and every colour the tray shows - its states and `trayRing` - `#RRGGBB` in both looks; the bar of buttons in the panel's top strip, 4 units under its top edge and 8 in from its right, at the screen's top too, and following the panel off the screen's side, a box wider than a narrow panel sticking out to its left - by the screen's left edge, to its right; the settings box above the panel where it fits, else under the bar over the rows, keeping its side while it fits there, and one that fits neither side going to the side with more room, so the least of it runs off the screen; the panel's default spot the main screen's top right, 16 in from the top as from the right; the edges come only after the pointer rests 350 ms on the panel or on the buttons, never with a mouse button held, stay while it is on either or a button is held, and go 700 ms after it leaves; the buttons' zone their window's rect, an open box's gap to the panel in it; placement back onto a screen; the launch line (`powershell.exe -STA`, `CHATQ_OVERLAY`, and `CHATQ_ALLPARTS` dropped once loaded); started for real from a folder named `ov[1]`, it runs in your home folder, not that one, with every part loaded and only `CHATQ_OVERLAY` left for what its panel starts ([Start-ChatOverlayProcess](src/overlay.ps1)); the tray tooltip under 64 characters; the tray icon's dot ringed by the look, the ring part of what tells a colour already drawn, so a change of look draws anew with a new handle and the light ring is the icon's own `FromArgb(19, 10, 30)`; reset countdowns |
-| overlay: headless host | `tests/sections/overlay-host.ps1`, after the overlay section, the panel's process, the usage endpoint, the watcher's start, the sign-in, the delete, the reload answer and the registry stood in: a balloon an event, the same on disk, its keys whole through Depth 6, and no value in the snapshot written as its .NET name; `events` and `ui.spin` only for a context holding events; a seen event, or one 10 minutes old, dropped and the rest read back by a new host; the panel's under way only while its word is under 10 s old; `close` and `phone` the host's own, out of its panel's commands; a verb's words one space apart, a line whose words do not fit its verb dropped whole ([Test-ChatOverlayVerbArg](src/overlay-data.ps1)), and the panel's verbs never in any host's commands; [Invoke-ChatOverlayPanelVerb](src/overlay-host.ps1): `opened` takes the dot on 0, says a balloon and a warning on 15, its row found in the pass before; `delete` of a Recent row deleted, its dot gone, the recent list due again, one at work or gone from the panel kept with a warning; `reload-answer` answered and left out, one no window has now not; `card` written to `card.json`, nothing said; `PassNow` starting the next pass at once; `-WakeMs` the same for a command between passes; the host whole - its panel started with the data folder, a close it sends taken, the panel gone before the close by hand is kept, three starts in all for a panel that keeps exiting, a restart relaunched headless, a panel's delete carried out and its said event on disk; the headless launch with `CHATQ_OVERLAY` and no `CHATQ_ALLPARTS`; [Resolve-ChatOverlayUiExe](src/overlay-host.ps1) following the code's version - the stand-in loader's on disk - in a `bin/` tree of the sandbox's, and none, the WPF panel, for a version with no panel staged; the host whole agreeing with a fresh start there: its restart onto such a version starts the WPF panel, and a host started for one hands over to it at once; and the plan's step 4 check, the headless host's `overlay.json` the WPF host's on the same sandbox once `pid`, `at`, `version` and the clocks are masked and its `ui` and `events` set aside; then two STA Windows PowerShell children started as the headless launch is (`CHATQ_OVERLAY`, no `CHATQ_ALLPARTS`), each on an isolated copy of the tool (`hs-tool`) with its own `data/`, a stand-in panel that sends verbs, the console cloaked (`CHATQ_CLOAK`) and never in front - under the test's seam [Enter-ChatOverlayConsoleMode](src/overlay-windows.ps1) neither activates the window nor focuses its prompt. The console's child: its parts loaded the first time it is asked for, into the global scope, not before ([Import-ChatOverlayConsoleParts](src/overlay-host.ps1)), and from the parts read as the host started: a console.ps1 changed on disk once the panel starts is not what runs; it opens cloaked, interactive and on the taskbar, grown from the native panel's top-right corner, never in front; the panel hidden from the first snapshot on, a loop of the console's own still keeping the snapshot new; `console-back` hiding the console's window and showing the panel; asked for again, shown at once and the panel hidden by the very next pass; the console hotkey back to the panel while the console has the keyboard, else the console brought forward; the shell's hotkey from the console back to the panel, from the panel the panel's own; a close in the console - the panel first, then the close by hand, the window gone with the host. The parts' child: none of the WPF panel's, the console's or the macOS host's parts and no WPF type, the host's own there; every `opened` outcome said and the unread dot gone; `config`, `auto-chip`, `delete`, `reload-answer` and `card` each done and said; the host's own verbs - the switch said once, a changed ask shown, refresh, phone, crash on and off, the hotkey, hide; the panel's verbs through the whole host, none of the WPF parts loaded by them; the unread dot on the headless launch, the chat in front spared, the window in front read by a type of its own. Each child calls no function its launch leaves out: no `CommandNotFoundException` in `$Error`, none in `overlay.log`. Proved 2026-10-22 by a mutation run, [Get-ChatOverlayRaisePlan](src/overlay-data.ps1) moved into overlay-windows.ps1 in a scratch copy: the parts' child's `opened` and its no-function check failed, naming it |
+| overlay: headless host | `tests/sections/overlay-host.ps1`, after the overlay section, the panel's process, the usage endpoint, the watcher's start, the sign-in, the delete, the reload answer and the registry stood in: a balloon an event, the same on disk, its keys whole through Depth 6, and no value in the snapshot written as its .NET name; `events` and `ui.spin` only for a context holding events; a seen event, or one 10 minutes old, dropped and the rest read back by a new host; the panel's under way only while its word is under 10 s old; `close` and `phone` the host's own, out of its panel's commands; a verb's words one space apart, a line whose words do not fit its verb dropped whole ([Test-ChatOverlayVerbArg](src/overlay-data.ps1)), and the panel's verbs never in any host's commands; [Invoke-ChatOverlayPanelVerb](src/overlay-host.ps1): `opened` takes the dot on 0, says a balloon and a warning on 15, its row found in the pass before; `delete` of a Recent row deleted, its dot gone, the recent list due again, one at work or gone from the panel kept with a warning; `reload-answer` answered and left out, one no window has now not; `card` written to `card.json`, nothing said; `PassNow` starting the next pass at once; `-WakeMs` the same for a command between passes; the host whole - its panel started with the data folder, a close it sends taken, the panel gone before the close by hand is kept, three starts in all for a panel that keeps exiting, a restart relaunched headless, a panel's delete carried out and its said event on disk; the headless launch with `CHATQ_OVERLAY` and no `CHATQ_ALLPARTS`; [Resolve-ChatOverlayUiExe](src/overlay-host.ps1) following the code's version - the stand-in loader's on disk - in a `bin/` tree of the sandbox's, and none, the WPF panel, for a version with no panel staged; the host whole agreeing with a fresh start there: its restart onto such a version starts the WPF panel, and a host started for one hands over to it at once; and the plan's step 4 check, the headless host's `overlay.json` the WPF host's on the same sandbox once `pid`, `at`, `version` and the clocks are masked and its `ui` and `events` set aside; then two STA Windows PowerShell children, each on an isolated copy of the tool (`hs-tool`) with its own `data/`, each started as its launch is: the console's process with `CHATQ_OVERLAY` and `CHATQ_ALLPARTS`, the parts' child as the headless launch is, without `CHATQ_ALLPARTS`, a stand-in panel that sends verbs. The console's child runs [Start-ChatConsoleHost](src/overlay-windows.ps1) itself, cloaked (`CHATQ_CLOAK`) and never in front - under the test's seam [Enter-ChatOverlayConsoleMode](src/overlay-windows.ps1) neither activates the window nor focuses its prompt - its host's lines fed through `ChatConsoleInSeam` ([Invoke-ChatConsoleLine](src/overlay-windows.ps1)): every part loaded, a context of its own that asks no usage endpoint, leaves auto-continue to its host and takes no command; it opens cloaked, interactive and on the taskbar, grown from the native panel's top-right corner, never in front; its word in `console-ui.json` ([Save-ChatConsoleUi](src/overlay-windows.ps1)), its pid and shown, a `console-ui` verb for its host, its news there and never in `overlay-events.json`, a loop of the console's own still keeping its word new; `show` bringing it forward again, `reload` and `answer` for the next pass, the lists drawn anew and said so when the ask changed under it; the console hotkey's `key` line bringing the console forward while it is not the window in front, else back to the panel; back to the panel, by the hotkey or told `back`, it goes at once, its window gone and its last word shown false; one already running goes at once; its stdin ended, it goes and lets its lock go. The parts' child: none of the WPF panel's, the console's or the macOS host's parts and no WPF type, the host's own there; every `opened` outcome said and the unread dot gone; `config`, `auto-chip`, `delete`, `reload-answer` and `card` each done and said; the host's own verbs - the switch said once, a changed ask shown, refresh, phone, crash on and off, the hotkey, hide; the console asked for, a stand-in console process started and told its verbs ([Start-ChatConsoleProcess](src/overlay-host.ps1)), none of the console's parts loaded there; the panel's verbs through the whole host, none of the WPF parts loaded by them; the unread dot on the headless launch, the chat in front spared, the window in front read by a type of its own. Each child calls no function its launch leaves out: no `CommandNotFoundException` in `$Error`, none in `overlay.log`. Proved 2026-10-22 by a mutation run, [Get-ChatOverlayRaisePlan](src/overlay-data.ps1) moved into overlay-windows.ps1 in a scratch copy: the parts' child's `opened` and its no-function check failed, naming it |
 | overlay: cut off | an open idle chat the limit stopped says when it resets and sits just under those waiting; a working one has moved on; one not open gets a row of its own with its project; a 529 says what it waits on; a continue queued replaces the row; a limit that is over says so; the scan the overlay runs every minute reads a transcript again only once it moved (none the second time, one after it grows), never reads a chat it is told is working, and names where each chat ran; a limit record with no `cwd` of its own takes the tail's; one folder it cannot list costs only that folder |
 | overlay: row clocks | what a row's clock counts ([Get-ChatOverlayRowClock](src/overlay-data.ps1)) - up from its since, in minutes at work too (`0h02`), no spec asking for seconds; down to a cut-off's reset ([Get-ChatOverlayCutOffReset](src/overlay-data.ps1)), none for a 529 or a restart; down to a queued job's send time, none for one with no time; its five characters ([Format-ChatOverlayRowClock](src/overlay-data.ps1)) - `HhMM` - `m:ss` under an hour for a spec that says Live, as the hover card's call clock does - past 99 hours `DDdHH` up to 99 days, counting down the minutes rounded up behind a minus where the first digit is blank, dashes for none; every row's state words, its state text with no age, a queued prompt it carries in them; the time each job sends, in `review-regressions.ps1` ([Get-ChatqEta](src/alerts.ps1) `-SendAt`) - its clock time's own, none tied after another, `next`, or waiting out an overload; the 1 s timer's next tick 30 ms past a whole second, never under a quarter second on ([Set-ChatOverlayTickAligned](src/overlay-windows.ps1)) |
 | reset ask | `tests/sections/reset-ask.ps1`, beside the overlay section's sandbox: `autoContinue` read as ask, on or off - `false` and `"false"` off, `"on"` on, missing and `true` ask - and written at the top level by `chatq -AutoContinue`, which refuses a target (the switch is for every chat) or another switch and saves nothing on `-WhatIf`; the answer's own pass run first in the panel child, since a process's first pass over the whole sandbox can outlast the 10 s a watcher is given; a cut-off's key from its limit record's `uuid`, else its time, and none for a name that would not make a file; which chats are asked about - a limit, not a 529; a reset 5 minutes behind and under 12 hours, none with no reset time; no job queued or running; not answered; a terminal's chat named in `Left`; nothing while a 5 h or week window is still limited - newest first, with the latest reset; the answer markers made once, `.shown` once, both gone after 8 days; an answer acting only on the chats it was shown, a changed ask acting on nothing; continue queuing a job each and marking only the chats that got one or had one; the continues ahead of an older prompt waiting for another chat, in the order named, behind a job put first; a failed one asked again; leave marking all; `ask-go` and `ask-leave` from `overlay-cmd`, and one naming the keys the Mac menu showed answering those only; announced once, across a restart, and never by `-Print` or a `-Peek` pass; the phone's one `limited` alert only when away; the rows kept 12 hours after their reset; the reset time on the usage line - the collapsed line too on macOS and `-Print`, the gauge's card on Windows, a line of numbers alone with no bar, the time gone once it passed - and the tray tooltip; in the Windows panel child, each note and the banner a marker with no words on the panel ([Add-ChatOverlayNotice](src/overlay-windows.ps1)) - memory's a warning triangle, the next prompt's an `i` - a note's card beside the panel saying it, and the banner's two chips and its card with its words and titles; folded, the markers under the line, a rest on memory's bringing its card ([Update-ChatOverlayChip](src/overlay-windows.ps1)), the tray's items - there while an ask is out, gone (`Available`) once it is answered - the balloon and its click opening the console, the settings box's **Cut off** row (Continue, Ask, Leave); the console's header and **Leave them**; an answer to an ask gone, given in the console, doing nothing, the console kept and its status line saying `the chats changed - here they are now`; the console's Cut off list with `overlay.cutOff` off, from the ask itself, each chat once |
@@ -3008,6 +3009,102 @@ live overlay, read-only.
   (7,864,320 bytes). The gate for going on with the mood switch. Slint's
   timers stand still while the tray's menu is open, the mascot with
   them: expected, not a failure.
+- **S62, the native panel's console in a process of its own**
+  (CHANGELOG, 0.11.6; native/SPEC.md 7, M9 "Decided for M9b, step 1") -
+  both runs done, the hotkey's step not yet tried. Both run in a work
+  clone, never the live copy, with the prototype in `tests/m9/`
+  (`tests/m9/s62-README.md` has its isolation rules); each writes only
+  under the clone's `data/s62/`.
+  1. **Automatic, done 2026-10-23.**
+     `powershell -NoProfile -ExecutionPolicy Bypass -File
+     tests\m9\s62-auto.ps1`, about 6 minutes, no input, every window
+     cloaked; `data/s62/auto.json`. Private MB and times:
+     - the headless host settled 60 s, no console parts: 130.8 MB
+       (130.6 in the spawn run);
+     - the console in the host, as 0.11.1: the parts' import 159 ms,
+       verb to first frame 1067 ms cold and 188 ms warm; the host 242.2
+       MB with the console open 10 s, 239.0 MB 30 s after back;
+     - a process of its own, six cold starts, spawn to first frame
+       2135, 2191, 2177, 2158, 2084, 2125 ms (runs 2-6 median 2158, max
+       2191), to its lists 2660 to 2794 ms (median 2777, none late),
+       about 262 MB each open 10 s; five warm shows 64 to 303 ms (median
+       125), 258.5 MB 30 s after back;
+     - started by the sandbox host: click to frame 2305 ms cold and 220
+       ms warm; the host 140.8 MB open and 137.9 MB after back, the
+       console 261.8 and 258.5 MB; the host's
+       `AllowSetForegroundWindow(child)` true, `lastError` 0; the child
+       started with `STARTF_USESTDHANDLES` alone (`startFlags` 256,
+       `startShow` 0).
+
+     The run's own rule (cold median at most 2.0 s and max at most 3 s:
+     close on exit) said `warm 15`. The user overrode it: the console
+     closes with its window (`$script:ChatConsoleKeepMinutes` 0), since a
+     warm one holds some 258 MB for 15 minutes after each use. The
+     window columns (`visible`, `cloaked`, `active`) logged null: a gap
+     in the script's logging, not a result.
+  2. **By hand, run 2026-10-23 over Chrome Remote Desktop**, from a VS
+     Code terminal, with the panel `C:\t12\release\chatq-overlay.exe`
+     built at 1a48212; `data/s62/hand.json` and the host's and each
+     console's log. Every open came to the front, the foreground window
+     the console's and the window active at +500 and +1500 ms:
+     - cold, the panel's maximize: `allow` true, frame 2.3 s after the
+       click, the prompt focused (the log's opens; the click came before
+       its step's Enter, so the step's row recorded none);
+     - cold, the tray's **Open console**: `allow` false, `lastError`
+       87, foreground then Explorer's or the remote desktop's; frame
+       2.8 s after the click, the prompt focused;
+     - warm, the panel's maximize: `allow` true, frame 0.26 s after the
+       click; in front, but the prompt **not** focused at +500 or +1500
+       ms, both times it was opened again after a back (`was` panel).
+       Opened while already the console, it was focused;
+     - `charlie -Console` (5) and with `overlay.pid` granted first (6):
+       the host's `allow` false, `lastError` 5, and the step-6 grant
+       false/5 from the terminal; frame 2.3 s, in front, focused.
+
+     Not tried: Ctrl+Alt+Shift+F10 (2). Chrome Remote Desktop does not
+     pass the chord, and no open came in its window; its row's `y` is
+     not a result. To try at the PC itself, with the sandbox above or
+     the 0.11.6 overlay's Ctrl+Alt+Shift+Q.
+     Original instructions, for a rerun: from your usual terminal, with a release
+     panel built:
+     `powershell -NoProfile -ExecutionPolicy Bypass -File
+     tests\m9\s62-hand.ps1 -Exe <release chatq-overlay.exe>`, about 5
+     minutes; `data/s62/hand.json`. It drives the prototype host
+     (`s62-host.ps1 -Mode spawn -Grant pid`), whose grant is the one
+     [Grant-ChatConsoleFront](src/overlay-host.ps1) makes, with the
+     real panel. The prototype hooks the 0.11.1 host's in-process
+     console (`Open-ChatOverlayHeadlessConsole` and the parts' import,
+     which it stubs); the 0.11.6 host calls
+     [Start-ChatConsoleProcess](src/overlay-host.ps1) instead, which
+     would start the real console unhooked and unseamed. So it runs on
+     the 0.11.1 code, as the automatic run did - a clone at 1a48212
+     (0.11.1) with `tests/m9/` copied in - until the script is ported to
+     the new calls; on newer code `Assert-S62Root` refuses to run. A sandbox panel at 300,300 and a tray icon with an "S62"
+     balloon; its console hotkey is Ctrl+Alt+Shift+F10, never your
+     overlay's O or Q. Six steps, each
+     answered y or n to "came to the front?", with the cursor in the
+     console's text box: (1) the panel's maximize, (2)
+     Ctrl+Alt+Shift+F10, (3) the tray's **Open console**, (4) maximize
+     again with the console warm, (5) `charlie -Console`, Enter only,
+     (6) `AllowSetForegroundWindow` for `data/overlay.pid`, then
+     `charlie -Console`, Enter only. Click only what a step asks for;
+     leave the console's close button and Esc alone.
+  3. **What it decided: nothing changes.** A new console process comes to
+     the front even where the host's grant failed (87, 5), so no
+     `ASFW_ANY` from the panel and no grant in `charlie -Console`. The
+     unfocused warm reopen does not arise at 0.11.6, whose console
+     closes with its window, so every open is cold (FUTURE_WORK.md "The
+     prompt unfocused when the console opens again after back"). The rules
+     as written beforehand:
+     - Steps 1-3 in front: nothing changes.
+     - The host's `allow` false on any of steps 1-3: the panel grants
+       `ASFW_ANY` for its console verbs, a Rust change.
+     - `allow` true, the cold steps behind and step 4 in front: the
+       warm keep is reopened (`$script:ChatConsoleKeepMinutes`), with
+       its memory weighed again.
+     - Step 6 in front and step 5 not: `charlie -Console` grants
+       `overlay.pid` before it sends its verb (FUTURE_WORK.md
+       "`chatconsole` from a terminal may come up behind").
 
   **Run 2026-10-23** on this PC - 16 logical processors, 1920x1080 at
   96 dpi - with 0.11.4's release build, beside the live WPF overlay and
@@ -3519,6 +3616,63 @@ skipped.
 Not checked here: the mood on the live panel - the face following a real
 snapshot, the timer started again on screen, the old image let go - which
 is the Tier 1 step "The mascot's moods, live".
+and what it costs" under "Still to check by hand".
+### The console in a process of its own (Tier 0)
+
+What 0.11.6 adds, with no real window in front and no real process
+started but the STA children:
+
+- **`overlay-host.ps1`, in-process,** with stand-ins for the console's
+  process and the grant (`ChatConsoleSpawnSeam`,
+  `ChatConsoleGrantSeam`): 'the native panel's console's launch'
+  ([Get-ChatOverlayLaunch](src/overlay.ps1) `-Console`: `CHATQ_OVERLAY`
+  and `CHATQ_ALLPARTS`, `-HostPid`, `-Open`, a failure logged as the
+  console's); 'the console asked for on the headless host' (started,
+  let come forward, 20 s of starting holding a restart off, the panel
+  left until it says it shows); 'its word: only its own process's'
+  (its news taken once, its watcher once - not again 16 minutes on, its
+  ids let go while the word still holds them - shown and under way as it
+  says); 'asked for again while it runs' (told on stdin, no second
+  process, a show owed until seen, a key on one that shows owing none,
+  under way only on a word under 10 s old, shown only on one under 30 s
+  old); 'one that has gone is let
+  go' (and started once more for a show never seen); 'told to go'
+  (stdin closed); 'NoFetch' (no usage endpoint asked from the
+  console's context, all three without it).
+- **`overlay-host.ps1`, a whole host with `-Open console`,** driven pass
+  by pass (`HsConPlan`): 'chatconsole's start on the headless host'
+  (its process with the first pass, the panel hidden from the first
+  snapshot until it says it shows); 'the host's verbs for it' (its
+  hotkey, the shell's hotkey back to the panel, the panel's own; the
+  shell's hotkey the panel's once it no longer shows); 'its process
+  gone' (let go, a new one for the next ask, a close telling it first,
+  the host's end closing it).
+- **`overlay-host.ps1`, the `hs-console` STA child,** the real
+  [Start-ChatConsoleHost](src/overlay-windows.ps1) with every part
+  loaded, its lines fed through `ChatConsoleInSeam`: 'the native
+  panel's console's process' (every part, its own context, no usage
+  endpoint, no auto-continue, no command); 'it opens cloaked' (on the
+  taskbar, grown from the panel's top-right corner, never in front);
+  'its word in console-ui.json' (pid and shown, a `console-ui` verb,
+  its news there and never in `overlay-events.json`, its own loops
+  keeping `at` new); 'its host's lines' (`show`, `reload`, `answer`);
+  'the console hotkey's line' (forward while it is not in front, else
+  back); 'back to the panel, it goes at once'; 'one already running'
+  (it goes at once; stdin's end, it goes, its lock let go); 'the
+  console's run calls no function' its launch leaves out.
+- **`overlay-host.ps1`, the `hs-parts` STA child:** 'the console on the
+  headless launch' (its process started and told its verbs, none of
+  its parts loaded in the host); its end check needs the console's
+  stdin closed.
+- **`host-work.ps1`:** 'the console's own process (WantAuto off)' (its
+  `-Peek` pass lists a chat crash continue will take, queueing nothing;
+  once the host has continued it, neither ask nor row lists it).
+- **`find-delete.ps1`:** 'a shell's load leaves out the overlay's parts'
+  now asserts the headless host reaches no part only `CHATQ_ALLPARTS`
+  loads, [Start-ChatConsoleHost](src/overlay-windows.ps1) lives in
+  overlay-windows, and the console's launch sets `CHATQ_ALLPARTS`.
+
+Whether the console comes to the front is S62's hand step, not this.
 
 ### The overlay in Slint, the M9 spike (S58)
 

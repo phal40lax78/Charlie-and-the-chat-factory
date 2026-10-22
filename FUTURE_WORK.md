@@ -43,23 +43,39 @@ do differently:
   the card's outline is a union of rects and the regions are square; the
   hint is cut past 72 characters; the text measurer's cache grows per
   distinct text.
-- **Console.** It is the WPF one, in a window of the headless host's own
-  ([Open-ChatOverlayHeadlessConsole](src/overlay-windows.ps1)). WPF loads
-  at its first ask and stays loaded until the host's next restart, from
-  the text the host read as it started
-  ([Read-ChatOverlayConsoleParts](src/overlay-host.ps1)), some 0.5 MB
-  held for the host's life; a file changed in the moment between the
-  code's stamp and that read loads the new text beside the old parts,
-  until the code-change restart that follows.
-  The host's passes wait while a loop of the console's own runs (its
-  folder picker), its timer keeping the snapshot new. The native panel
-  hides, and comes back, on the pass after the switch, so the two can
-  overlap or leave a gap for up to 1 s. With no panel rect and no place
-  kept, it opens at the nearest corner. A refresh in the console (a
-  `-Peek` pass) reaches the native panel a pass later, and an ask that
-  changed under its answer is not shown while a close by hand is under
-  way. `chatconsole` with no overlay running starts the WPF overlay while
-  that is the default.
+- **Console.** It is the WPF one, in a Windows PowerShell of its own
+  that the headless host starts as it is asked for and that closes with
+  its window ([Start-ChatConsoleProcess](src/overlay-host.ps1),
+  [Start-ChatConsoleHost](src/overlay-windows.ps1)). What that leaves:
+  - **It reads the chats itself.** Its context runs its own `-Peek`
+    passes, so the console's lists and the panel's come from two
+    collectors a pass apart. With auto-continue left to the host
+    (`WantAuto` off), its rows may lack the panel's auto-continue
+    chips, and with crash continue on it can list, for a pass, a chat
+    the host is about to continue. A crash-continue switch made in the
+    console does not make the host look again at once (`CutAt`). Under
+    `NoFetch` its refresh says "asking..." and fetches nothing, and its
+    Codex and Copilot lines are only what it restored as it started
+    ([Restore-ChatOverlayUsage](src/overlay-data.ps1)). Closing it: the
+    console reads the host's `overlay.json` and asks the host to fetch,
+    rather than collecting.
+  - **A host restart closes it.** A code-change or memory restart waits
+    while the console shows or starts, but a restart asked for -
+    chatinstall's, the extension's - or `charlie -Stop` ends the console's process with
+    the host's, its draft kept; the new host does not open it again.
+    Closing it: the restart hands `-Open console` on when one was
+    showing.
+  - **It loads the code on disk,** which can be newer than its host's
+    until the host's own code-change restart.
+  - **A hung console stays on screen.** One that stops writing
+    `console-ui.json` holds nothing off after 10 s, and the panel comes
+    back under it after 30 s ([Update-ChatOverlayConsoleChild](src/overlay-host.ps1)),
+    but nothing ends its process; the user closes it by hand.
+  - The native panel hides once the console says it shows and comes back
+    on the pass after it closes, so the two can overlap or leave a gap
+    for up to 1 s. With no panel rect and no place kept, it opens at the
+    nearest corner. An ask that changed under its answer is not shown
+    while a close by hand is under way.
 - **Other.** The card waits for card.json; the real full-screen query
   is read answer by answer ([win32.full_screen_of](native/overlay/src/win32.rs))
   but only this PC's own answer comes from Windows itself - a real full
@@ -145,6 +161,82 @@ are optimistic (native/brain/SPEC.md section 9, "Tuned prompts").
   model, scored on fresh tails; until then the overlay asks nothing for it.
 - **`prompt_quality`'s score.** Only the weak-or-fine verdict ships (9 of
   10); the 0-3 score is right 4 of 10 (MAE 0.6) and is not shown.
+
+## Trimming the console's parts
+
+The native panel's console loads every part of the tool
+([Get-ChatOverlayLaunch](src/overlay.ps1) `-Console` sets
+`CHATQ_ALLPARTS`), the Mac panel's among them, so its process holds
+about 262 MB while open and takes about 2.2 s to its first frame, the
+parts loaded some 0.74 to 0.79 s after its spawn (TESTING.md S62). A
+load of only what the console draws from - console, overlay-windows and
+the collector - could cut both. Why it waits: which parts the console
+reaches is not mapped, and a call into a part left out fails only when
+it is made. Closing it: the console's run's "calls no function its
+launch leaves out" check (tests/sections/overlay-host.ps1) holding with
+a narrower load, then S62's automatic run again for the memory and the
+time.
+
+## `chatconsole` from a terminal may come up behind
+
+The headless host lets the console's process take the foreground
+([Grant-ChatConsoleFront](src/overlay-host.ps1)), but Windows lets a
+process pass that right on only while it may take the foreground
+itself. The native panel grants it to no one for its console verbs
+([open.grant](native/overlay/src/open.rs) is for an open's VS Code
+alone), and a terminal's `chatconsole` reaches the host only as a line
+in `overlay-cmd`, so the console may open behind with its taskbar
+button flashing. TESTING.md S62's hand step, run over Chrome Remote
+Desktop, did not see it: the console came to the front from the panel's
+click, the tray and `charlie -Console`, even where the host's grant
+failed (`lastError` 87 and 5). What is left: the hotkey, which the
+remote desktop does not pass, and the same steps at the PC itself,
+where Windows' foreground rules may be stricter than for a remote
+session's input. Closing it: step 2 at the PC, in front; else the panel
+grants `ASFW_ANY` for its console verbs.
+
+## The prompt unfocused when the console opens again after back
+
+In one process, the console opened again after a back to the panel
+([Enter-ChatOverlayConsoleMode](src/overlay-windows.ps1) with
+`-Activate`, from the panel's mode) comes to the front and is active,
+but its prompt box has no keyboard focus at +500 or +1500 ms (TESTING.md
+S62, step 4); opened while already the console, it has. Likely the
+prompt's `Focus()` runs before the swapped-in content is laid out, and
+nothing focuses it again once the window turns active. The WPF host's console takes this path; the 0.11.6
+console process does not, as it closes with its window. Closing it: a
+focus once the window is active (its `Activated`, or a dispatcher call
+at `Input`), then the step again with the prompt focused.
+
+## The console in Slint
+
+**Why it waits:** the native panel's console is still the WPF one, now
+in a Windows PowerShell of its own that the headless host starts as it
+is asked for and that closes with its window
+([Start-ChatConsoleHost](src/overlay-windows.ps1),
+[Start-ChatConsoleProcess](src/overlay-host.ps1), 0.11.6). Its memory is
+spent only while it is open and given back as it closes, so the
+resident overlay is the host's 130.8 MB and the panel; what a Slint
+console would still save is the 2.2 s open and the 262 MB while open
+(TESTING.md S62). It is a window of the panel's own size, about 2 to 4
+days of work, not yet started.
+- **What is missing.** No Slint console: its chat list and search, the
+  prompt box with files dropped and pasted, the mode and model chips,
+  the queue and each job's log, + New chat with its folder picker, and
+  the reset ask's Cut off header.
+- **What would bring it forward.** The console's open reported slow; or
+  S62's hand step, or later use, showing the console's process kept
+  behind even with the panel's grant, where a window of the panel's own
+  would come forward; or the collector leaving PowerShell (DEFERRED.md
+  "The collector left to M9 proper"), which would leave the console the
+  only reason to start a PowerShell with WPF; or M9 building past
+  Windows, where the WPF console cannot go (DEFERRED.md "A console on
+  macOS").
+- **Closing it.** The console drawn by the panel's exe from the host's
+  snapshot and verbs, its parity with the WPF one tabled as
+  native/SPEC.md 7's M9a table is, and
+  [Start-ChatConsoleHost](src/overlay-windows.ps1) and its launch
+  ([Get-ChatOverlayLaunch](src/overlay.ps1) `-Console`) removed.
 
 ## A Recent line's chip hint cut at the screen's left edge
 

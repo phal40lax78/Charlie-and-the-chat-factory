@@ -691,7 +691,9 @@ alone. Dropping both would read the index again on every visit
 pool's sort took 1 s on the window's thread at 2,000 chats.
 
 **Revisit when:** If an overlay with thousands of chats shows the index's
-memory as a problem after a console visit.
+memory as a problem after a console visit. Since 0.11.6 this is the WPF
+host's alone: the native panel's console is a process that ends as it
+closes, its index with it.
 
 **To close:** drop `$C.Index`, `$C.Pool` and their stamps and
 `$script:ChatIndexCache` on exit, sort the pool in the index read's
@@ -3014,6 +3016,17 @@ a chat's tile opening its VS Code window say (FUTURE_WORK.md, "A chat's
 title clicked while VS Code is in front"). **To close:** the probe,
 with the user's go-ahead, on a Notepad they open.
 
+**Since 0.11.6** the native panel's console is a process the headless
+host starts, and the host grants it the foreground
+([Grant-ChatConsoleFront](src/overlay-host.ps1)); the panel grants the
+host nothing for its console verbs ([open.grant](native/overlay/src/open.rs)
+is for an open's VS Code only). S62's automatic run saw the host's grant
+return true with no click. S62's hand step, over a remote desktop, saw
+the console come to the front from the panel's click, its tray and
+`chatconsole`, even where the host's grant failed, so the panel is
+unchanged; its hotkey is still to try at the PC (FUTURE_WORK.md
+"`chatconsole` from a terminal may come up behind").
+
 ## A second screen for the spike
 
 **Scope:** The spike's scale test (`glue::scale_phase`) changed this
@@ -3043,6 +3056,12 @@ memory gate; the collector's port, and its parity, is M9 itself.
 **Revisit when:** When M9 starts. **To close:** the projected figure
 (TESTING.md S58, 15.1 to 15.5 MB) measured again with the real
 collector, against the 191 MB a day native/SPEC.md 8 counts on.
+
+**Measured since:** the collector is still the headless host's, in
+PowerShell: settled at 130.8 MB private with no console parts
+(TESTING.md S62, 2026-10-23). Since 0.11.6 the console is out of it, a
+process of its own only while open (FUTURE_WORK.md "The console in
+Slint"), so that 130.8 MB is what the collector's port would replace.
 
 ## Signing chatq-overlay.exe
 

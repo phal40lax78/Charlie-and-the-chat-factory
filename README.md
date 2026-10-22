@@ -2263,7 +2263,11 @@ to the range.
 **The panel in Rust.** On Windows the panel is `chatq-overlay.exe`,
 the same panel drawn in Rust and Slint ([native/SPEC.md](native/SPEC.md)
 8), in a process of its own beside the hidden PowerShell, which still
-collects the chats, carries out what you click and draws the console.
+collects the chats and carries out what you click. The console is drawn
+by a second Windows PowerShell, started when you open it and closed with
+its window ([The console](#the-console)). Measured on this PC, the hidden
+PowerShell settles at about 131 MB private, the console's process takes
+about 262 MB while it is open, and the panel itself takes under 4 MB.
 It is the default since 0.11.1; `charlie -Panel ps` (`"panel": "ps"`
 under `overlay`) keeps the WPF panel, and an update leaves that choice
 alone. The VS Code extension carries the exe, with its licence notices,
@@ -2382,7 +2386,12 @@ chatq's console, in the panel's own place: it grows from the panel's top-right
 corner, its right edge and top where the panel's were, to the size it was last
 left - 980 x 680 the first time - and stays on the panel's screen. It is the
 overlay's own window, so `chatconsole` starts the overlay if that is not
-running. While it is the console it is an ordinary window: it takes the
+running. With the native panel (**The panel in Rust**, under
+[The overlay](#the-overlay)), the console is a Windows PowerShell of its own, which the overlay starts
+each time the console is asked for and which ends as the console goes back
+to the panel. Opening it takes about 2 s; the panel hides once the console
+shows. It shows the usage the overlay last read and asks for none itself.
+While it is the console it is an ordinary window: it takes the
 keyboard, has a taskbar button and a place in Alt+Tab, and is not kept on top,
 so other windows can cover it and files can be dragged in from Explorer. Its
 header moves it - press anywhere on it but its controls and drag - and the

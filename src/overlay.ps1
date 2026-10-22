@@ -97,22 +97,26 @@ function Get-ChatOverlayLaunch {
     for it now would be swept away as it takes its lock. -UiExe: the
     headless host instead, its panel that exe (Start-ChatOverlayHeadlessHost),
     with no CHATQ_ALLPARTS: it draws nothing of its own, so it loads the
-    collector's parts alone, as every other process does - and the panel's
-    and the console's the first time its console is asked for
-    (Import-ChatOverlayConsoleParts), -Open console among those times.
+    collector's parts alone, as every other process does. -Console: the
+    headless host's console instead, in a process of its own
+    (Start-ChatConsoleHost) that loads every part, -HostPid the host that
+    starts it, -ConsoleOpen how it was asked for (show, or key: its hotkey).
     #>
-    param([string]$Path = $script:ChatqScriptPath, [ValidateSet('', 'console')][string]$Open = '', [string]$UiExe = '')
+    param([string]$Path = $script:ChatqScriptPath, [ValidateSet('', 'console')][string]$Open = '', [string]$UiExe = '',
+        [switch]$Console, [int]$HostPid = 0, [ValidateSet('show', 'key')][string]$ConsoleOpen = 'show')
     $q = { param($s) "'" + [System.Management.Automation.Language.CodeGeneration]::EscapeSingleQuotedStringContent([string]$s) + "'" }
-    $pre = if ($UiExe) { '$env:CHATQ_OVERLAY=''1''; ' } else { '$env:CHATQ_OVERLAY=''1''; $env:CHATQ_ALLPARTS=''1''; ' }
+    $pre = if ($UiExe -and -not $Console) { '$env:CHATQ_OVERLAY=''1''; ' } else { '$env:CHATQ_OVERLAY=''1''; $env:CHATQ_ALLPARTS=''1''; ' }
     foreach ($n in 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'CHATQ_CLAUDE', 'CHATQ_CODEX', 'CHATQ_GH') {
         $v = [Environment]::GetEnvironmentVariable($n)
         if ($v) { $pre += "`$env:$n=$(& $q $v); " }
     }
-    $entry = if ($UiExe) { "[void](Start-ChatOverlayHeadlessHost -UiExe $(& $q $UiExe)$(if ($Open) { " -Open '$Open'" }))" }
+    $entry = if ($Console) { "[void](Start-ChatConsoleHost -HostPid $HostPid -Open '$ConsoleOpen')" }
+    elseif ($UiExe) { "[void](Start-ChatOverlayHeadlessHost -UiExe $(& $q $UiExe)$(if ($Open) { " -Open '$Open'" }))" }
     elseif ($script:ChatqIsWindows) { "Start-ChatOverlayHost$(if ($Open) { " -Open '$Open'" })" } else { 'Start-ChatOverlayMacHost' }
     $log = Join-Path $script:ChatqLogDir 'overlay.log'
+    $what = if ($Console) { 'console' } else { 'overlay' }
     $cmd = $pre + "try { . $(& $q $Path); Remove-Item -LiteralPath 'env:CHATQ_ALLPARTS' -EA SilentlyContinue; $entry } catch { try { [void][IO.Directory]::CreateDirectory($(& $q $script:ChatqLogDir)); " +
-    "[IO.File]::AppendAllText($(& $q $log), (Get-Date).ToString('o') + '  overlay failed to start: ' + `$_.Exception.Message + [char]10) } catch {} }"
+    "[IO.File]::AppendAllText($(& $q $log), (Get-Date).ToString('o') + '  $what failed to start: ' + `$_.Exception.Message + [char]10) } catch {} }"
     $enc = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($cmd))
     if ($script:ChatqIsWindows) {
         $root = if ($env:SystemRoot) { $env:SystemRoot } else { 'C:\Windows' }
@@ -334,7 +338,7 @@ function charlie {
     .PARAMETER Recent
     How many of the newest chats not open are listed under the open ones: 0 to 20, 5 by default; 0 is no Recent list.
     .PARAMETER Console
-    Open the console: pick a chat, write to it, drop files on it, send it next or queue it; the queue beside it. It opens in the panel's own place, grown from its top-right corner; Esc, its back button or the console hotkey return it to the panel. Starts the overlay if it is not running. Windows only.
+    Open the console: pick a chat, write to it, drop files on it, send it next or queue it; the queue beside it. It opens in the panel's own place, grown from its top-right corner; Esc, its back button or the console hotkey return it to the panel. With the native panel it is a window of its own, a couple of seconds to open, that closes as it returns. Starts the overlay if it is not running. Windows only.
     .PARAMETER ConsoleHotkey
     The key that opens the console: Ctrl+Alt+Shift+Q by default, none for no key.
     .PARAMETER UsageView
@@ -583,7 +587,9 @@ function chatconsole {
     sits below: each job's outcome and log, Try now, First, Remove, Cancel,
     Requeue. It is the overlay's own window: the panel grows into it from
     its top-right corner, and Esc, the back button in its header or
-    Ctrl+Alt+Shift+Q again return it to the panel, where and as it was. So
+    Ctrl+Alt+Shift+Q again return it to the panel, where and as it was.
+    With the native panel it is a window of the overlay's own, started as
+    it is asked for - a couple of seconds - and closed as it returns. So
     this starts the overlay if it is not running. Windows only.
     Ctrl+Alt+Shift+Q, the overlay's maximize button and the tray menu
     open it too.
