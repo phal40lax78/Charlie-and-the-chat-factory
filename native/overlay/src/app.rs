@@ -50,7 +50,9 @@ use crate::look::Look;
 use crate::model::{self, Rect, eq, get, n, s};
 use crate::scene::{self, Measurer, Prim, Scene};
 use crate::snapshot::Event;
-use crate::{anim, card, chip, clock, look, panel, selflog, skin, tooltip, trayicon, ui, win32};
+use crate::{
+    anim, card, chip, clock, look, mood, panel, selflog, skin, tooltip, trayicon, ui, win32,
+};
 
 const PANEL: usize = 0;
 const EDGES: usize = 1;
@@ -316,12 +318,19 @@ pub(crate) struct App {
     tick_timer: slint::Timer,
     hover_timer: slint::Timer,
     frame_timer: slint::Timer,
-    /// the mascot: the default skin's idle until the Skin menu and the
-    /// mood switch come (FUTURE_WORK.md, "Skin packs and the Brain")
+    /// the mascot: the default skin until the Skin menu comes
+    /// (FUTURE_WORK.md, "Skin packs and the Brain"), wearing the mood the
+    /// snapshot gives (App::sync_mood)
     anim: anim::Anim,
     /// the mascot's frames, at its atlas's fps, only while it shows
     /// (App::sync_mascot)
     mascot_timer: slint::Timer,
+    /// moodNow's memory between snapshots (mood::State)
+    mood: mood::State,
+    /// the skin's moodmap phrases, compiled as it loads; the line picker's
+    /// to read
+    #[allow(dead_code)]
+    phrases: mood::Phrases,
 }
 
 /// The panel's run: its five windows made, then the loop until the host
@@ -402,10 +411,9 @@ impl App {
         let m = Measurer::new(&scenes[PANEL]);
         let st = read_place(&read_json(&data.join("overlay-state.json")));
         let now = Instant::now();
-        let anim = anim::Anim::new(
-            skin::load_or_default(&data, skin::DEFAULT),
-            skin::Mood::Idle,
-        );
+        let skin = skin::load_or_default(&data, skin::DEFAULT);
+        let phrases = mood::Phrases::of(&skin);
+        let anim = anim::Anim::new(skin, skin::Mood::Idle);
         App {
             since,
             t0: now,
@@ -485,6 +493,8 @@ impl App {
             frame_timer: slint::Timer::default(),
             anim,
             mascot_timer: slint::Timer::default(),
+            mood: mood::State::default(),
+            phrases,
             data,
         }
     }
@@ -1183,20 +1193,43 @@ impl App {
 
     /// The mascot's timer on while the panel shows opened out and its
     /// atlas has frames to step, off otherwise - hidden, folded, out of a
-    /// full screen's way. Slint's timers stand still while the tray's menu
-    /// is open, and the mascot with them.
+    /// full screen's way - and started again at a new face's fps
+    /// (anim::tick). Slint's timers stand still while the tray's menu is
+    /// open, and the mascot with them.
     fn sync_mascot(&mut self) {
-        let want = self.shown && !self.st.collapsed && self.anim.animates();
-        if want == self.mascot_timer.running() {
-            return;
+        let want = (self.shown && !self.st.collapsed && self.anim.animates())
+            .then(|| self.anim.interval());
+        let running = self
+            .mascot_timer
+            .running()
+            .then(|| self.mascot_timer.interval());
+        match anim::tick(running, want) {
+            anim::Tick::Keep => {}
+            anim::Tick::Start(every) => {
+                self.mascot_timer
+                    .start(TimerMode::Repeated, every, || with_app(|a| a.mascot_step()));
+            }
+            anim::Tick::Stop => self.mascot_timer.stop(),
         }
-        if want {
-            self.mascot_timer
-                .start(TimerMode::Repeated, self.anim.interval(), || {
-                    with_app(|a| a.mascot_step())
-                });
-        } else {
-            self.mascot_timer.stop();
+    }
+
+    /// The mood switch: the true mood from the snapshot now
+    /// (mood::State::now), its face on the mascot (Anim::set_mood). Run
+    /// as the panel is drawn, so a new face's image takes the old one's
+    /// place in the scene at once, letting the old sheet go, and the
+    /// timer follows its fps (App::sync_mascot, after the draw). A change
+    /// of the true mood is one log line.
+    fn sync_mood(&mut self) {
+        let now = self.mood.now(&self.snap, ui::epoch_ms());
+        let was = self.anim.mood();
+        self.anim.set_mood(now.mood);
+        if now.mood != was {
+            selflog::line(&format!(
+                "ui: mood {}, the face {}: {}",
+                now.mood.as_str(),
+                self.anim.face().as_str(),
+                now.why
+            ));
         }
     }
 
@@ -1305,6 +1338,7 @@ impl App {
         if !self.started || self.hold.last.is_none() {
             return;
         }
+        self.sync_mood();
         let said = self.said.as_ref().map(|x| &x.said);
         let hotkey = self.hotkey_words();
         let mascot = self.mascot();

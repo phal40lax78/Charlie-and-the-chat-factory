@@ -1,0 +1,67 @@
+{
+  "about": "docs/skin-pack.md section 1, moodmap.json: moodFor(text, base, lock) as the overlay's mood switch answers it (native/overlay/src/mood.rs, Phrases::mood_for) - the first phrase whose `match` substring (case-sensitive) or `regex` hits the text gives its mood, else the base; under a lock only an angry phrase is tried. Written by hand: no PowerShell loads a skin, so no generator makes it (tests/vectors/common.ps1, NvHandMade); cargo test in native/overlay runs it. Synthetic phrases and texts only, never a real pack's. `maps` are the moodmaps' phrases, each with how many of its regexes the regex crate leaves out (`skipped`); a case names its map. `expect` is the overlay's answer; `js`, where present, is the prototype's (design/skippy/proto/index.html, kept local), which reads the regexes as JavaScript, a leading (?i) as its i flag: it has look-arounds and backreferences, and its \\b is ASCII-only where the regex crate's is Unicode-aware.",
+  "maps": {
+    "main": {
+      "phrases": [
+        {"mood": "angry", "regex": ["(?i)turn it down|\\bNo+!|stop that now"]},
+        {"mood": "scared", "match": ["Brace for impact", "Is that smoke?"]},
+        {"mood": "sad", "match": ["Battery: Low"], "regex": ["\\bLost\\b"]},
+        {"mood": "ready", "match": ["Access refused"]},
+        {"mood": "pleased", "match": ["All green", "Nicely done"]},
+        {"mood": "smug", "match": ["As I predicted."], "regex": ["(?i)^told you", "[0-9]{3} times"]}
+      ]
+    },
+    "none": {"phrases": []},
+    "unsupported": {
+      "skipped": 3,
+      "phrases": [
+        {"mood": "angry", "regex": ["calm(?= down)"]},
+        {"mood": "sad", "regex": ["(?<=very )sad"]},
+        {"mood": "scared", "regex": ["(ab)\\1"]},
+        {"mood": "smug", "match": ["calm down"]}
+      ]
+    }
+  },
+  "cases": [
+    {"name": "no phrase hits: the base", "input": {"map": "main", "text": "nothing to see", "base": "ready"}, "expect": "ready"},
+    {"name": "no phrase hits: any base", "input": {"map": "main", "text": "nothing to see", "base": "smug"}, "expect": "smug"},
+    {"name": "no text: the base", "input": {"map": "main", "text": "", "base": "idle"}, "expect": "idle"},
+    {"name": "a (?i) regex, upper case", "input": {"map": "main", "text": "Please TURN IT DOWN.", "base": "ready"}, "expect": "angry"},
+    {"name": "a (?i) regex, lower case", "input": {"map": "main", "text": "stop that now, please", "base": "pleased"}, "expect": "angry"},
+    {"name": "a word boundary and a repeat", "input": {"map": "main", "text": "Nooo! not again", "base": "pleased"}, "expect": "angry"},
+    {"name": "(?i) covers the whole alternation", "input": {"map": "main", "text": "no! said the cat", "base": "ready"}, "expect": "angry"},
+    {"name": "no boundary inside a word", "input": {"map": "main", "text": "Casino! tonight", "base": "ready"}, "expect": "ready"},
+    {"name": "a match substring", "input": {"map": "main", "text": "Brace for impact", "base": "ready"}, "expect": "scared"},
+    {"name": "a match substring inside a line", "input": {"map": "main", "text": "Wait. Is that smoke? Oh.", "base": "ready"}, "expect": "scared"},
+    {"name": "match is case-sensitive", "input": {"map": "main", "text": "brace for impact", "base": "ready"}, "expect": "ready"},
+    {"name": "a match's dot is a dot", "input": {"map": "main", "text": "As I predicted!", "base": "ready"}, "expect": "ready"},
+    {"name": "a match's question mark is a question mark", "input": {"map": "main", "text": "Is that smoke", "base": "idle"}, "expect": "idle"},
+    {"name": "a phrase's match", "input": {"map": "main", "text": "Battery: Low", "base": "ready"}, "expect": "sad"},
+    {"name": "a phrase's regex after its match", "input": {"map": "main", "text": "We Lost the signal", "base": "ready"}, "expect": "sad"},
+    {"name": "a regex word boundary at the end", "input": {"map": "main", "text": "Lostwithiel", "base": "ready"}, "expect": "ready"},
+    {"name": "a regex without (?i) is case-sensitive", "input": {"map": "main", "text": "we lost the signal", "base": "ready"}, "expect": "ready"},
+    {"name": "the first phrase in order wins, not the first in the text", "input": {"map": "main", "text": "As I predicted. Stop that now", "base": "ready"}, "expect": "angry"},
+    {"name": "ready before pleased", "input": {"map": "main", "text": "Nicely done. Access refused", "base": "smug"}, "expect": "ready"},
+    {"name": "pleased before smug", "input": {"map": "main", "text": "As I predicted. All green", "base": "ready"}, "expect": "pleased"},
+    {"name": "scared before sad", "input": {"map": "main", "text": "Battery: Low. Brace for impact", "base": "ready"}, "expect": "scared"},
+    {"name": "an anchored regex at the start", "input": {"map": "main", "text": "Told you so", "base": "ready"}, "expect": "smug"},
+    {"name": "an anchored regex not at the start", "input": {"map": "main", "text": "I told you so", "base": "ready"}, "expect": "ready"},
+    {"name": "^ is the text's start, not a line's", "input": {"map": "main", "text": "well\ntold you", "base": "ready"}, "expect": "ready"},
+    {"name": "a regex past a line break", "input": {"map": "main", "text": "line one\nturn it down", "base": "ready"}, "expect": "angry"},
+    {"name": "a phrase's second regex", "input": {"map": "main", "text": "said it 100 times", "base": "ready"}, "expect": "smug"},
+    {"name": "a counted repeat short", "input": {"map": "main", "text": "said it 99 times", "base": "ready"}, "expect": "ready"},
+    {"name": "locked: a pleased phrase does not break it", "input": {"map": "main", "text": "Nicely done", "base": "ready", "lock": true}, "expect": "ready"},
+    {"name": "locked: an angry phrase does", "input": {"map": "main", "text": "Turn it down", "base": "ready", "lock": true}, "expect": "angry"},
+    {"name": "locked: the base, whatever it is", "input": {"map": "main", "text": "Battery: Low", "base": "smug", "lock": true}, "expect": "smug"},
+    {"name": "locked: no hit", "input": {"map": "main", "text": "nothing to see", "base": "sad", "lock": true}, "expect": "sad"},
+    {"name": "locked: angry found past the others", "input": {"map": "main", "text": "All green. Nooo!", "base": "smug", "lock": true}, "expect": "angry"},
+    {"name": "no phrases: the base", "input": {"map": "none", "text": "Turn it down", "base": "ready"}, "expect": "ready"},
+    {"name": "no phrases, locked: the base", "input": {"map": "none", "text": "Turn it down", "base": "pleased", "lock": true}, "expect": "pleased"},
+    {"name": "a word boundary after a letter outside ASCII", "input": {"map": "main", "text": "\u00e9No! he said", "base": "ready"}, "expect": "ready", "js": "angry"},
+    {"name": "a word boundary after a space, outside ASCII elsewhere", "input": {"map": "main", "text": "\u00e9 No! he said", "base": "ready"}, "expect": "angry"},
+    {"name": "a look-ahead left out: the next phrase that hits", "input": {"map": "unsupported", "text": "calm down", "base": "ready"}, "expect": "smug", "js": "angry"},
+    {"name": "a look-behind left out", "input": {"map": "unsupported", "text": "very sad", "base": "ready"}, "expect": "ready", "js": "sad"},
+    {"name": "a backreference left out", "input": {"map": "unsupported", "text": "abab", "base": "idle"}, "expect": "idle", "js": "scared"},
+    {"name": "nothing either would hit", "input": {"map": "unsupported", "text": "keep calm", "base": "idle"}, "expect": "idle"}
+  ]
+}

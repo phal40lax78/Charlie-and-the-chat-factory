@@ -63,6 +63,7 @@ mod gate;
 mod glue;
 mod look;
 mod model;
+mod mood;
 mod mouse;
 mod open;
 mod panel;

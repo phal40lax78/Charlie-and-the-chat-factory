@@ -366,8 +366,8 @@ impl Skin {
         &self.manifest.id
     }
 
-    /// The name the box header shows: the default skin's where its lines
-    /// stand in.
+    /// The name the box header shows: the default skin's where the pack
+    /// has no lines.json; a broken one keeps the pack's own.
     pub fn voice(&self) -> &str {
         &self.voice
     }
@@ -580,7 +580,7 @@ const LINES: &str = "lines.json";
 /// moodmap.json, lines.json. An unknown mood id or a newer format minor is
 /// skipped; a mood other than idle and ready whose atlas breaks a rule is
 /// dropped and wears its fallback; lines.json broken gives the default
-/// skin's lines. Each of those is one note.
+/// skin's lines in the pack's own voice. Each of those is one note.
 fn read_pack(root: &Root, folder: &str) -> Result<Skin, SkinError> {
     let builtin = matches!(root, Root::Builtin);
     let bytes = root
@@ -853,16 +853,19 @@ fn read_pack(root: &Root, folder: &str) -> Result<Skin, SkinError> {
             v["status"] = deep(&base["status"], v.get("status"));
             skin.bank.v = v;
         }
+        // none: a face-only pack, said in the default's voice; broken: a
+        // writer's slip, so the pack keeps its own voice name
         (false, own) => {
             let base = Skin::default();
             skin.bank = Bank {
                 v: base.bank.v,
                 default: true,
             };
-            skin.voice = base.voice;
-            if let Err(e) = own {
-                skin.notes
-                    .push(format!("skin {id}: {LINES}: {e}; using the default lines"));
+            match own {
+                Ok(_) => skin.voice = base.voice,
+                Err(e) => skin
+                    .notes
+                    .push(format!("skin {id}: {LINES}: {e}; using the default lines")),
             }
         }
     }
@@ -1267,8 +1270,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&data);
     }
 
-    /// lines.json that does not parse: the pack's faces, the default
-    /// lines and voice, and one note naming the file and the error.
+    /// lines.json that does not parse: the pack's faces and voice name,
+    /// the default lines, and one note naming the file and the error.
     #[test]
     fn corrupt_lines_give_the_default_lines_and_one_note() {
         let data = scratch("corrupt-lines");
@@ -1292,7 +1295,7 @@ mod tests {
             s.notes[0]
         );
         assert!(s.bank.default);
-        assert_eq!(s.voice(), "OVERLAY");
+        assert_eq!(s.voice(), "MINI");
         assert_eq!(s.manifest.voice, "MINI");
         assert_eq!(s.bank.value(), Skin::default().bank.value());
         assert_eq!(s.moods().collect::<Vec<_>>(), [Mood::Idle, Mood::Ready]);

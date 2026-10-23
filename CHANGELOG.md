@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.11.5 — The mascot's moods
+
+The native panel's mascot now wears a mood that follows your chats. The
+WPF panel is unchanged.
+
+- **What he shows.** Sad while a usage window is at its limit (and for
+  5 minutes after it reaches it), while a cut-off ask or a chat waits
+  for your answer; pleased for 7 seconds after a chat finishes; ready
+  while chats work; idle otherwise - in that order, as the prototype has
+  it. A mood whose face the skin lacks wears its fallback, the true mood
+  kept apart for the hover card to come. Each change of mood is one line
+  in the panel's log, with the reason.
+- **Switching.** A new face starts at its first frame and its sheet takes
+  the old one's place, so one atlas is still all that is held; a face
+  with another frame rate starts the timer again at its own.
+- **Moods in lines.** The skin's phrase rules (`moodmap.json`) are read
+  as the skin loads, for the lines to come: a regex the panel cannot use
+  (a look-around, a backreference) is left out with one log line.
+- **A broken `lines.json`** now keeps the pack's own voice name; only the
+  lines fall back to the default's.
+- **Measured first.** The mascot animating costs 2.5 to 3.4% of one core
+  on this PC, under the WPF panel's own cost, so it stays in the panel's
+  window (TESTING.md, R1).
+
 ## 0.11.4 — The mascot on the panel
 
 The native panel shows its mascot: the default skin's badge, animating

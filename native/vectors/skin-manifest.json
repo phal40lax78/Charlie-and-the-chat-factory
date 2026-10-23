@@ -41,19 +41,19 @@
       "expect": {"ok": true, "id": "mini", "name": "Mini", "voice": "OVERLAY", "moods": ["idle", "ready"], "faces": {"idle": "idle", "ready": "ready", "pleased": "ready", "sad": "idle", "smug": "ready", "angry": "ready", "scared": "ready"}, "linesDefault": true, "notes": []}
     },
     {
-      "name": "lines.json does not parse: the default lines, one note",
+      "name": "lines.json does not parse: the default lines in the pack's voice, one note",
       "input": {"files": {"lines.json": {"text": "{\"events\": ["}}},
-      "expect": {"ok": true, "id": "mini", "name": "Mini", "voice": "OVERLAY", "moods": ["idle", "ready"], "faces": {"idle": "idle", "ready": "ready", "pleased": "ready", "sad": "idle", "smug": "ready", "angry": "ready", "scared": "ready"}, "linesDefault": true, "notes": ["skin mini: lines.json: does not parse: EOF while parsing a list at line 1 column 12; using the default lines"]}
+      "expect": {"ok": true, "id": "mini", "name": "Mini", "voice": "MINI", "moods": ["idle", "ready"], "faces": {"idle": "idle", "ready": "ready", "pleased": "ready", "sad": "idle", "smug": "ready", "angry": "ready", "scared": "ready"}, "linesDefault": true, "notes": ["skin mini: lines.json: does not parse: EOF while parsing a list at line 1 column 12; using the default lines"]}
     },
     {
-      "name": "an event with no id: the default lines, one note",
+      "name": "an event with no id: the default lines in the pack's voice, one note",
       "input": {"files": {"lines.json": {"events": [{"id": "done", "killer": ["Done."]}, {"killer": ["Go."]}]}}},
-      "expect": {"ok": true, "id": "mini", "name": "Mini", "voice": "OVERLAY", "moods": ["idle", "ready"], "faces": {"idle": "idle", "ready": "ready", "pleased": "ready", "sad": "idle", "smug": "ready", "angry": "ready", "scared": "ready"}, "linesDefault": true, "notes": ["skin mini: lines.json: events[1] has no id; using the default lines"]}
+      "expect": {"ok": true, "id": "mini", "name": "Mini", "voice": "MINI", "moods": ["idle", "ready"], "faces": {"idle": "idle", "ready": "ready", "pleased": "ready", "sad": "idle", "smug": "ready", "angry": "ready", "scared": "ready"}, "linesDefault": true, "notes": ["skin mini: lines.json: events[1] has no id; using the default lines"]}
     },
     {
-      "name": "lines.json a list: the default lines, one note",
+      "name": "lines.json a list: the default lines in the pack's voice, one note",
       "input": {"files": {"lines.json": {"text": "[]"}}},
-      "expect": {"ok": true, "id": "mini", "name": "Mini", "voice": "OVERLAY", "moods": ["idle", "ready"], "faces": {"idle": "idle", "ready": "ready", "pleased": "ready", "sad": "idle", "smug": "ready", "angry": "ready", "scared": "ready"}, "linesDefault": true, "notes": ["skin mini: lines.json: is not a JSON object; using the default lines"]}
+      "expect": {"ok": true, "id": "mini", "name": "Mini", "voice": "MINI", "moods": ["idle", "ready"], "faces": {"idle": "idle", "ready": "ready", "pleased": "ready", "sad": "idle", "smug": "ready", "angry": "ready", "scared": "ready"}, "linesDefault": true, "notes": ["skin mini: lines.json: is not a JSON object; using the default lines"]}
     },
     {
       "name": "an unknown mood in moods is skipped with one note",

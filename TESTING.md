@@ -133,9 +133,10 @@ have no answer for the other one yet. Twenty-two files are made this
 way, one generator each in `tests/vectors/`, the three `overlay-*` ones
 the panel's, held by `cargo test` in `native/overlay/`; `launch.json` is
 written by hand, and the `native watcher launch` section checks it case
-by case. `skin-manifest.json` is written by hand too, since no
-PowerShell loads a skin: `cargo test` in `native/overlay/` alone runs it
-(see "The skin loader" below). Both are in
+by case. `skin-manifest.json` and `skin-moodfor.json` are written by
+hand too, since no PowerShell loads a skin: `cargo test` in
+`native/overlay/` alone runs them (see "The skin loader" and "The mood
+switch" below). All three are in
 [NvHandMade](tests/vectors/common.ps1), so the check knows no generator
 makes them.
 They were made on Windows 11 22631 under 5.1 and pwsh 7.6.6, and still
@@ -286,7 +287,9 @@ permit section takes the bridge's pwsh leg from a `pwsh` on the PATH alone.
   4 points of that machine's 31.6 GB at its peak, about 1.3 GB: start one
   under 90%.
 
-What it covers (at 0.11.4, 1975 checks in `run-tests.ps1` under 5.1,
+What it covers (at 0.11.5, 1975 checks in `run-tests.ps1` under 5.1,
+491 in `extension-check.js`, 261, 138 and 39, 211 in `cargo test`, and
+113 in `cargo test` of the overlay; at 0.11.4, 1975 checks in `run-tests.ps1` under 5.1,
 491 in `extension-check.js`, 261, 138 and 39, 211 in `cargo test`, and
 103 in `cargo test` of the overlay; at 0.11.3, 1975 checks in
 `run-tests.ps1` under 5.1, 491 in `extension-check.js`, 261, 138 and 39,
@@ -2994,8 +2997,8 @@ live overlay, read-only.
   5. **Choices kept.** `charlie -Panel ps`, then the update of step 3:
      the WPF panel stays. A Mac or Linux leg is Tier 2.
 - **The mascot animating, and what it costs (R1).** Needs the user's
-  go-ahead; not run at 0.11.4. On the live native panel (0.11.4 or
-  later), opened out: watch the mascot animate - the default skin's
+  go-ahead; run 2026-10-23 at 0.11.4, below. On the live native panel
+  (0.11.4 or later), opened out: watch the mascot animate - the default skin's
   `idle`, 24 frames at 15 fps - and that it stops while the panel is
   folded, hidden or out of a full screen's way, and comes back on the
   frame it left. Then measure chatq-overlay's processor at 15 fps on
@@ -3005,6 +3008,49 @@ live overlay, read-only.
   (7,864,320 bytes). The gate for going on with the mood switch. Slint's
   timers stand still while the tray's menu is open, the mascot with
   them: expected, not a failure.
+
+  **Run 2026-10-23** on this PC - 16 logical processors, 1920x1080 at
+  96 dpi - with 0.11.4's release build, beside the live WPF overlay and
+  never touching it: the panel on a data folder of its own outside the
+  repo, `CHATQ_NOTRAY` and `CHATQ_NOFRONT`, shown at 1200,98, fed a copy
+  of the live `data/overlay.json` each second (4 chats and Recent), its
+  states set by the host's commands in that copy (`collapse`, `hide`,
+  `show`, `expand`), no input. Slint's software renderer, the one
+  [main](native/overlay/src/main.rs) names; the log's module list still
+  shows `opengl32.dll` loaded.
+  1. **It animates.** `PrintWindow` shots 90 ms apart, opened out
+     (162x431): 1,008, 10 and 1,194 pixels changed, all inside the
+     mascot's box (43,58 to 119,151), the clocks still. Folded (162x91),
+     two shots 150 ms apart: none changed.
+  2. **The processor, by cycles**, 75 s a state, the busy second 2,567
+     and 2,601 M cycles before and after: opened out 63.5 M cycles a
+     second, 2.5% of a core (0.15% of the machine), and 88.5 M, 3.4%
+     (0.21%), opened out again after the hide; folded 11.3 M, 0.44%
+     (0.03%); hidden 13.4 M, 0.52% (0.03%). Process times read 0.52,
+     0.37, 0.10 and 0.10% of a core, a fifth to a ninth of the cycles, as
+     "The overlay's own cost" warns. So the timer stops folded and
+     hidden, and the mascot with the taller panel's redraws costs some
+     52 to 77 M cycles a second, 3.5 to 5 M a frame.
+  3. **Memory:** private 12.7 to 12.8 MB opened out (at most 12.96),
+     12.5 to 12.6 folded and hidden - the atlas kept while folded -
+     under S58's 6.8 MB plus the atlas, 14.7; working set 33.6 to 34.2
+     MB; 19 GDI, 22 USER, 5 to 7 threads.
+  4. **Verdict: go for the mood switch, the mascot in the panel's own
+     window.** 2.5 to 3.4% of a core is under the WPF panel's 5.6% ("The
+     overlay's own cost") and 10.5% ("The tiles and their clocks",
+     2026-10-15): no noticeable cost,
+     so no window of its own and no partial redraw.
+  5. **Not seen:** the frame kept across a fold, a full screen, and the
+     tray's menu stopping it (no tray in this run).
+- **The mascot's moods, live.** Needs the user's go-ahead. On the live
+  native panel (0.11.5 or later), opened out, with a skin whose moods
+  differ in face and fps: start a chat (ready), let it finish (pleased
+  for 7 s, then idle), leave one waiting (sad), and watch the `ui: mood
+  ..., the face ...: ...` line in the panel's log at each switch. Each
+  switch starts on frame 0; a face at another fps starts the timer again;
+  private bytes stay at one decoded atlas after a dozen switches (the old
+  image let go). With the default skin every mood wears `idle`, so only
+  the log line moves.
 
 ### Permissions from the phone (S35)
 
@@ -3367,7 +3413,7 @@ What 0.11.4 adds: docs/skin-pack.md section 6's second piece, the atlas
 animator ([anim::Anim](native/overlay/src/anim.rs)), and the mascot as
 the panel's first stack item ([panel.build](native/overlay/src/panel.rs)),
 always the default skin's `idle` until the Skin menu and the mood switch
-come. Held by the overlay crate's `cargo test`, 9 of its 103 tests at
+(0.11.5, below) come. Held by the overlay crate's `cargo test`, 9 of its 103 tests at
 0.11.4:
 
 - [a_loop_wraps_at_its_last_frame](native/overlay/src/anim.rs) and
@@ -3412,7 +3458,67 @@ shows opened out and the atlas has more than one frame) and the frame
 stepped in place on the scene ([App.mascot_step](native/overlay/src/app.rs),
 [scene.set_clip](native/overlay/src/scene.rs)), which need the live
 panel; and what it costs. Both are the Tier 1 step "The mascot animating,
-and what it costs" under "Still to check by hand".
+and what it costs" under "Still to check by hand", run 2026-10-23.
+
+### The mood switch (Tier 0)
+
+What 0.11.5 adds: docs/skin-pack.md section 6's third piece,
+[mood.rs](native/overlay/src/mood.rs), wired in by
+[App.sync_mood](native/overlay/src/app.rs). Held by the overlay crate's
+`cargo test`, 10 of its 113 tests at 0.11.5, on a fixed clock (epoch ms
+passed in, never read):
+
+- [idle_with_nothing_running_and_ready_while_chats_work](native/overlay/src/mood.rs),
+  [pleased_for_7_s_after_a_chat_finishes](native/overlay/src/mood.rs)
+  (pleased at 6,999 ms, gone at 7,000; a second look at the same
+  snapshot does not start it again),
+  [only_work_going_idle_is_a_finish](native/overlay/src/mood.rs) (not
+  the first snapshot's idle chats, a row gone, one cut off, a queued one
+  sent; a job needing input that goes idle is),
+  [sad_while_a_chat_or_the_ask_waits_for_you](native/overlay/src/mood.rs)
+  and
+  [sad_at_a_limit_and_for_5_minutes_after_it_is_reached](native/overlay/src/mood.rs)
+  pin [mood::State](native/overlay/src/mood.rs): the order and each
+  edge of moodNow's states that `overlay.json` can say.
+- [every_moodfor_vector_answers_as_its_case](native/overlay/src/mood.rs)
+  runs the 40 cases of `native/vectors/skin-moodfor.json` through
+  [Phrases.mood_for](native/overlay/src/mood.rs): synthetic phrases and
+  texts - the base, `match` case-sensitive and literal, `(?i)`, `\b`,
+  anchors, order over position, the lock (angry alone breaks it), no
+  phrases - and three regexes the crate leaves out. The prototype's own
+  `MOOD_KEYS` and `moodFor`, cut from `design/skippy/proto/index.html`
+  and run by a scratch Node harness outside the repo (the prototype is
+  kept local), answered 36 of the 40 as the overlay does; the other 4
+  are the file's `js` answers, where the two dialects part by design (a
+  look-ahead, a look-behind, a backreference, and `\b` after a letter
+  outside ASCII).
+- [a_regex_that_will_not_compile_is_skipped_with_one_note](native/overlay/src/mood.rs):
+  a look-ahead, a backreference and an unclosed group, one note each,
+  naming the mood and the crate's words, never the pattern; the
+  phrase's other regex and its substrings still hit.
+  [the_default_skin_has_no_phrases](native/overlay/src/mood.rs).
+- [a_removed_atlas_wears_its_fallback_with_one_line](native/overlay/src/anim.rs),
+  docs/skin-pack.md's acceptance "remove one atlas and Refresh": a
+  synthetic pack whose `sad.png` is gone loads with one line, `skin
+  mini: moods/sad.png: missing; sad wears idle`; set to sad, the face is
+  idle's, its sheet and frame kept, and the true mood still sad.
+- [the_timer_starts_again_when_the_fps_changes](native/overlay/src/anim.rs):
+  [anim::tick](native/overlay/src/anim.rs), and a synthetic pack whose
+  `ready` runs at 10 fps beside 15: a switch to a 15 fps face keeps the
+  timer, to `ready` starts it again at 10.
+- [corrupt_lines_give_the_default_lines_and_one_note](native/overlay/src/skin.rs)
+  and the three broken-`lines.json` cases of `skin-manifest.json` now
+  keep the pack's voice name, `MINI`.
+
+The private Skippy pack's `moodmap.json` was audited on this PC, counts
+only: 6 phrases, 11 `match` strings and 2 regexes, 1 of them with a
+leading `(?i)`; no look-around, backreference, inline flag past the start
+or JavaScript-only escape, and the regex crate compiles both, so none is
+skipped.
+
+Not checked here: the mood on the live panel - the face following a real
+snapshot, the timer started again on screen, the old image let go - which
+is the Tier 1 step "The mascot's moods, live".
 
 ### The overlay in Slint, the M9 spike (S58)
 

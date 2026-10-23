@@ -176,7 +176,15 @@ whatever either says. Then the
 where only `angry` breaks the deadpan. `match` entries are case-sensitive
 substrings; `regex` entries are Rust `regex` syntax, tested after `match`,
 and a phrase may be one regex that carries its own flags, as the angry
-pattern's `(?i)` above (case-insensitive, one alternation).
+pattern's `(?i)` above (case-insensitive, one alternation). A regex the
+crate cannot compile - a look-around, a backreference, one that does not
+parse - is left out as the pack loads, with one log line each
+(`skin <id>: moodmap.json: a regex for <mood> does not compile: <why>;
+skipped`); its phrase's other entries still count. The prototype reads
+the same strings as JavaScript, a leading `(?i)` as its `i` flag, so it
+takes those constructs, and its `\b`, `\w` and `\d` are ASCII where the
+crate's are Unicode-aware: write for the crate
+(`native/vectors/skin-moodfor.json` pins where the two part).
 
 Lock rules: `roast.deflect` is always locked; `roast.t3` is locked when its
 mood is `ready` (the roast opens on a deadpan, as `convOpen` does); the
@@ -239,8 +247,8 @@ what the user just did and must not vanish.
   rule is dropped and wears its fallback (`skin <id>: moods/smug.png:
   missing; smug wears ready`); a `lines.json` that does not parse, is not
   an object, or has an event with no `id` gives the default skin's lines
-  and voice name with the pack's faces (`skin <id>: lines.json: <rule>;
-  using the default lines`). Unknown mood ids and a newer format minor
+  with the pack's faces and its own voice name (`skin <id>: lines.json:
+  <rule>; using the default lines`). Unknown mood ids and a newer format minor
   are skipped as section 1 says. `lines.json` missing is valid and logs
   nothing (face only, the default lines and voice name), and so is
   `moodmap.json` missing (no sections, no phrases).
@@ -297,12 +305,28 @@ Four pieces, each pure where it can be and tested with vectors in
    before it decodes; a sheet that fails plays the default skin's),
    [anim::frame_at](../native/overlay/src/anim.rs), and the timer in
    [App.sync_mascot](../native/overlay/src/app.rs), on only while the
-   panel shows opened out. The panel plays the default's `idle` until the
-   mood switch and the Skin menu come.
+   panel shows opened out. The panel plays the default skin until the
+   Skin menu comes.
 3. **Mood switch**: `moodNow` as the prototype orders it, then `moodFor`
    with the pack's moodmap, then the fallback hop for a missing face. The
    true mood stays the true one (hover card, header); the face is what
-   plays.
+   plays. Built at 0.11.5: [mood::State](../native/overlay/src/mood.rs)
+   is `moodNow` for what `overlay.json` says - a usage window at its
+   limit, the cut-off ask, a chat `waiting` or a job `needs-input`, and
+   the 5 minutes after a window reached its limit are `sad`; a row going
+   from at work (`busy`, `running`, `waiting`, `needs-input`) to `idle`
+   is a finish, `pleased` for 7 s; `busy` or `running` rows are `ready`;
+   else `idle`. A line's own mood, the report card's and the roast
+   tally's `smug`, and a chat stopped in the last 5 minutes wait for the
+   parts that make them (the snapshot has no stopped state).
+   [mood::Phrases](../native/overlay/src/mood.rs) is `moodFor`, its
+   regexes compiled as the skin loads; the line picker will call it.
+   [App.sync_mood](../native/overlay/src/app.rs) runs as the panel is
+   drawn: a new face starts at frame 0, its image takes the old one's
+   place in the scene, and [App.sync_mascot](../native/overlay/src/app.rs)
+   starts the timer again when its fps differs
+   ([anim::tick](../native/overlay/src/anim.rs)); a mood that wears the
+   same face keeps the frame ([Anim.set_mood](../native/overlay/src/anim.rs)).
 4. **Line picker**: given an event id and mode, the pool (bank, `extra` by
    label, fail kind, roast tier), the shuffle bag per pool, slot fill, the
    `maxChars` cut, and the mood of the line. Missing section: `None`.
@@ -315,8 +339,8 @@ Acceptance:
   the self log is clean.
 - Remove one atlas of a loaded pack and Refresh: the fallback face plays,
   one log line, the mood on the hover card is still the true one.
-- Corrupt `lines.json`: default lines, default voice name, pack faces, one
-  log line naming `lines.json` and the parse error.
+- Corrupt `lines.json`: default lines, the pack's own voice name, pack
+  faces, one log line naming `lines.json` and the parse error.
 - Delete the pack folder of the skin on show while it runs: next tick shows
   default, one log line, `overlay-state.json` keeps `skin: "skippy"` so a
   reinstall comes back without a pick.

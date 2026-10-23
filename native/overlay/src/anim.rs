@@ -5,8 +5,8 @@
 // the last frame, neither end shown twice. A mood switch starts the new
 // atlas at frame 0; a redraw keeps the frame. A pack's sheet that fails to
 // decode - the loader read only its header - plays the default skin's
-// atlas for that mood, in one log line. The mood itself is idle until the
-// mood switch, the next piece, picks it.
+// atlas for that mood, in one log line. The mood comes from the mood
+// switch (mood.rs, App::sync_mood).
 
 use std::time::Duration;
 
@@ -120,11 +120,13 @@ fn open(skin: &Skin, mood: Mood) -> (Sheet, Option<String>) {
     }
 }
 
-/// The mascot as it plays: the skin, the mood on show, its one decoded
-/// sheet and the steps taken since the mood came on.
+/// The mascot as it plays: the skin, the true mood and the face it wears
+/// (Skin::face), the face's one decoded sheet and the steps taken since
+/// that face came on.
 pub struct Anim {
     skin: Skin,
     mood: Mood,
+    face: Mood,
     sheet: Sheet,
     step: u64,
 }
@@ -137,6 +139,7 @@ impl Anim {
             selflog::line(&n);
         }
         Anim {
+            face: skin.face(mood),
             skin,
             mood,
             sheet,
@@ -144,22 +147,37 @@ impl Anim {
         }
     }
 
-    /// Another mood: its sheet decoded in the old one's place, from frame
-    /// 0; the same mood keeps its frame. The old sheet is let go first, so
-    /// two are held only while the scene still draws the old one.
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub fn set_mood(&mut self, mood: Mood) {
-        if mood == self.mood {
-            return;
+    /// Another mood, as the prototype's drawSkippy: a new face's sheet
+    /// decoded in the old one's place, from frame 0; the same face - the
+    /// same mood, or another that wears it - keeps its frame and its sheet.
+    /// The old sheet is let go first, so two are held only while the scene
+    /// still draws the old one. True when the sheet changed: the scene's
+    /// image is then the old one until the panel is drawn again.
+    pub fn set_mood(&mut self, mood: Mood) -> bool {
+        self.mood = mood;
+        let face = self.skin.face(mood);
+        if face == self.face {
+            return false;
         }
         self.sheet.image = Image::default();
         let (sheet, note) = open(&self.skin, mood);
         if let Some(n) = note {
             selflog::line(&n);
         }
-        self.mood = mood;
+        self.face = face;
         self.sheet = sheet;
         self.step = 0;
+        true
+    }
+
+    /// The true mood, for what says it (the hover card, later).
+    pub fn mood(&self) -> Mood {
+        self.mood
+    }
+
+    /// The face on show: the mood's, or its fallback's.
+    pub fn face(&self) -> Mood {
+        self.face
     }
 
     /// One step on, as the timer ticks.
@@ -201,6 +219,27 @@ impl Anim {
             img: self.sheet.image.clone(),
             clip: self.clip(),
         }
+    }
+}
+
+/// What the mascot's timer must do (App::sync_mascot).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tick {
+    Keep,
+    /// started, or started again at a new interval
+    Start(Duration),
+    Stop,
+}
+
+/// From the interval the timer runs at (None: stopped) and the one it
+/// should (None: it should not run). A face whose atlas has another fps
+/// starts it again at its own: a running timer keeps the interval it was
+/// started with.
+pub fn tick(running: Option<Duration>, want: Option<Duration>) -> Tick {
+    match want {
+        _ if running == want => Tick::Keep,
+        Some(d) => Tick::Start(d),
+        None => Tick::Stop,
     }
 }
 
@@ -374,6 +413,79 @@ mod tests {
             (ready.meta.frames, ready.meta.play, ready.size, ready.bytes),
             (2, Play::Pingpong, (8.0, 8.0), 16 * 8 * 4)
         );
+        let _ = std::fs::remove_dir_all(&data);
+    }
+
+    /// A synthetic pack `mini` of 8 x 8 frames, two to a sheet: each
+    /// mood listed with its fps, sad falling back to idle.
+    fn mini(data: &Path, moods: &[(&str, u32)]) -> PathBuf {
+        let dir = data.join("skins").join("mini");
+        let list: Vec<String> = moods.iter().map(|(m, _)| format!("\"{m}\"")).collect();
+        let skin_json = format!(
+            r#"{{ "format": 1, "id": "mini", "name": "Mini", "voice": "MINI",
+            "mascot": {{ "w": 8, "h": 8, "scale": 1 }}, "moods": [{}],
+            "fallback": {{ "sad": "idle" }} }}"#,
+            list.join(", ")
+        );
+        put(&dir, "skin.json", skin_json.as_bytes());
+        for (m, fps) in moods {
+            let frames = format!(r#"{{ "frames": 2, "fps": {fps}, "w": 8, "h": 8, "cols": 2 }}"#);
+            put(&dir, &format!("moods/{m}.json"), frames.as_bytes());
+            put(&dir, &format!("moods/{m}.png"), &blank_png(16, 8));
+        }
+        dir
+    }
+
+    /// Acceptance, "remove one atlas of a loaded pack and Refresh": sad's
+    /// sheet gone, the pack loads with one line, and sad wears idle - the
+    /// face idle's, the sheet and frame kept, the true mood still sad.
+    #[test]
+    fn a_removed_atlas_wears_its_fallback_with_one_line() {
+        let data = scratch("removed-atlas");
+        let dir = mini(&data, &[("idle", 10), ("ready", 10), ("sad", 10)]);
+        std::fs::remove_file(dir.join("moods/sad.png")).unwrap();
+        let s = skin::load_or_default(&data, "mini");
+        assert_eq!(s.id(), "mini");
+        assert_eq!(
+            s.notes,
+            ["skin mini: moods/sad.png: missing; sad wears idle"]
+        );
+        let mut a = Anim::new(s, Mood::Idle);
+        a.advance();
+        assert!(!a.set_mood(Mood::Sad), "idle's face: no new sheet");
+        assert_eq!((a.mood(), a.face(), a.frame()), (Mood::Sad, Mood::Idle, 1));
+        assert!(a.set_mood(Mood::Ready));
+        assert_eq!(
+            (a.mood(), a.face(), a.frame()),
+            (Mood::Ready, Mood::Ready, 0)
+        );
+        let _ = std::fs::remove_dir_all(&data);
+    }
+
+    /// The timer: started at the face's fps while it should run, stopped
+    /// when it should not, and started again when a mood switch brings a
+    /// face whose atlas has another fps - not when the fps is the same.
+    #[test]
+    fn the_timer_starts_again_when_the_fps_changes() {
+        let (a15, a10) = (
+            Duration::from_secs_f64(1.0 / 15.0),
+            Duration::from_secs_f64(1.0 / 10.0),
+        );
+        assert_eq!(tick(None, Some(a15)), Tick::Start(a15));
+        assert_eq!(tick(Some(a15), Some(a15)), Tick::Keep);
+        assert_eq!(tick(Some(a15), Some(a10)), Tick::Start(a10));
+        assert_eq!(tick(Some(a15), None), Tick::Stop);
+        assert_eq!(tick(None, None), Tick::Keep);
+
+        let data = scratch("fps");
+        mini(&data, &[("idle", 15), ("ready", 10), ("pleased", 15)]);
+        let mut a = Anim::new(skin::load(&data, "mini").unwrap(), Mood::Idle);
+        let at = a.interval();
+        assert_eq!(at, a15);
+        assert!(a.set_mood(Mood::Pleased));
+        assert_eq!(tick(Some(at), Some(a.interval())), Tick::Keep, "15 to 15");
+        assert!(a.set_mood(Mood::Ready));
+        assert_eq!(tick(Some(at), Some(a.interval())), Tick::Start(a10));
         let _ = std::fs::remove_dir_all(&data);
     }
 
