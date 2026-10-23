@@ -28,6 +28,9 @@ data/skins/<id>/
 
 Mood ids are a closed set the engine knows: `idle ready pleased sad smug
 angry scared`. A pack may ship any subset; `idle` and `ready` are required.
+A mood id outside the set, anywhere in `skin.json` or `moodmap.json`, is
+skipped - that mood, fallback, tray or phrase is left out - and the load
+logs one line for all of them, `skin <id>: unknown moods skipped: <ids>`.
 
 ### skin.json
 
@@ -50,8 +53,16 @@ angry scared`. A pack may ship any subset; `idle` and `ready` are required.
 }
 ```
 
-- `format`: the pack format version; the engine refuses a pack whose major
-  it does not know.
+- `format`: the pack format version, the major alone (`1`) or major and
+  minor as a string (`"1.2"`). The engine refuses a pack whose major it
+  does not know. A newer minor of its major loads, what that minor adds
+  skipped, with one log line,
+  `skin <id>: format 1.2 is newer than 1.0; what it adds is skipped`.
+- Required: `format`, `id`, `name`, `voice`, `mascot` (`w`, `h`, `scale`)
+  and `moods`. The rest may be left out: `anchor` is then `[w / 2, h]`,
+  `modes` `["killer"]`, `maxChars` 95, `fallback` none (every missing face
+  wears `ready`), `tray` none (frame 0 of `ready`), `version`, `author`,
+  `tags` and `colours` empty.
 - `voice`: the name the box header shows (`SKIPPY:` before a line, the
   hover card's name, the tray tooltip's lead).
 - `mascot.w`/`h`: display size in logical px; `scale`: atlas pixels per
@@ -78,12 +89,18 @@ angry scared`. A pack may ship any subset; `idle` and `ready` are required.
 { "frames": 24, "fps": 15, "w": 320, "h": 256, "cols": 6, "play": "loop" }
 ```
 
-`play` is `loop` or `pingpong`. The atlas is `cols` frames wide, rows as
-needed, row-major, no padding. `w`/`h` are FRAME pixels (one frame, not the
-sheet; the sheet is `cols * w` by `rows * h`); `w / scale` must equal
-`mascot.w`. One atlas is decoded at a time (the mood on show), so the
-budget is per atlas: at most 4096x4096 px, 8 MB on disk, and 8,388,608
-bytes decoded (sheet width x height x 4), at most 120 frames.
+`play` is `loop` or `pingpong` (`loop` when left out); `frames`, `fps`,
+`w`, `h` and `cols` are whole numbers above 0. The atlas is `cols` frames
+wide, `rows = ceil(frames / cols)` rows, row-major, no padding. `w`/`h` are
+FRAME pixels (one frame, not the sheet; the sheet is exactly `cols * w` by
+`rows * h`); `w / scale` must equal `mascot.w`. The last row may be short:
+`frames` below `cols * rows` leaves its tail cells blank, never shown -
+Skippy's 22 to 25 frames sit on a 5x5 grid, the default skin's 24 on 6 x 4.
+A mood switch starts the new atlas at frame 0 (and a `pingpong` going
+forward); a redraw within a mood keeps its frame. One atlas is decoded at
+a time (the mood on show), so the budget is per atlas: at most 4096x4096
+px, 8 MiB (8,388,608 bytes) on disk, and 8,388,608 bytes decoded (sheet
+width x height x 4), at most 120 frames.
 
 Frame cap: at 320x256 a 5x5 sheet is 8,192,000 bytes, so a loop holds at
 most 25 frames (24 to 25 is the target). A longer source is cut, never
@@ -100,13 +117,13 @@ nothing else; unknown keys are kept for the prototype and the writer.
 
 | Key | Shape (as lines.js) | Engine use |
 |---|---|---|
-| `events[]` | `n id name trig mood hold pri cd freq s{} extra[] killer[] pacifist[]` (`n` the event's number in the table, `trig` its trigger in words, `s` sample slot values for the writer's preview; the engine keys on `id`); `fail` adds `kinds[] again[] quoted[] streak[] recovery[]` | the event lines, keyed by `id`; `extra[].lb` the coalesced/re-nag pools; `fail.kinds[].key` the fail kinds with `cue readout t4 mood` |
+| `events[]` | `n id name trig mood hold pri cd freq s{} extra[] killer[] pacifist[]` (`n` the event's number in the table, `trig` its trigger in words, `s` sample slot values for the writer's preview, optional - an event with no slots, or none worth a preview, leaves it out; the engine keys on `id`, which every event must have); `fail` adds `kinds[] again[] quoted[] streak[] recovery[]` | the event lines, keyed by `id`; `extra[].lb` the coalesced/re-nag pools; `fail.kinds[].key` the fail kinds with `cue readout t4 mood` |
 | `talk[]` | `mode topic when text` | random small talk; `when` is `any`, `night` or `day` |
 | `talkMood` | `{topic: mood}` | the face of a small-talk topic |
 | `hum` | `tune[] announce{} repeat[] cut{}` | the wait song |
 | `pacifist` | `name moods{} enter{} refuse{} protest[] modeNoted` | the takeover register |
-| `status` | `mood opening opened denied deleted answer lock{} relocation brain{} usage{} queue{} reload{} console crash{}` | the status lines the overlay says for its own results |
-| `conversations` | `monologue silence setup habit askmode flip resume confirm`, each `nodes{}` of `say mood src opts[] beat then fx tone` and optionally `lock note silent`; `flip` is keyed by mode (`killer`, `pacifist`), each side a talk of its own | the talks; `habit.habits[]`, `habit.roast{moods killer pacifist tiers combos card streak blame deflect}` the roast engine's banks; `roast.moods` holds `t1 t2 t3 t4 pacifist combos card streak callbacks tally blame deflect` |
+| `status` | `mood opening opened denied deleted answer lock{} relocation brain{} usage{} queue{} reload{} console crash{}` | the status lines the overlay says for its own results; `status.mood` is their base mood (below) |
+| `conversations` | `monologue silence setup habit askmode flip resume confirm`, each `nodes{}` of `say mood src opts[] beat then fx tone` and optionally `lock note silent`; `flip` is keyed by mode (`killer`, `pacifist`), each side a talk of its own | the talks; `conversations.habit.habits[]` the habits, and `conversations.habit.roast{moods killer pacifist tiers combos card streak callbacks blame deflect}` the roast engine's banks; `conversations.habit.roast.moods` holds `t1 t2 t3 t4 pacifist combos card streak callbacks tally blame deflect` |
 
 Node extras: `lock: true` holds the node's mood against the phrase
 overrides (see moodmap); `note` is the writer's comment, never read;
@@ -115,10 +132,12 @@ overrides (see moodmap); `note` is the writer's comment, never read;
 Slots are `{name}` and are the engine's: `{project} {chat} {minutes} {hours}
 {percent} {provider} {window} {reset_time} {time} {count} {waiting}
 {n_working} {order} {since} {mode} {seconds} {send_time} {lead} {opener}
-{roast} {readout} {habit} {grade} {comment} {times} {pct} {rest} {n}
+{roast} {close} {readout} {habit} {grade} {comment} {times} {pct} {rest} {n}
 {attempt} {tool} {file} {prompt}`, the Brain status lines' `{where} {ms}`,
 plus the habit readouts' `{words} {cuts}
-{secs} {day} {lines} {chars} {first}`. A slot the engine cannot fill leaves
+{secs} {day} {lines} {chars} {first}`. `{roast}` and `{close}` are the habit
+talk's: the roast line said, then its sign-off, which the engine draws from
+`conversations.habit.closes`. A slot the engine cannot fill leaves
 the line out of the draw (it never prints a brace). A pack adds no slots.
 
 ### moodmap.json
@@ -148,7 +167,11 @@ the line out of the draw (it never prints a brace). A pack adds no slots.
 
 Resolution, as `moodFor(text, base, lock)`: a `mood` written on the bank,
 tier, kind, node or line in `lines.json` is the base and wins over
-`sections`; `sections` fills in where the bank says nothing; then the
+`sections`; `sections` fills in where the bank says nothing. So for the
+status lines `status.mood` in `lines.json` is the base, and
+`sections.status` only where `lines.json` has no `status.mood` (the
+prototype's `STL().mood||'ready'`); a status line that warns wears `sad`
+whatever either says. Then the
 `phrases` are tried in order and the first hit wins, except under a lock,
 where only `angry` breaks the deadpan. `match` entries are case-sensitive
 substrings; `regex` entries are Rust `regex` syntax, tested after `match`,
@@ -200,14 +223,30 @@ what the user just did and must not vanish.
   once per start or Refresh, in the self log (selflog.rs). The menu still
   lists the broken pack, greyed, with the reason as its tooltip.
 - Validation: `format` major is 1; `id` matches the folder name and
-  `[a-z0-9-]+`; `moods` includes `idle` and `ready`; each listed mood has
-  both `moods/<mood>.png` and `.json`; `fallback` targets are listed moods;
-  `w / scale == mascot.w`, `h / scale == mascot.h` (`w`/`h` are
-  frame pixels); atlas within the budget above, decoded size included;
-  `tray`, where present, names a listed mood and a crop inside the frame; `lines.json` parses and, where present, each event has an
-  `id`; `moodmap.json` names only known moods. `lines.json` missing is
-  valid (face only, default lines). A validation failure names the file
-  and the rule.
+  `[a-z0-9-]+`, and is not `default` (the built-in's); the required keys
+  are there; `moods` includes `idle` and `ready`, and both have a
+  `moods/<mood>.png` and `.json` that pass; `fallback` targets are listed
+  moods and `ready` has none; `w / scale == mascot.w`,
+  `h / scale == mascot.h` (`w`/`h` are frame pixels); the sheet is the
+  grid and within the budget above, decoded size included (read from the
+  PNG's header; the pixels are decoded when the mood comes on show);
+  `tray`, where present, names a listed mood, a frame it has and a crop
+  inside the frame; `moodmap.json`, where present, parses with the shapes
+  of section 1 (a phrase has a `mood`). A validation failure names the
+  file and the rule, and the pack does not load.
+- Short of a failure, each logged once per load as a line naming the file
+  and the rule: another listed mood whose atlas is missing or breaks a
+  rule is dropped and wears its fallback (`skin <id>: moods/smug.png:
+  missing; smug wears ready`); a `lines.json` that does not parse, is not
+  an object, or has an event with no `id` gives the default skin's lines
+  and voice name with the pack's faces (`skin <id>: lines.json: <rule>;
+  using the default lines`). Unknown mood ids and a newer format minor
+  are skipped as section 1 says. `lines.json` missing is valid and logs
+  nothing (face only, the default lines and voice name), and so is
+  `moodmap.json` missing (no sections, no phrases).
+- A folder in `data/skins/` with no `skin.json` is listed broken
+  (`skin.json: missing`); a folder whose name starts with `.` is not a
+  pack.
 
 ## 4. The built-in default skin
 
@@ -243,7 +282,12 @@ Four pieces, each pure where it can be and tested with vectors in
 1. **Loader** (`skin.rs`): scan, validate, parse the three JSON files,
    build a `Skin { manifest, bank, moodmap, atlases }`; `Skin::default()`
    from the compiled-in bytes. Returns `Result<Skin, SkinError>` with the
-   file and rule in the error.
+   file and rule in the error. Built at 0.11.3:
+   [skin::scan](../native/overlay/src/skin.rs) (the menu's list, broken
+   packs with their reason), [skin::load](../native/overlay/src/skin.rs),
+   [skin::load_or_default](../native/overlay/src/skin.rs) (logs the notes
+   and the fallback line), [Skin::face](../native/overlay/src/skin.rs) (the
+   fallback hop) and [Skin::atlas_for](../native/overlay/src/skin.rs).
 2. **Atlas animator**: decode the current mood's PNG only; drop the previous
    on switch. A Slint `Image` with `source-clip-x/y/width/height` stepped by
    a timer at `fps`; `loop` wraps, `pingpong` reverses. Frame index is kept
@@ -259,8 +303,9 @@ Four pieces, each pure where it can be and tested with vectors in
 Acceptance:
 
 - A folder with only `skin.json` and `moods/idle|ready` loads; every mood
-  requested shows `ready` or `idle`; no line is ever said; the self log is
-  clean.
+  requested shows `ready` or `idle`; the default lines are said in the
+  default voice name, as section 3 has it for a pack with no `lines.json`;
+  the self log is clean.
 - Remove one atlas of a loaded pack and Refresh: the fallback face plays,
   one log line, the mood on the hover card is still the true one.
 - Corrupt `lines.json`: default lines, default voice name, pack faces, one
@@ -270,8 +315,11 @@ Acceptance:
   reinstall comes back without a pick.
 - Vectors: `skin-manifest.json` (valid and each rule broken),
   `skin-moodfor.json` (text, base, lock, expected), `skin-pick.json`
-  (event, mode, bag state, slots, expected text and mood), run under
-  `tests/vectors/skin-*.ps1` as the overlay vectors are.
+  (event, mode, bag state, slots, expected text and mood), in
+  `native/vectors/`. No PowerShell loads a skin, so none makes them: they
+  are written by hand, as `launch.json` is (`NvHandMade` in
+  `tests/vectors/common.ps1`), and only `cargo test` in `native/overlay/`
+  runs them. Synthetic packs only, never Skippy's.
 - Memory: with Skippy on show, the overlay's working set grows by one
   decoded atlas (at most 8,388,608 bytes, 25 frames of 320x256) and not by seven.
 - The public repo builds and runs with no `data/skins/` folder at all.

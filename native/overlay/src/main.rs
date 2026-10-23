@@ -67,6 +67,7 @@ mod open;
 mod panel;
 mod scene;
 mod selflog;
+mod skin;
 mod snapshot;
 mod tooltip;
 mod tray;

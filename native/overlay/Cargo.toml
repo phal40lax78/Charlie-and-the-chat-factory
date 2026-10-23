@@ -8,7 +8,7 @@
 # release: build.rs refuses to build when they differ.
 [package]
 name = "chatq-overlay"
-version = "0.11.2"
+version = "0.11.3"
 edition = "2024"
 publish = false
 

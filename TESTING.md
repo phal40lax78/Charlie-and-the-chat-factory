@@ -133,7 +133,11 @@ have no answer for the other one yet. Twenty-two files are made this
 way, one generator each in `tests/vectors/`, the three `overlay-*` ones
 the panel's, held by `cargo test` in `native/overlay/`; `launch.json` is
 written by hand, and the `native watcher launch` section checks it case
-by case.
+by case. `skin-manifest.json` is written by hand too, since no
+PowerShell loads a skin: `cargo test` in `native/overlay/` alone runs it
+(see "The skin loader" below). Both are in
+[NvHandMade](tests/vectors/common.ps1), so the check knows no generator
+makes them.
 They were made on Windows 11 22631 under 5.1 and pwsh 7.6.6, and still
 pass under 7.6.7. Some answers come from that build's own tables (5.1's
 NLS collation, pwsh 7's ICU, the order of an environment block), so a
@@ -282,10 +286,13 @@ permit section takes the bridge's pwsh leg from a `pwsh` on the PATH alone.
   4 points of that machine's 31.6 GB at its peak, about 1.3 GB: start one
   under 90%.
 
-What it covers (at 0.11.2, 1975 checks in `run-tests.ps1` under 5.1
-and 1976 under pwsh 7, 491 in `extension-check.js`, 261, 138 and 39,
-211 in `cargo test`, 86 in `cargo test` of the overlay, and 152 in
-`cargo test` of the Brain; at 0.11.1, 1958 checks in `run-tests.ps1` under 5.1
+What it covers (at 0.11.3, 1975 checks in `run-tests.ps1` under 5.1,
+491 in `extension-check.js`, 261, 138 and 39, 211 in `cargo test`, and
+94 in `cargo test` of the overlay; at 0.11.2, 1975 checks in
+`run-tests.ps1` under 5.1 and 1976 under pwsh 7, 491 in
+`extension-check.js`, 261, 138 and 39, 211 in `cargo test`, 86 in
+`cargo test` of the overlay, and 152 in `cargo test` of the Brain;
+at 0.11.1, 1958 checks in `run-tests.ps1` under 5.1
 and 1959 under pwsh 7, 491 in `extension-check.js`, 261, 138 and 39,
 211 in `cargo test`, and 86 in `cargo test` of the overlay; at 0.11.0,
 1950 checks in `run-tests.ps1` under 5.1
@@ -3283,9 +3290,11 @@ What 0.11.2 adds, neither of it loaded by the overlay yet:
   llama-server, and a live Claude call, are untested: Tier 1, with the
   user's go-ahead (native/brain/README.md, "Run it for real").
 - **The default skin**, `skins/default/`, is made by
-  `python -I -X utf8 skins/tools/make_default.py` and checked by hand
-  against [docs/skin-pack.md](docs/skin-pack.md), section 3's validation
-  rules, until the overlay's loader and its `skin-*.json` vectors exist:
+  `python -I -X utf8 skins/tools/make_default.py`. At 0.11.2 it was
+  checked by hand against [docs/skin-pack.md](docs/skin-pack.md), section
+  3's validation rules; since 0.11.3 the loader holds it to all of them
+  but the slots, which the line picker will check ("The skin loader",
+  below):
   format 1, the id the folder's, `idle` and `ready` among seven known
   moods, each with its atlas and frame data, every fallback a listed
   mood, frame over scale the mascot's size, each atlas 1920x1024 -
@@ -3294,6 +3303,48 @@ What 0.11.2 adds, neither of it loaded by the overlay yet:
   the script run again into another folder gives the same 19 files byte
   for byte. Run 2026-10-23: all held. It found the Brain status lines'
   `{where}` and `{ms}` missing from the format's slot list, now added.
+
+### The skin loader (Tier 0)
+
+What 0.11.3 adds, still not called by the panel:
+[skin.rs](native/overlay/src/skin.rs), docs/skin-pack.md section 6's
+first piece, held by the overlay crate's `cargo test` (the command under
+"The overlay's crate", above), 8 of its 94 tests at 0.11.3:
+
+- [every_manifest_vector_loads_as_its_answer](native/overlay/src/skin.rs)
+  runs the 44 cases of `native/vectors/skin-manifest.json`: each a
+  synthetic pack - a base of `skin.json` and `idle` and `ready`, edited
+  per case - written beside the test exe and loaded, its answer the id,
+  name, voice, moods, the face each of the seven wears, whether the
+  default lines stand in, and the notes logged; or the error, file and
+  rule. Valid packs (minimal, all seven moods, `s` left off an event, 22
+  and 25 frames on a 5 x 5 grid, a tray inside the frame, format `"1.0"`),
+  each rule broken once (format, id, the `default` id, required keys,
+  `idle`/`ready`, fallback, `maxChars`, tray, frame data, the grid, 4096
+  px, the decoded and on-disk budgets, not a PNG, 121 frames, `play`,
+  `fps`, `moodmap.json`), and what is only skipped or dropped with one
+  note (a broken `lines.json` three ways, unknown moods across files,
+  format 1.3, a missing atlas, a broken frame file). Its sheets are blank
+  1-bit PNGs of the real sizes, a few hundred bytes each.
+- The rest name what they hold:
+  [the_builtin_is_whole_and_quiet](native/overlay/src/skin.rs) (the
+  compiled-in default: seven moods of 24 frames on 1920x1024, no note, its
+  own lines and voice),
+  [a_minimal_pack_loads](native/overlay/src/skin.rs),
+  [corrupt_lines_give_the_default_lines_and_one_note](native/overlay/src/skin.rs),
+  [a_pack_with_frames_below_its_grid_loads](native/overlay/src/skin.rs)
+  (the last frame's clip on the short row),
+  [no_skins_folder_is_the_default_alone](native/overlay/src/skin.rs),
+  [scan_lists_broken_packs_with_their_reason](native/overlay/src/skin.rs)
+  (sorted after Default, a dot folder passed over, an id with a path in
+  it refused) and
+  [status_lines_fall_back_line_by_line](native/overlay/src/skin.rs).
+- No test reads a real pack: the repo holds only the default skin and
+  synthetic ones. The rules were checked against the prototype's loader
+  (`design/skippy/proto/index.html`, kept local) and, by shape alone, the
+  private Skippy pack's files on this PC, which pass them all (5 x 5
+  sheets of 22 to 25 frames, 1600x1280, every event with an id, only
+  known moods).
 
 ### The overlay in Slint, the M9 spike (S58)
 

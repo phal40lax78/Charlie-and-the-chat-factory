@@ -23,3 +23,5 @@ design/skippy/
 # local Python virtual environments - machine-specific and rebuildable
 .venv/
 venv/
+# Python's bytecode cache (skins/tools/make_default.py leaves one)
+__pycache__/

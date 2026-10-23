@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.11.3 — The skin loader, not wired in yet
+
+The native overlay's first piece of skin packs. It can read and check a
+pack now, but shows none yet: nothing you run changes.
+
+- **Packs are found and checked.** The overlay's loader lists the packs
+  in `data/skins/`, checks each against `docs/skin-pack.md` and names the
+  file and the rule a broken one breaks, for the Skin menu to grey it
+  with that reason. A pack that is missing or broken gives the built-in
+  default, with one line in the panel's log saying why.
+- **The default skin is in the exe.** `skins/default/` is compiled into
+  `chatq-overlay.exe`, so the overlay needs no `data/skins/` folder at
+  all.
+- **Forgiving where it can be.** A mood whose atlas is missing or broken
+  wears its fallback face, a `lines.json` that does not read gives the
+  default lines, and an unknown mood name or a newer minor format version
+  is skipped - each said in one log line, the rest of the pack loaded.
+  Only `idle` and `ready` must be whole.
+- **The format, settled where the loader met it.** Which keys a manifest
+  needs; a sprite grid may leave its last row short (22 to 25 frames on
+  5 x 5); a mood switch starts at frame 0; `s` on an event is optional;
+  `{close}` is a slot; `status.mood` comes before `sections.status`; the
+  roast banks are under `conversations.habit.roast`.
+
 ## 0.11.2 — Skin packs and the Brain, not wired in yet
 
 Two parts for the native overlay, in the repo and tested on their own.

@@ -71,13 +71,19 @@ do differently:
 format and the default skin ([docs/skin-pack.md](docs/skin-pack.md),
 `skins/default/`) and the Brain (`native/brain/`) - but the overlay
 ([App](native/overlay/src/app.rs)) loads neither yet.
-- **Skins.** The four pieces of docs/skin-pack.md section 6: the loader
-  (`skin.rs`, scan and validate `data/skins/*/`, the default compiled in
-  with `include_bytes!`), the sprite animator (one decoded atlas at a
-  time), the mood switch (`moodNow`, `moodFor`, the fallback hop) and the
-  line picker; the Skin menu (Default first, the packs, Refresh, a broken
-  pack greyed with its reason) and `skin` in `overlay-state.json`. Its
-  acceptance list and `skin-*.json` vectors are in that section.
+- **Skins.** The four pieces of docs/skin-pack.md section 6. The loader
+  is built at 0.11.3 ([skin::scan](native/overlay/src/skin.rs),
+  [skin::load_or_default](native/overlay/src/skin.rs), the default
+  compiled in, `skin-manifest.json` its vectors) but nothing calls it.
+  Left: the sprite animator (one decoded atlas at a time; the loader
+  reads only a PNG's header, so a sheet that fails to decode is the
+  animator's to catch), the mood switch
+  (`moodNow`, `moodFor` - compiling the moodmap's regexes, which the
+  loader keeps as text - and the fallback hop the loader already has as
+  [Skin::face](native/overlay/src/skin.rs)) and the line picker; the
+  Skin menu (Default first, the packs, Refresh, a broken pack greyed
+  with its reason) and `skin` in `overlay-state.json`. Its acceptance
+  list and the other `skin-*.json` vectors are in that section.
 - **The Brain client.** native/brain/SPEC.md section 8: the brain as a
   member of `native/Cargo.toml`; Brain mode Off / Regex only / Gemini
   with its tag; a key field that writes `data/brain/gemini-key` whole and
@@ -98,9 +104,9 @@ format and the default skin ([docs/skin-pack.md](docs/skin-pack.md),
   Tier 1 run with the user's go-ahead - a real `/install` and
   llama-server on this PC, and live Claude calls on the 40 tails, its
   prices checked against Anthropic's page.
-- **Closing it.** The overlay session builds both; the default skin's
-  checks in TESTING.md ("The Brain and the default skin") become its
-  loader's vectors.
+- **Closing it.** The overlay session builds both. The default skin's
+  checks in TESTING.md ("The Brain and the default skin") are now the
+  loader's vectors and tests.
 
 ## The Brain's held tasks
 

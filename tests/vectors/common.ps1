@@ -54,8 +54,10 @@ $script:NvSaved = $null
 $script:NvClock = $null
 $script:NvZone = $null
 # native/vectors/ files no generator makes: the engine decision's table,
-# written by hand and read by both launchers (tests/sections/native.ps1)
-$script:NvHandMade = @('launch')
+# written by hand and read by both launchers (tests/sections/native.ps1),
+# and the skin loader's, written by hand since no PowerShell loads a skin
+# (native/overlay/src/skin.rs runs it)
+$script:NvHandMade = @('launch', 'skin-manifest')
 $script:NvInv = [System.Globalization.CultureInfo]::InvariantCulture
 
 function Register-NvVector {

@@ -1,0 +1,242 @@
+{
+  "about": "docs/skin-pack.md section 3: what the overlay's loader (native/overlay/src/skin.rs) makes of a pack folder - a valid pack, each rule broken, and what is skipped or dropped with one note. Written by hand: no PowerShell loads a skin, so no generator makes it (tests/vectors/common.ps1, NvHandMade); cargo test in native/overlay runs it. Synthetic packs only, never a real one. A case's pack is `base` with `edit` laid on its JSON files key by key (null drops a key), `alsoMoods` copies of ready's atlas, `files` whole, then `drop` removed, in skins/<folder>/ (folder mini unless given). A file {\"png\": [w, h]} is a blank sheet of that size, {\"bytes\": n} n zero bytes, {\"text\": t} t itself, anything else its JSON. The answer: ok, the id, name, voice said, moods with an atlas, the face each of the seven wears, whether the default lines stand in, and the notes logged; or ok false and the error.",
+  "base": {
+    "skin.json": {"format": 1, "id": "mini", "name": "Mini", "version": "0.1.0", "voice": "MINI", "mascot": {"w": 160, "h": 128, "scale": 2, "anchor": [80, 124]}, "moods": ["idle", "ready"], "fallback": {"sad": "idle", "smug": "ready"}, "maxChars": 80},
+    "moods/idle.json": {"frames": 24, "fps": 15, "w": 320, "h": 256, "cols": 6, "play": "loop"},
+    "moods/idle.png": {"png": [1920, 1024]},
+    "moods/ready.json": {"frames": 24, "fps": 15, "w": 320, "h": 256, "cols": 6, "play": "loop"},
+    "moods/ready.png": {"png": [1920, 1024]}
+  },
+  "cases": [
+    {
+      "name": "a minimal pack: skin.json, idle and ready",
+      "input": {},
+      "expect": {"ok": true, "id": "mini", "name": "Mini", "voice": "OVERLAY", "moods": ["idle", "ready"], "faces": {"idle": "idle", "ready": "ready", "pleased": "ready", "sad": "idle", "smug": "ready", "angry": "ready", "scared": "ready"}, "linesDefault": true, "notes": []}
+    },
+    {
+      "name": "seven moods, its own lines and moodmap",
+      "input": {
+        "edit": {"skin.json": {"moods": ["idle", "ready", "pleased", "sad", "smug", "angry", "scared"]}},
+        "alsoMoods": ["pleased", "sad", "smug", "angry", "scared"],
+        "files": {
+          "lines.json": {"events": [{"id": "done", "killer": ["Done."]}], "status": {"mood": "ready", "opened": "Open."}},
+          "moodmap.json": {"sections": {"events": "ready", "status": "ready"}, "locked": ["roast.t3"], "phrases": [{"mood": "angry", "match": ["Stop"], "regex": ["(?i)halt"]}]}
+        }
+      },
+      "expect": {"ok": true, "id": "mini", "name": "Mini", "voice": "MINI", "moods": ["idle", "ready", "pleased", "sad", "smug", "angry", "scared"], "faces": {"idle": "idle", "ready": "ready", "pleased": "pleased", "sad": "sad", "smug": "smug", "angry": "angry", "scared": "scared"}, "linesDefault": false, "notes": []}
+    },
+    {
+      "name": "s is optional on an event",
+      "input": {"files": {"lines.json": {"events": [{"id": "done", "s": {"minutes": 3}, "killer": ["{project} done."]}, {"id": "start", "killer": ["Go."]}]}}},
+      "expect": {"ok": true, "id": "mini", "name": "Mini", "voice": "MINI", "moods": ["idle", "ready"], "faces": {"idle": "idle", "ready": "ready", "pleased": "ready", "sad": "idle", "smug": "ready", "angry": "ready", "scared": "ready"}, "linesDefault": false, "notes": []}
+    },
+    {
+      "name": "22 frames on a 5 x 5 grid: the last row short",
+      "input": {"files": {"moods/ready.json": {"frames": 22, "fps": 12, "w": 320, "h": 256, "cols": 5, "play": "pingpong"}, "moods/ready.png": {"png": [1600, 1280]}}},
+      "expect": {"ok": true, "id": "mini", "name": "Mini", "voice": "OVERLAY", "moods": ["idle", "ready"], "faces": {"idle": "idle", "ready": "ready", "pleased": "ready", "sad": "idle", "smug": "ready", "angry": "ready", "scared": "ready"}, "linesDefault": true, "notes": []}
+    },
+    {
+      "name": "25 frames on a 5 x 5 grid: full",
+      "input": {"files": {"moods/idle.json": {"frames": 25, "fps": 15, "w": 320, "h": 256, "cols": 5}, "moods/idle.png": {"png": [1600, 1280]}}},
+      "expect": {"ok": true, "id": "mini", "name": "Mini", "voice": "OVERLAY", "moods": ["idle", "ready"], "faces": {"idle": "idle", "ready": "ready", "pleased": "ready", "sad": "idle", "smug": "ready", "angry": "ready", "scared": "ready"}, "linesDefault": true, "notes": []}
+    },
+    {
+      "name": "lines.json does not parse: the default lines, one note",
+      "input": {"files": {"lines.json": {"text": "{\"events\": ["}}},
+      "expect": {"ok": true, "id": "mini", "name": "Mini", "voice": "OVERLAY", "moods": ["idle", "ready"], "faces": {"idle": "idle", "ready": "ready", "pleased": "ready", "sad": "idle", "smug": "ready", "angry": "ready", "scared": "ready"}, "linesDefault": true, "notes": ["skin mini: lines.json: does not parse: EOF while parsing a list at line 1 column 12; using the default lines"]}
+    },
+    {
+      "name": "an event with no id: the default lines, one note",
+      "input": {"files": {"lines.json": {"events": [{"id": "done", "killer": ["Done."]}, {"killer": ["Go."]}]}}},
+      "expect": {"ok": true, "id": "mini", "name": "Mini", "voice": "OVERLAY", "moods": ["idle", "ready"], "faces": {"idle": "idle", "ready": "ready", "pleased": "ready", "sad": "idle", "smug": "ready", "angry": "ready", "scared": "ready"}, "linesDefault": true, "notes": ["skin mini: lines.json: events[1] has no id; using the default lines"]}
+    },
+    {
+      "name": "lines.json a list: the default lines, one note",
+      "input": {"files": {"lines.json": {"text": "[]"}}},
+      "expect": {"ok": true, "id": "mini", "name": "Mini", "voice": "OVERLAY", "moods": ["idle", "ready"], "faces": {"idle": "idle", "ready": "ready", "pleased": "ready", "sad": "idle", "smug": "ready", "angry": "ready", "scared": "ready"}, "linesDefault": true, "notes": ["skin mini: lines.json: is not a JSON object; using the default lines"]}
+    },
+    {
+      "name": "an unknown mood in moods is skipped with one note",
+      "input": {"edit": {"skin.json": {"moods": ["idle", "ready", "bored"]}}},
+      "expect": {"ok": true, "id": "mini", "name": "Mini", "voice": "OVERLAY", "moods": ["idle", "ready"], "faces": {"idle": "idle", "ready": "ready", "pleased": "ready", "sad": "idle", "smug": "ready", "angry": "ready", "scared": "ready"}, "linesDefault": true, "notes": ["skin mini: unknown moods skipped: bored"]}
+    },
+    {
+      "name": "unknown moods in skin.json and moodmap.json: one note for all",
+      "input": {
+        "edit": {"skin.json": {"moods": ["idle", "ready", "bored"], "fallback": {"sad": "idle", "sulky": "ready"}}},
+        "files": {"moodmap.json": {"sections": {"events": "grumpy", "status": "ready"}, "phrases": [{"mood": "bored", "match": ["Meh"]}, {"mood": "angry", "match": ["Stop"]}]}}
+      },
+      "expect": {"ok": true, "id": "mini", "name": "Mini", "voice": "OVERLAY", "moods": ["idle", "ready"], "faces": {"idle": "idle", "ready": "ready", "pleased": "ready", "sad": "idle", "smug": "ready", "angry": "ready", "scared": "ready"}, "linesDefault": true, "notes": ["skin mini: unknown moods skipped: bored, grumpy, sulky"]}
+    },
+    {
+      "name": "format 1.3, a newer minor: loads with one note",
+      "input": {"edit": {"skin.json": {"format": "1.3"}}},
+      "expect": {"ok": true, "id": "mini", "name": "Mini", "voice": "OVERLAY", "moods": ["idle", "ready"], "faces": {"idle": "idle", "ready": "ready", "pleased": "ready", "sad": "idle", "smug": "ready", "angry": "ready", "scared": "ready"}, "linesDefault": true, "notes": ["skin mini: format 1.3 is newer than 1.0; what it adds is skipped"]}
+    },
+    {
+      "name": "format 1.0 as a string",
+      "input": {"edit": {"skin.json": {"format": "1.0"}}},
+      "expect": {"ok": true, "id": "mini", "name": "Mini", "voice": "OVERLAY", "moods": ["idle", "ready"], "faces": {"idle": "idle", "ready": "ready", "pleased": "ready", "sad": "idle", "smug": "ready", "angry": "ready", "scared": "ready"}, "linesDefault": true, "notes": []}
+    },
+    {
+      "name": "a tray inside the frame",
+      "input": {"edit": {"skin.json": {"tray": {"mood": "idle", "frame": 23, "crop": [80, 60, 160, 160]}}}},
+      "expect": {"ok": true, "id": "mini", "name": "Mini", "voice": "OVERLAY", "moods": ["idle", "ready"], "faces": {"idle": "idle", "ready": "ready", "pleased": "ready", "sad": "idle", "smug": "ready", "angry": "ready", "scared": "ready"}, "linesDefault": true, "notes": []}
+    },
+    {
+      "name": "a missing atlas is dropped and wears its fallback",
+      "input": {"edit": {"skin.json": {"moods": ["idle", "ready", "sad", "smug"]}}, "alsoMoods": ["sad", "smug"], "drop": ["moods/smug.png"]},
+      "expect": {"ok": true, "id": "mini", "name": "Mini", "voice": "OVERLAY", "moods": ["idle", "ready", "sad"], "faces": {"idle": "idle", "ready": "ready", "pleased": "ready", "sad": "sad", "smug": "ready", "angry": "ready", "scared": "ready"}, "linesDefault": true, "notes": ["skin mini: moods/smug.png: missing; smug wears ready"]}
+    },
+    {
+      "name": "a broken frame file drops its mood",
+      "input": {"edit": {"skin.json": {"moods": ["idle", "ready", "sad"]}}, "alsoMoods": ["sad"], "files": {"moods/sad.json": {"text": "{"}}},
+      "expect": {"ok": true, "id": "mini", "name": "Mini", "voice": "OVERLAY", "moods": ["idle", "ready"], "faces": {"idle": "idle", "ready": "ready", "pleased": "ready", "sad": "idle", "smug": "ready", "angry": "ready", "scared": "ready"}, "linesDefault": true, "notes": ["skin mini: moods/sad.json: does not parse: EOF while parsing an object at line 1 column 1; sad wears idle"]}
+    },
+    {
+      "name": "format 2",
+      "input": {"edit": {"skin.json": {"format": 2}}},
+      "expect": {"ok": false, "error": "skin.json: format 2 is not 1"}
+    },
+    {
+      "name": "no format",
+      "input": {"edit": {"skin.json": {"format": null}}},
+      "expect": {"ok": false, "error": "skin.json: format must be 1 or \"1.<minor>\""}
+    },
+    {
+      "name": "an id not the folder's name",
+      "input": {"edit": {"skin.json": {"id": "other"}}},
+      "expect": {"ok": false, "error": "skin.json: id other is not the folder's name, mini"}
+    },
+    {
+      "name": "an id with an underscore",
+      "input": {"folder": "mini_x", "edit": {"skin.json": {"id": "mini_x"}}},
+      "expect": {"ok": false, "error": "skin.json: id must be [a-z0-9-]+"}
+    },
+    {
+      "name": "a pack that calls itself default",
+      "input": {"folder": "default", "edit": {"skin.json": {"id": "default"}}},
+      "expect": {"ok": false, "error": "skin.json: id default is the built-in skin's"}
+    },
+    {
+      "name": "no skin.json",
+      "input": {"drop": ["skin.json"]},
+      "expect": {"ok": false, "error": "skin.json: missing"}
+    },
+    {
+      "name": "skin.json does not parse",
+      "input": {"files": {"skin.json": {"text": "{"}}},
+      "expect": {"ok": false, "error": "skin.json: does not parse: EOF while parsing an object at line 1 column 1"}
+    },
+    {
+      "name": "no voice",
+      "input": {"edit": {"skin.json": {"voice": null}}},
+      "expect": {"ok": false, "error": "skin.json: voice must be a non-empty string"}
+    },
+    {
+      "name": "moods without ready",
+      "input": {"edit": {"skin.json": {"moods": ["idle"]}}},
+      "expect": {"ok": false, "error": "skin.json: moods must list idle and ready"}
+    },
+    {
+      "name": "mascot scale 0",
+      "input": {"edit": {"skin.json": {"mascot": {"w": 160, "h": 128, "scale": 0}}}},
+      "expect": {"ok": false, "error": "skin.json: mascot.scale must be a whole number above 0"}
+    },
+    {
+      "name": "ready falling back",
+      "input": {"edit": {"skin.json": {"fallback": {"ready": "idle"}}}},
+      "expect": {"ok": false, "error": "skin.json: fallback.ready: ready never falls back"}
+    },
+    {
+      "name": "a fallback to a mood not listed",
+      "input": {"edit": {"skin.json": {"fallback": {"sad": "smug"}}}},
+      "expect": {"ok": false, "error": "skin.json: fallback.sad: smug is not a listed mood"}
+    },
+    {
+      "name": "maxChars 0",
+      "input": {"edit": {"skin.json": {"maxChars": 0}}},
+      "expect": {"ok": false, "error": "skin.json: maxChars must be a whole number above 0"}
+    },
+    {
+      "name": "a tray crop past the frame",
+      "input": {"edit": {"skin.json": {"tray": {"mood": "ready", "frame": 0, "crop": [200, 100, 160, 160]}}}},
+      "expect": {"ok": false, "error": "skin.json: tray.crop must lie inside the 320x256 frame"}
+    },
+    {
+      "name": "a tray frame past the atlas",
+      "input": {"edit": {"skin.json": {"tray": {"mood": "ready", "frame": 24, "crop": [0, 0, 10, 10]}}}},
+      "expect": {"ok": false, "error": "skin.json: tray.frame: 24 is past ready's 24 frames"}
+    },
+    {
+      "name": "a tray on a mood not listed",
+      "input": {"edit": {"skin.json": {"tray": {"mood": "sad", "crop": [0, 0, 10, 10]}}}},
+      "expect": {"ok": false, "error": "skin.json: tray.mood: sad is not a listed mood"}
+    },
+    {
+      "name": "no ready.json",
+      "input": {"drop": ["moods/ready.json"]},
+      "expect": {"ok": false, "error": "moods/ready.json: missing"}
+    },
+    {
+      "name": "no idle.png",
+      "input": {"drop": ["moods/idle.png"]},
+      "expect": {"ok": false, "error": "moods/idle.png: missing"}
+    },
+    {
+      "name": "a frame width over scale not the mascot's",
+      "input": {"files": {"moods/ready.json": {"frames": 24, "fps": 15, "w": 300, "h": 256, "cols": 6}}},
+      "expect": {"ok": false, "error": "moods/ready.json: w / scale must be mascot.w: 300 / 2 is not 160"}
+    },
+    {
+      "name": "a sheet not its grid",
+      "input": {"files": {"moods/ready.png": {"png": [1600, 1024]}}},
+      "expect": {"ok": false, "error": "moods/ready.png: 1600x1024 is not 6 x 320 by 4 x 256 (1920x1024)"}
+    },
+    {
+      "name": "a sheet past the decoded budget",
+      "input": {"files": {"moods/ready.json": {"frames": 30, "fps": 15, "w": 320, "h": 256, "cols": 6}, "moods/ready.png": {"png": [1920, 1280]}}},
+      "expect": {"ok": false, "error": "moods/ready.png: 1920x1280 is 9830400 bytes decoded, over 8388608"}
+    },
+    {
+      "name": "a sheet wider than 4096",
+      "input": {"files": {"moods/ready.json": {"frames": 13, "fps": 15, "w": 320, "h": 256, "cols": 13}, "moods/ready.png": {"png": [4160, 256]}}},
+      "expect": {"ok": false, "error": "moods/ready.png: 4160x256, over 4096x4096"}
+    },
+    {
+      "name": "a PNG over 8 MiB on disk",
+      "input": {"files": {"moods/ready.png": {"bytes": 8388609}}},
+      "expect": {"ok": false, "error": "moods/ready.png: 8388609 bytes on disk, over 8388608"}
+    },
+    {
+      "name": "not a PNG",
+      "input": {"files": {"moods/ready.png": {"text": "GIF89a"}}},
+      "expect": {"ok": false, "error": "moods/ready.png: not a PNG"}
+    },
+    {
+      "name": "121 frames",
+      "input": {"files": {"moods/ready.json": {"frames": 121, "fps": 15, "w": 320, "h": 256, "cols": 6}}},
+      "expect": {"ok": false, "error": "moods/ready.json: 121 frames, over 120"}
+    },
+    {
+      "name": "play bounce",
+      "input": {"files": {"moods/ready.json": {"frames": 24, "fps": 15, "w": 320, "h": 256, "cols": 6, "play": "bounce"}}},
+      "expect": {"ok": false, "error": "moods/ready.json: play must be loop or pingpong"}
+    },
+    {
+      "name": "fps 0",
+      "input": {"files": {"moods/ready.json": {"frames": 24, "fps": 0, "w": 320, "h": 256, "cols": 6}}},
+      "expect": {"ok": false, "error": "moods/ready.json: fps must be a whole number above 0"}
+    },
+    {
+      "name": "moodmap.json does not parse",
+      "input": {"files": {"moodmap.json": {"text": "{\"sections\": "}}},
+      "expect": {"ok": false, "error": "moodmap.json: does not parse: EOF while parsing a value at line 1 column 13"}
+    },
+    {
+      "name": "a phrase with no mood",
+      "input": {"files": {"moodmap.json": {"phrases": [{"match": ["Stop"]}]}}},
+      "expect": {"ok": false, "error": "moodmap.json: phrases[0].mood must be a mood"}
+    }
+  ]
+}
