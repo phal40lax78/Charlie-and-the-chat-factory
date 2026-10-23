@@ -89,7 +89,7 @@ checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
 name = "chatq-core"
-version = "0.11.3"
+version = "0.11.4"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -104,7 +104,7 @@ dependencies = [
 
 [[package]]
 name = "chatqd"
-version = "0.11.3"
+version = "0.11.4"
 dependencies = [
  "chatq-core",
  "chrono",

@@ -286,10 +286,12 @@ permit section takes the bridge's pwsh leg from a `pwsh` on the PATH alone.
   4 points of that machine's 31.6 GB at its peak, about 1.3 GB: start one
   under 90%.
 
-What it covers (at 0.11.3, 1975 checks in `run-tests.ps1` under 5.1,
+What it covers (at 0.11.4, 1975 checks in `run-tests.ps1` under 5.1,
 491 in `extension-check.js`, 261, 138 and 39, 211 in `cargo test`, and
-94 in `cargo test` of the overlay; at 0.11.2, 1975 checks in
-`run-tests.ps1` under 5.1 and 1976 under pwsh 7, 491 in
+103 in `cargo test` of the overlay; at 0.11.3, 1975 checks in
+`run-tests.ps1` under 5.1, 491 in `extension-check.js`, 261, 138 and 39,
+211 in `cargo test`, and 94 in `cargo test` of the overlay; at 0.11.2,
+1975 checks in `run-tests.ps1` under 5.1 and 1976 under pwsh 7, 491 in
 `extension-check.js`, 261, 138 and 39, 211 in `cargo test`, 86 in
 `cargo test` of the overlay, and 152 in `cargo test` of the Brain;
 at 0.11.1, 1958 checks in `run-tests.ps1` under 5.1
@@ -2991,6 +2993,18 @@ live overlay, read-only.
      returns.
   5. **Choices kept.** `charlie -Panel ps`, then the update of step 3:
      the WPF panel stays. A Mac or Linux leg is Tier 2.
+- **The mascot animating, and what it costs (R1).** Needs the user's
+  go-ahead; not run at 0.11.4. On the live native panel (0.11.4 or
+  later), opened out: watch the mascot animate - the default skin's
+  `idle`, 24 frames at 15 fps - and that it stops while the panel is
+  folded, hidden or out of a full screen's way, and comes back on the
+  frame it left. Then measure chatq-overlay's processor at 15 fps on
+  Slint's software renderer, by cycles as "The overlay's own cost" says,
+  over a minute or more, opened out and then folded, and its private
+  bytes against S58's 6.8 MB soak figure plus the one decoded atlas
+  (7,864,320 bytes). The gate for going on with the mood switch. Slint's
+  timers stand still while the tray's menu is open, the mascot with
+  them: expected, not a failure.
 
 ### Permissions from the phone (S35)
 
@@ -3306,7 +3320,8 @@ What 0.11.2 adds, neither of it loaded by the overlay yet:
 
 ### The skin loader (Tier 0)
 
-What 0.11.3 adds, still not called by the panel:
+What 0.11.3 adds, called by the panel since 0.11.4 ("The mascot on the
+panel", below):
 [skin.rs](native/overlay/src/skin.rs), docs/skin-pack.md section 6's
 first piece, held by the overlay crate's `cargo test` (the command under
 "The overlay's crate", above), 8 of its 94 tests at 0.11.3:
@@ -3345,6 +3360,59 @@ first piece, held by the overlay crate's `cargo test` (the command under
   private Skippy pack's files on this PC, which pass them all (5 x 5
   sheets of 22 to 25 frames, 1600x1280, every event with an id, only
   known moods).
+
+### The mascot on the panel (Tier 0)
+
+What 0.11.4 adds: docs/skin-pack.md section 6's second piece, the atlas
+animator ([anim::Anim](native/overlay/src/anim.rs)), and the mascot as
+the panel's first stack item ([panel.build](native/overlay/src/panel.rs)),
+always the default skin's `idle` until the Skin menu and the mood switch
+come. Held by the overlay crate's `cargo test`, 9 of its 103 tests at
+0.11.4:
+
+- [a_loop_wraps_at_its_last_frame](native/overlay/src/anim.rs) and
+  [a_pingpong_turns_at_each_end_without_showing_it_twice](native/overlay/src/anim.rs)
+  pin [anim.frame_at](native/overlay/src/anim.rs): `loop` 0 .. n-1 then
+  0; `pingpong` 0 .. n-1 and back down to 1, 2(n-1) steps a round (22
+  frames: step 22 is frame 20, step 42 frame 0); one frame always 0.
+- [the_decoded_budget_holds_at_its_edge](native/overlay/src/anim.rs):
+  [anim.decode](native/overlay/src/anim.rs) takes a 2048x1024 sheet,
+  8,388,608 bytes decoded, the budget exactly, and refuses 2048x1025 and
+  2049x1024 by size before a pixel is made, and a sheet that is not the
+  grid its frame data gives.
+- [one_sheet_is_held_and_a_mood_switch_starts_at_frame_0](native/overlay/src/anim.rs):
+  the default skin's `idle` holds 7,864,320 bytes, one sheet; seven steps
+  on, the cell is frame 7's ([320, 256, 320, 256]) and a redraw keeps it;
+  the same mood again keeps the frame; `ready` starts at frame 0, still
+  one sheet, the old image let go.
+- [a_sheet_that_fails_to_decode_plays_the_default_atlas](native/overlay/src/anim.rs):
+  a synthetic pack whose `idle.png` is its signature and IHDR alone passes
+  the loader, which reads only the header; its decode fails and the
+  default skin's `idle` plays, in one line, `skin mini: moods/idle.png:
+  does not decode: ...; using default`; its `ready` decodes as its own.
+- [the_mascot_plays_with_no_skins_folder](native/overlay/src/anim.rs): a
+  data folder with no `skins/`: the default, no line, its `idle` decoded.
+- [the_mascot_heads_the_stack_and_folded_drops_it](native/overlay/src/panel.rs):
+  the image prim at (1, 26), 160 x 128, centred inside the frame's edges;
+  the rows 132 lower; a mascot wider than that room made smaller to it;
+  [panel.cap_floor](native/overlay/src/panel.rs), the least
+  [App.cap](native/overlay/src/app.rs) may be, a row, the frame and the
+  mascot, so the rows are cut under it to one; folded, no mascot.
+- [golden_panel_mascot](native/overlay/src/panel.rs) and
+  [golden_panel_mascot_light_capped](native/overlay/src/panel.rs), the
+  goldens `panel-mascot.png` and `panel-mascot-light-capped.png`: the
+  default skin's `idle` decoded as the panel decodes it, at frame 7, over
+  the dark panel and over the light one capped at 300. Made with
+  `CHATQ_GOLDENS=write` and looked at before keeping; the four panel
+  goldens before them are unchanged, drawn with no mascot.
+
+Not checked here: the timer itself
+([App.sync_mascot](native/overlay/src/app.rs), on only while the panel
+shows opened out and the atlas has more than one frame) and the frame
+stepped in place on the scene ([App.mascot_step](native/overlay/src/app.rs),
+[scene.set_clip](native/overlay/src/scene.rs)), which need the live
+panel; and what it costs. Both are the Tier 1 step "The mascot animating,
+and what it costs" under "Still to check by hand".
 
 ### The overlay in Slint, the M9 spike (S58)
 

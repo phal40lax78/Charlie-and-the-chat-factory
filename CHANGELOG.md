@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.11.4 — The mascot on the panel
+
+The native panel shows its mascot: the default skin's badge, animating
+at the head of the opened-out stack. The WPF panel is unchanged.
+
+- **One mood for now.** The mascot plays the default skin's `idle`, 24
+  frames at 15 fps, whatever the queue does; the moods, a pack of your
+  own and the Skin menu come later.
+- **Only while you can see it.** The animation's timer runs only while
+  the panel shows opened out; folded, hidden or out of a full screen's
+  way, it stops, and the mascot is not drawn folded. It also stands
+  still while the tray's menu is open.
+- **One sheet in memory.** The panel holds one decoded atlas at a time
+  (7.5 MiB for the default's), never more than 8 MiB; a larger sheet is
+  refused before it is decoded. A pack's sheet that does not decode
+  plays the default skin's instead, said in one line of the panel's log.
+- **Height.** The mascot takes 132 of the panel's height, so the least
+  the panel's height cap allows is now a row, the frame and the mascot.
+  With no `data/skins/` folder at all the mascot plays all the same.
+
 ## 0.11.3 — The skin loader, not wired in yet
 
 The native overlay's first piece of skin packs. It can read and check a

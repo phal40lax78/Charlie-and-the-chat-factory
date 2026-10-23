@@ -1340,10 +1340,7 @@ mod tests {
         );
         let s = load_or_default(&data, "gone");
         assert_eq!(s.id(), "default");
-        assert_eq!(
-            s.notes,
-            ["skin gone: skins/gone: not found; using default"]
-        );
+        assert_eq!(s.notes, ["skin gone: skins/gone: not found; using default"]);
         assert!(load_or_default(&data, "default").notes.is_empty());
         let _ = std::fs::remove_dir_all(&data);
     }

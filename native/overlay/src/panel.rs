@@ -1,8 +1,10 @@
 // The panel's face, as Update-ChatOverlayView draws it
 // (src/overlay-windows.ps1): its frame, then a stack of items placed as
-// WPF's StackPanel places them, margins and all - the usage gauges, the
-// header's markers, a rule, a tile a chat, the "+N more" line, Recent and
-// its lines, the foot's markers - cut from the end to fit the height cap
+// WPF's StackPanel places them, margins and all - the mascot (the native
+// panel's own, which the WPF one never had: a frame of the skin's atlas,
+// anim.rs), the usage gauges, the header's markers, a rule, a tile a chat,
+// the "+N more" line, Recent and its lines, the foot's markers - cut from
+// the end to fit the height cap
 // as Limit-ChatOverlayRows, Add-ChatOverlayRecent and Test-ChatOverlayFits
 // cut them. Folded: the compact line and its gauges, then the markers that
 // fit. Out: the prims, the size, and the items the chip and the card go by
@@ -49,6 +51,39 @@ pub const MARK_H: f64 = 20.0;
 pub const MARK_MARGIN: f64 = 2.0;
 const FAINT: Font = Font::new(11.0);
 const LETTER: Font = Font::new(9.0).bold();
+/// The clear under the mascot, before the gauges.
+const MASCOT_BOTTOM: f64 = 4.0;
+
+/// The mascot on show: the skin's display size in units (skin.json's
+/// mascot.w and h), its decoded atlas, and the frame's cell of it.
+#[derive(Clone, Debug)]
+pub struct Mascot {
+    pub w: f64,
+    pub h: f64,
+    pub img: slint::Image,
+    pub clip: [u32; 4],
+}
+
+/// The mascot's box: its own size, made smaller to fit inside the frame's
+/// edges where it is wider (the default skin's 160 is exactly that room).
+fn fit(m: &Mascot) -> (f64, f64) {
+    let room = width() - 2.0 * EDGE;
+    let k = if m.w > room { room / m.w } else { 1.0 };
+    (m.w * k, m.h * k)
+}
+
+/// The height the mascot adds to the stack, its clear under it included.
+pub fn mascot_tall(m: &Mascot) -> f64 {
+    fit(m).1 + MASCOT_BOTTOM
+}
+
+/// The least the height cap may be (App::cap): the frame and one row -
+/// the drawn row's height, 42 for none - and, opened out, the mascot over
+/// it, so the mascot never takes the last row's place.
+pub fn cap_floor(row_h: f64, mascot: Option<&Mascot>) -> f64 {
+    let row = if row_h > 0.0 { row_h } else { 42.0 };
+    row + CHROME + mascot.map_or(0.0, mascot_tall)
+}
 
 /// A tile's width: inset 8.5, its mark, its clock and its bin, and the
 /// card's gap at its right end.
@@ -101,6 +136,8 @@ pub struct Input<'a> {
     /// config.opacity, the window's
     pub opacity: f64,
     pub wall: Wall<'a>,
+    /// the mascot, at the stack's head opened out; never drawn folded
+    pub mascot: Option<&'a Mascot>,
 }
 
 /// A drawn row, as Get-ChatOverlayRowRects has it: its row - a chat, a
@@ -130,9 +167,13 @@ pub struct Built {
     pub row_h: f64,
     pub recent_h: f64,
     pub line: f64,
+    /// the mascot's image prim, its index in `prims`, for its frame to be
+    /// stepped in place (scene::set_clip)
+    pub mascot: Option<usize>,
 }
 
 enum What {
+    Mascot,
     Gauge {
         usage: Value,
         letter: String,
@@ -404,6 +445,15 @@ pub fn build(inp: &Input, m: &dyn Measure) -> Built {
         }
         return draw(inp, &st, line);
     }
+    // the mascot first, so the cut from the end never reaches it
+    if let Some(mm) = inp.mascot {
+        st.push(Block {
+            what: What::Mascot,
+            top: 0.0,
+            h: fit(mm).1,
+            bottom: MASCOT_BOTTOM,
+        });
+    }
     for u in &usage {
         st.push(gauge(u, letters, m));
     }
@@ -505,12 +555,20 @@ fn draw(inp: &Input, st: &Stack, line: f64) -> Built {
     }
     let mut items = Vec::new();
     let (mut rows, mut recent, mut recent_sum) = (0, 0, 0.0);
+    let mut mascot = None;
     let mut y = TOP;
     for b in &st.blocks {
         let top = (y + b.top).round();
         y += b.tall();
         let at = [X0, top, content_width(), b.h];
         match &b.what {
+            What::Mascot => {
+                if let Some(m) = inp.mascot {
+                    let (mw, mh) = fit(m);
+                    mascot = Some(d.prims.len());
+                    d.add(scene::image((w - mw) / 2.0, top, mw, mh, &m.img, m.clip));
+                }
+            }
             What::Gauge { usage, letter, lh } => {
                 draw_gauge(&mut d, look, usage, letter, *lh, top, b.h);
                 items.push(Item {
@@ -640,6 +698,7 @@ fn draw(inp: &Input, st: &Stack, line: f64) -> Built {
             line + 6.0
         },
         line,
+        mascot,
     }
 }
 
@@ -902,6 +961,18 @@ mod tests {
             now_ms: NOW,
             opacity: 1.0,
             wall,
+            mascot: None,
+        }
+    }
+
+    /// A mascot of `w` x `h` units on a blank image: its place, not its
+    /// pixels.
+    fn sized(w: f64, h: f64) -> Mascot {
+        Mascot {
+            w,
+            h,
+            img: slint::Image::default(),
+            clip: [320, 0, 320, 256],
         }
     }
 
@@ -1058,6 +1129,50 @@ mod tests {
         assert_eq!(b.height, 10.0, "the window is cut at its cap");
     }
 
+    /// The mascot heads the stack opened out, centred inside the frame's
+    /// edges, the rows 132 lower for its 128 and its clear; one wider than
+    /// that room is made smaller to it. Folded, it is not drawn. The cap
+    /// keeps it and a row (cap_floor), and the rows are cut under it.
+    #[test]
+    fn the_mascot_heads_the_stack_and_folded_drops_it() {
+        let s = snap(vec![
+            chat("a", "busy", "vscode"),
+            chat("b", "idle", "window"),
+        ]);
+        let wall = |ms| utc(ms);
+        let m = sized(160.0, 128.0);
+        let mut inp = input(&s, &wall);
+        inp.mascot = Some(&m);
+        let b = build(&inp, &Fixed);
+        let i = b.mascot.unwrap();
+        let p = &b.prims[i];
+        assert_eq!(p.kind, 4);
+        assert_eq!((p.x, p.y, p.w, p.h), (1.0, 26.0, 160.0, 128.0));
+        assert_eq!((p.clip_x, p.clip_y, p.clip_w, p.clip_h), (320, 0, 320, 256));
+        assert_eq!(b.items[0].rect[1], 29.0 + 132.0);
+        assert_eq!(b.height, 132.0 + 2.0 * 42.0 + 36.0);
+        assert_eq!(mascot_tall(&m), 132.0);
+        // twice as wide: half its size, to the 160 there is
+        let big = sized(320.0, 256.0);
+        inp.mascot = Some(&big);
+        let b = build(&inp, &Fixed);
+        let p = &b.prims[b.mascot.unwrap()];
+        assert_eq!((p.x, p.w, p.h), (1.0, 160.0, 128.0));
+        // the floor: a row, the frame and the mascot; a row cut under it
+        inp.mascot = Some(&m);
+        assert_eq!(cap_floor(42.0, Some(&m)), 42.0 + 36.0 + 132.0);
+        assert_eq!(cap_floor(0.0, None), 42.0 + 36.0);
+        inp.cap = Some(cap_floor(42.0, Some(&m)) + 24.0);
+        let b = build(&inp, &Fixed);
+        assert_eq!((b.rows, keys(&b)), (1, vec!["a".to_string()]));
+        assert!(b.mascot.is_some());
+        inp.cap = None;
+        inp.collapsed = true;
+        let b = build(&inp, &Fixed);
+        assert!(b.mascot.is_none());
+        assert!(b.prims.iter().all(|p| p.kind != 4));
+    }
+
     #[test]
     fn no_rows_says_so_and_a_said_line_comes_at_the_foot() {
         let none = snap(vec![]);
@@ -1123,11 +1238,22 @@ mod tests {
             text: "opening".into(),
             about: "a".into(),
         };
+        // the default skin's idle, decoded as the panel decodes it, stepped
+        // to its eighth frame (the second row's second cell)
+        let mascot = name.contains("mascot").then(|| {
+            let mut a =
+                crate::anim::Anim::new(crate::skin::Skin::default(), crate::skin::Mood::Idle);
+            for _ in 0..7 {
+                a.advance();
+            }
+            a.mascot()
+        });
         let mut inp = input(&s, &wall);
         set(&mut inp);
         if name.contains("said") {
             inp.said = Some(&said);
         }
+        inp.mascot = mascot.as_ref();
         let b = build(&inp, &m);
         let (w, h) = (b.width as u32, b.height as u32);
         scene::show(&scene_, b.prims);
@@ -1156,5 +1282,18 @@ mod tests {
     #[test]
     fn golden_panel_capped() {
         golden("panel-capped", |i| i.cap = Some(300.0));
+    }
+
+    #[test]
+    fn golden_panel_mascot() {
+        golden("panel-mascot", |_| {});
+    }
+
+    #[test]
+    fn golden_panel_mascot_light_capped() {
+        golden("panel-mascot-light-capped", |i| {
+            i.look = look("light");
+            i.cap = Some(300.0);
+        });
     }
 }

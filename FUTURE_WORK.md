@@ -70,20 +70,29 @@ do differently:
 **Why it waits:** 0.11.2 landed both parts on their own - the pack
 format and the default skin ([docs/skin-pack.md](docs/skin-pack.md),
 `skins/default/`) and the Brain (`native/brain/`) - but the overlay
-([App](native/overlay/src/app.rs)) loads neither yet.
+([App](native/overlay/src/app.rs)) loads no Brain yet, and of skins only
+the default's `idle`.
 - **Skins.** The four pieces of docs/skin-pack.md section 6. The loader
   is built at 0.11.3 ([skin::scan](native/overlay/src/skin.rs),
   [skin::load_or_default](native/overlay/src/skin.rs), the default
-  compiled in, `skin-manifest.json` its vectors) but nothing calls it.
-  Left: the sprite animator (one decoded atlas at a time; the loader
-  reads only a PNG's header, so a sheet that fails to decode is the
-  animator's to catch), the mood switch
+  compiled in, `skin-manifest.json` its vectors). The animator is built
+  at 0.11.4 ([anim::Anim](native/overlay/src/anim.rs), one decoded
+  atlas at a time, a sheet that fails to decode playing the default's;
+  the timer in [App.sync_mascot](native/overlay/src/app.rs)) and the
+  panel shows the mascot, always `idle`, always the default skin: nothing
+  reads `skin` from `overlay-state.json` yet. Left: the mood switch
   (`moodNow`, `moodFor` - compiling the moodmap's regexes, which the
   loader keeps as text - and the fallback hop the loader already has as
-  [Skin::face](native/overlay/src/skin.rs)) and the line picker; the
-  Skin menu (Default first, the packs, Refresh, a broken pack greyed
-  with its reason) and `skin` in `overlay-state.json`. Its acceptance
-  list and the other `skin-*.json` vectors are in that section.
+  [Skin::face](native/overlay/src/skin.rs); a new mood's fps must restart
+  the timer, which keeps the interval it started with) and the line
+  picker; the Skin menu (Default first, the packs, Refresh, a broken pack
+  greyed with its reason) and `skin` in `overlay-state.json`; the
+  manifest's `anchor`, unused (the mascot is centred at the stack's
+  head). The Tier 1 cost check, "The mascot animating, and what it costs"
+  in TESTING.md, is the gate before the mood switch. Its acceptance list
+  and the other `skin-*.json` vectors are in that section. Accepted, not
+  left: Slint's timers, the mascot's with them, stand still while the
+  tray's menu is open.
 - **The Brain client.** native/brain/SPEC.md section 8: the brain as a
   member of `native/Cargo.toml`; Brain mode Off / Regex only / Gemini
   with its tag; a key field that writes `data/brain/gemini-key` whole and

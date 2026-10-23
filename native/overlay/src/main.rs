@@ -52,6 +52,7 @@
 // still reaches the log (selflog::start's hook).
 #![windows_subsystem = "windows"]
 
+mod anim;
 mod app;
 mod art;
 mod card;

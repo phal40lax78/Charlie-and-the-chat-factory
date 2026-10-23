@@ -291,7 +291,14 @@ Four pieces, each pure where it can be and tested with vectors in
 2. **Atlas animator**: decode the current mood's PNG only; drop the previous
    on switch. A Slint `Image` with `source-clip-x/y/width/height` stepped by
    a timer at `fps`; `loop` wraps, `pingpong` reverses. Frame index is kept
-   across a redraw, reset on a mood switch.
+   across a redraw, reset on a mood switch. Built at 0.11.4:
+   [anim::Anim](../native/overlay/src/anim.rs) (one decoded sheet, at most
+   8,388,608 bytes, checked by [anim::decode](../native/overlay/src/anim.rs)
+   before it decodes; a sheet that fails plays the default skin's),
+   [anim::frame_at](../native/overlay/src/anim.rs), and the timer in
+   [App.sync_mascot](../native/overlay/src/app.rs), on only while the
+   panel shows opened out. The panel plays the default's `idle` until the
+   mood switch and the Skin menu come.
 3. **Mood switch**: `moodNow` as the prototype orders it, then `moodFor`
    with the pack's moodmap, then the fallback hop for a missing face. The
    true mood stays the true one (hover card, header); the face is what

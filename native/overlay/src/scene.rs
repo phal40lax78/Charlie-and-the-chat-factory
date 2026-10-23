@@ -1,6 +1,7 @@
 // What every window of the panel draws: one Slint component, Scene, drawing
-// a list of prims - rectangles, text, paths and the places that take the
-// pointer - each where Rust laid it out, in logical pixels. One list keeps
+// a list of prims - rectangles, text, paths, the places that take the
+// pointer and a cell of an image (the mascot's frame of its atlas, anim.rs)
+// - each where Rust laid it out, in logical pixels. One list keeps
 // the WPF overlay's order, later on top. Its texts are measured by Slint
 // itself (Measure), wrapped and cut with an ellipsis by Slint too.
 
@@ -14,7 +15,8 @@ use crate::art::{self, Shape};
 
 slint::slint! {
     export struct Prim {
-        // 0 a rectangle, 1 text, 2 a path, 3 a place that takes the pointer
+        // 0 a rectangle, 1 text, 2 a path, 3 a place that takes the
+        // pointer, 4 an image's cell
         kind: int,
         x: length,
         y: length,
@@ -45,6 +47,12 @@ slint::slint! {
         cap: int,
         // 0 miter, 1 round
         join: int,
+        // the image, and the cell of it drawn to the box, its pixels
+        img: image,
+        clip-x: int,
+        clip-y: int,
+        clip-w: int,
+        clip-h: int,
     }
 
     export component Scene inherits Window {
@@ -117,6 +125,18 @@ slint::slint! {
                 fit: preserve;
                 stroke-line-cap: p.cap == 1 ? LineCap.round : LineCap.butt;
                 stroke-line-join: p.join == 1 ? LineJoin.round : LineJoin.miter;
+            }
+            if p.kind == 4: Image {
+                x: 0;
+                y: 0;
+                width: parent.width;
+                height: parent.height;
+                source: p.img;
+                source-clip-x: p.clip-x;
+                source-clip-y: p.clip-y;
+                source-clip-width: p.clip-w;
+                source-clip-height: p.clip-h;
+                image-fit: fill;
             }
             if p.kind == 3: ta := TouchArea {
                 x: 0;
@@ -264,6 +284,40 @@ pub fn path(
         join: i32::from(round_join),
         ..blank()
     })
+}
+
+/// The cell `clip` ([x, y, w, h], the image's pixels) of `img`, drawn to
+/// fill the box at (x, y), `w` x `h`.
+pub fn image(x: f64, y: f64, w: f64, h: f64, img: &slint::Image, clip: [u32; 4]) -> Prim {
+    let [cx, cy, cw, ch] = clip.map(|v| i32::try_from(v).unwrap_or(i32::MAX));
+    Prim {
+        kind: 4,
+        x: x as f32,
+        y: y as f32,
+        w: w as f32,
+        h: h as f32,
+        img: img.clone(),
+        clip_x: cx,
+        clip_y: cy,
+        clip_w: cw,
+        clip_h: ch,
+        ..blank()
+    }
+}
+
+/// The image prim at `i` of the scene's list moved to the cell `clip`, the
+/// rest of the list left alone: the mascot's frame stepped between redraws.
+pub fn set_clip(scene: &Scene, i: usize, clip: [u32; 4]) {
+    let model = scene.get_prims();
+    let Some(mut p) = model.row_data(i).filter(|p| p.kind == 4) else {
+        return;
+    };
+    let [cx, cy, cw, ch] = clip.map(|v| i32::try_from(v).unwrap_or(i32::MAX));
+    if (p.clip_x, p.clip_y, p.clip_w, p.clip_h) == (cx, cy, cw, ch) {
+        return;
+    }
+    (p.clip_x, p.clip_y, p.clip_w, p.clip_h) = (cx, cy, cw, ch);
+    model.set_row_data(i, p);
 }
 
 pub const ARROW: i32 = 0;

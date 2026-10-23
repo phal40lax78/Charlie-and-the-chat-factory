@@ -50,7 +50,7 @@ use crate::look::Look;
 use crate::model::{self, Rect, eq, get, n, s};
 use crate::scene::{self, Measurer, Prim, Scene};
 use crate::snapshot::Event;
-use crate::{card, chip, clock, look, panel, selflog, tooltip, trayicon, ui, win32};
+use crate::{anim, card, chip, clock, look, panel, selflog, skin, tooltip, trayicon, ui, win32};
 
 const PANEL: usize = 0;
 const EDGES: usize = 1;
@@ -316,6 +316,12 @@ pub(crate) struct App {
     tick_timer: slint::Timer,
     hover_timer: slint::Timer,
     frame_timer: slint::Timer,
+    /// the mascot: the default skin's idle until the Skin menu and the
+    /// mood switch come (FUTURE_WORK.md, "Skin packs and the Brain")
+    anim: anim::Anim,
+    /// the mascot's frames, at its atlas's fps, only while it shows
+    /// (App::sync_mascot)
+    mascot_timer: slint::Timer,
 }
 
 /// The panel's run: its five windows made, then the loop until the host
@@ -396,6 +402,10 @@ impl App {
         let m = Measurer::new(&scenes[PANEL]);
         let st = read_place(&read_json(&data.join("overlay-state.json")));
         let now = Instant::now();
+        let anim = anim::Anim::new(
+            skin::load_or_default(&data, skin::DEFAULT),
+            skin::Mood::Idle,
+        );
         App {
             since,
             t0: now,
@@ -473,6 +483,8 @@ impl App {
             tick_timer: slint::Timer::default(),
             hover_timer: slint::Timer::default(),
             frame_timer: slint::Timer::default(),
+            anim,
+            mascot_timer: slint::Timer::default(),
             data,
         }
     }
@@ -1161,6 +1173,40 @@ impl App {
             }
             selflog::line("ui: hidden");
         }
+        self.sync_mascot();
+    }
+
+    /// The mascot as the panel draws it: none folded.
+    fn mascot(&self) -> Option<panel::Mascot> {
+        (!self.st.collapsed).then(|| self.anim.mascot())
+    }
+
+    /// The mascot's timer on while the panel shows opened out and its
+    /// atlas has frames to step, off otherwise - hidden, folded, out of a
+    /// full screen's way. Slint's timers stand still while the tray's menu
+    /// is open, and the mascot with them.
+    fn sync_mascot(&mut self) {
+        let want = self.shown && !self.st.collapsed && self.anim.animates();
+        if want == self.mascot_timer.running() {
+            return;
+        }
+        if want {
+            self.mascot_timer
+                .start(TimerMode::Repeated, self.anim.interval(), || {
+                    with_app(|a| a.mascot_step())
+                });
+        } else {
+            self.mascot_timer.stop();
+        }
+    }
+
+    /// A frame on: the mascot's prim moved to its cell in place, nothing
+    /// else drawn or measured again.
+    fn mascot_step(&mut self) {
+        self.anim.advance();
+        if let Some(i) = self.built.as_ref().and_then(|b| b.mascot) {
+            scene::set_clip(&self.scenes[PANEL], i, self.anim.clip());
+        }
     }
 
     fn set_visible(&mut self, i: usize, on: bool) {
@@ -1237,11 +1283,12 @@ impl App {
 
     /// The panel's height cap in units (Update-ChatOverlayMaxHeight): to
     /// the work area's foot, or during a top edge's drag up from its held
-    /// foot to the area's top.
+    /// foot to the area's top - never under a row and the mascot
+    /// (panel::cap_floor).
     fn cap(&self) -> f64 {
         let px = self.px();
         let row = self.built.as_ref().map_or(0.0, |b| b.row_h);
-        let floor = if row > 0.0 { row } else { 42.0 } + panel::CHROME;
+        let floor = panel::cap_floor(row, self.mascot().as_ref());
         let area = rect_of(self.work);
         if let Some(pointer::Drag::Size(z)) = &self.drag
             && z.top
@@ -1260,6 +1307,7 @@ impl App {
         }
         let said = self.said.as_ref().map(|x| &x.said);
         let hotkey = self.hotkey_words();
+        let mascot = self.mascot();
         let inp = panel::Input {
             snap: &self.snap,
             look: self.look(),
@@ -1273,12 +1321,14 @@ impl App {
             now_ms: ui::epoch_ms(),
             opacity: self.opacity(),
             wall: &clock::local_wall,
+            mascot: mascot.as_ref(),
         };
         let mut b = panel::build(&inp, &self.m);
         let prims = std::mem::take(&mut b.prims);
         self.size_units(PANEL, b.width, b.height);
         scene::show(&self.scenes[PANEL], prims);
         self.built = Some(b);
+        self.sync_mascot();
         // the tray's dot in the state's colour, its tooltip the usage
         // (Set-ChatOverlayTrayColor): sent only when either changed
         let look = self.look();
